@@ -44,7 +44,7 @@ jobs:
       - run: ${{ matrix.job }}
 
   test:
-    name: Test ${{ matrix.os }}
+    name: Test ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
