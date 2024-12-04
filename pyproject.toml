@@ -1,0 +1,145 @@
+[project]
+name = "lattice"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Daniil Kharkov", email = "fadeddexofan@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+aionject = [
+    "aioinject>=0.35.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+  "pip-audit>=2.7.3",
+  "python-semantic-release>=9.14.0",
+  "rich>=13.9.4",
+  "setuptools>=75.6.0",
+]
+lint = [
+  "deptry>=0.21.1",
+  "ruff>=0.8.1",
+]
+test = [
+  "pytest-archon>=0.0.6",
+  "pytest-clarity>=1.0.1",
+  "pytest-cov>=6.0.0",
+  "pytest-env>=1.1.5",
+  "pytest-mock>=3.14.0",
+  "pytest-randomly>=3.16.0",
+  "pytest>=8.3.4",
+]
+typecheck = [
+  "mypy>=1.13.0",
+  "types-setuptools>=75.6.0.20241126"
+]
+
+# ----- UV settings -----
+[tool.uv]
+default-groups = ["dev", "lint", "test", "typecheck"]
+native-tls = true
+
+
+# ----- Pytest settings -----
+[tool.pytest.ini_options]
+testpaths = ["tests/"]
+python_files = ["tests/*.py"]
+xfail_strict = true
+norecursedirs = ".* __pycache__"
+disable_test_id_escaping_and_forfeit_all_rights_to_community_support = true
+addopts = [
+  "--strict-markers",
+  "--strict-config",
+#  "--cov-fail-under=90",
+]
+
+
+# ----- Ruff settings -----
+[tool.ruff]
+unsafe-fixes = true
+show-fixes = true
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+preview = true
+extend-select = ["ALL"]
+ignore = [
+  "A005", # Module is shadowing a Python builtin module
+  "ANN401", # Dynamically typed expressions (typing.Any) are disallowed
+  "COM812", # Trailing comma missing. Conflicts with ruff format
+  "CPY", # flake8-copyright
+  "D1", # All 1xx pydocstyle codes
+  "D203", # 1 blank line required before class docstring
+  "D213", # Multi-line docstring summary should start at the second line
+  "DOC201", # `return` is not documented in docstring
+  "E501", # Never enforce line length
+  "ISC001", # Implicitly concatenated string literals on one line. Conflicts with ruff format
+  "RET504", # Unnecessary variable assignment before `return` statement
+  "RUF001", # ruff unicode specific rules
+  "RUF002", # ruff unicode specific rules
+  "RUF003", # ruff unicode specific rules
+  "TC003",
+  "TC006", # Add quotes to type expression in `typing.cast()`
+  "TRY003", # Duplicates EM101 warning
+]
+unfixable = [
+  "B", # Avoid trying to fix flake8-bugbear violations.
+  "ERA", # Avoid deleting commented-out code
+]
+
+flake8-quotes = { inline-quotes = "single", multiline-quotes = "double" }
+mccabe = { max-complexity = 10 }
+pydocstyle = { convention = "google" }
+pylint = { max-args = 7 }
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+  "FBT001", # Boolean-typed positional argument in function definition
+  "PLR2004", # Magic value comparison
+  "S101", # Usage of assert
+  "S311", # Usage of non-cryptographic random
+  "TRY002", # Raise Exception or BaseException directly
+]
+
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.isort]
+force-wrap-aliases = true
+combine-as-imports = true
+
+[tool.ruff.format]
+preview = true
+quote-style = "single"
+docstring-code-format = true
+
+
+# ----- Mypy settings -----
+[tool.mypy]
+# Mypy configuration:
+# https://mypy.readthedocs.io/en/latest/config_file.html
+follow_imports = "normal"
+allow_redefinition = false
+# Any is 'ok' as long as it is a wildcard
+disallow_any_explicit = false
+ignore_errors = false
+ignore_missing_imports = false
+implicit_reexport = false
+local_partial_types = true
+strict = true
+strict_optional = true
+show_error_codes = true
+no_implicit_optional = true
+warn_unreachable = true
+warn_no_return = true
