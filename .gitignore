@@ -5,10 +5,6 @@
 # Git
 .git
 
-# Docker
-compose.override.yaml
-.volumes/
-
 # Environment
 .env
 .venv/

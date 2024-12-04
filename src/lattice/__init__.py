@@ -1,2 +1,2 @@
 def hello() -> str:
-    return "Hello from lattice!"
+    return 'Hello from lattice!'

@@ -1,97 +1,67 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
-from contextlib import AsyncExitStack, nullcontext
-from functools import cached_property
-from itertools import chain
+from collections.abc import Sequence
+from contextlib import AsyncExitStack
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Self, cast
+from typing import TYPE_CHECKING, Any, Final, Self
 
-from aioinject import Container, InjectionContext, Object, Provider
-from aioinject.context import context_var as aioinject_context
-from diator.mediator import Mediator
-from diator.middlewares import MiddlewareChain
-
-from app.seedwork.application.diator import CommandHandlerMap, MediatorModule
+from lattice.extensions import ApplicationExtension, OnApplicationInit
 
 if TYPE_CHECKING:
-    from aioinject.extensions import ContextExtension
-    from diator.middlewares import Middleware
-    from diator.requests import Request
+    from lattice.di import DependencyProvider
+
+__all__ = [
+    'Application',
+    'Module',
+]
+
+Extension = Any
 
 
-class ApplicationModule:
+class Module:
     def __init__(
         self,
         name: str,
         *,
-        providers: Iterable[Provider[Any]] = (),
-        command_handlers: CommandHandlerMap[Any, Any] | None = None,
-        imports: Iterable[ApplicationModule] = (),
-        exports: Iterable[ApplicationModule | type[object]] = (),
+        providers: Sequence[type[object]] = (),
+        imports: Sequence[Module] = (),
+        exports: Sequence[type[object]] = (),
+        extensions: Sequence[Extension] = (),
     ) -> None:
-        self.name = name
-        self._providers = providers
-        self._command_handlers: CommandHandlerMap[Any, Any] = command_handlers or {}
-        self._imports = imports
-        self._exports = exports
-
-    @cached_property
-    def providers(self) -> tuple[Provider[Any], ...]:
-        return tuple(self._providers)
-
-    @cached_property
-    def command_handlers(self) -> CommandHandlerMap[Any, Any]:
-        return self._command_handlers
+        self.name: Final = name
+        self.providers: Final = providers
+        self.imports: Final = imports
+        self.exports: Final = exports
+        self.extensions: Final = extensions
 
     def __str__(self) -> str:
         return self.__repr__()
 
     def __repr__(self) -> str:
-        return f'ApplicationModule[{self.name}]'
+        return f'Module[{self.name}]'
 
 
-class Application(ApplicationModule):
+class Application:
     def __init__(
         self,
         name: str,
         *,
-        providers: Iterable[Provider[Any]] = (),
-        command_handlers: CommandHandlerMap[Any, Any] | None = None,
-        imports: Iterable[ApplicationModule] = (),
-        exports: Iterable[ApplicationModule | type[object]] = (),
-        command_middlewares: Iterable[Middleware] | None = None,
+        modules: Sequence[Module],
+        dependency_provider: DependencyProvider,
+        extensions: Sequence[ApplicationExtension],
     ) -> None:
-        super().__init__(
-            name,
-            providers=providers,
-            command_handlers=command_handlers,
-            imports=imports,
-            exports=exports,
-        )
-        self._command_middlewares = command_middlewares
+        self.name: Final = name
+        self.modules: Final = modules
+        self.dependency_provider: Final = dependency_provider
+        self.extensions: Final = extensions
         self._exit_stack = AsyncExitStack()
 
-    @cached_property
-    def container(self) -> Container:
-        return _create_container(application=self, command_middlewares=self._command_middlewares)
-
-    @property
-    def modules(self) -> Sequence[ApplicationModule]:
-        return self._modules
-
-    def context(self, extensions: Sequence[ContextExtension] = ()) -> InjectionContext:
-        if current_context := aioinject_context.get(None):
-            return cast(InjectionContext, nullcontext(current_context))
-        return self.container.context(extensions)
-
-    async def execute(self, request: Request) -> Any:
-        async with self.context() as ctx:
-            mediator = await ctx.resolve(Mediator)
-            return await mediator.send(request)
+        for extension in self.extensions:
+            if isinstance(extension, OnApplicationInit):
+                extension.on_init(self)
 
     async def __aenter__(self) -> Self:
-        await self._exit_stack.enter_async_context(self.container)
+        await self._exit_stack.enter_async_context(self.dependency_provider.lifespan())
         return self
 
     async def __aexit__(
@@ -100,44 +70,10 @@ class Application(ApplicationModule):
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        await self._exit_stack.aclose()
+        await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)
 
     def __str__(self) -> str:
         return self.__repr__()
 
     def __repr__(self) -> str:
         return f'Application[{self.name}]'
-
-
-def _create_container(
-    application: Application,
-    command_middlewares: Iterable[Middleware] | None,
-) -> Container:
-    container = Container()
-    # Self provider
-    container.register(Object(container, Container))
-    # Application provider
-    container.register(Object(application, Application))
-
-    # Register providers from core
-    command_handlers = []
-    for module in application.modules:
-        # Register providers from core
-        for provider in module.providers:
-            container.register(provider)
-
-        command_handlers.append(module.command_handlers.items())
-
-    if command_middlewares:
-        middleware_chain = MiddlewareChain()
-        for middleware in command_middlewares:
-            middleware_chain.add(middleware)
-    else:
-        middleware_chain = MediatorModule.build_default_middleware_chain()
-
-    MediatorModule(
-        command_handlers=dict(chain.from_iterable(command_handlers)),
-        middleware_chain=middleware_chain,
-    ).init(application, container)
-
-    return container

@@ -33,7 +33,6 @@ test = [
   "pytest-archon>=0.0.6",
   "pytest-clarity>=1.0.1",
   "pytest-cov>=6.0.0",
-  "pytest-env>=1.1.5",
   "pytest-mock>=3.14.0",
   "pytest-randomly>=3.16.0",
   "pytest>=8.3.4",
@@ -123,6 +122,11 @@ combine-as-imports = true
 preview = true
 quote-style = "single"
 docstring-code-format = true
+
+
+# ----- Deptry settings -----
+[tool.deptry]
+known_first_party = ["lattice"]
 
 
 # ----- Mypy settings -----

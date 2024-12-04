@@ -1,21 +1,25 @@
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Iterator
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
-from typing import Any, Protocol, TypeAlias, TypeVar
+from typing import Any, Protocol, TypeVar, runtime_checkable
+
+from lattice.di._types import FactoryType
+from lattice.di._utils import guess_return_type
+
+__all__ = [
+    'DependencyProvider',
+    'InjectionContext',
+    'Object',
+    'Provider',
+    'Scoped',
+    'Singleton',
+    'Transient',
+]
+
 
 _T = TypeVar('_T')
 
 
-_FactoryType: TypeAlias = (
-    type[_T]
-    | Callable[..., _T]
-    | Callable[..., Awaitable[_T]]
-    | Callable[..., Coroutine[Any, Any, _T]]
-    | Callable[..., Iterator[_T]]
-    | Callable[..., AsyncIterator[_T]]
-)
-
-
+@runtime_checkable
 class Provider(Protocol[_T]):
     impl: Any
     type_: type[_T]
@@ -24,11 +28,11 @@ class Provider(Protocol[_T]):
 class Scoped(Provider[_T]):
     def __init__(
         self,
-        factory: _FactoryType[_T],
+        factory: FactoryType[_T],
         type_: type[_T] | None = None,
     ) -> None:
         self.impl = factory
-        self.type_ = type_
+        self.type_ = type_ or guess_return_type(factory)
 
 
 class Singleton(Scoped[_T]):
