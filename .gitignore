@@ -18,7 +18,6 @@ version.env
 **/*.py[cod]
 *$py.class
 
-# Distribution
 # Distribution / packaging
 .Python
 build/

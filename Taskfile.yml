@@ -26,19 +26,19 @@ tasks:
       - sh: command -v uv > /dev/null 2>&1
         msg: "Please install UV: https://docs.astral.sh/uv/getting-started/installation/"
       - sh: uv lock --locked
-        msg: "Lockfile at `uv.lock` and project environment is not up-to-date. To update run `uv sync --all-extras --dev`."
+        msg: "Lockfile and project environment is not up-to-date. To update run `uv sync --all-extras --all-groups`."
 
   install:
     desc: Install the package, dependencies, and pre-commit for local development
     deps: [ .uv ]
     cmds:
-      - uv sync --all-extras --dev
+      - uv sync --all-extras --all-groups
 
   upgrade-deps:
     desc: Upgrade all project dependencies and pre-commit hooks
     deps: [ .uv ]
     cmds:
-      - uv sync --all-extras --dev --upgrade
+      - uv sync --all-extras --all-groups --upgrade
 
   lint:
     desc: Lint python source files
@@ -80,7 +80,7 @@ tasks:
     desc: Perform dependencies security audit for known vulnerabilities
     deps: [ .uv ]
     silent: true
-    cmd: uv export --no-header | uv run pip-audit --require-hashes --disable-pip -r /dev/stdin
+    cmd: uv export --no-emit-project --no-header | uv run pip-audit --require-hashes --disable-pip -r /dev/stdin
 
   deptry:
     desc: Find unused, missing and transitive dependencies in project

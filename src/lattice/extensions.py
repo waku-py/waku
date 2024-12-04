@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import typing
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from lattice.modules import Application
 
 
-@typing.runtime_checkable
+@runtime_checkable
 class OnApplicationInit(Protocol):
     def on_init(self, app: Application) -> None: ...
 

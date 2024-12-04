@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 import inspect
 import typing
 import warnings
-from collections.abc import Iterable
-from typing import Any, Final
+from collections.abc import Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Final
 
-from lattice.modules import Application, Module
+if TYPE_CHECKING:
+    from lattice.modules import Application, Module
 
 
 def iter_submodules(module: Module) -> Iterable[Module]:
@@ -12,7 +15,7 @@ def iter_submodules(module: Module) -> Iterable[Module]:
     yield from module.imports
 
 
-def provider_dependencies(provider: object) -> typing.Sequence[type[Any]]:
+def provider_dependencies(provider: object) -> Sequence[type[Any]]:
     if inspect.isclass(provider):
         provider = provider.__init__
 

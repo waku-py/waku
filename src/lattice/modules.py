@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Final, Self
 from lattice.extensions import ApplicationExtension, OnApplicationInit
 
 if TYPE_CHECKING:
-    from lattice.di import DependencyProvider
+    from lattice.di import DependencyProvider, Provider
 
 __all__ = [
     'Application',
@@ -23,9 +23,9 @@ class Module:
         self,
         name: str,
         *,
-        providers: Sequence[type[object]] = (),
+        providers: Sequence[Provider[Any]] = (),
         imports: Sequence[Module] = (),
-        exports: Sequence[type[object]] = (),
+        exports: Sequence[type[object] | Module] = (),
         extensions: Sequence[Extension] = (),
     ) -> None:
         self.name: Final = name
@@ -71,6 +71,9 @@ class Application:
         exc_tb: TracebackType | None,
     ) -> None:
         await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)
+
+    async def aclose(self) -> None:
+        await self._exit_stack.__aexit__(None, None, None)
 
     def __str__(self) -> str:
         return self.__repr__()
