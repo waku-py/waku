@@ -337,12 +337,12 @@ wheels = [
 ]
 
 [[package]]
-name = "lattice"
+name = "lattice-py"
 version = "0.1.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
-aionject = [
+aioinject = [
     { name = "aioinject" },
 ]
 
@@ -371,7 +371,7 @@ typecheck = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "aioinject", marker = "extra == 'aionject'", specifier = ">=0.35.3" }]
+requires-dist = [{ name = "aioinject", marker = "extra == 'aioinject'", specifier = ">=0.35.3" }]
 
 [package.metadata.requires-dev]
 dev = [
