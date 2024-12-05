@@ -1,0 +1,6 @@
+[general]
+ignore=body-is-missing,body-min-length,body-max-line-length
+extra-path=./gitlint_plugins.py
+
+[title-max-length]
+line-length=150

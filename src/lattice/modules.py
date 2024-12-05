@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 from contextlib import AsyncExitStack
-from types import TracebackType
 from typing import TYPE_CHECKING, Any, Final, Self
 
 from lattice.extensions import ApplicationExtension, OnApplicationInit
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from types import TracebackType
+
     from lattice.di import DependencyProvider, Provider
 
 __all__ = [

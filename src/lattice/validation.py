@@ -3,10 +3,11 @@ from __future__ import annotations
 import inspect
 import typing
 import warnings
-from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any, Final
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+
     from lattice.modules import Application, Module
 
 
@@ -37,7 +38,8 @@ class ValidationExtension:
             for provider in module.providers:
                 for dependency in provider_dependencies(provider=provider):
                     dependency_accessible = any(
-                        dependency in imported_module.providers for imported_module in iter_submodules(module)
+                        dependency in imported_module.providers  # type: ignore[comparison-overlap]
+                        for imported_module in iter_submodules(module)
                     )
                     if not dependency_accessible:
                         err_msg = f"{module!r} depends on {dependency!r} but it's not accessible to it"

@@ -3,7 +3,7 @@ name: CI
 on: [ push, pull_request ]
 
 env:
-  COLUMNS: 150
+  COLUMNS: 120
   UV_FROZEN: true
 
 jobs:

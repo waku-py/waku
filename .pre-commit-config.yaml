@@ -1,0 +1,62 @@
+default_install_hook_types: [ pre-commit, pre-push, commit-msg ]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: no-commit-to-branch
+        args: [ '--branch', 'master' ]
+      - id: check-yaml
+        args: [ '--unsafe' ]
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.3.0
+    hooks:
+      - id: codespell
+        additional_dependencies:
+          - tomli
+        exclude: '^uv\.lock$'
+
+  - repo: local
+    hooks:
+      - id: commit-msg
+        name: check commit message
+        stages: [ commit-msg ]
+        language: system
+        entry: gitlint --msg-filename
+        fail_fast: true
+
+      - id: uv-lock-check
+        name: uv-lock-check
+        entry: uv lock --locked
+        language: system
+        pass_filenames: false
+        files: '^pyproject\.toml$'
+        fail_fast: true
+
+      - id: lint
+        name: lint
+        entry: task lint -- --output-format=concise
+        types: [ python ]
+        language: system
+        pass_filenames: false
+        fail_fast: true
+
+      - id: typecheck
+        name: typecheck
+        entry: env MYPY_PRETTY=0 task typecheck
+        types: [ python ]
+        language: system
+        pass_filenames: false
+        fail_fast: true
+
+      - id: deptry
+        name: deptry
+        entry: task deptry
+        language: system
+        pass_filenames: false
+        fail_fast: true

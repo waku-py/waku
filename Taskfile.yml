@@ -33,12 +33,14 @@ tasks:
     deps: [ .uv ]
     cmds:
       - uv sync --all-extras --all-groups
+      - uv run pre-commit install --install-hooks
 
   upgrade-deps:
     desc: Upgrade all project dependencies and pre-commit hooks
     deps: [ .uv ]
     cmds:
       - uv sync --all-extras --all-groups --upgrade
+      - uv run pre-commit autoupdate
 
   lint:
     desc: Lint python source files
@@ -90,21 +92,16 @@ tasks:
   test:
     desc: Run tests without coverage checking
     deps: [ .uv ]
-    cmd: uv run pytest {{.CLI_ARGS}}
+    cmd: uv run pytest {{.PYTEST_ARGS}} {{.CLI_ARGS}}
 
   test:cov:
+    aliases: [ 'test:ci', 'test:all' ]
     desc: Run tests with coverage checking
     deps: [ .uv ]
-    cmd: uv run pytest {{.PYTEST_ARGS}} --cov --cov-report term {{.CLI_ARGS}}
-
-  test:all:
-    aliases: [ 'test:ci' ]
-    desc: Run project and alembic tests with coverage checking
-    deps: [ .uv ]
     vars:
-      PYTEST_ARGS: --test-alembic
+      PYTEST_ARGS: --cov --cov-report term
     cmds:
-      - task: test:cov
+      - task: test
         vars:
           PYTEST_ARGS:
             ref: .PYTEST_ARGS
@@ -114,7 +111,7 @@ tasks:
     cmds:
       - task: check
       - task: codespell
-      - task: test:all
+      - task: test:cov
 
   clean:
     desc: Clear local caches and build artifacts

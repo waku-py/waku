@@ -34,7 +34,7 @@ def guess_return_type(factory: FactoryType[_T]) -> type[_T]:
         raise ValueError(msg) from e
     except NameError:
         # handle future annotations.
-        # functions might have dependecies in them
+        # functions might have dependencies in them
         # and we don't have the container context here so
         # we can't call _get_type_hints
         ret_annotation = unwrapped.__annotations__['return']
