@@ -4,7 +4,6 @@ on: [ push, pull_request ]
 
 env:
   COLUMNS: 120
-  UV_FROZEN: true
 
 jobs:
   lint:
