@@ -1,1 +1,10 @@
 # TODO: https://python-semantic-release.readthedocs.io/en/latest/automatic-releases/github-actions.html#gh-actions
+#jobs:
+#  release:
+#    steps:
+#      - name: Create semantic release
+#        id: semantic-release
+#        uses: python-semantic-release/python-semantic-release@v9.15.1
+#        with:
+#          github_token:
+#          root_options: -vv

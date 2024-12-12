@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING, Any, Final
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
-    from lattice.modules import Application, Module
+    from lattice.application import Lattice
+    from lattice.modules import Module
 
 
 def iter_submodules(module: Module) -> Iterable[Module]:
@@ -33,7 +34,7 @@ class ValidationExtension:
     def __init__(self, *, strict: bool = True) -> None:
         self.strict: Final = strict
 
-    def on_init(self, app: Application) -> None:
+    def on_init(self, app: Lattice) -> None:
         for module in app.modules:
             for provider in module.providers:
                 for dependency in provider_dependencies(provider=provider):

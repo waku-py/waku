@@ -6,8 +6,6 @@ vars:
   SOURCES: .
 
 env:
-  APP_ENV: dev
-  LOGGING_LOG_FORMAT: plain
   COLUMNS: 120
   FORCE_COLOR: 1
   PRE_COMMIT_COLOR: always

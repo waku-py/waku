@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Iterator
 from typing import Any, TypeAlias, TypeVar
 

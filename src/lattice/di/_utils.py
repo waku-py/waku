@@ -1,13 +1,28 @@
+from __future__ import annotations
+
 import collections.abc
 import inspect
 import sys
 import typing
+from contextlib import contextmanager
+from dataclasses import dataclass
 
-from lattice.di._types import FactoryType
+from lattice.di._markers import Inject
 
-__all__ = ['guess_return_type']
+if typing.TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
+    from lattice.di._types import FactoryType
+
+__all__ = [
+    'Dependency',
+    'clear_wrapper',
+    'collect_dependencies',
+    'guess_return_type',
+]
 
 _T = typing.TypeVar('_T')
+_F = typing.Callable[..., typing.Any]
 
 _GENERATORS: typing.Final = {
     collections.abc.Generator,
@@ -17,6 +32,8 @@ _ASYNC_GENERATORS: typing.Final = {
     collections.abc.AsyncGenerator,
     collections.abc.AsyncIterator,
 }
+
+_sentinel = object()
 
 
 def guess_return_type(factory: FactoryType[_T]) -> type[_T]:
@@ -79,3 +96,80 @@ def _get_return_annotation(
     context: dict[str, typing.Any],
 ) -> type[typing.Any]:
     return eval(ret_annotation, context)  # type:ignore[no-any-return] # noqa: S307
+
+
+@dataclass(slots=True, kw_only=True, frozen=True)
+class Dependency(typing.Generic[_T]):
+    name: str
+    type_: type[_T]
+
+
+def collect_dependencies(
+    dependent: typing.Callable[..., object] | dict[str, typing.Any],
+    ctx: dict[str, type[typing.Any]] | None = None,
+) -> typing.Iterable[Dependency[object]]:
+    if not isinstance(dependent, dict):
+        with _remove_annotation(dependent.__annotations__, 'return'):
+            type_hints = _get_type_hints(dependent, context=ctx)
+    else:
+        type_hints = dependent
+    for name, hint in type_hints.items():
+        dep_type, args = _get_annotation_args(hint)
+        inject_marker = _find_inject_marker_in_annotation_args(args)
+        if inject_marker is None:
+            continue
+
+        yield Dependency(name=name, type_=dep_type)
+
+
+def _get_annotation_args(type_hint: typing.Any) -> tuple[type, tuple[typing.Any, ...]]:
+    try:
+        dep_type, *args = typing.get_args(type_hint)
+    except ValueError:
+        dep_type, args = type_hint, []
+    return dep_type, tuple(args)
+
+
+def _find_inject_marker_in_annotation_args(args: tuple[typing.Any, ...]) -> Inject | None:
+    for arg in args:
+        try:
+            if issubclass(arg, Inject):
+                return Inject()
+        except TypeError:
+            pass
+
+        if isinstance(arg, Inject):
+            return arg
+    return None
+
+
+def clear_wrapper(wrapper: _F) -> _F:
+    inject_annotations = _get_inject_annotations(wrapper)
+    signature = inspect.signature(wrapper)
+    new_params = tuple(p for p in signature.parameters.values() if p.name not in inject_annotations)
+    wrapper.__signature__ = signature.replace(  # type: ignore[attr-defined]
+        parameters=new_params,
+    )
+    for name in inject_annotations:
+        del wrapper.__annotations__[name]
+    return wrapper
+
+
+def _get_inject_annotations(function: Callable[..., typing.Any]) -> dict[str, typing.Any]:
+    with _remove_annotation(function.__annotations__, 'return'):
+        return {
+            name: annotation
+            for name, annotation in typing.get_type_hints(
+                function,
+                include_extras=True,
+            ).items()
+            if any(isinstance(arg, Inject) or arg is Inject for arg in typing.get_args(annotation))
+        }
+
+
+@contextmanager
+def _remove_annotation(annotations: dict[str, typing.Any], name: str) -> Iterator[None]:
+    annotation = annotations.pop(name, _sentinel)
+    yield
+    if annotation is not _sentinel:
+        annotations[name] = annotation

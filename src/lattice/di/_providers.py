@@ -1,9 +1,15 @@
-from abc import ABC, abstractmethod
-from contextlib import AbstractAsyncContextManager, AbstractContextManager
-from typing import Any, Protocol, TypeVar, runtime_checkable
+from __future__ import annotations
 
-from lattice.di._types import FactoryType
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable
+
+from lattice.di._context import InjectionContext
 from lattice.di._utils import guess_return_type
+
+if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager, AbstractContextManager
+
+    from lattice.di._types import FactoryType
 
 __all__ = [
     'DependencyProvider',
@@ -53,11 +59,6 @@ class Object(Provider[_T]):
     ) -> None:
         self.type_ = type_ or type(object_)
         self.impl = object_
-
-
-class InjectionContext(Protocol):
-    @abstractmethod
-    async def resolve(self, type_: type[_T]) -> _T: ...
 
 
 class DependencyProvider(ABC):

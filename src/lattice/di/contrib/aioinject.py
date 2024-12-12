@@ -1,15 +1,17 @@
-from collections.abc import AsyncIterator, Iterator
-from contextlib import (
-    asynccontextmanager,
-    contextmanager,
-    nullcontext,
-)
-from typing import Any, cast
+from __future__ import annotations
+
+from contextlib import asynccontextmanager, contextmanager, nullcontext
+from typing import TYPE_CHECKING, Any, cast
 
 import aioinject
 from aioinject.context import context_var as aioinject_context
 
 from lattice.di import DependencyProvider, InjectionContext, Object, Provider, Scoped, Singleton, Transient
+from lattice.di._inject import context_var
+
+if TYPE_CHECKING:
+    import contextvars
+    from collections.abc import AsyncIterator, Iterator
 
 __all__ = ['AioinjectDependencyProvider']
 
@@ -17,20 +19,23 @@ __all__ = ['AioinjectDependencyProvider']
 class AioinjectDependencyProvider(DependencyProvider):
     def __init__(self, container: aioinject.Container | None = None) -> None:
         self._container = container or aioinject.Container()
-
-    def register(self, provider: Provider[Any]) -> None:
-        provider_type = self._map_provider(provider)
-        self._container.register(provider_type(provider.impl, provider.type_))  # type: ignore[call-arg]
+        self._token: contextvars.Token[InjectionContext] | None = None
 
     @asynccontextmanager
     async def context(self) -> AsyncIterator[InjectionContext]:
         if current_context := aioinject_context.get(None):
-            context = cast(aioinject.InjectionContext, nullcontext(current_context))
+            context = cast(InjectionContext, nullcontext(current_context))
         else:
-            context = self._container.context()
+            context = cast(InjectionContext, self._container.context())
 
-        async with context:
-            yield context
+        try:
+            async with context as ctx:
+                self._token = context_var.set(ctx)
+                yield ctx
+        finally:
+            if token := self._token:
+                context_var.reset(token)
+            self._token = None
 
     @asynccontextmanager
     async def lifespan(self) -> AsyncIterator[None]:
@@ -56,3 +61,7 @@ class AioinjectDependencyProvider(DependencyProvider):
         except KeyError:
             msg = 'Unknown provider type'
             raise NotImplementedError(msg) from None
+
+    def register(self, provider: Provider[Any]) -> None:
+        provider_type = self._map_provider(provider)
+        self._container.register(provider_type(provider.impl, provider.type_))  # type: ignore[call-arg]
