@@ -5,23 +5,29 @@ import typing
 import warnings
 from typing import TYPE_CHECKING, Any, Final
 
+from lattice.ext.extensions import OnApplicationInit
+
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
     from lattice.application import Lattice
+    from lattice.di import Provider
     from lattice.modules import Module
 
+__all__ = ['ModuleValidationError', 'ValidationExtension']
 
-def iter_submodules(module: Module) -> Iterable[Module]:
+
+def _iter_submodules(module: Module) -> Iterable[Module]:
     yield module
     yield from module.imports
 
 
-def provider_dependencies(provider: object) -> Sequence[type[Any]]:
-    if inspect.isclass(provider):
-        provider = provider.__init__
+def _provider_dependencies(provider: Provider[Any]) -> Sequence[type[Any]]:
+    impl = provider.impl
+    if inspect.isclass(impl):
+        impl = impl.__init__
 
-    params = typing.get_type_hints(provider)
+    params = typing.get_type_hints(impl)
     params.pop('return', None)
     return tuple(params.values())
 
@@ -30,17 +36,18 @@ class ModuleValidationError(Exception):
     pass
 
 
-class ValidationExtension:
+class ValidationExtension(OnApplicationInit):
     def __init__(self, *, strict: bool = True) -> None:
         self.strict: Final = strict
 
-    def on_init(self, app: Lattice) -> None:
+    def on_app_init(self, app: Lattice) -> None:
         for module in app.modules:
             for provider in module.providers:
-                for dependency in provider_dependencies(provider=provider):
+                for dependency in _provider_dependencies(provider=provider):
                     dependency_accessible = any(
-                        dependency in imported_module.providers  # type: ignore[comparison-overlap]
-                        for imported_module in iter_submodules(module)
+                        dependency in (provider.type_ for provider in imported_module.providers)
+                        and dependency in imported_module.exports
+                        for imported_module in _iter_submodules(module)
                     )
                     if not dependency_accessible:
                         err_msg = f"{module!r} depends on {dependency!r} but it's not accessible to it"
