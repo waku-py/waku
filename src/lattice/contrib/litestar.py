@@ -13,15 +13,18 @@ if TYPE_CHECKING:
     from litestar.config.app import AppConfig
     from litestar.types import ASGIApp, Receive, Scope, Send
 
-    from lattice.application import Lattice
+    from lattice.application import Application
 
-__all__ = ['LatticeMiddleware', 'LatticePlugin']
+__all__ = [
+    'ApplicationMiddleware',
+    'ApplicationPlugin',
+]
 
 _STATE_KEY: Final = '__lattice_application__'
 _SCOPE_CONTEXT_KEY: Final = '__lattice_injection_context__'
 
 
-class LatticeMiddleware(MiddlewareProtocol):
+class ApplicationMiddleware(MiddlewareProtocol):
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
@@ -32,7 +35,7 @@ class LatticeMiddleware(MiddlewareProtocol):
         send: Send,
     ) -> None:
         app: Litestar = scope['app']
-        application: Lattice = app.state[_STATE_KEY]
+        application: Application = app.state[_STATE_KEY]
 
         async with application.dependency_provider.context() as ctx:
             scope[_SCOPE_CONTEXT_KEY] = ctx  # type: ignore[typeddict-unknown-key]
@@ -48,18 +51,18 @@ async def _after_exception(exception: BaseException, scope: Scope) -> None:
         )
 
 
-class LatticePlugin(InitPluginProtocol):
-    def __init__(self, application: Lattice) -> None:
+class ApplicationPlugin(InitPluginProtocol):
+    def __init__(self, application: Application) -> None:
         self._application = application
 
     @contextlib.asynccontextmanager
     async def _lifespan(self, _: Litestar) -> AsyncIterator[None]:
-        async with self._application.lifespan():
+        async with self._application:
             yield
 
     def on_app_init(self, app_config: AppConfig) -> AppConfig:
         app_config.state[_STATE_KEY] = self._application
-        app_config.middleware.append(LatticeMiddleware)
+        app_config.middleware.append(ApplicationMiddleware)
         app_config.lifespan.append(self._lifespan)
         app_config.after_exception.append(_after_exception)
         return app_config

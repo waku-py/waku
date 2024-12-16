@@ -4,10 +4,10 @@ import re
 
 import pytest
 
-from lattice.application import Lattice
+from lattice.application import Application
 from lattice.di import Scoped
+from lattice.ext.validation import ModuleValidationError, ValidationExtension
 from lattice.modules import Module
-from lattice.validation import ModuleValidationError, ValidationExtension
 from tests.mock import DummyDI
 
 
@@ -35,24 +35,51 @@ def test_inaccessible(imports: bool, exports: bool) -> None:
     error_message = f"{b!r} depends on {A!r} but it's not accessible to it"
 
     with pytest.raises(ModuleValidationError) as exc_info:
-        Lattice(
+        Application(
+            'app',
             modules=[a, b],
-            extensions=[ValidationExtension()],
-            name='app',
             dependency_provider=DummyDI(),
+            extensions=[ValidationExtension()],
         )
     assert str(exc_info.value) == error_message
 
     with pytest.warns(Warning, match=re.escape(error_message)):
-        Lattice(
-            modules=[a, b],
-            extensions=[ValidationExtension(strict=False)],
+        Application(
             name='app',
+            modules=[a, b],
             dependency_provider=DummyDI(),
+            extensions=[ValidationExtension(strict=False)],
         )
 
 
 def test_ok() -> None:
     a = Module(name='A', providers=[Scoped(A)], exports=[A])
     b = Module(name='B', providers=[Scoped(B)], imports=[a])
-    Lattice(modules=[a, b], extensions=[ValidationExtension()], name='app', dependency_provider=DummyDI())
+    Application(
+        'app',
+        modules=[a, b],
+        dependency_provider=DummyDI(),
+        extensions=[ValidationExtension()],
+    )
+
+
+def test_ok_with_global_module() -> None:
+    a = Module(name='A', providers=[Scoped(A)], is_global=True)
+    b = Module(name='B', providers=[Scoped(B)], imports=[a])
+    Application(
+        'app',
+        modules=[a, b],
+        dependency_provider=DummyDI(),
+        extensions=[ValidationExtension()],
+    )
+
+
+def test_ok_with_application_providers() -> None:
+    b = Module(name='B', providers=[Scoped(B)], exports=[B])
+    Application(
+        'app',
+        modules=[b],
+        dependency_provider=DummyDI(),
+        extensions=[ValidationExtension()],
+        providers=[Scoped(A)],
+    )

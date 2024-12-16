@@ -12,13 +12,14 @@ if TYPE_CHECKING:
 
     from lattice.di._context import InjectionContext
 
-_T = TypeVar('_T')
-_P = ParamSpec('_P')
 
 __all__ = [
     'context_var',
     'inject',
 ]
+
+_T = TypeVar('_T')
+_P = ParamSpec('_P')
 
 context_var: ContextVar[InjectionContext] = ContextVar('lattice_context')
 

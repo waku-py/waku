@@ -28,9 +28,7 @@ Repository = "https://github.com/lattice-py/lattice-py"
 
 [project.optional-dependencies]
 aioinject = ["aioinject>=0.35.3"]
-#dishka = ["dishka>=1.4.2"]
-litestar = ["litestar>2"]
-
+litestar = ["litestar>2; python_version<'3.13'"]  # TODO: Remove constraint after msgspec update
 
 [build-system]
 requires = ["hatchling"]

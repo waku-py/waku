@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import contextlib
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, Self, TypeVar, runtime_checkable
 
 from lattice.di._context import InjectionContext
+from lattice.di._inject import context_var
 from lattice.di._utils import guess_return_type
 
 if TYPE_CHECKING:
+    import contextvars
+    from collections.abc import AsyncIterator
     from contextlib import AbstractAsyncContextManager, AbstractContextManager
+    from types import TracebackType
 
     from lattice.di._types import FactoryType
 
@@ -62,14 +67,41 @@ class Object(Provider[_T]):
 
 
 class DependencyProvider(ABC):
+    _exit_stack: contextlib.AsyncExitStack
+    _token: contextvars.Token[InjectionContext] | None
+
     @abstractmethod
     def register(self, provider: Provider[Any]) -> None: ...
 
-    @abstractmethod
-    def context(self) -> AbstractAsyncContextManager[InjectionContext]: ...
-
-    @abstractmethod
-    def lifespan(self) -> AbstractAsyncContextManager[None]: ...
+    @contextlib.asynccontextmanager
+    async def context(self) -> AsyncIterator[InjectionContext]:
+        try:
+            async with await self._context() as ctx:
+                self._token = context_var.set(ctx)
+                yield ctx
+        finally:
+            if token := self._token:
+                context_var.reset(token)
+                self._token = None
 
     @abstractmethod
     def override(self, provider: Provider[Any]) -> AbstractContextManager[None]: ...
+
+    @abstractmethod
+    def _lifespan(self) -> AbstractAsyncContextManager[None]: ...
+
+    @abstractmethod
+    async def _context(self) -> InjectionContext: ...
+
+    async def __aenter__(self) -> Self:
+        await self._exit_stack.__aenter__()
+        await self._exit_stack.enter_async_context(self._lifespan())
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)

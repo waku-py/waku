@@ -8,7 +8,7 @@ from lattice.ext.mediator.handlers.map import RequestMap
 from lattice.ext.mediator.mediator import Mediator
 
 if TYPE_CHECKING:
-    from lattice.application import Lattice
+    from lattice.application import Application
     from lattice.ext.mediator.handlers.dispatcher import RequestDispatcher
     from lattice.ext.mediator.middlewares import MiddlewareChain
     from lattice.modules import Module
@@ -29,7 +29,7 @@ class MediatorAppExtension(OnApplicationInit):
         self._middleware_chain = middleware_chain
         self._dispatcher_class = dispatcher_class
 
-    def on_app_init(self, app: Lattice) -> None:
+    def on_app_init(self, app: Application) -> None:
         dp = app.dependency_provider
 
         request_map = RequestMap()

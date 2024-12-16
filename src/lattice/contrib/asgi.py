@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, MutableMapping
 
-    from lattice.application import Lattice
+    from lattice.application import Application
 
     Scope: TypeAlias = MutableMapping[str, Any]
     Message: TypeAlias = MutableMapping[str, Any]
@@ -15,11 +15,11 @@ if TYPE_CHECKING:
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
 
-__all__ = ['LatticeMiddleware']
+__all__ = ['ApplicationMiddleware']
 
 
-class LatticeMiddleware:
-    def __init__(self, app: ASGIApp, *, application: Lattice) -> None:
+class ApplicationMiddleware:
+    def __init__(self, app: ASGIApp, *, application: Application) -> None:
         self.app = app
         self._application = application
 

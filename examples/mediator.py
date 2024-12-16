@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import dataclass
 
-from lattice.application import Lattice
+from lattice.application import Application
 from lattice.di import Injected, inject
 from lattice.di.contrib.aioinject import AioinjectDependencyProvider
 from lattice.ext.mediator.extensions import MediatorAppExtension, MediatorModuleExtension
@@ -29,6 +29,7 @@ class ExampleHandler(RequestHandler[ExampleRequest, ExampleResponse]):
 # fmt: off
 module = Module(
     name='module',
+    exports=[ExampleHandler],
     extensions=[
         MediatorModuleExtension(
             RequestMap()
@@ -38,7 +39,7 @@ module = Module(
 )
 # fmt: on
 
-application = Lattice(
+application = Application(
     name='app',
     modules=[module],
     dependency_provider=AioinjectDependencyProvider(),
@@ -55,7 +56,7 @@ async def handler(mediator: Injected[Mediator]) -> ExampleResponse:
 
 async def main() -> None:
     dp = application.dependency_provider
-    async with application.lifespan(), dp.lifespan(), dp.context():
+    async with application, dp.context():
         await handler()  # type: ignore[call-arg]
 
 
