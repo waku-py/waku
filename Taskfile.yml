@@ -107,7 +107,8 @@ tasks:
   all:
     desc: Run the full set of checks
     cmds:
-      - task: check
+      - task: format
+      - task: typecheck
       - task: codespell
       - task: test:cov
 
