@@ -52,7 +52,7 @@ def guess_return_type(factory: FactoryType[_T]) -> type[_T]:
         raise ValueError(msg) from e
     except TypeError:
         if isinstance(factory, NewType):
-            msg = f'Implementation should be added to provider for type <{factory.__qualname__}> created via NewType.'
+            msg = f'Implementation should be added to provider for type <{factory}> created via NewType.'
             raise ValueError(msg) from None  # noqa: TRY004
         raise
     except NameError:

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Final
 from lattice.extensions import ModuleExtension, OnModuleInit
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Sequence
 
     from lattice.di import Provider
 
@@ -31,6 +31,10 @@ class Module:
         self.is_global: Final = is_global
 
         self._init_extensions()
+
+    def iter_submodules(self) -> Iterable[Module]:
+        yield self
+        yield from self.imports
 
     def _init_extensions(self) -> None:
         for ext in self.extensions:

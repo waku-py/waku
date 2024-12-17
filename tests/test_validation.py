@@ -76,9 +76,9 @@ def test_ok() -> None:
     )
 
 
-def test_ok_with_global_module() -> None:
+def test_ok_with_global_providers() -> None:
     a = Module(name='A', providers=[Scoped(A)], is_global=True)
-    b = Module(name='B', providers=[Scoped(B)], imports=[a])
+    b = Module(name='B', providers=[Scoped(B)])
     Application(
         'app',
         modules=[a, b],

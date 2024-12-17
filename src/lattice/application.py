@@ -11,13 +11,13 @@ from lattice.extensions import (
     OnApplicationShutdown,
     OnApplicationStartup,
 )
+from lattice.module import Module
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
     from types import TracebackType
 
     from lattice.di import DependencyProvider, Provider
-    from lattice.module import Module
 
 __all__ = [
     'Application',
@@ -38,22 +38,44 @@ class Application:
         dependency_provider: DependencyProvider,
         providers: Sequence[Provider[Any]] = (),
         extensions: Sequence[ApplicationExtension] = DEFAULT_EXTENSIONS,
-        lifespan: ApplicationLifespan | Sequence[ApplicationLifespan] = None,
+        lifespan: Sequence[ApplicationLifespan] = (),
     ) -> None:
-        self.name: Final = name
-        self.providers: Final = providers
-        self.modules: Final = modules
-
+        self.module: Final = Module(
+            name=name,
+            providers=providers,
+            imports=modules,
+            is_global=True,
+        )
         self.extensions: Final = extensions
 
         self.dependency_provider: Final = dependency_provider
 
-        self._lifespan_managers: list[ApplicationLifespan] = list(lifespan) if lifespan else [nullcontext()]
+        self._lifespan_managers: list[ApplicationLifespan] = list(lifespan) or [nullcontext()]
         self._exit_stack = AsyncExitStack()
 
-        self._init_extensions()
+        self._init()
 
-    def _init_extensions(self) -> None:
+    @property
+    def name(self) -> str:
+        return self.module.name
+
+    @property
+    def modules(self) -> Sequence[Module]:
+        return self.module.imports
+
+    @property
+    def providers(self) -> Sequence[Provider[Any]]:
+        return self.module.providers
+
+    @property
+    def dp(self) -> DependencyProvider:
+        return self.dependency_provider
+
+    def _init(self) -> None:
+        for module in self.module.iter_submodules():
+            for provider in module.providers:
+                self.dependency_provider.register(provider)
+
         for ext in self.extensions:
             if isinstance(ext, OnApplicationInit):
                 ext.on_app_init(self)

@@ -1,12 +1,14 @@
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
-from typing import Any
+from typing import Any, ClassVar
 
 from lattice.di import DependencyProvider, InjectionContext, Provider
 
 
 class DummyDI(DependencyProvider):
+    _providers: ClassVar = {}
+
     def register(self, provider: Provider[Any]) -> None:
-        raise NotImplementedError
+        self._providers[provider.type_] = provider
 
     def override(self, provider: Provider[Any]) -> AbstractContextManager[None]:
         raise NotImplementedError

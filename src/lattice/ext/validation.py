@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Final
 from lattice.extensions import OnApplicationInit
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Sequence
 
     from lattice.application import Application
     from lattice.di import Provider
@@ -30,15 +30,23 @@ class ValidationExtension(OnApplicationInit):
         self.strict: Final = strict
 
     def on_app_init(self, app: Application) -> None:
-        app_providers = _module_providers(app)
+        global_providers = {
+            provider
+            for module in app.module.iter_submodules()
+            for provider in _module_providers(module)
+            if module.is_global
+        }
 
         for module in app.modules:
             for provider in module.providers:
                 for dependency in _provider_dependencies(provider=provider):
-                    is_provided_by_app = dependency in app_providers
+                    # 1. Dep available globally or provided by current module
+                    if dependency in global_providers or dependency in _module_providers(module):
+                        continue
+                    # 2. Dep provided by any of imported modules
                     dependency_accessible = any(
-                        _is_imported_dependency(dependency, imported_module) or is_provided_by_app
-                        for imported_module in _iter_submodules(module)
+                        _is_imported_dependency(dependency, imported_module)
+                        for imported_module in module.iter_submodules()
                     )
                     if not dependency_accessible:
                         err_msg = f"{module!r} depends on {dependency!r} but it's not accessible to it"
@@ -65,7 +73,7 @@ def _is_imported_dependency(dependency: type[Any], imported_module: Module) -> b
     # fmt: off
     return (
         dependency in _module_providers(imported_module)
-        and (imported_module.is_global or dependency in imported_module.exports)
+        and dependency in imported_module.exports
     )
     # fmt: on
 
@@ -73,8 +81,3 @@ def _is_imported_dependency(dependency: type[Any], imported_module: Module) -> b
 @cache
 def _module_providers(module: Module | Application) -> set[type[object]]:
     return {provider.type_ for provider in module.providers}
-
-
-def _iter_submodules(module: Module) -> Iterable[Module]:
-    yield module
-    yield from module.imports
