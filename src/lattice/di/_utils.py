@@ -6,6 +6,7 @@ import sys
 import typing
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import NewType
 
 from lattice.di._markers import Inject
 
@@ -49,6 +50,11 @@ def guess_return_type(factory: FactoryType[_T]) -> type[_T]:
     except KeyError as e:
         msg = f'Factory {factory.__qualname__} does not specify return type.'
         raise ValueError(msg) from e
+    except TypeError:
+        if isinstance(factory, NewType):
+            msg = f'Implementation should be added to provider for type <{factory.__qualname__}> created via NewType.'
+            raise ValueError(msg) from None  # noqa: TRY004
+        raise
     except NameError:
         # handle future annotations.
         # functions might have dependencies in them
@@ -61,6 +67,7 @@ def guess_return_type(factory: FactoryType[_T]) -> type[_T]:
         except NameError as e:
             msg = f"Factory {factory.__qualname__} does not specify return type. Or it's type is not defined yet."
             raise ValueError(msg) from e
+
     if origin := typing.get_origin(return_type):
         args = typing.get_args(return_type)
 

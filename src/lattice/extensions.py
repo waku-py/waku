@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Protocol, TypeAlias, runtime_checkable
 
 if TYPE_CHECKING:
     from lattice.application import Application
-    from lattice.modules import Module
+    from lattice.module import Module
 
 
 __all__ = [

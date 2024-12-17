@@ -3,15 +3,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Final
 
 from lattice.di import DependencyProvider, Object, Scoped
-from lattice.ext.extensions import OnApplicationInit, OnModuleInit
 from lattice.ext.mediator.handlers.map import RequestMap
 from lattice.ext.mediator.mediator import Mediator
+from lattice.extensions import OnApplicationInit, OnModuleInit
 
 if TYPE_CHECKING:
     from lattice.application import Application
     from lattice.ext.mediator.handlers.dispatcher import RequestDispatcher
     from lattice.ext.mediator.middlewares import MiddlewareChain
-    from lattice.modules import Module
+    from lattice.module import Module
 
 
 __all__ = [

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 from abc import ABC, abstractmethod
+from collections.abc import Hashable
 from typing import TYPE_CHECKING, Any, Protocol, Self, TypeVar, runtime_checkable
 
 from lattice.di._context import InjectionContext
@@ -31,7 +32,7 @@ _T = TypeVar('_T')
 
 
 @runtime_checkable
-class Provider(Protocol[_T]):
+class Provider(Hashable, Protocol[_T]):
     impl: Any
     type_: type[_T]
 
@@ -44,6 +45,9 @@ class Scoped(Provider[_T]):
     ) -> None:
         self.impl = factory
         self.type_ = type_ or guess_return_type(factory)
+
+    def __hash__(self) -> int:
+        return hash(self.type_)
 
 
 class Singleton(Scoped[_T]):
@@ -64,6 +68,9 @@ class Object(Provider[_T]):
     ) -> None:
         self.type_ = type_ or type(object_)
         self.impl = object_
+
+    def __hash__(self) -> int:
+        return hash(self.type_)
 
 
 class DependencyProvider(ABC):

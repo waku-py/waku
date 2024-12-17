@@ -4,14 +4,20 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager, nullcontext
 from typing import TYPE_CHECKING, Any, Final, Self, TypeAlias
 
-from lattice.ext.extensions import ApplicationExtension, OnApplicationInit, OnApplicationShutdown, OnApplicationStartup
+from lattice.ext import DEFAULT_EXTENSIONS
+from lattice.extensions import (
+    ApplicationExtension,
+    OnApplicationInit,
+    OnApplicationShutdown,
+    OnApplicationStartup,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
     from types import TracebackType
 
     from lattice.di import DependencyProvider, Provider
-    from lattice.modules import Module
+    from lattice.module import Module
 
 __all__ = [
     'Application',
@@ -31,28 +37,33 @@ class Application:
         modules: Sequence[Module],
         dependency_provider: DependencyProvider,
         providers: Sequence[Provider[Any]] = (),
-        extensions: Sequence[ApplicationExtension] = (),
-        lifespan: list[ApplicationLifespan] | None = None,
+        extensions: Sequence[ApplicationExtension] = DEFAULT_EXTENSIONS,
+        lifespan: ApplicationLifespan | Sequence[ApplicationLifespan] = None,
     ) -> None:
         self.name: Final = name
         self.providers: Final = providers
         self.modules: Final = modules
 
+        self.extensions: Final = extensions
+
         self.dependency_provider: Final = dependency_provider
 
-        self._lifespan_managers: list[ApplicationLifespan] = lifespan or [nullcontext()]
+        self._lifespan_managers: list[ApplicationLifespan] = list(lifespan) if lifespan else [nullcontext()]
         self._exit_stack = AsyncExitStack()
 
-        self._on_startup_extensions = [ext for ext in extensions if isinstance(ext, OnApplicationStartup)]
-        self._on_shutdown_extensions = [ext for ext in extensions if isinstance(ext, OnApplicationShutdown)]
+        self._init_extensions()
 
-        for ext in extensions:
+    def _init_extensions(self) -> None:
+        for ext in self.extensions:
             if isinstance(ext, OnApplicationInit):
                 ext.on_app_init(self)
 
     @asynccontextmanager
     async def _lifespan(self) -> AsyncIterator[None]:
-        for ext in self._on_shutdown_extensions[::-1]:
+        on_startup = [ext for ext in self.extensions if isinstance(ext, OnApplicationStartup)]
+        on_shutdown = [ext for ext in self.extensions if isinstance(ext, OnApplicationShutdown)]
+
+        for ext in on_shutdown[::-1]:
             self._exit_stack.push_async_callback(ext.on_app_shutdown, self)
 
         for manager in self._lifespan_managers:
@@ -60,7 +71,7 @@ class Application:
                 manager = manager(self)  # noqa: PLW2901
             await self._exit_stack.enter_async_context(manager)
 
-            for on_startup_ext in self._on_startup_extensions:
+            for on_startup_ext in on_startup:
                 await on_startup_ext.on_app_startup(self)
 
             yield

@@ -3,7 +3,7 @@ from __future__ import annotations
 import functools
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any, Generic, TypeAlias
+from typing import TYPE_CHECKING, Any, Generic, Self, TypeAlias
 
 from lattice.ext.mediator.handlers.handler import RequestT, ResponseT
 
@@ -37,11 +37,13 @@ class MiddlewareChain:
     def __init__(self) -> None:
         self._chain: list[AnyMiddleware] = []
 
-    def set(self, chain: Sequence[AnyMiddleware]) -> None:
+    def set(self, chain: Sequence[AnyMiddleware]) -> Self:
         self._chain = list(chain)
+        return self
 
-    def add(self, middleware: AnyMiddleware) -> None:
+    def add(self, middleware: AnyMiddleware) -> Self:
         self._chain.append(middleware)
+        return self
 
     def wrap(self, handle: HandleType[RequestT, ResponseT]) -> HandleType[RequestT, ResponseT]:
         for middleware in reversed(self._chain):

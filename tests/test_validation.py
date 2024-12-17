@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import re
+from typing import NewType
 
 import pytest
 
 from lattice.application import Application
 from lattice.di import Scoped
 from lattice.ext.validation import ModuleValidationError, ValidationExtension
-from lattice.modules import Module
+from lattice.module import Module
 from tests.mock import DummyDI
 
 
@@ -18,6 +19,18 @@ class A:
 class B:
     def __init__(self, a: A) -> None:
         self._a = a
+
+
+C = NewType('C', A)
+
+
+class D:
+    def __init__(self, c: C) -> None:
+        self._c = c
+
+
+def _impl() -> int:
+    return 1
 
 
 @pytest.mark.parametrize(
@@ -53,8 +66,8 @@ def test_inaccessible(imports: bool, exports: bool) -> None:
 
 
 def test_ok() -> None:
-    a = Module(name='A', providers=[Scoped(A)], exports=[A])
-    b = Module(name='B', providers=[Scoped(B)], imports=[a])
+    a = Module(name='A', providers=[Scoped(A), Scoped(_impl, C)], exports=[A, C])
+    b = Module(name='B', providers=[Scoped(B), Scoped(D)], imports=[a])
     Application(
         'app',
         modules=[a, b],
