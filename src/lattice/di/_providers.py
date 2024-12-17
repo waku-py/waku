@@ -78,7 +78,7 @@ class DependencyProvider(ABC):
     _token: contextvars.Token[InjectionContext] | None
 
     @abstractmethod
-    def register(self, provider: Provider[Any]) -> None: ...
+    def register(self, *providers: Provider[Any]) -> None: ...
 
     @contextlib.asynccontextmanager
     async def context(self) -> AsyncIterator[InjectionContext]:

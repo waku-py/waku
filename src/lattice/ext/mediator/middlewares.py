@@ -34,12 +34,8 @@ AnyMiddleware = Middleware[Any, Any]
 
 
 class MiddlewareChain:
-    def __init__(self) -> None:
-        self._chain: list[AnyMiddleware] = []
-
-    def set(self, chain: Sequence[AnyMiddleware]) -> Self:
-        self._chain = list(chain)
-        return self
+    def __init__(self, chain: Sequence[AnyMiddleware] = ()) -> None:
+        self._chain: list[AnyMiddleware] = list(chain)
 
     def add(self, middleware: AnyMiddleware) -> Self:
         self._chain.append(middleware)

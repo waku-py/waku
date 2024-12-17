@@ -30,12 +30,14 @@ class ValidationExtension(OnApplicationInit):
         self.strict: Final = strict
 
     def on_app_init(self, app: Application) -> None:
+        # fmt: off
         global_providers = {
             provider
-            for module in app.module.iter_submodules()
+            for module in app.iter_submodules()
             for provider in _module_providers(module)
             if module.is_global
         }
+        # fmt: on
 
         for module in app.modules:
             for provider in module.providers:
@@ -69,7 +71,7 @@ def _provider_dependencies(provider: Provider[Any]) -> Sequence[type[object]]:
     return tuple(params.values())
 
 
-def _is_imported_dependency(dependency: type[Any], imported_module: Module) -> bool:
+def _is_imported_dependency(dependency: type[object], imported_module: Module) -> bool:
     # fmt: off
     return (
         dependency in _module_providers(imported_module)

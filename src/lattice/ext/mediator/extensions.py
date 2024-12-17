@@ -34,7 +34,9 @@ class MediatorAppExtension(OnApplicationInit):
 
         request_map = RequestMap()
         for module in app.modules:
-            module_ext = next((ext for ext in module.extensions if isinstance(ext, MediatorModuleExtension)), None)
+            module_ext = next(
+                (ext for ext in module.module_extensions if isinstance(ext, MediatorModuleExtension)), None
+            )
             if not module_ext:
                 continue
 

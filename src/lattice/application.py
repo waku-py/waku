@@ -4,6 +4,7 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager, nullcontext
 from typing import TYPE_CHECKING, Any, Final, Self, TypeAlias
 
+from lattice.di import Object
 from lattice.ext import DEFAULT_EXTENSIONS
 from lattice.extensions import (
     ApplicationExtension,
@@ -29,7 +30,7 @@ ApplicationLifespan: TypeAlias = (
 )
 
 
-class Application:
+class Application(Module):
     def __init__(
         self,
         name: str,
@@ -40,14 +41,14 @@ class Application:
         extensions: Sequence[ApplicationExtension] = DEFAULT_EXTENSIONS,
         lifespan: Sequence[ApplicationLifespan] = (),
     ) -> None:
-        self.module: Final = Module(
+        super().__init__(
             name=name,
             providers=providers,
             imports=modules,
             is_global=True,
         )
-        self.extensions: Final = extensions
 
+        self.extensions: Final = extensions
         self.dependency_provider: Final = dependency_provider
 
         self._lifespan_managers: list[ApplicationLifespan] = list(lifespan) or [nullcontext()]
@@ -56,25 +57,13 @@ class Application:
         self._init()
 
     @property
-    def name(self) -> str:
-        return self.module.name
-
-    @property
     def modules(self) -> Sequence[Module]:
-        return self.module.imports
-
-    @property
-    def providers(self) -> Sequence[Provider[Any]]:
-        return self.module.providers
-
-    @property
-    def dp(self) -> DependencyProvider:
-        return self.dependency_provider
+        return self.imports
 
     def _init(self) -> None:
-        for module in self.module.iter_submodules():
-            for provider in module.providers:
-                self.dependency_provider.register(provider)
+        self.dependency_provider.register(Object(self))
+        for module in self.iter_submodules():
+            self.dependency_provider.register(*module.providers)
 
         for ext in self.extensions:
             if isinstance(ext, OnApplicationInit):
@@ -111,9 +100,6 @@ class Application:
         exc_tb: TracebackType | None,
     ) -> None:
         await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)
-
-    def __str__(self) -> str:
-        return self.__repr__()
 
     def __repr__(self) -> str:
         return f'Application[{self.name}]'

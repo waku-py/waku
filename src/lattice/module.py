@@ -27,7 +27,7 @@ class Module:
         self.providers: Final = providers
         self.imports: Final = imports
         self.exports: Final = exports
-        self.extensions: Final = extensions
+        self.module_extensions: Final = extensions
         self.is_global: Final = is_global
 
         self._init_extensions()
@@ -37,7 +37,7 @@ class Module:
         yield from self.imports
 
     def _init_extensions(self) -> None:
-        for ext in self.extensions:
+        for ext in self.module_extensions:
             if isinstance(ext, OnModuleInit):
                 ext.on_module_init(self)
 

@@ -19,14 +19,12 @@ class AioinjectDependencyProvider(DependencyProvider):
         self._container = container or aioinject.Container()
         self._exit_stack = AsyncExitStack()
 
-    def register(self, provider: Provider[Any]) -> None:
-        provider_type = self._map_provider(provider)
-        self._container.register(provider_type(provider.impl, provider.type_))  # type: ignore[call-arg]
+    def register(self, *providers: Provider[Any]) -> None:
+        self._container.register(*[self._map_provider(provider) for provider in providers])
 
     @contextmanager
     def override(self, provider: Provider[Any]) -> Iterator[None]:
-        provider_type = self._map_provider(provider)
-        override_provider = provider_type(provider.impl, provider.type_)  # type: ignore[call-arg]
+        override_provider = self._map_provider(provider)
         with self._container.override(override_provider):
             yield
 
@@ -40,7 +38,7 @@ class AioinjectDependencyProvider(DependencyProvider):
             return cast(InjectionContext, nullcontext(current_context))
         return cast(InjectionContext, self._container.context())
 
-    def _map_provider(self, provider: Provider[Any]) -> type[aioinject.Provider[Any]]:  # noqa: PLR6301
+    def _map_provider(self, provider: Provider[Any]) -> aioinject.Provider[Any]:  # noqa: PLR6301
         provider_type_map: dict[type[Provider[Any]], type[aioinject.Provider[Any]]] = {
             Transient: aioinject.Transient,
             Scoped: aioinject.Scoped,
@@ -48,7 +46,9 @@ class AioinjectDependencyProvider(DependencyProvider):
             Object: aioinject.Object,
         }
         try:
-            return provider_type_map[type(provider)]
+            provider_type = provider_type_map[type(provider)]
         except KeyError:
             msg = 'Unknown provider type'
             raise NotImplementedError(msg) from None
+
+        return provider_type(provider.impl, provider.type_)  # type: ignore[call-arg]
