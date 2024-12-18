@@ -4,11 +4,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
-from lattice import Application, Module
-from lattice.di import Injected, inject
-from lattice.di.contrib.aioinject import AioinjectDependencyProvider
-from lattice.ext import DEFAULT_EXTENSIONS
-from lattice.ext.mediator import (
+from waku import Application, Module
+from waku.di import Injected, inject
+from waku.di.contrib.aioinject import AioinjectDependencyProvider
+from waku.ext import DEFAULT_EXTENSIONS
+from waku.ext.mediator import (
     Mediator,
     MediatorAppExtension,
     MediatorModuleExtension,
@@ -17,7 +17,7 @@ from lattice.ext.mediator import (
     RequestMap,
     Response,
 )
-from lattice.extensions import OnApplicationShutdown, OnApplicationStartup
+from waku.extensions import OnApplicationShutdown, OnApplicationStartup
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

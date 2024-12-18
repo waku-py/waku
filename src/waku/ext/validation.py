@@ -6,14 +6,14 @@ import warnings
 from functools import cache
 from typing import TYPE_CHECKING, Any, Final
 
-from lattice.extensions import OnApplicationInit
+from waku.extensions import OnApplicationInit
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from lattice.application import Application
-    from lattice.di import Provider
-    from lattice.module import Module
+    from waku.application import Application
+    from waku.di import Provider
+    from waku.module import Module
 
 __all__ = [
     'ModuleValidationError',

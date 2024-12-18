@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 import aioinject
 from aioinject.context import context_var as aioinject_context
 
-from lattice.di import DependencyProvider, InjectionContext, Object, Provider, Scoped, Singleton, Transient
+from waku.di import DependencyProvider, InjectionContext, Object, Provider, Scoped, Singleton, Transient
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator

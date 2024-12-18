@@ -1,5 +1,13 @@
 version = 1
-requires-python = ">=3.11"
+requires-python = ">=3.11, <3.14"
+resolution-markers = [
+    "python_full_version < '3.13'",
+    "python_full_version >= '3.13' and sys_platform == 'never'",
+    "python_full_version >= '3.13' and sys_platform != 'never'",
+]
+
+[manifest]
+overrides = [{ name = "msgspec", marker = "python_full_version == '3.13.*' and sys_platform == 'never'" }]
 
 [[package]]
 name = "aioinject"
@@ -398,75 +406,6 @@ wheels = [
 ]
 
 [[package]]
-name = "lattice-py"
-version = "0.1.0"
-source = { editable = "." }
-
-[package.optional-dependencies]
-aioinject = [
-    { name = "aioinject" },
-]
-litestar = [
-    { name = "litestar", marker = "python_full_version < '3.13'" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pip-audit" },
-    { name = "rich" },
-    { name = "setuptools" },
-]
-lint = [
-    { name = "deptry" },
-    { name = "gitlint" },
-    { name = "pre-commit" },
-    { name = "ruff" },
-]
-test = [
-    { name = "pytest" },
-    { name = "pytest-archon" },
-    { name = "pytest-clarity" },
-    { name = "pytest-cov" },
-    { name = "pytest-mock" },
-    { name = "pytest-randomly" },
-]
-typecheck = [
-    { name = "mypy" },
-    { name = "types-setuptools" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aioinject", marker = "extra == 'aioinject'", specifier = ">=0.35.3" },
-    { name = "litestar", marker = "python_full_version < '3.13' and extra == 'litestar'", specifier = ">2" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pip-audit", specifier = ">=2.7.3" },
-    { name = "rich", specifier = ">=13.9.4" },
-    { name = "setuptools", specifier = ">=75.6.0" },
-]
-lint = [
-    { name = "deptry", specifier = ">=0.21.1" },
-    { name = "gitlint", specifier = ">=0.19.1" },
-    { name = "pre-commit", specifier = ">=4.0.1" },
-    { name = "ruff", specifier = ">=0.8.3" },
-]
-test = [
-    { name = "pytest", specifier = ">=8.3.4" },
-    { name = "pytest-archon", specifier = ">=0.0.6" },
-    { name = "pytest-clarity", specifier = ">=1.0.1" },
-    { name = "pytest-cov", specifier = ">=6.0.0" },
-    { name = "pytest-mock", specifier = ">=3.14.0" },
-    { name = "pytest-randomly", specifier = ">=3.16.0" },
-]
-typecheck = [
-    { name = "mypy", specifier = ">=1.13.0" },
-    { name = "types-setuptools", specifier = ">=75.6.0.20241126" },
-]
-
-[[package]]
 name = "license-expression"
 version = "30.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -487,7 +426,7 @@ dependencies = [
     { name = "click" },
     { name = "httpx" },
     { name = "litestar-htmx" },
-    { name = "msgspec" },
+    { name = "msgspec", marker = "python_full_version >= '3.13' and sys_platform == 'never'" },
     { name = "multidict" },
     { name = "polyfactory" },
     { name = "pyyaml" },
@@ -507,6 +446,35 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/c9/0c/06ab03ee497d207dd8cb7588d1940be0b373a8ffdc7be3ec6d7e91c17ae2/litestar_htmx-0.4.1.tar.gz", hash = "sha256:ba2537008eb8cc18bfc8bee5cecb280924c7818bb1c066d79eae4b221696ca08", size = 101877 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9d/99/3ea64a79a2f4fea5225ccd0128201a3b8eab5e216b8fba8b778b8c462f29/litestar_htmx-0.4.1-py3-none-any.whl", hash = "sha256:ba2a8ff1e210f21980735b9cde13d239a2b7c3627cb4aeb425d66f4a314d1a59", size = 9970 },
+]
+
+[[package]]
+name = "litestar-msgspec"
+version = "0.19.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6f/ef/028fa1a883718745587efb53ee639176ac4c0724ed38ea86cb2c6b8b0d96/litestar-msgspec-0.19.0.tar.gz", hash = "sha256:f4da35bcf59ede024ed65db774a30fd0f503f435f33b275abbdaf2f75b5fc88d", size = 214948 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c6/66/f60f0661d80b0133dd0778a149863118bc0184d9be29b424dd457c29a58b/litestar_msgspec-0.19.0-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:742de2a703ec261e98846ee426fc8362bff3382399ceca4fb6064e32850d27d9", size = 187806 },
+    { url = "https://files.pythonhosted.org/packages/e2/96/f63b1fb4b112adfca6f69428495d7cddcbcfe5b12a5e69b587795043d966/litestar_msgspec-0.19.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:dd6289755bb26807b3cb914b3ac86d3850d406dccb4ef5b14203eac844ba20cc", size = 182071 },
+    { url = "https://files.pythonhosted.org/packages/a3/e4/1e93e47c0619868a348e3b318d3252e4514086ddff71ae5701b9ca6e332c/litestar_msgspec-0.19.0-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:85a463141ac322db32f42b4b213fd44ed74efd22fb8ad1dbdc9d96cb14320ecd", size = 208893 },
+    { url = "https://files.pythonhosted.org/packages/99/d9/1545e1646294dfb2ce2f3802b4bfc66107f8e802e47590efdd0ead5963b1/litestar_msgspec-0.19.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:691dc06799c4756aa825bf076d42bdfb747d2f825d37c78d6853a072aacceb9d", size = 210547 },
+    { url = "https://files.pythonhosted.org/packages/04/14/05d1c1ffa2bb7490d642fbc2aa50f571a1ddd042d6d81e5f9338830b931a/litestar_msgspec-0.19.0-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:e0fd5d4de6e203c7fff27efe7e6a6f36ca3ddb249d80b54b072bb505d2fc5b3d", size = 213897 },
+    { url = "https://files.pythonhosted.org/packages/f2/e5/fe57237ae73dd94dedce3887fcc4e6d4229ee22ef8bde32c5e5de58dee36/litestar_msgspec-0.19.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:2bef1c7b8f80a14b8d346de1c16710ecd2d8d56264eda328802308ee0468f5bf", size = 216736 },
+    { url = "https://files.pythonhosted.org/packages/36/94/1f8dcc592d259a9fec6e4d2258e6297957456e085a41eee161b32e7ed5f6/litestar_msgspec-0.19.0-cp311-cp311-win_amd64.whl", hash = "sha256:0cedd10334a9fe3686b06e7a42ff74e0e7271812326da8b20e29dee98b74ad0f", size = 186025 },
+    { url = "https://files.pythonhosted.org/packages/1c/11/3d7296fab23a3ef3c47b9089f973eab9b1254cb95cff3641dd516499391e/litestar_msgspec-0.19.0-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:76f39091e0c7ef1bcec23528552997e6cef691a960c8523ddde7488ba70da252", size = 190346 },
+    { url = "https://files.pythonhosted.org/packages/89/7e/c57b9d17fa0c0fa28473a4c0016f8032c5a175b78a89b0ffbe36f72bc54d/litestar_msgspec-0.19.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:a33b036d6fb26be255800df092dd77e7e44b9b45bb60ffc62491a8a49fbf70e6", size = 183773 },
+    { url = "https://files.pythonhosted.org/packages/ca/d3/fc6de79d6753ca91c44363d7b5a4ddef73451789af4028fdd71f4d3a3087/litestar_msgspec-0.19.0-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:753f4cad61b525ada4b1bff2d875aa822f1acfd3bac9b24e9cc3554caf01e3a7", size = 210499 },
+    { url = "https://files.pythonhosted.org/packages/6b/89/f9e0e2ba805f987230e3f3fd72f638d00dd7f7ca9a5a9a03d69b5dd60f2d/litestar_msgspec-0.19.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b134b1e5f1cd6e0c986ed6bb4d410a04a36bffdd53e74c4817bca2cd67290a58", size = 213457 },
+    { url = "https://files.pythonhosted.org/packages/8c/3a/cf3722f5e1fd346a475f92c839bf5fcdcea89759a5df33da1b34ff30aad2/litestar_msgspec-0.19.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:0c0c67a4779a7e3b0215063da1c96a09c0f0595dae6fda1a64db8aecca9862ee", size = 213953 },
+    { url = "https://files.pythonhosted.org/packages/8b/de/714235b338d5dafccb6e7dadee4c845af2b145c95a13d286e05bc3580c97/litestar_msgspec-0.19.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:c7c413426d63c59876b3adbd9b402380893a73c1b427fec1ec621def0a7fe604", size = 218985 },
+    { url = "https://files.pythonhosted.org/packages/e3/93/23f93c6be0871e6ab8acafd0b1d1752129af98b76cf52cd9a95a648c481c/litestar_msgspec-0.19.0-cp312-cp312-win_amd64.whl", hash = "sha256:813a5b4509f70a7b4635b98d6f632ef7b6c2a84961edbedb9a2f89afb0851add", size = 187308 },
+    { url = "https://files.pythonhosted.org/packages/c3/63/9b1fcc1c3e0f85a18df6b98ca7a4815d7eed904ef54052c1278e0619234a/litestar_msgspec-0.19.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:42a6378c80875bb96888f445c0d62017675630cb4334c523272f7094cb2c50a2", size = 190363 },
+    { url = "https://files.pythonhosted.org/packages/53/e3/f94475705bf36ee3e02b95f611cc6b0c0b3d07e76d6b40be32b21d82bfa7/litestar_msgspec-0.19.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:0b80164da4fb8bfbdd0016925bbecf65ae25d37f602fc03bf079fe4d6f5040b1", size = 183815 },
+    { url = "https://files.pythonhosted.org/packages/59/1f/be0daa3756ab9a96e8f0c64729e6918737f2977d366ba373751414a72f59/litestar_msgspec-0.19.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:15232e2b3fb7f4e03797778b334c50f435c35226164b07313ebfda60c43cc164", size = 210514 },
+    { url = "https://files.pythonhosted.org/packages/c1/a8/eaf7d0751b61d576ac16cffba5ad79a75c8705a20525a1eb8a3d69544af4/litestar_msgspec-0.19.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b77f5e98e0c97a7f1ec71bf067cc03e9a0749e7d0e7aba3c1dfa20807e9a96ee", size = 213429 },
+    { url = "https://files.pythonhosted.org/packages/70/d5/3d4c185b6cfabcd5aaf75c099745203678d3dbf69b3d7f30c2f5cd9a7bc1/litestar_msgspec-0.19.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:1cec352a363d078c71ff1deacfbfeb978d6d16ad781a4415d4283b6566294fae", size = 213891 },
+    { url = "https://files.pythonhosted.org/packages/52/99/0b65d96a5a1281fd70ba97896f97e546d8aa757b3c2b9fd27cfa1cca8307/litestar_msgspec-0.19.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:f5acb0f95e91739b163edf3e3d58c9c777b8f5d1c7069fcb59bd0ae945cc739f", size = 218991 },
+    { url = "https://files.pythonhosted.org/packages/31/b5/c004eda2eaf423f60684c12fc7da178794ff6525c7dcb58801a866a353c3/litestar_msgspec-0.19.0-cp313-cp313-win_amd64.whl", hash = "sha256:26d680cd2a0924f3fda0cd90d77a6e6715fffc3da985e1ef7d53d5157940dece", size = 187272 },
 ]
 
 [[package]]
@@ -576,22 +544,6 @@ name = "msgspec"
 version = "0.18.6"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/5e/fb/42b1865063fddb14dbcbb6e74e0a366ecf1ba371c4948664dde0b0e10f95/msgspec-0.18.6.tar.gz", hash = "sha256:a59fc3b4fcdb972d09138cb516dbde600c99d07c38fd9372a6ef500d2d031b4e", size = 216757 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/15/20/278def3822dec807be1e2a734ba9547500ff06667be9dda00ab5d277d605/msgspec-0.18.6-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:e77e56ffe2701e83a96e35770c6adb655ffc074d530018d1b584a8e635b4f36f", size = 200058 },
-    { url = "https://files.pythonhosted.org/packages/25/8c/75bfafb040934dd3eb46234a2bd4d8fcc7b646f77440866f954b60e0886b/msgspec-0.18.6-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:d5351afb216b743df4b6b147691523697ff3a2fc5f3d54f771e91219f5c23aaa", size = 189108 },
-    { url = "https://files.pythonhosted.org/packages/0d/e6/5dd960a7678cbaf90dc910611a0e700775ee341876f029c3c987122afe84/msgspec-0.18.6-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:c3232fabacef86fe8323cecbe99abbc5c02f7698e3f5f2e248e3480b66a3596b", size = 208138 },
-    { url = "https://files.pythonhosted.org/packages/6a/73/1b2f991dc26899d2f999c938cbc82c858b3cb7e3ccaad317b32760dbe1da/msgspec-0.18.6-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e3b524df6ea9998bbc99ea6ee4d0276a101bcc1aa8d14887bb823914d9f60d07", size = 209538 },
-    { url = "https://files.pythonhosted.org/packages/29/d4/2fb2d40b3bde566fd14bf02bf503eea20a912a02cdf7ff100629906c9094/msgspec-0.18.6-cp311-cp311-musllinux_1_1_aarch64.whl", hash = "sha256:37f67c1d81272131895bb20d388dd8d341390acd0e192a55ab02d4d6468b434c", size = 213571 },
-    { url = "https://files.pythonhosted.org/packages/59/5a/c2aeeefd78946713047637f0c422c0b8b31182eb9bbed0068e906cc8aca0/msgspec-0.18.6-cp311-cp311-musllinux_1_1_x86_64.whl", hash = "sha256:d0feb7a03d971c1c0353de1a8fe30bb6579c2dc5ccf29b5f7c7ab01172010492", size = 215785 },
-    { url = "https://files.pythonhosted.org/packages/51/c6/0a8ae23c91ba1e6d58ddb089bba4ce8dad5815411b4a2bb40a5f15d2ab73/msgspec-0.18.6-cp311-cp311-win_amd64.whl", hash = "sha256:41cf758d3f40428c235c0f27bc6f322d43063bc32da7b9643e3f805c21ed57b4", size = 185877 },
-    { url = "https://files.pythonhosted.org/packages/1d/b5/c8fbf1db814eb29eda402952374b594b2559419ba7ec6d0997a9e5687530/msgspec-0.18.6-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:d86f5071fe33e19500920333c11e2267a31942d18fed4d9de5bc2fbab267d28c", size = 202109 },
-    { url = "https://files.pythonhosted.org/packages/d7/9a/235d2dbab078a0b8e6f338205dc59be0b027ce000554ee6a9c41b19339e5/msgspec-0.18.6-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:ce13981bfa06f5eb126a3a5a38b1976bddb49a36e4f46d8e6edecf33ccf11df1", size = 190281 },
-    { url = "https://files.pythonhosted.org/packages/0e/f2/f864ed36a8a62c26b57c3e08d212bd8f3d12a3ca3ef64600be5452aa3c82/msgspec-0.18.6-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:e97dec6932ad5e3ee1e3c14718638ba333befc45e0661caa57033cd4cc489466", size = 210305 },
-    { url = "https://files.pythonhosted.org/packages/73/16/dfef780ced7d690dd5497846ed242ef3e27e319d59d1ddaae816a4f2c15e/msgspec-0.18.6-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ad237100393f637b297926cae1868b0d500f764ccd2f0623a380e2bcfb2809ca", size = 212510 },
-    { url = "https://files.pythonhosted.org/packages/c1/90/f5b3a788c4b3d92190e3345d1afa3dd107d5f16b8194e1f61b72582ee9bd/msgspec-0.18.6-cp312-cp312-musllinux_1_1_aarch64.whl", hash = "sha256:db1d8626748fa5d29bbd15da58b2d73af25b10aa98abf85aab8028119188ed57", size = 214844 },
-    { url = "https://files.pythonhosted.org/packages/ce/0b/d4cc1b09f8dfcc6cc4cc9739c13a86e093fe70257b941ea9feb15df22996/msgspec-0.18.6-cp312-cp312-musllinux_1_1_x86_64.whl", hash = "sha256:d70cb3d00d9f4de14d0b31d38dfe60c88ae16f3182988246a9861259c6722af6", size = 217113 },
-    { url = "https://files.pythonhosted.org/packages/3f/76/30d8f152299f65c85c46a2cbeaf95ad1d18516b5ce730acdaef696d4cfe6/msgspec-0.18.6-cp312-cp312-win_amd64.whl", hash = "sha256:1003c20bfe9c6114cc16ea5db9c5466e49fae3d7f5e2e59cb70693190ad34da0", size = 187184 },
-]
 
 [[package]]
 name = "multidict"
@@ -1182,6 +1134,79 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/bf/75/53316a5a8050069228a2f6d11f32046cfa94fbb6cc3f08703f59b873de2e/virtualenv-20.28.0.tar.gz", hash = "sha256:2c9c3262bb8e7b87ea801d715fae4495e6032450c71d2309be9550e7364049aa", size = 7650368 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/10/f9/0919cf6f1432a8c4baa62511f8f8da8225432d22e83e3476f5be1a1edc6e/virtualenv-20.28.0-py3-none-any.whl", hash = "sha256:23eae1b4516ecd610481eda647f3a7c09aea295055337331bb4e6892ecce47b0", size = 4276702 },
+]
+
+[[package]]
+name = "waku"
+version = "0.1.0"
+source = { editable = "." }
+
+[package.optional-dependencies]
+aioinject = [
+    { name = "aioinject" },
+]
+litestar = [
+    { name = "litestar" },
+    { name = "litestar-msgspec", marker = "python_full_version >= '3.13'" },
+    { name = "msgspec", marker = "python_full_version >= '3.13' and sys_platform == 'never'" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pip-audit" },
+    { name = "rich" },
+    { name = "setuptools" },
+]
+lint = [
+    { name = "deptry" },
+    { name = "gitlint" },
+    { name = "pre-commit" },
+    { name = "ruff" },
+]
+test = [
+    { name = "pytest" },
+    { name = "pytest-archon" },
+    { name = "pytest-clarity" },
+    { name = "pytest-cov" },
+    { name = "pytest-mock" },
+    { name = "pytest-randomly" },
+]
+typecheck = [
+    { name = "mypy" },
+    { name = "types-setuptools" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aioinject", marker = "extra == 'aioinject'", specifier = ">=0.35.3" },
+    { name = "litestar", marker = "extra == 'litestar'", specifier = ">2" },
+    { name = "litestar-msgspec", marker = "python_full_version == '3.13.*' and extra == 'litestar'" },
+    { name = "msgspec", marker = "python_full_version < '3.13' and extra == 'litestar'" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pip-audit", specifier = ">=2.7.3" },
+    { name = "rich", specifier = ">=13.9.4" },
+    { name = "setuptools", specifier = ">=75.6.0" },
+]
+lint = [
+    { name = "deptry", specifier = ">=0.21.1" },
+    { name = "gitlint", specifier = ">=0.19.1" },
+    { name = "pre-commit", specifier = ">=4.0.1" },
+    { name = "ruff", specifier = ">=0.8.3" },
+]
+test = [
+    { name = "pytest", specifier = ">=8.3.4" },
+    { name = "pytest-archon", specifier = ">=0.0.6" },
+    { name = "pytest-clarity", specifier = ">=1.0.1" },
+    { name = "pytest-cov", specifier = ">=6.0.0" },
+    { name = "pytest-mock", specifier = ">=3.14.0" },
+    { name = "pytest-randomly", specifier = ">=3.16.0" },
+]
+typecheck = [
+    { name = "mypy", specifier = ">=1.13.0" },
+    { name = "types-setuptools", specifier = ">=75.6.0.20241126" },
 ]
 
 [[package]]

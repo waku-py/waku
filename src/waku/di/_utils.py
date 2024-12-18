@@ -8,12 +8,12 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import NewType
 
-from lattice.di._markers import Inject
+from waku.di._markers import Inject
 
 if typing.TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-    from lattice.di._types import FactoryType
+    from waku.di._types import FactoryType
 
 __all__ = [
     'Dependency',

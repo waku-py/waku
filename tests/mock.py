@@ -1,7 +1,7 @@
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
 from typing import Any, ClassVar
 
-from lattice.di import DependencyProvider, InjectionContext, Provider
+from waku.di import DependencyProvider, InjectionContext, Provider
 
 
 class DummyDI(DependencyProvider):

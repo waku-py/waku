@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from lattice.ext.mediator.handlers.dispatcher import RequestDispatcher
+from waku.ext.mediator.handlers.dispatcher import RequestDispatcher
 
 if TYPE_CHECKING:
-    from lattice.di import DependencyProvider
-    from lattice.ext.mediator.handlers.handler import Request, ResponseT
-    from lattice.ext.mediator.handlers.map import RequestMap
-    from lattice.ext.mediator.middlewares import MiddlewareChain
+    from waku.di import DependencyProvider
+    from waku.ext.mediator.handlers.handler import Request, ResponseT
+    from waku.ext.mediator.handlers.map import RequestMap
+    from waku.ext.mediator.middlewares import MiddlewareChain
 
 
 __all__ = ['Mediator']

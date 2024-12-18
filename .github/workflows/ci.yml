@@ -7,7 +7,7 @@ env:
 
 jobs:
   lint:
-    name: Lint ${{ matrix.python-version }}
+    name: Run "${{ matrix.job }}" on ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -32,7 +32,7 @@ jobs:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install uv
+      - name: Install UV
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
@@ -43,12 +43,12 @@ jobs:
       - run: ${{ matrix.job }}
 
   test:
-    name: Test ${{ matrix.python-version }}
+    name: Test on ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ '3.11', '3.12' ]
+        python-version: [ "3.11", "3.12", "3.13" ]
 
     steps:
       - uses: actions/checkout@v4
@@ -64,7 +64,7 @@ jobs:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install uv
+      - name: Install UV
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true

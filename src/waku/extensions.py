@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, TypeAlias, runtime_checkable
 
 if TYPE_CHECKING:
-    from lattice.application import Application
-    from lattice.module import Module
+    from waku.application import Application
+    from waku.module import Module
 
 
 __all__ = [

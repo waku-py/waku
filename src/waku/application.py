@@ -4,21 +4,21 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager, nullcontext
 from typing import TYPE_CHECKING, Any, Final, Self, TypeAlias
 
-from lattice.di import Object
-from lattice.ext import DEFAULT_EXTENSIONS
-from lattice.extensions import (
+from waku.di import Object
+from waku.ext import DEFAULT_EXTENSIONS
+from waku.extensions import (
     ApplicationExtension,
     OnApplicationInit,
     OnApplicationShutdown,
     OnApplicationStartup,
 )
-from lattice.module import Module
+from waku.module import Module
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
     from types import TracebackType
 
-    from lattice.di import DependencyProvider, Provider
+    from waku.di import DependencyProvider, Provider
 
 __all__ = [
     'Application',

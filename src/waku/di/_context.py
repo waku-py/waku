@@ -6,7 +6,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Iterable
     from types import TracebackType
 
-    from lattice.di._utils import Dependency
+    from waku.di._utils import Dependency
 
 _T = TypeVar('_T')
 _P = ParamSpec('_P')

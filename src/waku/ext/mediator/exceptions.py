@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from lattice.ext.mediator.handlers.handler import HandlerType, Request
+    from waku.ext.mediator.handlers.handler import HandlerType, Request
 
 
 __all__ = [

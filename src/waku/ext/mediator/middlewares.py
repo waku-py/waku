@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Generic, Self, TypeAlias
 
-from lattice.ext.mediator.handlers.handler import RequestT, ResponseT
+from waku.ext.mediator.handlers.handler import RequestT, ResponseT
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

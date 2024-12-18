@@ -5,12 +5,12 @@ import inspect
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar, overload
 
-from lattice.di._utils import clear_wrapper, collect_dependencies
+from waku.di._utils import clear_wrapper, collect_dependencies
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterable, AsyncIterator, Callable, Coroutine
 
-    from lattice.di._context import InjectionContext
+    from waku.di._context import InjectionContext
 
 
 __all__ = [
@@ -21,7 +21,7 @@ __all__ = [
 _T = TypeVar('_T')
 _P = ParamSpec('_P')
 
-context_var: ContextVar[InjectionContext] = ContextVar('lattice_context')
+context_var: ContextVar[InjectionContext] = ContextVar('waku_context')
 
 
 def inject(function: Callable[_P, _T]) -> Callable[_P, _T]:

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Self, TypeAlias
 
-from lattice.ext.mediator.exceptions import RequestHandlerAlreadyRegistered, RequestHandlerNotFound
-from lattice.ext.mediator.handlers.handler import HandlerType, RequestT, ResponseT
+from waku.ext.mediator.exceptions import RequestHandlerAlreadyRegistered, RequestHandlerNotFound
+from waku.ext.mediator.handlers.handler import HandlerType, RequestT, ResponseT
 
 __all__ = [
     'RequestMap',

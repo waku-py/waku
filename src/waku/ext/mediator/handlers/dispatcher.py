@@ -3,12 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic
 
-from lattice.ext.mediator.handlers.handler import HandlerType, Request, ResponseT
-from lattice.ext.mediator.middlewares import MiddlewareChain
+from waku.ext.mediator.handlers.handler import HandlerType, Request, ResponseT
+from waku.ext.mediator.middlewares import MiddlewareChain
 
 if TYPE_CHECKING:
-    from lattice.di import DependencyProvider
-    from lattice.ext.mediator.handlers.map import RequestMap
+    from waku.di import DependencyProvider
+    from waku.ext.mediator.handlers.map import RequestMap
 
 
 __all__ = [

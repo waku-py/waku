@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
 
-from lattice.di import DependencyProvider, Object, Scoped
-from lattice.ext.mediator.handlers.map import RequestMap
-from lattice.ext.mediator.mediator import Mediator
-from lattice.extensions import OnApplicationInit, OnModuleInit
+from waku.di import DependencyProvider, Object, Scoped
+from waku.ext.mediator.handlers.map import RequestMap
+from waku.ext.mediator.mediator import Mediator
+from waku.extensions import OnApplicationInit, OnModuleInit
 
 if TYPE_CHECKING:
-    from lattice.application import Application
-    from lattice.ext.mediator.handlers.dispatcher import RequestDispatcher
-    from lattice.ext.mediator.middlewares import MiddlewareChain
-    from lattice.module import Module
+    from waku.application import Application
+    from waku.ext.mediator.handlers.dispatcher import RequestDispatcher
+    from waku.ext.mediator.middlewares import MiddlewareChain
+    from waku.module import Module
 
 
 __all__ = [

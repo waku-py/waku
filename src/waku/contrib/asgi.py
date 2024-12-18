@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, MutableMapping
 
-    from lattice.application import Application
+    from waku.application import Application
 
     Scope: TypeAlias = MutableMapping[str, Any]
     Message: TypeAlias = MutableMapping[str, Any]

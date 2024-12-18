@@ -13,15 +13,15 @@ if TYPE_CHECKING:
     from litestar.config.app import AppConfig
     from litestar.types import ASGIApp, Receive, Scope, Send
 
-    from lattice.application import Application
+    from waku.application import Application
 
 __all__ = [
     'ApplicationMiddleware',
     'ApplicationPlugin',
 ]
 
-_STATE_KEY: Final = '__lattice_application__'
-_SCOPE_CONTEXT_KEY: Final = '__lattice_injection_context__'
+_STATE_KEY: Final = '__waku_application__'
+_SCOPE_CONTEXT_KEY: Final = '__waku_injection_context__'
 
 
 class ApplicationMiddleware(MiddlewareProtocol):

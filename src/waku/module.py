@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Final
 
-from lattice.extensions import ModuleExtension, OnModuleInit
+from waku.extensions import ModuleExtension, OnModuleInit
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
-    from lattice.di import Provider
+    from waku.di import Provider
 
 __all__ = ['Module']
 

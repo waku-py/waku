@@ -5,9 +5,9 @@ from abc import ABC, abstractmethod
 from collections.abc import Hashable
 from typing import TYPE_CHECKING, Any, Protocol, Self, TypeVar, runtime_checkable
 
-from lattice.di._context import InjectionContext
-from lattice.di._inject import context_var
-from lattice.di._utils import guess_return_type
+from waku.di._context import InjectionContext
+from waku.di._inject import context_var
+from waku.di._utils import guess_return_type
 
 if TYPE_CHECKING:
     import contextvars
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager, AbstractContextManager
     from types import TracebackType
 
-    from lattice.di._types import FactoryType
+    from waku.di._types import FactoryType
 
 __all__ = [
     'DependencyProvider',

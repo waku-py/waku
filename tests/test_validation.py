@@ -5,11 +5,11 @@ from typing import NewType
 
 import pytest
 
-from lattice.application import Application
-from lattice.di import Scoped
-from lattice.ext.validation import ModuleValidationError, ValidationExtension
-from lattice.module import Module
 from tests.mock import DummyDI
+from waku.application import Application
+from waku.di import Scoped
+from waku.ext.validation import ModuleValidationError, ValidationExtension
+from waku.module import Module
 
 
 class A:
