@@ -22,7 +22,7 @@ __all__ = ['DIScopeMismatch', 'DependenciesAccessible']
 class DependenciesAccessible(ValidationRule):
     """Check if all dependencies of providers are accessible."""
 
-    def validate(self, context: ValidationContext) -> ValidationError | None:
+    def validate(self, context: ValidationContext) -> ValidationError | None:  # noqa: PLR6301
         # fmt: off
         global_providers = {
             provider
@@ -78,7 +78,7 @@ class DIScopeMismatch(ValidationRule):
 
         return None
 
-    def _all_providers(self, app: Application) -> Iterator[Provider[Any]]:
+    def _all_providers(self, app: Application) -> Iterator[Provider[Any]]:  # noqa: PLR6301
         for module in app.iter_submodules():
             yield from module.providers
 
