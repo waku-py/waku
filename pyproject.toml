@@ -271,7 +271,7 @@ default = "semantic-release <semantic-release>"
 # Так же используется в `gitlint_plugins.py` для определения доступных типов коммита
 allowed_tags = ["build", "chore", "ci", "docs", "feat", "fix", "perf", "style", "refactor", "test"]
 minor_tags = ["feat"]
-patch_tags = ["fix", "perf", "build", "chore", "ci", "docs", "style", "refactor", "test"]
+patch_tags = ["fix", "perf"]
 default_bump_level = 0
 
 [tool.semantic_release.remote]
