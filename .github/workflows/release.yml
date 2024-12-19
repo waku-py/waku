@@ -10,6 +10,9 @@ on:
 # default token permissions = none
 permissions: { }
 
+env:
+  COMMON_PYTHON_VERSION: '3.11'
+
 jobs:
   validate:
     uses: ./.github/workflows/validate.yml
@@ -43,6 +46,16 @@ jobs:
       - name: Setup | Force correct release branch on workflow sha
         run: |
           git checkout -B ${{ github.ref_name }}
+
+      - name: Setup | Install Python ${{ env.COMMON_PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.COMMON_PYTHON_VERSION }}
+
+      - name: Setup | Install UV
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
 
       - name: Setup | Download Build Artifacts
         uses: actions/download-artifact@v4
