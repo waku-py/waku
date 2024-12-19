@@ -52,7 +52,7 @@ tasks:
     desc: Format python source files
     deps: [ .uv ]
     cmds:
-      - uv run ruff check --fix-only {{.SOURCES}}
+      - uv run ruff check --fix {{.SOURCES}}
       - uv run ruff format {{.SOURCES}}
 
   typecheck:

@@ -36,6 +36,9 @@ class Provider(Hashable, Protocol[_T]):
     impl: Any
     type_: type[_T]
 
+    def __repr__(self) -> str:
+        return f'{self.__class__.__name__}[{self.type_!r}]'
+
 
 class Scoped(Provider[_T]):
     def __init__(
