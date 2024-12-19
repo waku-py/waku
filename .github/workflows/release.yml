@@ -47,16 +47,6 @@ jobs:
         run: |
           git checkout -B ${{ github.ref_name }}
 
-      - name: Setup | Install Python ${{ env.COMMON_PYTHON_VERSION }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.COMMON_PYTHON_VERSION }}
-
-      - name: Setup | Install UV
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-
       - name: Setup | Download Build Artifacts
         uses: actions/download-artifact@v4
         id: artifact-download
