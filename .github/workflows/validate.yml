@@ -76,19 +76,9 @@ jobs:
       new-release-detected: ${{ steps.build.outputs.new_release_detected }}
       distribution-artifacts: ${{ steps.build.outputs.artifacts_name }}
 
-
   lint:
-    name: Lint | Run "${{ matrix.job }}"
+    name: Lint
     runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: true
-      matrix:
-        job:
-          - task lint
-          - task typecheck
-          - task deptry
-          - task security-audit
 
     steps:
       - name: Setup | Checkout Repository
@@ -116,12 +106,27 @@ jobs:
       - name: Setup | Install dependencies
         run: task install
 
-      - name: Lint | Run "${{ matrix.job }}"
-        run: ${{ matrix.job }}
+      - name: Lint | Ruff
+        id: lint
+        run: task lint
+
+      - name: Lint | Typecheck
+        id: typecheck
+        if: ${{ always() && steps.lint.outcome != 'skipped' }}
+        run: task typecheck
+
+      - name: Lint | Deptry
+        if: ${{ always() && steps.typecheck.outcome != 'skipped' }}
+        run: task deptry
+
+      - name: Lint | Security Audit
+        if: ${{ always() && steps.typecheck.outcome != 'skipped' }}
+        run: task security-audit
 
       - name: Lint | Run gitlint
-        run: uv run --no-sync gitlint
+        run: task gitlint
         continue-on-error: ${{ github.event_name == 'pull_request' }} # Don't enforce gitlint in PR
+
 
   test:
     name: Test on ${{ matrix.python-version }}
