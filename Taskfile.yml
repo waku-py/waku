@@ -87,6 +87,11 @@ tasks:
     deps: [ .uv ]
     cmd: uv run deptry .
 
+  gitlint:
+    desc: Lint git commit
+    deps: [ .uv ]
+    cmd: uv run gitlint
+
   test:
     desc: Run tests without coverage checking
     deps: [ .uv ]
