@@ -1,76 +1,25 @@
 name: CI
 
-on: [ push, pull_request ]
+on:
+  pull_request:
+    types: [ opened, synchronize, reopened, ready_for_review ]
+    branches: # Target branches
+      - master
+
+# default token permissions = none
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   COLUMNS: 120
 
 jobs:
-  lint:
-    name: Run "${{ matrix.job }}" on ${{ matrix.python-version }}
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [ "3.11", "3.12", "3.13" ]
-        job:
-          - task lint
-          - task typecheck
-          - task deptry
-          - task security-audit
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install Task
-        uses: arduino/setup-task@v2
-        with:
-          version: 3.x
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install UV
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-
-      - name: Install dependencies
-        run: task install
-
-      - run: ${{ matrix.job }}
-
-  test:
-    name: Test on ${{ matrix.python-version }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: [ "3.11", "3.12", "3.13" ]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install Task
-        uses: arduino/setup-task@v2
-        with:
-          version: 3.x
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install UV
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-
-      - name: Install dependencies
-        run: task install
-
-      - name: Run tests
-        run: task test
+  validate:
+    uses: ./.github/workflows/validate.yml
+    with:
+      python-versions: '[ "3.11", "3.12", "3.13"]'
+    permissions: { }
+    secrets: { }

@@ -1,10 +1,5 @@
 version = 1
-requires-python = ">=3.11, <3.14"
-resolution-markers = [
-    "python_full_version < '3.13'",
-    "python_full_version >= '3.13' and sys_platform == 'never'",
-    "python_full_version >= '3.13' and sys_platform != 'never'",
-]
+requires-python = ">=3.11"
 
 [manifest]
 overrides = [{ name = "msgspec", marker = "sys_platform == 'never'" }]
