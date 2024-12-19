@@ -2,19 +2,21 @@
 name = "waku"
 version = "0.1.1"
 description = "Microframework for building modular and loosely coupled applications"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11"
 readme = "README.md"
 authors = [
   { name = "Daniil Kharkov", email = "fadeddexofan@gmail.com" },
   { name = "Doctor", email = "thirvondukr@gmail.com" },
 ]
 license = "MIT"
-keywords = ["architecture", "modular", "decoupled"]
+keywords = ["architecture", "modular", "decoupled", "framework"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -25,13 +27,15 @@ classifiers = [
 dependencies = []
 
 [project.urls]
+Changelog = "https://github.com/waku-py/waku/blob/master/CHANGELOG.md"
+Issues = "https://github.com/waku-py/waku/issues"
 Repository = "https://github.com/waku-py/waku"
 
 [project.optional-dependencies]
 aioinject = ["aioinject>=0.35.3"]
 litestar = [
   "litestar>2",
-  "litestar-msgspec",  # TODO: Remove constraint after msgspec update
+  "litestar-msgspec", # TODO: Remove constraint after msgspec update
 ]
 
 [build-system]
@@ -71,7 +75,7 @@ typecheck = [
 [tool.uv]
 default-groups = ["dev", "lint", "test", "typecheck"]
 override-dependencies = [
-    "msgspec; sys_platform == 'never'",  # TODO: Remove constraint after msgspec update
+  "msgspec; sys_platform == 'never'", # TODO: Remove constraint after msgspec update
 ]
 
 
@@ -147,7 +151,7 @@ pylint = { max-args = 7 }
 
 [tool.ruff.lint.per-file-ignores]
 "examples/*" = [
-  "INP001",  # File is part of an implicit namespace package
+  "INP001", # File is part of an implicit namespace package
 ]
 "tests/*" = [
   "FBT001", # Boolean-typed positional argument in function definition
@@ -210,7 +214,6 @@ ignore_missing_imports = true
 # ----- Semantic release settings -----
 [tool.semantic_release]
 build_command = """
-pip install uv
 uv lock
 git add uv.lock
 uv build
@@ -221,22 +224,29 @@ commit_parser = "angular"
 logging_use_named_masks = false
 major_on_zero = false
 allow_zero_version = true
-version_toml = [
-  "pyproject.toml:project.version",
-]
+version_variables = ["src/waku/__init__.py:__version__"]
+version_toml = ["pyproject.toml:project.version"]
 tag_format = "v{version}"
 
 [tool.semantic_release.branches.main]
-match = "(master)"
-prerelease_token = "rc"
+match = "(master|main)"
 prerelease = false
+prerelease_token = "rc"
 
 [tool.semantic_release.changelog]
 mode = "update"
 insertion_flag = "<!-- version list -->"
 default_templates = { changelog_file = "CHANGELOG.md" }
 template_dir = "non-existing-dir"
-exclude_commit_patterns = ['''Merge? .*''']
+exclude_commit_patterns = [
+  '''Merge? .*''',
+  '''build\((?!deps\): .+)''',
+  '''chore(?:\([^)]*?\))?: .+''',
+  '''ci(?:\([^)]*?\))?: .+''',
+  '''refactor(?:\([^)]*?\))?: .+''',
+  '''style(?:\([^)]*?\))?: .+''',
+  '''test(?:\([^)]*?\))?: .+''',
+]
 
 [tool.semantic_release.changelog.environment]
 block_start_string = "{%"
@@ -266,5 +276,6 @@ default_bump_level = 0
 [tool.semantic_release.remote]
 name = "origin"
 type = "github"
-ignore_token_for_push = true
-insecure = false
+
+[tool.semantic_release.publish]
+upload_to_vcs_release = true

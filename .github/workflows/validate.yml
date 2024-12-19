@@ -1,0 +1,170 @@
+---
+name: Validation Pipeline
+
+on:
+  # Enable workflow as callable from another workflow
+  workflow_call:
+    inputs:
+      python-versions:
+        description: 'Python versions to test on (JSON array)'
+        required: true
+        type: string
+    outputs:
+      new-release-detected:
+        description: Boolean string result for if new release is available
+        value: ${{ jobs.build.outputs.new-release-detected }}
+      distribution-artifacts:
+        description: Artifact Download name for the distribution artifacts
+        value: ${{ jobs.build.outputs.distribution-artifacts }}
+
+# set default Token permissions = none
+permissions: { }
+
+env:
+  COMMON_PYTHON_VERSION: '3.11'
+  PSR_VERSION: '9.15.2'
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup | Checkout Repository at workflow sha
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Setup | Force correct release branch on workflow sha
+        run: |
+          git checkout -B ${{ github.ref_name }}
+
+      - name: Setup | Install Python ${{ env.COMMON_PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.COMMON_PYTHON_VERSION }}
+
+      - name: Setup | Install UV
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Build | Create the distribution artifacts
+        id: build
+        run: |
+          uv tool install python-semantic-release==${{ env.PSR_VERSION }}
+          if new_version="$(semantic-release --strict version --print)"; then
+            printf '%s\n' "::notice::Next version will be '$new_version'"
+            printf '%s\n' "new_release_detected=true" >> $GITHUB_OUTPUT
+            semantic-release version --no-commit --no-tag
+          else
+            printf '%s\n' "new_release_detected=false" >> $GITHUB_OUTPUT
+            uv build
+          fi
+          printf '%s\n' "dist_dir=dist/*" >> $GITHUB_OUTPUT
+          printf '%s\n' "artifacts_name=dist" >> $GITHUB_OUTPUT
+
+      - name: Upload | Distribution Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.artifacts_name }}
+          path: ${{ steps.build.outputs.dist_dir }}
+          if-no-files-found: error
+          retention-days: 2
+
+    outputs:
+      new-release-detected: ${{ steps.build.outputs.new_release_detected }}
+      distribution-artifacts: ${{ steps.build.outputs.artifacts_name }}
+
+
+  lint:
+    name: Lint | Run "${{ matrix.job }}"
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: true
+      matrix:
+        job:
+          - task lint
+          - task typecheck
+          - task deptry
+          - task security-audit
+
+    steps:
+      - name: Setup | Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Setup | Install Python ${{ env.COMMON_PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.COMMON_PYTHON_VERSION }}
+
+      - name: Setup | Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup | Install UV
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Setup | Install dependencies
+        run: task install
+
+      - name: Lint | Run "${{ matrix.job }}"
+        run: ${{ matrix.job }}
+
+
+  test:
+    name: Test on ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    needs: lint
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJson(inputs.python-versions) }}
+
+    steps:
+      - name: Setup | Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Setup | Install Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Setup | Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup | Install UV
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Setup | Install dependencies
+        run: |
+          task install
+          uv pip install pytest-github-actions-annotate-failures
+
+      - name: Test | Run pytest
+        id: tests
+        run: task test:all -- --junit-xml=tests/reports/pytest-results.xml
+
+      - name: Report | Upload Test Results
+        uses: mikepenz/action-junit-report@v5.2.0
+        if: ${{ always() && steps.tests.outcome != 'skipped' }}
+        with:
+          report_paths: ./tests/reports/*.xml
+          annotate_only: true
