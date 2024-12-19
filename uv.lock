@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [manifest]
-overrides = [{ name = "msgspec", marker = "python_full_version == '3.13.*' and sys_platform == 'never'" }]
+overrides = [{ name = "msgspec", marker = "sys_platform == 'never'" }]
 
 [[package]]
 name = "aioinject"
@@ -426,7 +426,7 @@ dependencies = [
     { name = "click" },
     { name = "httpx" },
     { name = "litestar-htmx" },
-    { name = "msgspec", marker = "python_full_version >= '3.13' and sys_platform == 'never'" },
+    { name = "msgspec", marker = "sys_platform == 'never'" },
     { name = "multidict" },
     { name = "polyfactory" },
     { name = "pyyaml" },
@@ -1147,8 +1147,7 @@ aioinject = [
 ]
 litestar = [
     { name = "litestar" },
-    { name = "litestar-msgspec", marker = "python_full_version >= '3.13'" },
-    { name = "msgspec", marker = "python_full_version >= '3.13' and sys_platform == 'never'" },
+    { name = "litestar-msgspec" },
 ]
 
 [package.dev-dependencies]
@@ -1180,8 +1179,7 @@ typecheck = [
 requires-dist = [
     { name = "aioinject", marker = "extra == 'aioinject'", specifier = ">=0.35.3" },
     { name = "litestar", marker = "extra == 'litestar'", specifier = ">2" },
-    { name = "litestar-msgspec", marker = "python_full_version == '3.13.*' and extra == 'litestar'" },
-    { name = "msgspec", marker = "python_full_version < '3.13' and extra == 'litestar'" },
+    { name = "litestar-msgspec", marker = "extra == 'litestar'" },
 ]
 
 [package.metadata.requires-dev]

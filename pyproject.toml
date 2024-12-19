@@ -31,8 +31,7 @@ Repository = "https://github.com/waku-py/waku"
 aioinject = ["aioinject>=0.35.3"]
 litestar = [
   "litestar>2",
-  "msgspec; python_version<'3.13'",
-  "litestar-msgspec; python_version=='3.13'",  # TODO: Remove constraint after msgspec update
+  "litestar-msgspec",  # TODO: Remove constraint after msgspec update
 ]
 
 [build-system]
@@ -72,7 +71,7 @@ typecheck = [
 [tool.uv]
 default-groups = ["dev", "lint", "test", "typecheck"]
 override-dependencies = [
-    "msgspec; sys_platform == 'never' and python_version=='3.13'",  # TODO: Remove constraint after msgspec update
+    "msgspec; sys_platform == 'never'",  # TODO: Remove constraint after msgspec update
 ]
 
 
@@ -176,7 +175,11 @@ docstring-code-format = true
 [tool.deptry]
 known_first_party = ["waku"]
 
+[tool.deptry.package_module_name_map]
+litestar-msgspec = "msgspec"
+
 [tool.deptry.per_rule_ignores]
+DEP002 = ["litestar-msgspec"]
 DEP004 = ["gitlint"]
 
 
