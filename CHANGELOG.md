@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v0.1.2 (2024-12-19)
+
+### Continuous Integration
+
+- Fix semantic release step
+  ([`c516322`](https://github.com/waku-py/waku/commit/c516322cdd49adddef51e30d35b730cc241c8300))
+
+- Fix semantic release step 2
+  ([`176a466`](https://github.com/waku-py/waku/commit/176a466a9e6d8787a7044c3b8ad64a4bd7acdf0a))
+
+- Setup github actions pipelines
+  ([`3f0ec58`](https://github.com/waku-py/waku/commit/3f0ec583b032e6c0a0cd1c1fd70b6eddfb33c34b))
+
+
 ## v0.1.1 (2024-12-19)
 
 ### Chores
