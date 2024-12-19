@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.1.1 (2024-12-19)
+
+### Chores
+
+- **deps**: Use litestar-msgspec with litestar extra on all python version
+  ([`ef60b04`](https://github.com/waku-py/waku/commit/ef60b0403bd1be7a9991cab764f84de482d060fa))
+
+
 ## v0.1.0 (2024-12-18)
 
 ### Bug Fixes
