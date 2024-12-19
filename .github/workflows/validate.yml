@@ -119,6 +119,9 @@ jobs:
       - name: Lint | Run "${{ matrix.job }}"
         run: ${{ matrix.job }}
 
+      - name: Lint | Run gitlint
+        run: uv run --no-sync gitlint
+        continue-on-error: ${{ github.event_name == 'pull_request' }} # Don't enforce gitlint in PR
 
   test:
     name: Test on ${{ matrix.python-version }}
