@@ -10,9 +10,6 @@ on:
 # default token permissions = none
 permissions: { }
 
-env:
-  COMMON_PYTHON_VERSION: '3.11'
-
 jobs:
   validate:
     uses: ./.github/workflows/validate.yml
@@ -49,6 +46,7 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.sha }}
           token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
 
       - name: Setup | Force correct release branch on workflow sha
         run: |
@@ -65,7 +63,7 @@ jobs:
         id: release
         uses: python-semantic-release/python-semantic-release@7b3f71697ccfbaef884e1e754b6364e974b134cf # v9.15.2
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ steps.app-token.outputs.token }}
           git_committer_name: "github-actions"
           git_committer_email: "actions@users.noreply.github.com"
 
