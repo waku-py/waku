@@ -123,10 +123,6 @@ jobs:
         if: ${{ always() && steps.typecheck.outcome != 'skipped' }}
         run: task security-audit
 
-      - name: Lint | Run gitlint on current commit
-        if: ${{ github.event_name == 'push' && github.actor != 'github-actions' }}
-        run: task gitlint
-
       - name: Lint | Run gitlint on current PR commits
         if: ${{ github.event_name == 'pull_request' }}
         run: task gitlint -- --commits "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}"
