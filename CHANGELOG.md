@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v0.1.3 (2024-12-20)
+
+### Bug Fixes
+
+- **ext**: Make mediator middlewares work
+  ([`4e4a593`](https://github.com/waku-py/waku/commit/4e4a593060133cd865e7bd7e1f0ae6c9c4af10f3))
+
+### Build System
+
+- Make patch release only for `fix` & `perf` tags
+  ([`b9cf6bf`](https://github.com/waku-py/waku/commit/b9cf6bf77047e21959f4e1bbe2a1bb1566cccd1c))
+
+### Documentation
+
+- Add readme and contributing guide
+  ([`32043d7`](https://github.com/waku-py/waku/commit/32043d7f03ba9b34cfc3d70809982643a876a999))
+
+
 ## v0.1.2 (2024-12-19)
 
 ### Continuous Integration
