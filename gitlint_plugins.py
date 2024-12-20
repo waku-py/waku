@@ -38,7 +38,7 @@ class ConventionalCommitTitle(LineRule):  # type: ignore[misc]
     )
 
     def validate(self, line: str, _: GitCommit) -> list[RuleViolation]:
-        if line.startswith(('Draft:', 'WIP:')):
+        if line.startswith(('Draft:', 'WIP:', 'Merge')):
             return []
 
         match = RULE_REGEX.match(line)
