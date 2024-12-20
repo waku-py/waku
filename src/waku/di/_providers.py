@@ -10,7 +10,6 @@ from waku.di._inject import context_var
 from waku.di._utils import guess_return_type
 
 if TYPE_CHECKING:
-    import contextvars
     from collections.abc import AsyncIterator
     from contextlib import AbstractAsyncContextManager, AbstractContextManager
     from types import TracebackType
@@ -78,21 +77,21 @@ class Object(Provider[_T]):
 
 class DependencyProvider(ABC):
     _exit_stack: contextlib.AsyncExitStack
-    _token: contextvars.Token[InjectionContext] | None
 
     @abstractmethod
     def register(self, *providers: Provider[Any]) -> None: ...
 
     @contextlib.asynccontextmanager
     async def context(self) -> AsyncIterator[InjectionContext]:
-        try:
-            async with await self._context() as ctx:
-                self._token = context_var.set(ctx)
-                yield ctx
-        finally:
-            if token := self._token:
-                context_var.reset(token)
-                self._token = None
+        if ctx := context_var.get(None):
+            yield ctx
+        else:
+            async with self._context() as ctx:
+                token = context_var.set(ctx)
+                try:
+                    yield ctx
+                finally:
+                    context_var.reset(token)
 
     @abstractmethod
     def override(self, provider: Provider[Any]) -> AbstractContextManager[None]: ...
@@ -101,7 +100,7 @@ class DependencyProvider(ABC):
     def _lifespan(self) -> AbstractAsyncContextManager[None]: ...
 
     @abstractmethod
-    async def _context(self) -> InjectionContext: ...
+    def _context(self) -> InjectionContext: ...
 
     async def __aenter__(self) -> Self:
         await self._exit_stack.__aenter__()

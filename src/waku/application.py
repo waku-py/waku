@@ -4,7 +4,7 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager, nullcontext
 from typing import TYPE_CHECKING, Any, Final, Self, TypeAlias
 
-from waku.di import Object
+from waku.di import DependencyProvider, Object
 from waku.ext import DEFAULT_EXTENSIONS
 from waku.extensions import (
     ApplicationExtension,
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
     from types import TracebackType
 
-    from waku.di import DependencyProvider, Provider
+    from waku.di import Provider
 
 __all__ = [
     'Application',
@@ -62,6 +62,8 @@ class Application(Module):
 
     def _init(self) -> None:
         self.dependency_provider.register(Object(self))
+        self.dependency_provider.register(Object(self.dependency_provider, DependencyProvider))
+
         for module in self.iter_submodules():
             self.dependency_provider.register(*module.providers)
 

@@ -37,9 +37,9 @@ class ExampleRequest(Request[ExampleResponse]):
 
 
 class ExampleMiddleware(Middleware[RequestT, ResponseT]):
-    async def __call__(self, request: RequestT, call_next: HandleType[RequestT, ResponseT]) -> ResponseT:
+    async def __call__(self, request: RequestT, handle: HandleType[RequestT, ResponseT]) -> ResponseT:
         logger.info('Mediator middleware')
-        return await call_next(request)
+        return await handle(request)
 
 
 class ExampleHandler(RequestHandler[ExampleRequest, ExampleResponse]):

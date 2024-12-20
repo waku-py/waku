@@ -17,5 +17,5 @@ class DummyDI(DependencyProvider):
     def _lifespan(self) -> AbstractAsyncContextManager[None]:
         raise NotImplementedError
 
-    async def _context(self) -> InjectionContext:
+    def _context(self) -> InjectionContext:
         raise NotImplementedError

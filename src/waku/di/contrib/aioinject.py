@@ -33,7 +33,7 @@ class AioinjectDependencyProvider(DependencyProvider):
         async with self._container:
             yield
 
-    async def _context(self) -> InjectionContext:
+    def _context(self) -> InjectionContext:
         if current_context := aioinject_context.get(None):
             return cast(InjectionContext, nullcontext(current_context))
         return cast(InjectionContext, self._container.context())
