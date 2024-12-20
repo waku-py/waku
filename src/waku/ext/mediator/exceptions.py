@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from waku.ext.mediator.handlers.handler import HandlerType, Request
+    from waku.ext.mediator.handlers.handler import Request, RequestHandlerType
 
 
 __all__ = [
@@ -19,13 +19,13 @@ class MediatorError(Exception):
 
 class RequestHandlerAlreadyRegistered(MediatorError, KeyError):  # noqa: N818
     request_type: type[Request[Any]]
-    handler_type: HandlerType[Any, Any]
+    handler_type: RequestHandlerType[Any, Any]
 
     def __init__(
         self,
         msg: str,
         request_type: type[Request[Any]],
-        handler_type: HandlerType[Any, Any],
+        handler_type: RequestHandlerType[Any, Any],
     ) -> None:
         super().__init__(msg)
         self.request_type = request_type

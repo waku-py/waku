@@ -3,21 +3,21 @@ from __future__ import annotations
 from typing import Any, Self, TypeAlias
 
 from waku.ext.mediator.exceptions import RequestHandlerAlreadyRegistered, RequestHandlerNotFound
-from waku.ext.mediator.handlers.handler import HandlerType, RequestT, ResponseT
+from waku.ext.mediator.handlers.handler import RequestHandlerType, RequestT, ResponseT
 
 __all__ = [
     'RequestMap',
     'RequestMapRegistry',
 ]
 
-RequestMapRegistry: TypeAlias = dict[type[RequestT], HandlerType[RequestT, ResponseT]]
+RequestMapRegistry: TypeAlias = dict[type[RequestT], RequestHandlerType[RequestT, ResponseT]]
 
 
 class RequestMap:
     def __init__(self) -> None:
         self._registry: RequestMapRegistry[Any, Any] = {}
 
-    def bind(self, request_type: type[RequestT], handler_type: HandlerType[RequestT, ResponseT]) -> Self:
+    def bind(self, request_type: type[RequestT], handler_type: RequestHandlerType[RequestT, ResponseT]) -> Self:
         if request_type in self._registry:
             msg = f'{request_type.__name__} already exists in registry'
             raise RequestHandlerAlreadyRegistered(msg, request_type, handler_type)
@@ -33,7 +33,7 @@ class RequestMap:
     def registry(self) -> RequestMapRegistry[Any, Any]:
         return self._registry
 
-    def __getitem__(self, request_type: type[RequestT]) -> HandlerType[RequestT, ResponseT]:
+    def __getitem__(self, request_type: type[RequestT]) -> RequestHandlerType[RequestT, ResponseT]:
         try:
             return self._registry[request_type]
         except KeyError as err:

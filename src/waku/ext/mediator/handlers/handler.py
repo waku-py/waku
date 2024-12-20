@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 from typing import Any, Generic, TypeAlias, TypeVar
 
 __all__ = [
-    'HandlerType',
     'Request',
     'RequestHandler',
+    'RequestHandlerType',
     'RequestT',
     'Response',
     'ResponseT',
@@ -36,4 +36,4 @@ class RequestHandler(abc.ABC, Generic[RequestT, ResponseT]):
         raise NotImplementedError
 
 
-HandlerType: TypeAlias = type[RequestHandler[RequestT, ResponseT]]
+RequestHandlerType: TypeAlias = type[RequestHandler[RequestT, ResponseT]]

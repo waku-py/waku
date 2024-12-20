@@ -12,11 +12,14 @@ from waku.ext.mediator import (
     Mediator,
     MediatorAppExtension,
     MediatorModuleExtension,
+    MiddlewareChain,
     Request,
     RequestHandler,
     RequestMap,
     Response,
 )
+from waku.ext.mediator.handlers.handler import RequestT, ResponseT
+from waku.ext.mediator.middlewares import HandleType, Middleware
 from waku.extensions import OnApplicationShutdown, OnApplicationStartup
 
 logging.basicConfig(level=logging.INFO)
@@ -31,6 +34,12 @@ class ExampleResponse(Response):
 @dataclass(frozen=True, kw_only=True)
 class ExampleRequest(Request[ExampleResponse]):
     result: bool
+
+
+class ExampleMiddleware(Middleware[RequestT, ResponseT]):
+    async def __call__(self, request: RequestT, call_next: HandleType[RequestT, ResponseT]) -> ResponseT:
+        logger.info('Mediator middleware')
+        return await call_next(request)
 
 
 class ExampleHandler(RequestHandler[ExampleRequest, ExampleResponse]):
@@ -77,7 +86,7 @@ application = Application(
     modules=[module],
     dependency_provider=AioinjectDependencyProvider(),
     extensions=[
-        MediatorAppExtension(),
+        MediatorAppExtension(MiddlewareChain([ExampleMiddleware()])),
         OnStartup(),
         OnShutdown(1),
         OnShutdown(2),

@@ -16,7 +16,10 @@ if TYPE_CHECKING:
     from waku import Application, Module
     from waku.ext.validation._extension import ValidationContext
 
-__all__ = ['DIScopeMismatch', 'DependenciesAccessible']
+__all__ = [
+    'DIScopeMismatch',
+    'DependenciesAccessible',
+]
 
 
 class DependenciesAccessible(ValidationRule):
@@ -46,6 +49,7 @@ class DependenciesAccessible(ValidationRule):
                     if not dependency_accessible:
                         err_msg = f"{module!r} depends on {dependency!r} but it's not accessible to it"
                         return ValidationError(err_msg)
+
         return None
 
 

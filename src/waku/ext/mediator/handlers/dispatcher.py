@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic
 
-from waku.ext.mediator.handlers.handler import HandlerType, Request, ResponseT
+from waku.ext.mediator.handlers.handler import Request, RequestHandlerType, ResponseT
 from waku.ext.mediator.middlewares import MiddlewareChain
 
 if TYPE_CHECKING:
@@ -36,7 +36,7 @@ class RequestDispatcher:
         self._middleware_chain = middleware_chain or MiddlewareChain()
 
     async def dispatch(self, request: Request[ResponseT]) -> RequestDispatchResult[ResponseT]:
-        handler_type: HandlerType[Any, Any] = self._request_map[type(request)]
+        handler_type: RequestHandlerType[Any, Any] = self._request_map[type(request)]
 
         async with self._dependency_provider.context() as ctx:
             handler = await ctx.resolve(handler_type)
