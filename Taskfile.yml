@@ -90,7 +90,7 @@ tasks:
   gitlint:
     desc: Lint git commit
     deps: [ .uv ]
-    cmd: uv run gitlint
+    cmd: uv run gitlint {{.CLI_ARGS}}
 
   test:
     desc: Run tests without coverage checking
