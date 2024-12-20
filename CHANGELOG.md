@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.1.5 (2024-12-20)
+
+### Bug Fixes
+
+- Remove unused version var from init, run gitlint only for prs
+  ([`7a270d4`](https://github.com/waku-py/waku/commit/7a270d4929d97d06a0482e85680215e38672b39f))
+
+
 ## v0.1.4 (2024-12-20)
 
 ### Bug Fixes
