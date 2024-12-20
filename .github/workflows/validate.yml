@@ -59,8 +59,8 @@ jobs:
             semantic-release version --no-commit --no-tag
           else
             printf '%s\n' "new_release_detected=false" >> $GITHUB_OUTPUT
-            uv build
           fi
+          uv build
           printf '%s\n' "dist_dir=dist/*" >> $GITHUB_OUTPUT
           printf '%s\n' "artifacts_name=dist" >> $GITHUB_OUTPUT
 
@@ -122,6 +122,10 @@ jobs:
       - name: Lint | Security Audit
         if: ${{ always() && steps.typecheck.outcome != 'skipped' }}
         run: task security-audit
+
+      - name: Lint | Run gitlint on current commit
+        if: ${{ github.event_name == 'push' }}
+        run: task gitlint
 
       - name: Lint | Run gitlint on current PR commits
         if: ${{ github.event_name == 'pull_request' }}

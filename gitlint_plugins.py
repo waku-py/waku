@@ -22,19 +22,28 @@ class ConventionalCommitTitle(LineRule):  # type: ignore[misc]
     id = 'CT1'
     target = CommitMessageTitle
 
-    contexts: ClassVar[tuple[str, ...]] = ('core', 'di', 'ext', 'linters', 'tests', 'infra', 'deps')
+    contexts: ClassVar[tuple[str, ...]] = (
+        'core',
+        'deps',
+        'di',
+        'ext',
+        'infra',
+        'linters',
+        'release',
+        'tests',
+    )
     default_types: ClassVar[tuple[str, ...]] = (
-        'fix',
-        'feat',
-        'chore',
-        'docs',
-        'style',
-        'refactor',
-        'perf',
-        'test',
-        # 'revert',  # на данный момент не поддерживается в python-semantic-release
-        'ci',
         'build',
+        'chore',
+        'ci',
+        'docs',
+        'feat',
+        'fix',
+        'perf',
+        'refactor',
+        # 'revert',  # currently unsupported in python-semantic-release
+        'style',
+        'test',
     )
 
     def validate(self, line: str, _: GitCommit) -> list[RuleViolation]:
