@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Setup | Checkout Repository at workflow sha
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -40,12 +40,12 @@ jobs:
           git checkout -B ${{ github.ref_name }}
 
       - name: Setup | Install Python ${{ env.COMMON_PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5
         with:
           python-version: ${{ env.COMMON_PYTHON_VERSION }}
 
       - name: Setup | Install UV
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
         with:
           enable-cache: true
 
@@ -65,7 +65,7 @@ jobs:
           printf '%s\n' "artifacts_name=dist" >> $GITHUB_OUTPUT
 
       - name: Upload | Distribution Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # v4
         with:
           name: ${{ steps.build.outputs.artifacts_name }}
           path: ${{ steps.build.outputs.dist_dir }}
@@ -82,13 +82,13 @@ jobs:
 
     steps:
       - name: Setup | Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Setup | Install Python ${{ env.COMMON_PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5
         with:
           python-version: ${{ env.COMMON_PYTHON_VERSION }}
 
@@ -99,7 +99,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup | Install UV
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
         with:
           enable-cache: true
 
@@ -144,13 +144,13 @@ jobs:
 
     steps:
       - name: Setup | Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
 
       - name: Setup | Install Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -161,7 +161,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup | Install UV
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
         with:
           enable-cache: true
 
@@ -175,7 +175,7 @@ jobs:
         run: task test:all -- --junit-xml=tests/reports/pytest-results.xml
 
       - name: Report | Upload Test Results
-        uses: mikepenz/action-junit-report@v5.2.0
+        uses: mikepenz/action-junit-report@62516aa379bff6370c95fd5894d5a27fb6619d9b # v5.2.0
         if: ${{ always() && steps.tests.outcome != 'skipped' }}
         with:
           report_paths: ./tests/reports/*.xml
