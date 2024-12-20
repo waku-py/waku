@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.1.6 (2024-12-20)
+
+### Bug Fixes
+
+- Skip ci in release commit
+  ([`9adbc58`](https://github.com/waku-py/waku/commit/9adbc582057fe452f742373226f4ec694b34b589))
+
+
 ## v0.1.5 (2024-12-20)
 
 ### Bug Fixes
