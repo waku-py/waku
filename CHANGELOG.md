@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.1.4 (2024-12-20)
+
+### Bug Fixes
+
+- Attempt to fix contextvar from different context error
+  ([`d98c2f8`](https://github.com/waku-py/waku/commit/d98c2f892bed26879e0e98db4f294f63cf9569bc))
+
+
 ## v0.1.3 (2024-12-20)
 
 ### Bug Fixes
