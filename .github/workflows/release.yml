@@ -34,7 +34,8 @@ jobs:
       GITHUB_ACTIONS_AUTHOR_EMAIL: actions@users.noreply.github.com
 
     steps:
-      - uses: actions/create-github-app-token@c1a285145b9d317df6ced56c09f525b5c2b6f755 # v1
+      - name: Setup | Create access token
+        uses: actions/create-github-app-token@c1a285145b9d317df6ced56c09f525b5c2b6f755 # v1
         id: app-token
         with:
           app-id: ${{ vars.VERSION_BUMPER_APPID }}
