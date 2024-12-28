@@ -16,21 +16,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           fetch-depth: 100 # Must at least retrieve a set of commits to compare changes
           # primarily because of any 'Rebase and Merge' PR action in GitHub
 
       - name: Evaluate | Check common file types for changes
         id: core-changed-files
-        uses: tj-actions/changed-files@v45.0.5
+        uses: tj-actions/changed-files@bab30c2299617f6615ec02a68b9a40d10bd21366 # v45.0.5
         with:
           base_sha: ${{ github.event.push.before }}
           files_yaml_from_source_file: .github/changed-files-spec.yml
 
       - name: Evaluate | Check specific file types for changes
         id: ci-changed-files
-        uses: tj-actions/changed-files@v45.0.5
+        uses: tj-actions/changed-files@bab30c2299617f6615ec02a68b9a40d10bd21366 # v45.0.5
         with:
           base_sha: ${{ github.event.push.before }}
           files_yaml: |
