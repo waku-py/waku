@@ -40,7 +40,6 @@ jobs:
       - name: Setup | Checkout Repository at workflow sha
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
-          fetch-depth: 0
           ref: ${{ github.sha }}
           token: ${{ steps.app-token.outputs.token }}
 

@@ -209,4 +209,3 @@ jobs:
       src-files-changed: ${{ needs.eval-changes.outputs.src-changes }}
     permissions:
       contents: write
-    secrets: { }
