@@ -63,8 +63,8 @@ jobs:
       test-changes: ${{ steps.core-changed-files.outputs.tests_any_changed }}
 
   validate:
-    needs: eval-changes
     uses: ./.github/workflows/validate.yml
+    needs: eval-changes
     with:
       python-versions: '[ "3.11", "3.12", "3.13"]'
       files-changed: ${{ needs.eval-changes.outputs.any-file-changes }}

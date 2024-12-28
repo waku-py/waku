@@ -60,6 +60,7 @@ jobs:
 
   validate:
     uses: ./.github/workflows/validate.yml
+    needs: eval-changes
     with:
       python-versions: '[ "3.11", "3.12", "3.13" ]'
       files-changed: ${{ needs.eval-changes.outputs.any-file-changes }}
