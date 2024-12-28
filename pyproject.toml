@@ -33,10 +33,7 @@ Repository = "https://github.com/waku-py/waku"
 
 [project.optional-dependencies]
 aioinject = ["aioinject>=0.35.3"]
-litestar = [
-  "litestar>2",
-  "litestar-msgspec", # TODO: Remove constraint after msgspec update
-]
+litestar = ["litestar>2"]
 
 [build-system]
 requires = ["hatchling"]
@@ -89,9 +86,6 @@ all = [
 # ----- UV settings -----
 [tool.uv]
 default-groups = ["dev", "lint", "test", "typecheck"]
-override-dependencies = [
-  "msgspec; sys_platform == 'never'", # TODO: Remove constraint after msgspec update
-]
 
 
 # ----- Pytest settings -----
