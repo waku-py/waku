@@ -1,0 +1,15 @@
+---
+
+build:
+  - pyproject.toml
+  - uv.lock
+docs:
+  - docs/**
+  - README.md
+  - CONTRIBUTING.md
+  - CHANGELOG.md
+src:
+  - src/**
+  - pyproject.toml
+tests:
+  - tests/**

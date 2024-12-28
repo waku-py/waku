@@ -52,6 +52,13 @@ dev = [
   "rich>=13.9.4",
   "setuptools>=75.6.0",
 ]
+docs = [
+  "mkdocs>=1.6.1",
+  "mkdocs-exclude>=1.0.2",
+  "mkdocs-redirects>=1.2.2",
+  "mkdocs-material>=9.5.49",
+  "mkdocstrings-python>=1.13.0",
+]
 lint = [
   "deptry>=0.21.2",
   "gitlint>=0.19.1",
@@ -69,6 +76,14 @@ test = [
 typecheck = [
   "mypy>=1.13.0",
   "types-setuptools>=75.6.0.20241126"
+]
+
+all = [
+  { include-group = "dev" },
+  { include-group = "docs" },
+  { include-group = "lint" },
+  { include-group = "test" },
+  { include-group = "typecheck" },
 ]
 
 # ----- UV settings -----

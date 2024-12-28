@@ -1,0 +1,77 @@
+# yaml-language-server: $schema=https://squidfunk.github.io/mkdocs-material/schema.json
+site_name: Waku
+site_description: Microframework for building modular and loosely coupled applications
+strict: true
+repo_url: https://github.com/waku-py/waku
+
+# https://www.mkdocs.org/user-guide/configuration/#validation
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+
+theme:
+  name: material
+  features:
+    - content.code.annotate
+    - content.code.copy
+    - content.code.select
+
+  theme:
+    icon:
+      repo: fontawesome/brands/github
+
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: pink
+      toggle:
+        icon: material/brightness-4
+
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: pink
+      toggle:
+        icon: material/brightness-7
+
+nav:
+  - About: index.md
+
+markdown_extensions:
+  - toc:
+      permalink: true
+      title: Page contents
+  - admonition
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+
+watch:
+  - src/waku
+
+plugins:
+  - search
+  - exclude:
+      glob:
+        - __pycache__/*
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [ . ]
+          options:
+            members_order: source
+            separate_signature: true
+            filters: [ "!^_" ]
+            docstring_options:
+              ignore_init_summary: true
+            merge_init_into_class: true
+            show_signature_annotations: true
+            signature_crossrefs: true
+          import:
+            - url: https://docs.python.org/3/objects.inv
+              domains: [ py, std ]

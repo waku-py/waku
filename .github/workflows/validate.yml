@@ -9,6 +9,36 @@ on:
         description: 'Python versions to test on (JSON array)'
         required: true
         type: string
+      files-changed:
+        description: 'Boolean string result for if any files have changed'
+        type: string
+        required: false
+        default: 'false'
+      build-files-changed:
+        description: 'Boolean string result for if build files have changed'
+        type: string
+        required: false
+        default: 'false'
+      ci-files-changed:
+        description: 'Boolean string result for if CI files have changed'
+        type: string
+        required: false
+        default: 'false'
+      doc-files-changed:
+        description: 'Boolean string result for if documentation files have changed'
+        type: string
+        required: false
+        default: 'false'
+      src-files-changed:
+        description: 'Boolean string result for if source files have changed'
+        type: string
+        required: false
+        default: 'false'
+      test-files-changed:
+        description: 'Boolean string result for if test files have changed'
+        type: string
+        required: false
+        default: 'false'
     outputs:
       new-release-detected:
         description: Boolean string result for if new release is available
@@ -28,6 +58,8 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    if: ${{ inputs.build-files-changed == 'true' || inputs.src-files-changed == 'true' || inputs.test-files-changed == 'true' || inputs.ci-files-changed == 'true' }}
+
     steps:
       - name: Setup | Checkout Repository at workflow sha
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -79,6 +111,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    if: ${{ inputs.files-changed == 'true' }}
 
     steps:
       - name: Setup | Checkout Repository
@@ -136,6 +169,7 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     needs: lint
+    if: ${{ inputs.src-files-changed == 'true' || inputs.test-files-changed == 'true' || inputs.ci-files-changed == 'true' }}
 
     strategy:
       fail-fast: false
