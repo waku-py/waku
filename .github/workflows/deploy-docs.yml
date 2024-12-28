@@ -16,9 +16,6 @@ on:
         required: false
         default: 'false'
 
-# set default Token permissions = none
-permissions: { }
-
 env:
   COMMON_PYTHON_VERSION: '3.11'
 
@@ -27,9 +24,6 @@ jobs:
     name: Deploy docs
     runs-on: ubuntu-latest
     if: ${{ inputs.doc-files-changed == 'true' || inputs.src-files-changed == 'true' }}
-
-    permissions:
-      contents: write
 
     env:
       GITHUB_ACTIONS_AUTHOR_NAME: github-actions
