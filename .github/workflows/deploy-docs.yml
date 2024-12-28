@@ -50,9 +50,9 @@ jobs:
         uses: astral-sh/setup-uv@887a942a15af3a7626099df99e897a18d9e5ab3a # v5
         with:
           enable-cache: true
-
-      - name: Setup | Install dependencies
-        run: uv sync --group docs
+#
+#      - name: Setup | Install dependencies
+#        run: uv sync --group docs
 
       - name: Deploy | Deploy docs to GitHub Pages
-        run: mkdocs gh-deploy --force
+        run: uv run --group docs --no-sync mkdocs gh-deploy --force

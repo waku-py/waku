@@ -729,6 +729,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/cd/10/4c27c3063c2b3681a4b7942f8dbdeb4fa34fecb2c19b594e7345ebf4f86f/mkdocstrings-0.27.0-py3-none-any.whl", hash = "sha256:6ceaa7ea830770959b55a16203ac63da24badd71325b96af950e59fd37366332", size = 30658 },
 ]
 
+[package.optional-dependencies]
+python = [
+    { name = "mkdocstrings-python" },
+]
+
 [[package]]
 name = "mkdocstrings-python"
 version = "1.13.0"
@@ -1499,7 +1504,7 @@ all = [
     { name = "mkdocs-exclude" },
     { name = "mkdocs-material" },
     { name = "mkdocs-redirects" },
-    { name = "mkdocstrings-python" },
+    { name = "mkdocstrings", extra = ["python"] },
     { name = "mypy" },
     { name = "pip-audit" },
     { name = "pre-commit" },
@@ -1524,7 +1529,7 @@ docs = [
     { name = "mkdocs-exclude" },
     { name = "mkdocs-material" },
     { name = "mkdocs-redirects" },
-    { name = "mkdocstrings-python" },
+    { name = "mkdocstrings", extra = ["python"] },
 ]
 lint = [
     { name = "deptry" },
@@ -1560,7 +1565,7 @@ all = [
     { name = "mkdocs-exclude", specifier = ">=1.0.2" },
     { name = "mkdocs-material", specifier = ">=9.5.49" },
     { name = "mkdocs-redirects", specifier = ">=1.2.2" },
-    { name = "mkdocstrings-python", specifier = ">=1.13.0" },
+    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.27.0" },
     { name = "mypy", specifier = ">=1.13.0" },
     { name = "pip-audit", specifier = ">=2.7.3" },
     { name = "pre-commit", specifier = ">=4.0.1" },
@@ -1585,7 +1590,7 @@ docs = [
     { name = "mkdocs-exclude", specifier = ">=1.0.2" },
     { name = "mkdocs-material", specifier = ">=9.5.49" },
     { name = "mkdocs-redirects", specifier = ">=1.2.2" },
-    { name = "mkdocstrings-python", specifier = ">=1.13.0" },
+    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.27.0" },
 ]
 lint = [
     { name = "deptry", specifier = ">=0.21.2" },
