@@ -3,6 +3,7 @@
   "extends": [
     "config:best-practices",
     "schedule:daily",
+    ":enablePreCommit",
     ":maintainLockFilesWeekly",
     ":prHourlyLimitNone"
   ],

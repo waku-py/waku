@@ -11,10 +11,63 @@ on:
 permissions: { }
 
 jobs:
+  eval-changes:
+    name: Evaluate changes
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 100 # Must at least retrieve a set of commits to compare changes
+          # primarily because of any 'Rebase and Merge' PR action in GitHub
+
+      - name: Evaluate | Check common file types for changes
+        id: core-changed-files
+        uses: tj-actions/changed-files@v45.0.5
+        with:
+          base_sha: ${{ github.event.push.before }}
+          files_yaml_from_source_file: .github/changed-files-spec.yml
+
+      - name: Evaluate | Check specific file types for changes
+        id: ci-changed-files
+        uses: tj-actions/changed-files@v45.0.5
+        with:
+          base_sha: ${{ github.event.push.before }}
+          files_yaml: |
+            ci:
+              - .github/workflows/cicd.yml
+              - .github/workflows/validate.yml
+
+      - name: Evaluate | Detect if any of the combinations of file sets have changed
+        id: all-changes
+        run: |
+          printf '%s\n' "any_changed=false" >> $GITHUB_OUTPUT
+          if [ "${{ steps.core-changed-files.outputs.build_any_changed }}" == "true" ] || \
+             [ "${{ steps.ci-changed-files.outputs.ci_any_changed }}" == "true" ] || \
+             [ "${{ steps.core-changed-files.outputs.docs_any_changed }}" == "true" ] || \
+             [ "${{ steps.core-changed-files.outputs.src_any_changed }}" == "true" ] || \
+             [ "${{ steps.core-changed-files.outputs.tests_any_changed }}" == "true" ]; then
+             printf '%s\n' "any_changed=true" >> $GITHUB_OUTPUT
+          fi
+
+    outputs:
+      any-file-changes: ${{ steps.all-changes.outputs.any_changed }}
+      build-changes: ${{ steps.core-changed-files.outputs.build_any_changed }}
+      ci-changes: ${{ steps.ci-changed-files.outputs.ci_any_changed }}
+      doc-changes: ${{ steps.core-changed-files.outputs.docs_any_changed }}
+      src-changes: ${{ steps.core-changed-files.outputs.src_any_changed }}
+      test-changes: ${{ steps.core-changed-files.outputs.tests_any_changed }}
+
   validate:
     uses: ./.github/workflows/validate.yml
     with:
       python-versions: '[ "3.11", "3.12", "3.13" ]'
+      files-changed: ${{ needs.eval-changes.outputs.any-file-changes }}
+      build-files-changed: ${{ needs.eval-changes.outputs.build-changes }}
+      ci-files-changed: ${{ needs.eval-changes.outputs.ci-changes }}
+      doc-files-changed: ${{ needs.eval-changes.outputs.doc-changes }}
+      src-files-changed: ${{ needs.eval-changes.outputs.src-changes }}
+      test-files-changed: ${{ needs.eval-changes.outputs.test-changes }}
     permissions: { }
     secrets: { }
 
@@ -101,8 +154,8 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
 
 
-  deploy:
-    name: Deploy
+  deploy-pypi:
+    name: Deploy | PyPI package
     runs-on: ubuntu-latest
     if: ${{ needs.release.outputs.released == 'true' && github.repository == 'waku-py/waku' }}
     needs:
@@ -143,3 +196,14 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           verbose: true
+
+  deploy-docs:
+    uses: ./.github/workflows/deploy-docs.yml
+    if: ${{ github.repository == 'waku-py/waku' }}
+    needs:
+      - eval-changes
+      - validate
+    with:
+      doc-files-changed: ${{ needs.eval-changes.outputs.doc-changes }}
+      src-files-changed: ${{ needs.eval-changes.outputs.src-changes }}
+    secrets: { }

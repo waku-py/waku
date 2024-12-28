@@ -1,0 +1,64 @@
+---
+name: Deploy docs
+
+on:
+  # Enable workflow as callable from another workflow
+  workflow_call:
+    inputs:
+      doc-files-changed:
+        description: 'Boolean string result for if documentation files have changed'
+        type: string
+        required: false
+        default: 'false'
+      src-files-changed:
+        description: 'Boolean string result for if source files have changed'
+        type: string
+        required: false
+        default: 'false'
+
+# set default Token permissions = none
+permissions: { }
+
+env:
+  COMMON_PYTHON_VERSION: '3.11'
+
+jobs:
+  deploy-docs:
+    name: Deploy docs
+    runs-on: ubuntu-latest
+    if: ${{ inputs.doc-files-changed == 'true' || inputs.src-files-changed == 'true' }}
+
+    permissions:
+      contents: write
+
+    env:
+      GITHUB_ACTIONS_AUTHOR_NAME: github-actions
+      GITHUB_ACTIONS_AUTHOR_EMAIL: actions@users.noreply.github.com
+
+    steps:
+      - name: Setup | Checkout Repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Setup | Configure Git Credentials
+        run: |
+          git config user.name ${{ env.GITHUB_ACTIONS_AUTHOR_NAME }}
+          git config user.email ${{ env.GITHUB_ACTIONS_AUTHOR_EMAIL }}
+
+      - name: Setup | Install Python ${{ env.COMMON_PYTHON_VERSION }}
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5
+        with:
+          python-version: ${{ env.COMMON_PYTHON_VERSION }}
+
+      - name: Setup | Install UV
+        uses: astral-sh/setup-uv@887a942a15af3a7626099df99e897a18d9e5ab3a # v5
+        with:
+          enable-cache: true
+
+      - name: Setup | Install dependencies
+        run: uv sync --group docs
+
+      - name: Deploy | Deploy docs to GitHub Pages
+        run: mkdocs gh-deploy --force
