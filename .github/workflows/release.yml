@@ -31,19 +31,19 @@ jobs:
       - name: Evaluate | Detect if any of the combinations of file sets have changed
         id: all-changes
         run: |
-          printf '%s\n' "any_changed=false" >> $GITHUB_OUTPUT
+          printf '%s\n' "any_changed=false" >> "$GITHUB_OUTPUT"
           if [ "${{ steps.core-changed-files.outputs.build_any_changed }}" == "true" ] || \
-             [ "${{ steps.ci-changed-files.outputs.ci_any_changed }}" == "true" ] || \
+             [ "${{ steps.core-changed-files.outputs.ci_any_changed }}" == "true" ] || \
              [ "${{ steps.core-changed-files.outputs.docs_any_changed }}" == "true" ] || \
              [ "${{ steps.core-changed-files.outputs.src_any_changed }}" == "true" ] || \
              [ "${{ steps.core-changed-files.outputs.tests_any_changed }}" == "true" ]; then
-             printf '%s\n' "any_changed=true" >> $GITHUB_OUTPUT
+             printf '%s\n' "any_changed=true" >> "$GITHUB_OUTPUT"
           fi
 
     outputs:
       any-file-changes: ${{ steps.all-changes.outputs.any_changed }}
       build-changes: ${{ steps.core-changed-files.outputs.build_any_changed }}
-      ci-changes: ${{ steps.ci-changed-files.outputs.ci_any_changed }}
+      ci-changes: ${{ steps.core-changed-files.outputs.ci_any_changed }}
       doc-changes: ${{ steps.core-changed-files.outputs.docs_any_changed }}
       src-changes: ${{ steps.core-changed-files.outputs.src_any_changed }}
       test-changes: ${{ steps.core-changed-files.outputs.tests_any_changed }}
@@ -60,7 +60,6 @@ jobs:
       src-files-changed: ${{ needs.eval-changes.outputs.src-changes }}
       test-files-changed: ${{ needs.eval-changes.outputs.test-changes }}
     permissions: { }
-    secrets: { }
 
 
   release:

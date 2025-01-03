@@ -32,7 +32,7 @@ tasks:
     deps: [ .uv ]
     cmds:
       - uv sync --all-extras --all-groups
-      - uv run pre-commit install --install-hooks
+      - uv run pre-commit install
       - echo "✅ Development environment setup complete"
 
   upgrade-deps:
@@ -92,7 +92,7 @@ tasks:
   pre-commit-all:
     desc: Run all pre-commit hooks against all files
     deps: [ .uv ]
-    cmd: uv run pre-commit run --verbose --all-files
+    cmd: uv run pre-commit run --verbose --all-files --hook-stage manual
 
   security-audit:
     desc: Audit dependencies for vulnerabilities

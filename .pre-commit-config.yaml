@@ -3,54 +3,55 @@
 default_install_hook_types: [ pre-commit, pre-push, commit-msg ]
 default_stages: [ pre-commit, pre-push, manual ]
 
-# TODO: Run pre-commit in CI, use lefthook for local checks
 repos:
+  # Meta hooks
+  - repo: meta
+    hooks:
+      - id: check-hooks-apply
+      - id: check-useless-excludes
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
       - id: no-commit-to-branch
         args: [ '--branch', 'master' ]
-
       - id: check-yaml
         args: [ '--unsafe' ]
         files: \.(yaml|yml)$
-
       - id: check-toml
         files: \.toml$
-
       - id: check-merge-conflict
-
       - id: end-of-file-fixer
         exclude: '^uv\.lock$'
-
       - id: trailing-whitespace
         args: [ --markdown-linebreak-ext=md ]
-
-      - id: mixed-line-ending
-        args: [ --fix=lf ]
-
-      - id: check-case-conflict
-
       - id: detect-private-key
-
-  - repo: https://github.com/codespell-project/codespell
-    rev: v2.3.0
-    hooks:
-      - id: codespell
-        additional_dependencies: [ tomli ]
-        exclude: '^uv\.lock$'
-        args:
-          - --skip="*.lock"
-        files: \.(py|md|rst|yml|yaml|json)$
+      - id: check-illegal-windows-names
+      - id: mixed-line-ending
+        args: [ "--fix=lf" ]
+      - id: check-case-conflict
 
   - repo: https://github.com/python-jsonschema/check-jsonschema
     rev: 0.30.0
     hooks:
       - id: check-github-workflows
         files: ^\.github/workflows/.*\.ya?ml$
-
       - id: check-renovate
         files: ^\.github/renovate\.json$
+      - id: check-taskfile
+        files: ^Taskfile\.yml$
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.5
+    hooks:
+      - id: actionlint
+
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.3.0
+    hooks:
+      - id: codespell
+        additional_dependencies: [ tomli ]
+        files: \.(py|pyi|md|yml|yaml|json|toml)$
 
   - repo: local
     hooks:
@@ -76,7 +77,7 @@ repos:
         language: system
         pass_filenames: false
         fail_fast: true
-        stages: [ pre-commit, pre-push ]
+        stages: [ pre-commit, pre-push, manual ]
 
       - id: typecheck
         name: Run type checking
@@ -85,7 +86,7 @@ repos:
         language: system
         pass_filenames: false
         fail_fast: true
-        stages: [ pre-push ]  # Run on push only to speed up commits
+        stages: [ pre-push, manual ]  # Run on push only to speed up commits
 
       - id: deptry
         name: Check dependency usage
@@ -93,7 +94,7 @@ repos:
         language: system
         pass_filenames: false
         fail_fast: true
-        stages: [ pre-push ]  # Run on push only to speed up commits
+        stages: [ pre-push, manual ]  # Run on push only to speed up commits
 
       - id: security-check
         name: Run security checks
@@ -101,15 +102,5 @@ repos:
         language: system
         pass_filenames: false
         fail_fast: true
-        stages: [ pre-push ]  # Run on push only to speed up commits
+        stages: [ pre-push, manual ]  # Run on push only to speed up commits
         verbose: true
-
-exclude: |
-  (?x)^(
-    \.venv/.*|
-    dist/.*|
-    build/.*|
-    \.*_cache/.*|
-    \.git/.*|
-    \.idea/.*
-  )$
