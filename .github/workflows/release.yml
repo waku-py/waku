@@ -23,14 +23,14 @@ jobs:
 
       - name: Evaluate | Check common file types for changes
         id: core-changed-files
-        uses: tj-actions/changed-files@bab30c2299617f6615ec02a68b9a40d10bd21366 # v45.0.5
+        uses: tj-actions/changed-files@d6e91a2266cdb9d62096cebf1e8546899c6aa18f # v45.0.6
         with:
           base_sha: ${{ github.event.push.before }}
           files_yaml_from_source_file: .github/changed-files-spec.yml
 
       - name: Evaluate | Check specific file types for changes
         id: ci-changed-files
-        uses: tj-actions/changed-files@bab30c2299617f6615ec02a68b9a40d10bd21366 # v45.0.5
+        uses: tj-actions/changed-files@d6e91a2266cdb9d62096cebf1e8546899c6aa18f # v45.0.6
         with:
           base_sha: ${{ github.event.push.before }}
           files_yaml: |
