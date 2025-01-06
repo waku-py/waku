@@ -22,6 +22,9 @@ class AioinjectDependencyProvider(DependencyProvider):
     def register(self, *providers: Provider[Any]) -> None:
         self._container.register(*[self._map_provider(provider) for provider in providers])
 
+    def try_register(self, *providers: Provider[Any]) -> None:
+        self._container.try_register(*[self._map_provider(provider) for provider in providers])
+
     @contextmanager
     def override(self, provider: Provider[Any]) -> Iterator[None]:
         override_provider = self._map_provider(provider)

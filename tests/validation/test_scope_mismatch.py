@@ -6,7 +6,8 @@ import pytest
 from tests.mock import DummyDI
 from waku import Application, Module
 from waku.di import Object, Provider, Scoped, Singleton, Transient
-from waku.ext.validation import ValidationError, ValidationExtension, ValidationRule
+from waku.ext.validation import ValidationExtension, ValidationRule
+from waku.ext.validation.rules import DIScopeMismatch
 
 
 class _A:
@@ -16,6 +17,11 @@ class _A:
 @dataclasses.dataclass
 class _B:
     a: _A
+
+
+@pytest.fixture
+def rule() -> ValidationRule:
+    return DIScopeMismatch()
 
 
 @pytest.mark.parametrize(
@@ -39,21 +45,22 @@ def test_scope_mismatch(
     provider: Provider[Any],
     dependency: Provider[Any],
     should_error: bool,
-    rules: list[ValidationRule],
+    rule: ValidationRule,
 ) -> None:
     def create_app() -> None:
         Application(
             'app',
             modules=[Module(name='module', providers=[provider, dependency])],
             dependency_provider=DummyDI(),
-            extensions=[ValidationExtension(rules)],
+            extensions=[ValidationExtension([rule])],
         )
 
     if not should_error:
         create_app()
         return
 
-    with pytest.raises(ValidationError) as exc_info:
+    with pytest.raises(ExceptionGroup) as exc_info:
         create_app()
 
-    assert str(exc_info.value).startswith(f'{provider!r} depends on {dependency!r}')
+    error = exc_info.value.exceptions[0]
+    assert str(error).startswith(f'{provider!r} depends on {dependency!r}')

@@ -1496,6 +1496,9 @@ wheels = [
 name = "waku"
 version = "0.1.6"
 source = { editable = "." }
+dependencies = [
+    { name = "typing-extensions" },
+]
 
 [package.optional-dependencies]
 aioinject = [
@@ -1563,8 +1566,9 @@ typecheck = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aioinject", marker = "extra == 'aioinject'", specifier = ">=0.35.3" },
+    { name = "aioinject", marker = "extra == 'aioinject'", specifier = ">=0.36.0" },
     { name = "litestar", marker = "extra == 'litestar'", specifier = ">2" },
+    { name = "typing-extensions", specifier = ">=4.12.0" },
 ]
 
 [package.metadata.requires-dev]

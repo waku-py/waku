@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Self, TypeAlias
 
+from waku.ext.mediator.contracts.request import RequestT, ResponseT
 from waku.ext.mediator.exceptions import RequestHandlerAlreadyRegistered, RequestHandlerNotFound
-from waku.ext.mediator.handlers.handler import RequestHandlerType, RequestT, ResponseT
+from waku.ext.mediator.requests.handler import RequestHandlerType
 
 __all__ = [
     'RequestMap',
@@ -39,3 +40,6 @@ class RequestMap:
         except KeyError as err:
             msg = f'Request handler for {request_type.__name__} request is not registered'
             raise RequestHandlerNotFound(msg, request_type) from err
+
+    def __bool__(self) -> bool:
+        return bool(self._registry)

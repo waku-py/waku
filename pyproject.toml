@@ -28,7 +28,9 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Application Frameworks",
   "Typing :: Typed",
 ]
-dependencies = []
+dependencies = [
+  "typing-extensions>=4.12.0",
+]
 
 [project.urls]
 Changelog = "https://github.com/waku-py/waku/blob/master/CHANGELOG.md"
@@ -36,7 +38,7 @@ Issues = "https://github.com/waku-py/waku/issues"
 Repository = "https://github.com/waku-py/waku"
 
 [project.optional-dependencies]
-aioinject = ["aioinject>=0.35.3"]
+aioinject = ["aioinject>=0.36.0"]
 litestar = ["litestar>2"]
 
 [tool.hatch.build.targets.sdist]
@@ -92,7 +94,7 @@ default-groups = ["dev", "lint", "test", "typecheck"]
 # ----- Pytest settings -----
 [tool.pytest.ini_options]
 xfail_strict = true
-norecursedirs = ".* __pycache__"
+norecursedirs = ".* examples __pycache__"
 disable_test_id_escaping_and_forfeit_all_rights_to_community_support = true
 addopts = [
   "--doctest-modules",

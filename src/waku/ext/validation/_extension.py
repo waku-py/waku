@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import dataclasses
 import warnings
+from dataclasses import dataclass
+from itertools import chain
 from typing import TYPE_CHECKING, Final
 
-from waku.extensions import OnApplicationInit
+from waku.extensions import AfterApplicationInit
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -14,24 +15,27 @@ if TYPE_CHECKING:
     from waku.ext.validation._errors import ValidationError
 
 
-@dataclasses.dataclass(slots=True, kw_only=True, frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ValidationContext:
     app: Application
 
 
-class ValidationExtension(OnApplicationInit):
+class ValidationExtension(AfterApplicationInit):
     def __init__(self, rules: Sequence[ValidationRule], *, strict: bool = True) -> None:
         self.rules = rules
         self.strict: Final = strict
 
-    def on_app_init(self, app: Application) -> None:
+    def after_app_init(self, app: Application) -> None:
         context = ValidationContext(app=app)
 
-        for rule in self.rules:
-            if err := rule.validate(context):
-                self._raise(err=err)
+        errors_chain = chain.from_iterable(rule.validate(context) for rule in self.rules)
+        if errors := list(errors_chain):
+            self._raise(errors)
 
-    def _raise(self, err: ValidationError) -> None:
+    def _raise(self, errors: Sequence[ValidationError]) -> None:
         if self.strict:
-            raise err
-        warnings.warn(str(err), stacklevel=3)
+            msg = 'Validation error'
+            raise ExceptionGroup(msg, errors)
+
+        for error in errors:
+            warnings.warn(str(error), stacklevel=3)

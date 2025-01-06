@@ -1,36 +1,67 @@
-from __future__ import annotations
-
+import abc
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from waku.ext.mediator.handlers.dispatcher import RequestDispatcher
+from waku.di import DependencyProvider
+from waku.ext.mediator.contracts.event import Event
+from waku.ext.mediator.contracts.request import Request, ResponseT
+from waku.ext.mediator.events.map import EventMap
+from waku.ext.mediator.events.publish import EventPublisher
+from waku.ext.mediator.middlewares import AnyMiddleware, MiddlewareChain
+from waku.ext.mediator.requests.map import RequestMap
 
 if TYPE_CHECKING:
-    from waku.di import DependencyProvider
-    from waku.ext.mediator.handlers.handler import Request, ResponseT
-    from waku.ext.mediator.handlers.map import RequestMap
-    from waku.ext.mediator.middlewares import MiddlewareChain
+    from waku.ext.mediator.requests.handler import RequestHandlerType
+
+__all__ = [
+    'IMediator',
+    'IPublisher',
+    'ISender',
+    'Mediator',
+]
 
 
-__all__ = ['Mediator']
+class ISender(abc.ABC):
+    @abc.abstractmethod
+    async def send(self, request: Request[ResponseT]) -> ResponseT:
+        pass
 
 
-class Mediator:
+class IPublisher(abc.ABC):
+    @abc.abstractmethod
+    async def publish(self, event: Event) -> None:
+        pass
+
+
+class IMediator(ISender, IPublisher, abc.ABC):
+    pass
+
+
+class Mediator(IMediator):
     def __init__(
         self,
-        *,
         request_map: RequestMap,
+        event_map: EventMap,
         dependency_provider: DependencyProvider,
-        middleware_chain: MiddlewareChain | None = None,
-        dispatcher_class: type[RequestDispatcher] | None = None,
+        middlewares: Sequence[AnyMiddleware],
+        event_publisher: EventPublisher,
     ) -> None:
-        dispatcher_class = dispatcher_class or RequestDispatcher
-        self._dispatcher = dispatcher_class(
-            request_map=request_map,
-            dependency_provider=dependency_provider,
-            middleware_chain=middleware_chain,
-        )
+        self._request_map = request_map
+        self._event_map = event_map
+
+        self._dependency_provider = dependency_provider
+        self._middleware_chain = MiddlewareChain(middlewares)
+        self._event_publisher = event_publisher
 
     async def send(self, request: Request[ResponseT]) -> ResponseT:
-        dispatch_result = await self._dispatcher.dispatch(request)
-        # TODO: dispatch events from result  # noqa: FIX002
-        return dispatch_result.response
+        handler_type: RequestHandlerType[Request[ResponseT], ResponseT] = self._request_map[type(request)]
+
+        async with self._dependency_provider.context() as ctx:
+            handler = await ctx.resolve(handler_type)
+            wrapped_handler = self._middleware_chain.wrap(handler.handle)
+            return await wrapped_handler(request)
+
+    async def publish(self, event: Event) -> None:
+        async with self._dependency_provider.context() as ctx:
+            handlers = [await ctx.resolve(handler_type) for handler_type in self._event_map.registry[type(event)]]
+            await self._event_publisher(handlers, event)
