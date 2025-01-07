@@ -78,7 +78,7 @@ from waku import Application, Module
 from waku.di import Scoped, Injected, inject
 from waku.di.contrib.aioinject import AioinjectDependencyProvider
 
-# Define your services
+# Define your providers
 class UserService:
     async def get_user(self, user_id: str) -> dict[str, str]:
         return {"id": user_id, "name": "John Doe"}
@@ -87,7 +87,7 @@ class UserService:
 user_module = Module(
     name="users",
     providers=[
-        Scoped(UserService)
+        Scoped(UserService),
     ],
     exports=[UserService],
 )
@@ -111,9 +111,9 @@ async def handler(user_service: Injected[UserService]) -> dict[str, str]:
 async def main() -> None:
     dp = application.dependency_provider
     async with application, dp.context():
-        result = await handler()  # type: ignore[call-arg]
+        result = await handler()
 
-    print(result)  # noqa: T201
+    print(result)
 
 
 if __name__ == '__main__':
@@ -130,6 +130,7 @@ For detailed documentation, visit our [documentation site](https://waku-py.githu
 - [Dependency Injection](https://waku-py.github.io/waku/dependency-injection)
 - [Extensions](https://waku-py.github.io/waku/extensions)
 - [CQRS](https://waku-py.github.io/waku/cqrs)
+- [Integrations](https://waku-py.github.io/waku/integrations)
 
 ## Contributing
 
@@ -137,20 +138,7 @@ We welcome contributions! Please see our [Contributing Guide](./CONTRIBUTING.md)
 
 ### Development Setup
 
-```sh
-# Clone the repository
-git clone https://github.com/yourusername/waku.git
-cd waku
-
-# Install development dependencies
-task install
-
-# Run tests
-task test
-
-# Run linters
-task lint
-```
+See out contributing guide for [development setup](./CONTRIBUTING.md#development-setup).
 
 ## License
 
