@@ -14,7 +14,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/waku.svg)](https://pypi.python.org/pypi/waku)
 [![Downloads](https://static.pepy.tech/badge/waku/month)](https://pepy.tech/projects/waku)
-[![License](https://img.shields.io/pypi/l/waku.svg)](https://github.com/yourusername/waku/blob/main/LICENSE)
+[![License](https://img.shields.io/pypi/l/waku.svg)](https://github.com/waku-py/waku/blob/master/LICENSE)
 
 </div>
 
@@ -122,14 +122,14 @@ if __name__ == '__main__':
 
 ## Documentation
 
-For detailed documentation, visit our [documentation site](https://waku.readthedocs.io/).
+For detailed documentation, visit our [documentation site](https://waku-py.github.io/waku/).
 
 ### Key Topics
-- [Getting Started](https://waku.readthedocs.io/getting-started)
-- [Module System](https://waku.readthedocs.io/modules)
-- [Dependency Injection](https://waku.readthedocs.io/dependency-injection)
-- [Extensions](https://waku.readthedocs.io/extensions)
-- [CQRS](https://waku.readthedocs.io/cqrs)
+- [Getting Started](https://waku-py.github.io/waku/getting-started)
+- [Module System](https://waku-py.github.io/waku/modules)
+- [Dependency Injection](https://waku-py.github.io/waku/dependency-injection)
+- [Extensions](https://waku-py.github.io/waku/extensions)
+- [CQRS](https://waku-py.github.io/waku/cqrs)
 
 ## Contributing
 
