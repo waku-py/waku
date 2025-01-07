@@ -10,6 +10,7 @@ env:
   FORCE_COLOR: 1
   PRE_COMMIT_COLOR: always
   UV_NO_SYNC: 1  # Avoid syncing the virtual environment on `uv run`
+  PYTHONPATH: .
 
 tasks:
   default:
@@ -17,14 +18,14 @@ tasks:
       task: all
 
   .uv:
-    desc: Check that UV is installed and lockfile is up-to-date
+    desc: Check UV installation and lockfile status
     internal: true
     silent: true
     preconditions:
       - sh: command -v uv > /dev/null 2>&1
-        msg: "Please install UV: https://docs.astral.sh/uv/getting-started/installation/"
+        msg: "⚠️ UV not found. Install from: https://docs.astral.sh/uv/getting-started/installation/"
       - sh: uv lock --locked
-        msg: "Lockfile and project environment is not up-to-date. To update run `uv sync --all-extras --all-groups`."
+        msg: "⚠️ Lockfile outdated. Run: uv sync --all-extras --all-groups"
 
   install:
     desc: Install the package, dependencies, and pre-commit for local development
@@ -32,6 +33,7 @@ tasks:
     cmds:
       - uv sync --all-extras --all-groups
       - uv run pre-commit install --install-hooks
+      - echo "✅ Development environment setup complete"
 
   upgrade-deps:
     desc: Upgrade all project dependencies and pre-commit hooks
@@ -39,27 +41,43 @@ tasks:
     cmds:
       - uv sync --all-extras --all-groups --upgrade
       - uv run pre-commit autoupdate
+      - echo "✅ Dependencies upgraded"
 
   lint:
-    desc: Lint python source files
+    desc: Lint code
     deps: [ .uv ]
     cmds:
       - uv run ruff check {{.SOURCES}} {{.CLI_ARGS}}
       - uv run ruff format --check {{.SOURCES}}
+    sources:
+      - "**/*.py"
+      - "pyproject.toml"
+    generates:
+      - ".ruff_cache/**/*"
 
   format:
     aliases: [ fmt ]
-    desc: Format python source files
+    desc: Format code
     deps: [ .uv ]
     cmds:
       - uv run ruff check --fix {{.SOURCES}}
       - uv run ruff format {{.SOURCES}}
+    sources:
+      - "**/*.py"
+      - "pyproject.toml"
+    generates:
+      - ".ruff_cache/**/*"
 
   typecheck:
     aliases: [ mypy ]
-    desc: Type check python source files
+    desc: Type check code
     deps: [ .uv ]
-    cmd: uv run mypy{{ if ne (env "MYPY_PRETTY") "0" }} --pretty{{end}} {{.SOURCES}}
+    cmds:
+      - uv run mypy{{ if ne (env "MYPY_PRETTY") "0" }} --pretty{{end}} {{.SOURCES}}
+    sources:
+      - "**/*.py"
+    generates:
+      - ".mypy_cache/**/*"
 
   check:
     aliases: [ ci ]
@@ -77,7 +95,7 @@ tasks:
     cmd: uv run pre-commit run --verbose --all-files
 
   security-audit:
-    desc: Perform dependencies security audit for known vulnerabilities
+    desc: Audit dependencies for vulnerabilities
     deps: [ .uv ]
     silent: true
     cmd: uv export --no-emit-project --no-header | uv run pip-audit --require-hashes --disable-pip -r /dev/stdin
@@ -93,13 +111,18 @@ tasks:
     cmd: uv run gitlint {{.CLI_ARGS}}
 
   test:
-    desc: Run tests without coverage checking
+    desc: Run tests
     deps: [ .uv ]
     cmd: uv run pytest {{.PYTEST_ARGS}} {{.CLI_ARGS}}
+    sources:
+      - "**/*.py"
+      - "pyproject.toml"
+    generates:
+      - ".pytest_cache/**/*"
 
   test:cov:
     aliases: [ 'test:ci', 'test:all' ]
-    desc: Run tests with coverage checking
+    desc: Run tests with coverage
     deps: [ .uv ]
     vars:
       PYTEST_ARGS: --cov --cov-report term
@@ -108,6 +131,8 @@ tasks:
         vars:
           PYTEST_ARGS:
             ref: .PYTEST_ARGS
+    generates:
+      - ".coverage"
 
   all:
     desc: Run the full set of checks

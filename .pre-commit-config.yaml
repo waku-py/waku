@@ -1,25 +1,56 @@
+# Pre-commit configuration for waku
+# See https://pre-commit.com for more information
 default_install_hook_types: [ pre-commit, pre-push, commit-msg ]
+default_stages: [ pre-commit, pre-push, manual ]
 
+# TODO: Run pre-commit in CI, use lefthook for local checks
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
       - id: no-commit-to-branch
         args: [ '--branch', 'master' ]
+
       - id: check-yaml
         args: [ '--unsafe' ]
+        files: \.(yaml|yml)$
+
       - id: check-toml
+        files: \.toml$
+
       - id: check-merge-conflict
+
       - id: end-of-file-fixer
+        exclude: '^uv\.lock$'
+
       - id: trailing-whitespace
+        args: [ --markdown-linebreak-ext=md ]
+
+      - id: mixed-line-ending
+        args: [ --fix=lf ]
+
+      - id: check-case-conflict
+
+      - id: detect-private-key
 
   - repo: https://github.com/codespell-project/codespell
     rev: v2.3.0
     hooks:
       - id: codespell
-        additional_dependencies:
-          - tomli
+        additional_dependencies: [ tomli ]
         exclude: '^uv\.lock$'
+        args:
+          - --skip="*.lock"
+        files: \.(py|md|rst|yml|yaml|json)$
+
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.28.0
+    hooks:
+      - id: check-github-workflows
+        files: ^\.github/workflows/.*\.ya?ml$
+
+      - id: check-renovate
+        files: ^\.github/renovate\.json$
 
   - repo: local
     hooks:
@@ -39,24 +70,46 @@ repos:
         fail_fast: true
 
       - id: lint
-        name: lint
+        name: Run code linting
         entry: task lint -- --output-format=concise
         types: [ python ]
         language: system
         pass_filenames: false
         fail_fast: true
+        stages: [ pre-commit, pre-push ]
 
       - id: typecheck
-        name: typecheck
+        name: Run type checking
         entry: env MYPY_PRETTY=0 task typecheck
         types: [ python ]
         language: system
         pass_filenames: false
         fail_fast: true
+        stages: [ pre-push ]  # Run on push only to speed up commits
 
       - id: deptry
-        name: deptry
+        name: Check dependency usage
         entry: task deptry
         language: system
         pass_filenames: false
         fail_fast: true
+        stages: [ pre-push ]  # Run on push only to speed up commits
+
+      - id: security-check
+        name: Run security checks
+        entry: task security-audit
+        language: system
+        pass_filenames: false
+        fail_fast: true
+        stages: [ pre-push ]  # Run on push only to speed up commits
+        verbose: true
+
+exclude: |
+  (?x)^(
+    \.venv/.*|
+    dist/.*|
+    build/.*|
+    \.*_cache/.*|
+    \.git/.*|
+    \.idea/.*
+  )$
