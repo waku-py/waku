@@ -169,7 +169,7 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     needs: lint
-    if: ${{ inputs.src-files-changed == 'true' || inputs.test-files-changed == 'true' || inputs.ci-files-changed == 'true' }}
+    if: ${{ inputs.build-files-changed == 'true' || inputs.src-files-changed == 'true' || inputs.test-files-changed == 'true' || inputs.ci-files-changed == 'true' }}
 
     strategy:
       fail-fast: false
