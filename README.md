@@ -14,30 +14,144 @@
 
 [![PyPI](https://img.shields.io/pypi/v/waku.svg)](https://pypi.python.org/pypi/waku)
 [![Downloads](https://static.pepy.tech/badge/waku/month)](https://pepy.tech/projects/waku)
+[![License](https://img.shields.io/pypi/l/waku.svg)](https://github.com/yourusername/waku/blob/main/LICENSE)
 
 </div>
 
 `waku` *is a microframework for building modular and loosely coupled applications.*
 
-## Features
-- Building blocks for creating modular monoliths and loosely coupled applications
-- Built-in extensible plugin system
-- Ability to manage application and module lifecycle via **lifespans** and **extensions**
-- Framework-agnostic DI implementation with ability to use almost any custom DI framework
-- Dependency graph validation
-- Built-in extension for implementing CQRS
-- ...and many more (in future)
+## Overview
 
-## Installation
-Install using your preferred package manager.
+`waku` helps you build maintainable Python applications by providing:
+- Clean architecture patterns
+- Dependency injection
+- Module system
+- Extension system
+- Command/Query handling (CQRS)
+
+## Features
+
+### 🏗️ Modular Architecture
+- Build modular monoliths with clear boundaries
+- Enforce loose coupling between components
+- Validate dependency graphs automatically
+- Control module visibility and access
+
+### 🔌 Extensible Plugin System
+- Built-in extension mechanism
+- Lifecycle hooks for modules and applications
+- Custom extension points
+- Rich ecosystem of built-in extensions
+
+### 💉 Flexible Dependency Injection
+- Framework-agnostic DI implementation
+- Providers with different lifetimes (singleton, scoped, transient)
+- Easy testing and mocking
+
+### 🎮 Command Query Responsibility Segregation (CQRS)
+- Built-in CQRS extension
+- Command/Query requests handling
+- Event handling
+- Middleware support
+
+## Quick Start
+
+### Installation
+
 ```sh
-# pip
+# Using pip
 pip install waku
-# UV
+
+# Using UV (recommended)
 uv add waku
+
+# Using poetry
+poetry add waku
 ```
 
-## Example
-TODO
+### Basic Example
 
-## [Contributing guide](./CONTRIBUTING.md)
+```python
+import asyncio
+
+from waku import Application, Module
+from waku.di import Scoped, Injected, inject
+from waku.di.contrib.aioinject import AioinjectDependencyProvider
+
+# Define your services
+class UserService:
+    async def get_user(self, user_id: str) -> dict[str, str]:
+        return {"id": user_id, "name": "John Doe"}
+
+# Create a module
+user_module = Module(
+    name="users",
+    providers=[
+        Scoped(UserService)
+    ],
+    exports=[UserService],
+)
+
+# Create the application
+application = Application(
+    name="my_app",
+    dependency_provider=AioinjectDependencyProvider(),
+    modules=[user_module],
+)
+
+# Define entrypoints
+# In real world this can be FastAPI routes, etc.
+@inject
+async def handler(user_service: Injected[UserService]) -> dict[str, str]:
+    return await user_service.get_user(user_id='123')
+
+
+# Run the application
+# In real world this would be run by a 3rd party framework like FastAPI
+async def main() -> None:
+    dp = application.dependency_provider
+    async with application, dp.context():
+        result = await handler()  # type: ignore[call-arg]
+
+    print(result)  # noqa: T201
+
+
+if __name__ == '__main__':
+    asyncio.run(main())
+```
+
+## Documentation
+
+For detailed documentation, visit our [documentation site](https://waku.readthedocs.io/).
+
+### Key Topics
+- [Getting Started](https://waku.readthedocs.io/getting-started)
+- [Module System](https://waku.readthedocs.io/modules)
+- [Dependency Injection](https://waku.readthedocs.io/dependency-injection)
+- [Extensions](https://waku.readthedocs.io/extensions)
+- [CQRS](https://waku.readthedocs.io/cqrs)
+
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](./CONTRIBUTING.md) for details.
+
+### Development Setup
+
+```sh
+# Clone the repository
+git clone https://github.com/yourusername/waku.git
+cd waku
+
+# Install development dependencies
+task install
+
+# Run tests
+task test
+
+# Run linters
+task lint
+```
+
+## License
+
+This project is licensed under the [MIT License](./LICENSE).

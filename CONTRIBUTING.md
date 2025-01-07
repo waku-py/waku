@@ -1,82 +1,162 @@
-## Contributing
+# Contributing to Waku
 
-## Issues
+First off, thanks for taking the time to contribute! 🎉
 
-Questions, feature requests and bug reports are all welcome as [issues](https://github.com/waku-py/waku/issues/new/choose).
+## Table of Contents
+- [Getting Started](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Development Setup](#development-setup)
+- [Development Workflow](#development-workflow)
+  - [Making Changes](#making-changes)
+  - [Testing](#testing)
+  - [Code Style](#code-style)
+- [Submitting Changes](#submitting-changes)
+  - [Issues](#issues)
+  - [Pull Requests](#pull-requests)
+- [Development Commands](#development-commands)
 
-To make it as simple as possible for us to help you, please fill up issue template.
-
-## Pull Requests
-
-Unless your change is trivial (typo, docs tweak etc.), please create an issue to discuss the change before
-creating a pull request.
-
-Before making pull request run linters and tests by calling `task` command locally.
-
-**tl;dr**: use `task format` to fix formatting, `task` to run linters and tests.
+## Getting Started
 
 ### Prerequisites
 
-You'll need the following prerequisites:
+Before you begin, ensure you have the following installed:
 
-- Any Python version starting from **Python 3.11**
-- [**uv**](https://docs.astral.sh/uv/getting-started/installation/)
-- **git**
-- **Task**
+- Python 3.11 or higher
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) - Modern Python package installer
+- [Task](https://taskfile.dev/installation/) - Task runner
+- Git
 
-### Installation and setup
+### Development Setup
 
-Fork the repository on GitHub and clone your fork locally.
-
+1. Fork and clone the repository:
 ```bash
-# Clone your fork and cd into the repo directory
-git clone git@github.com:<your username>/waku.git
+git clone git@github.com:<your-username>/waku.git
 cd waku
+```
 
-# Install UV
-# We use install script
-# For other options see:
-# https://docs.astral.sh/uv/getting-started/installation/
-# On macOS and Linux.
+2. Install UV (if not already installed):
+```bash
+# On macOS and Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Install Task with install script
-# For other options including package managers see:
-# https://taskfile.dev/installation/
+# For other platforms, see:
+# https://docs.astral.sh/uv/getting-started/installation/
+```
+
+3. Install Task (if not already installed):
+```bash
+# Using the install script
 sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
-# Installs waku with all dependencies and extras, setups pre-commit hooks.
+# For other installation options:
+# https://taskfile.dev/installation/
+```
+
+4. Setup development environment:
+```bash
+# Install dependencies and setup pre-commit hooks
 task install
 ```
 
-### Check out a new branch and make your changes
+## Development Workflow
 
-Create a new branch for your changes.
+### Making Changes
 
+1. Create a new branch for your changes:
 ```bash
-# Checkout a new branch and make your changes
-git checkout -b my-new-feature-branch
-# Make your changes...
+git checkout -b feature/your-feature-name
 ```
 
-### Run tests and linters
+2. Make your changes following our [code style guidelines](#code-style)
 
-Run tests and linting locally to make sure everything is working as expected.
+3. Write tests for your changes
+
+### Testing
+
+Run the test suite before submitting your changes:
 
 ```bash
-# Run automated code formatting and linters
-task format
-# waku uses ruff for linting and formatting
-# (https://github.com/astral-sh/ruff)
-
-# Run tests and linters
+# Run all checks (recommended)
 task
-# There are a few sub-commands in Taskfile like `test`, `test:cov` and `lint`
-# which you might want to use, but generally just `task` should be all you need.
-# You can run `task -l` to see more options.
+
+# Run specific checks
+task test        # Run tests only
+task test:cov    # Run tests with coverage
+task lint        # Run linters only
+task format      # Format code
+task typecheck   # Run type checker only
 ```
 
-### Commit and push your changes
+### Code Style
 
-Commit your changes, push your branch to GitHub, and create a pull request.
-Please follow the pull request template and fill in as much information as possible. Link to any relevant issues and include a description of your changes.
+We use several tools to maintain code quality:
+
+- [Ruff](https://github.com/astral-sh/ruff) for linting and formatting
+- [MyPy](http://mypy-lang.org/) for type checking
+- Type hints are required for all public APIs
+
+Key style points:
+- Maximum line length is 120 characters
+- Use explicit type annotations
+- Follow PEP 8 guidelines
+- Write descriptive docstrings (Google style)
+
+## Submitting Changes
+
+### Issues
+
+Before creating an issue:
+
+1. Search existing issues to avoid duplicates
+2. Use the appropriate issue template
+3. Provide as much context as possible
+
+We welcome:
+- Bug reports
+- Feature requests
+- Documentation improvements
+- General questions
+
+### Pull Requests
+
+1. Create an issue first to discuss significant changes
+2. Ensure all tests pass and code is formatted
+3. Update documentation if needed
+4. Follow the pull request template
+5. Link related issues in your PR description
+
+Pull request checklist:
+- [ ] Tests added/updated
+- [ ] Documentation updated
+- [ ] Type hints added
+- [ ] Changelog updated
+- [ ] All checks passing
+
+## Development Commands
+
+Common `task` commands:
+
+```bash
+task install     # Install dependencies and setup pre-commit hooks
+task format      # Format code using ruff
+task lint        # Run all linters
+task typecheck   # Run type checker (mypy)
+task test        # Run tests
+task test:cov    # Run tests with coverage
+task clean       # Clean build artifacts
+task -l          # List all available commands
+```
+
+For more detailed information about specific topics, please refer to:
+- [Architecture Overview](docs/architecture.md)
+- [Testing Guide](docs/testing.md)
+- [Style Guide](docs/style.md)
+
+## Questions?
+
+If you have questions, feel free to:
+- Open an issue
+- Start a [Discussion](https://github.com/waku-py/waku/discussions)
+- Reach out to maintainers
+
+Thank you for contributing to Waku! 🙏
