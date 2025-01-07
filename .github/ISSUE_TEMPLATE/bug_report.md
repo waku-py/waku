@@ -1,30 +1,66 @@
 ---
-name: Bug report
-about: Create a report to help us improve
-title: ''
-labels: bug
+name: Bug Report
+about: Report a bug in waku
+title: 'bug: '
+labels: [ 'bug' ]
 assignees: ''
-
 ---
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+## Bug Description
 
-**To Reproduce**
-Steps to reproduce the behavior:
-1. ...
-2. ...
-3. See error
+<!-- A clear and concise description of what the bug is -->
 
-**Expected behavior**
-A clear and concise description of what you expected to happen.
+## Reproduction Steps
 
-**Screenshots**
-If applicable, add screenshots to help explain your problem.
+<!-- Provide detailed steps to reproduce the issue -->
 
-**Environment (please complete the following information):**
- - OS: [e.g. MacOS]
- - Lib version [e.g. 0.1.0]
+```python
+# Minimal code example that demonstrates the issue
+from waku import Application, Module
 
-**Additional context**
-Add any other context about the problem here.
+
+def reproduce_bug():
+    # Your reproduction code here
+    ...
+
+```
+
+## Expected Behavior
+
+<!-- What did you expect to happen? -->
+
+## Actual Behavior
+
+<!-- What actually happened? Include full error messages and stack traces if any -->
+Error output/stack trace here
+
+## Environment Information
+
+<!-- Please complete the following information if applicable -->
+
+```yaml
+waku version: x.x.x
+python version: 3.x.x
+os: [ Linux/MacOS/Windows ]
+dependencies:
+  - package: version
+```
+
+## Configuration
+
+Application/Module setup, or any other relevant configs
+
+# Validation Steps
+
+<!-- Mark completed items with [x] -->
+
+- [ ] I have the latest version
+- [ ] I have checked existing issues for duplicates
+- [ ] I have included all relevant logs/traces
+- [ ] I can reliably reproduce this issue
+
+## Additional Context
+
+<!-- Link to any related issues, components -->
+- Related issues: #
+- Affected components:

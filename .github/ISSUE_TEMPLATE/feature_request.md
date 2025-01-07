@@ -1,20 +1,70 @@
 ---
-name: Feature request
-about: Suggest an idea for this project
-title: ''
-labels: ''
+name: Feature Request
+about: Suggest an idea or enhancement for waku
+title: 'feat: '
+labels: 'enhancement'
 assignees: ''
-
 ---
 
-**Is your feature request related to a problem? Please describe.**
-A clear and concise description of what the problem is. Ex. I'm always frustrated when [...]
+## Problem Statement
+<!--
+Describe the problem this feature would solve. Be specific and provide context.
+Example: "When building modular applications, I struggle with [specific issue]..."
+-->
 
-**Describe the solution you'd like**
-A clear and concise description of what you want to happen.
+## Proposed Solution
+<!--
+Describe your proposed solution. Be specific about:
+- How it would work
+- What components it would affect
+- How it fits into waku's architecture
+-->
 
-**Describe alternatives you've considered**
-A clear and concise description of any alternative solutions or features you've considered.
+### API Design (if applicable)
+```python
+# Example usage of your proposed feature
+from waku import ...
 
-**Additional context**
-Add any other context or screenshots about the feature request here.
+# Show how the API would be used
+```
+
+### Configuration (if applicable)
+```yaml
+# Example configuration if needed
+```
+
+## Alternative Solutions
+<!--
+Describe alternative solutions or features you've considered.
+Explain why your proposed solution is better.
+-->
+
+## Implementation Considerations
+<!--
+Include any thoughts on:
+- Potential breaking changes
+- Performance implications
+- Backward compatibility
+- Dependencies needed
+-->
+
+## Additional Context
+<!--
+Add any other context, examples, or screenshots:
+- Use cases
+- Similar features in other frameworks
+- Related issues/PRs
+-->
+
+## Checklist
+<!-- Mark completed items with [x] -->
+- [ ] I have searched existing issues for duplicates
+- [ ] This feature aligns with waku's modular architecture
+- [ ] This feature maintains loose coupling principles
+- [ ] I'm willing to help implement this feature
+
+## Related Links
+<!-- Link to any related issues, documentation, or external resources -->
+- Related issues: #
+- Documentation:
+- External references:
