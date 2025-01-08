@@ -44,7 +44,7 @@ repos:
         files: \.(py|md|rst|yml|yaml|json)$
 
   - repo: https://github.com/python-jsonschema/check-jsonschema
-    rev: 0.28.0
+    rev: 0.30.0
     hooks:
       - id: check-github-workflows
         files: ^\.github/workflows/.*\.ya?ml$
