@@ -28,16 +28,6 @@ jobs:
           base_sha: ${{ github.event.push.before }}
           files_yaml_from_source_file: .github/changed-files-spec.yml
 
-      - name: Evaluate | Check specific file types for changes
-        id: ci-changed-files
-        uses: tj-actions/changed-files@d6e91a2266cdb9d62096cebf1e8546899c6aa18f # v45.0.6
-        with:
-          base_sha: ${{ github.event.push.before }}
-          files_yaml: |
-            ci:
-              - .github/workflows/cicd.yml
-              - .github/workflows/validate.yml
-
       - name: Evaluate | Detect if any of the combinations of file sets have changed
         id: all-changes
         run: |

@@ -1,15 +1,18 @@
 ---
 
 build:
-  - pyproject.toml
-  - uv.lock
+  - 'pyproject.toml'
+  - 'uv.lock'
+ci:
+  - '.github/changed-files-spec.yml'
+  - '.github/workflows/**'
+  - '.pre-commit-config.yaml'
+  - 'Taskfile.yml'
 docs:
-  - docs/**
-  - README.md
-  - CONTRIBUTING.md
-  - CHANGELOG.md
+  - 'docs/**'
+  - '**/*.md'
+  - 'mkdocs.yml'
 src:
-  - src/**
-  - pyproject.toml
+  - 'src/**'
 tests:
-  - tests/**
+  - 'tests/**'
