@@ -91,18 +91,18 @@ jobs:
           # Check for new version
           if new_version="$(semantic-release --strict version --print)"; then
             printf '%s\n' "::notice::Next version will be '$new_version'"
-            printf '%s\n' "new_release_detected=true" >> $GITHUB_OUTPUT
+            printf '%s\n' "new_release_detected=true" >> "$GITHUB_OUTPUT"
             semantic-release version --no-commit --no-tag
           else
-            printf '%s\n' "new_release_detected=false" >> $GITHUB_OUTPUT
+            printf '%s\n' "new_release_detected=false" >> "$GITHUB_OUTPUT"
           fi
 
           # Build distribution
           uv build
 
           # Set release info
-          printf '%s\n' "dist_dir=dist/*" >> $GITHUB_OUTPUT
-          printf '%s\n' "artifacts_name=dist" >> $GITHUB_OUTPUT
+          printf '%s\n' "dist_dir=dist/*" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "artifacts_name=dist" >> "$GITHUB_OUTPUT"
 
       - name: Upload | Distribution Artifacts
         uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # v4
@@ -147,15 +147,9 @@ jobs:
       - name: Setup | Install dependencies
         run: task install
 
-      - name: Lint | Linters
+      - name: Lint | Run all pre-commit hooks
         id: lint
-        run: |
-          task lint
-          task typecheck
-          task deptry
-
-      - name: Lint | Security Audit
-        run: task security-audit
+        run: task pre-commit-all
 
       - name: Lint | Commit Checks
         run: |
