@@ -124,6 +124,14 @@ class DependencyProvider(ABC):
                 finally:
                     context_var.reset(token)
 
+    async def get(self, type_: type[_T]) -> _T:
+        async with self.context() as ctx:
+            return await ctx.resolve(type_)
+
+    async def get_all(self, type_: type[_T]) -> list[_T]:
+        async with self.context() as ctx:
+            return await ctx.resolve_iterable(type_)
+
     @abstractmethod
     def override(self, provider: Provider[Any]) -> AbstractContextManager[None]: ...
 

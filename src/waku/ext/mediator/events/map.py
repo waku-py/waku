@@ -5,7 +5,7 @@ from typing import Any, Self, TypeAlias
 
 from waku.ext.mediator.contracts.event import EventT
 from waku.ext.mediator.events.handler import EventHandlerType
-from waku.ext.mediator.exceptions import EventHandlerAlreadyRegistered, EventHandlerNotFound
+from waku.ext.mediator.exceptions import EventHandlerAlreadyRegistered
 
 __all__ = [
     'EventMap',
@@ -35,13 +35,6 @@ class EventMap:
     @property
     def registry(self) -> EventMapRegistry[Any]:
         return self._registry
-
-    def __getitem__(self, event_type: type[EventT]) -> list[EventHandlerType[EventT]]:
-        try:
-            return self._registry[event_type]
-        except KeyError as err:
-            msg = f'Event handlers for {event_type.__name__} event is not registered'
-            raise EventHandlerNotFound(msg, event_type) from err
 
     def __bool__(self) -> bool:
         return bool(self._registry)
