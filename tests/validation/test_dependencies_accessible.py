@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import NewType
 
 import pytest
@@ -12,21 +13,22 @@ from waku.ext.validation import ValidationError, ValidationExtension, Validation
 from waku.module import Module
 
 
+@dataclass
 class A:
     pass
 
 
+@dataclass
 class B:
-    def __init__(self, a: A) -> None:
-        self._a = a
+    a: A
 
 
 C = NewType('C', A)
 
 
+@dataclass
 class D:
-    def __init__(self, c: C) -> None:
-        self._c = c
+    c: C
 
 
 def _impl() -> int:
