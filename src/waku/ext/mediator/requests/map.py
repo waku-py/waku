@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import MutableMapping
 from typing import Any, Self, TypeAlias
 
 from waku.ext.mediator.contracts.request import RequestT, ResponseT
@@ -11,7 +12,7 @@ __all__ = [
     'RequestMapRegistry',
 ]
 
-RequestMapRegistry: TypeAlias = dict[type[RequestT], RequestHandlerType[RequestT, ResponseT]]
+RequestMapRegistry: TypeAlias = MutableMapping[type[RequestT], RequestHandlerType[RequestT, ResponseT]]
 
 
 class RequestMap:

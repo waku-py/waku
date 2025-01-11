@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import MutableMapping
 from typing import Any, Self, TypeAlias
 
 from waku.ext.mediator.contracts.event import EventT
@@ -12,7 +13,7 @@ __all__ = [
     'EventMapRegistry',
 ]
 
-EventMapRegistry: TypeAlias = dict[type[EventT], list[EventHandlerType[EventT]]]
+EventMapRegistry: TypeAlias = MutableMapping[type[EventT], list[EventHandlerType[EventT]]]
 
 
 class EventMap:

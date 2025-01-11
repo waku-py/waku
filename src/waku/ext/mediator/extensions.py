@@ -65,6 +65,12 @@ class MediatorExtensionConfig:
 
 
 class MediatorAppExtension(OnApplicationInit):
+    """Application-level extension for Mediator setup.
+
+    Args:
+        config: Configuration for the Mediator extension.
+    """
+
     def __init__(
         self,
         config: MediatorExtensionConfig,
@@ -74,6 +80,14 @@ class MediatorAppExtension(OnApplicationInit):
         self._mapper: Final = _HandlerMapper()
 
     def on_app_init(self, config: ApplicationConfig) -> ApplicationConfig:
+        """Initialize Mediator components during application setup.
+
+        Args:
+            config: The application configuration.
+
+        Returns:
+            The updated application configuration.
+        """
         request_map, event_map = self._mapper.map_from_modules(config.modules)
 
         providers = self._create_providers(request_map, event_map)
@@ -127,6 +141,13 @@ class MediatorAppExtension(OnApplicationInit):
 
 @dataclass(slots=True, frozen=True)
 class MediatorModuleExtension(OnModuleInit):
+    """Module-level extension for Mediator setup.
+
+    Args:
+        request_map: Optional request handler map for the module.
+        event_map: Optional event handlers map for the module.
+    """
+
     request_map: RequestMap | None = None
     event_map: EventMap | None = None
 

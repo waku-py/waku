@@ -19,14 +19,21 @@ __all__ = [
 
 
 class MediatorError(Exception):
-    pass
+    """Base exception for all mediator-related errors."""
 
 
 class ImproperlyConfiguredError(MediatorError):
-    pass
+    """Raised when mediator configuration is invalid."""
 
 
 class RequestHandlerAlreadyRegistered(MediatorError, KeyError):  # noqa: N818
+    """Raised when a request handler is already registered.
+
+    Attributes:
+        request_type: The type of request that caused the error.
+        handler_type: The type of handler that was already registered.
+    """
+
     request_type: type[Request[Any]]
     handler_type: RequestHandlerType[Any, Any]
 
@@ -42,6 +49,12 @@ class RequestHandlerAlreadyRegistered(MediatorError, KeyError):  # noqa: N818
 
 
 class RequestHandlerNotFound(MediatorError, TypeError):  # noqa: N818
+    """Raised when a request handler is not found.
+
+    Attributes:
+        request_type: The type of request that caused the error.
+    """
+
     request_type: type[Request[Any]]
 
     def __init__(self, msg: str, request_type: type[Request[Any]]) -> None:
@@ -50,6 +63,13 @@ class RequestHandlerNotFound(MediatorError, TypeError):  # noqa: N818
 
 
 class EventHandlerAlreadyRegistered(MediatorError, KeyError):  # noqa: N818
+    """Raised when an event handler is already registered.
+
+    Attributes:
+        event_type: The type of event that caused the error.
+        handler_type: The type of handler that was already registered.
+    """
+
     event_type: type[Event]
     handler_type: EventHandlerType[Any]
 
@@ -65,6 +85,12 @@ class EventHandlerAlreadyRegistered(MediatorError, KeyError):  # noqa: N818
 
 
 class EventHandlerNotFound(MediatorError, TypeError):  # noqa: N818
+    """Raised when an event handler is not found.
+
+    Attributes:
+        event_type: The type of event that caused the error.
+    """
+
     event_type: type[Event]
 
     def __init__(self, msg: str, event_type: type[Event]) -> None:

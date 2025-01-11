@@ -1,6 +1,6 @@
 import abc
 from collections.abc import Sequence
-from typing import cast, final
+from typing import cast
 
 from waku.di import DependencyProvider
 from waku.ext.mediator._utils import get_request_response_type
@@ -14,28 +14,27 @@ from waku.ext.mediator.requests.handler import RequestHandler
 
 
 class ISender(abc.ABC):
-    """Interface for sending requests through the mediator."""
+    """Send a request through the mediator middleware chain to be handled by a single handler."""
 
     @abc.abstractmethod
     async def send(self, request: Request[ResponseT]) -> ResponseT:
-        """Send a request and get response."""
+        """Asynchronously send a request to a single handler."""
 
 
 class IPublisher(abc.ABC):
-    """Interface for publishing events through the mediator."""
+    """Publish event through the mediator to be handled by multiple handlers."""
 
     @abc.abstractmethod
     async def publish(self, event: Event) -> None:
-        """Publish an event to all registered handlers."""
+        """Asynchronously send event to multiple handlers."""
 
 
 class IMediator(ISender, IPublisher, abc.ABC):
-    """Combined interface for mediator pattern implementation."""
+    """Defines a mediator to encapsulate request/response and publishing interaction patterns."""
 
 
-@final
 class Mediator(IMediator):
-    """Default implementation of the mediator pattern."""
+    """Default mediator implementation."""
 
     def __init__(
         self,
@@ -48,7 +47,7 @@ class Mediator(IMediator):
         self._event_publisher = event_publisher
 
     async def send(self, request: Request[ResponseT]) -> ResponseT:
-        """Send a request through the mediator pipeline.
+        """Send a request through the mediator middleware chain.
 
         Args:
             request: The request to process
