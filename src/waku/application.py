@@ -1,3 +1,10 @@
+"""Application module for the Waku microframework.
+
+This module provides the core `Application` class, which serves as the entry point
+for building modular monoliths and loosely coupled applications. It manages the
+application's lifecycle, dependency injection, and extensions.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -28,6 +35,7 @@ __all__ = [
     'ApplicationLifespan',
 ]
 
+
 ApplicationLifespan: TypeAlias = (
     Callable[['Application'], AbstractAsyncContextManager[None]] | AbstractAsyncContextManager[None]
 )
@@ -35,30 +43,34 @@ ApplicationLifespan: TypeAlias = (
 
 @dataclass(kw_only=True, slots=True)
 class ApplicationConfig:
+    """Configuration for the Application class."""
+
+    dependency_provider: DependencyProvider
+    """The dependency provider for the application."""
     modules: list[Module] = field(default_factory=list)
+    """List of modules to be imported by the application."""
     providers: list[Provider[Any]] = field(default_factory=list)
+    """List of providers to be registered in the dependency container."""
     extensions: list[ApplicationExtension] = field(default_factory=list)
-    lifespan: list[ApplicationLifespan] = field(default_factory=list)
+    """List of application extensions."""
+    lifespan: list[ApplicationLifespan] = field(default_factory=lambda: [nullcontext()])
+    """List of lifespan context managers or callables."""
 
 
 class Application(Module):
+    """Main application class that manages modules, providers, and extensions.
+
+    Attributes:
+        extensions: List of application extensions.
+        dependency_provider: The dependency provider for the application.
+    """
+
     def __init__(
         self,
         name: str,
-        *,
-        dependency_provider: DependencyProvider,
-        modules: Sequence[Module] | None = None,
-        providers: Sequence[Provider[Any]] | None = None,
-        extensions: Sequence[ApplicationExtension] | None = None,
-        lifespan: Sequence[ApplicationLifespan] | None = None,
+        config: ApplicationConfig,
     ) -> None:
-        config = ApplicationConfig(
-            modules=list(modules or []),
-            providers=list(providers or []),
-            extensions=list(extensions or []),
-            lifespan=list(lifespan) if lifespan else [nullcontext()],
-        )
-        config = self._before_init(config, dependency_provider)
+        config = self._before_init(config)
 
         super().__init__(
             name=name,
@@ -68,7 +80,7 @@ class Application(Module):
         )
 
         self.extensions: Final = config.extensions
-        self.dependency_provider: Final = dependency_provider
+        self.dependency_provider: Final = config.dependency_provider
 
         self._lifespan_managers: list[ApplicationLifespan] = config.lifespan
         self._exit_stack = AsyncExitStack()
@@ -77,12 +89,25 @@ class Application(Module):
 
     @property
     def modules(self) -> Sequence[Module]:
+        """Get the list of modules imported by the application.
+
+        Returns:
+            Sequence of modules.
+        """
         return self.imports
 
-    def _before_init(self, config: ApplicationConfig, dependency_provider: DependencyProvider) -> ApplicationConfig:
+    def _before_init(self, config: ApplicationConfig) -> ApplicationConfig:
+        """Prepare the application configuration before initialization.
+
+        Args:
+            config: The application configuration.
+
+        Returns:
+            The updated application configuration.
+        """
         config.providers = [
             Object(self, Application),
-            Object(dependency_provider, DependencyProvider),
+            Object(config.dependency_provider, DependencyProvider),
             *config.providers,
         ]
 
@@ -93,6 +118,7 @@ class Application(Module):
         return config
 
     def _after_init(self) -> None:
+        """Perform actions after the application has been initialized."""
         self._register_providers()
 
         for ext in self.extensions:
@@ -100,15 +126,17 @@ class Application(Module):
                 ext.after_app_init(self)
 
     def _register_providers(self) -> None:
+        """Register providers from all submodules."""
         for providers in chain(tuple(module.providers) for module in self.iter_submodules()):
             self.dependency_provider.register(*providers)
 
     @asynccontextmanager
     async def _lifespan(self) -> AsyncIterator[None]:
+        """Manage the application's lifespan, including startup and shutdown handlers."""
         startup_handlers = [ext.on_app_startup for ext in self.extensions if isinstance(ext, OnApplicationStartup)]
         shutdown_handlers = [ext.on_app_shutdown for ext in self.extensions if isinstance(ext, OnApplicationShutdown)]
 
-        for shutdown_handler in reversed(shutdown_handlers):
+        for shutdown_handler in shutdown_handlers[::-1]:
             self._exit_stack.push_async_callback(shutdown_handler, self)
 
         for manager in self._lifespan_managers:

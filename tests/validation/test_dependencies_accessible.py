@@ -7,7 +7,7 @@ from typing import NewType
 import pytest
 
 from tests.mock import DummyDI
-from waku.application import Application
+from waku.application import Application, ApplicationConfig
 from waku.di import Scoped
 from waku.ext.validation import ValidationExtension, ValidationRule
 from waku.ext.validation.rules import DependenciesAccessible
@@ -62,9 +62,11 @@ def test_inaccessible(
     with pytest.raises(ExceptionGroup) as exc_info:
         Application(
             'app',
-            modules=[a, b],
-            dependency_provider=DummyDI(),
-            extensions=[ValidationExtension([rule])],
+            ApplicationConfig(
+                modules=[a, b],
+                dependency_provider=DummyDI(),
+                extensions=[ValidationExtension([rule])],
+            ),
         )
 
     error = exc_info.value.exceptions[0]
@@ -72,10 +74,12 @@ def test_inaccessible(
 
     with pytest.warns(Warning, match=re.escape(error_message)):
         Application(
-            name='app',
-            modules=[a, b],
-            dependency_provider=DummyDI(),
-            extensions=[ValidationExtension([rule], strict=False)],
+            'app',
+            ApplicationConfig(
+                modules=[a, b],
+                dependency_provider=DummyDI(),
+                extensions=[ValidationExtension([rule], strict=False)],
+            ),
         )
 
 
@@ -84,9 +88,11 @@ def test_ok(rule: ValidationRule) -> None:
     b = Module(name='B', providers=[Scoped(B), Scoped(D)], imports=[a])
     Application(
         'app',
-        modules=[a, b],
-        dependency_provider=DummyDI(),
-        extensions=[ValidationExtension([rule])],
+        ApplicationConfig(
+            modules=[a, b],
+            dependency_provider=DummyDI(),
+            extensions=[ValidationExtension([rule])],
+        ),
     )
 
 
@@ -95,9 +101,11 @@ def test_ok_with_global_providers(rule: ValidationRule) -> None:
     b = Module(name='B', providers=[Scoped(B)])
     Application(
         'app',
-        modules=[a, b],
-        dependency_provider=DummyDI(),
-        extensions=[ValidationExtension([rule])],
+        ApplicationConfig(
+            modules=[a, b],
+            dependency_provider=DummyDI(),
+            extensions=[ValidationExtension([rule])],
+        ),
     )
 
 
@@ -105,8 +113,10 @@ def test_ok_with_application_providers(rule: ValidationRule) -> None:
     b = Module(name='B', providers=[Scoped(B)], exports=[B])
     Application(
         'app',
-        modules=[b],
-        dependency_provider=DummyDI(),
-        extensions=[ValidationExtension([rule])],
-        providers=[Scoped(A)],
+        ApplicationConfig(
+            modules=[b],
+            dependency_provider=DummyDI(),
+            extensions=[ValidationExtension([rule])],
+            providers=[Scoped(A)],
+        ),
     )

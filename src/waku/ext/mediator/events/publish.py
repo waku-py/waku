@@ -29,7 +29,6 @@ class SequentialEventPublisher(EventPublisher):
 
 class GroupEventPublisher(EventPublisher):
     async def __call__(self, handlers: Sequence[EventHandler[EventT]], event: EventT) -> None:
-        handles = [handler.handle(event) for handler in handlers]
         async with asyncio.TaskGroup() as tg:
-            tasks = [tg.create_task(coro) for coro in handles]
-        _ = [task.result() for task in tasks]
+            for handler in handlers:
+                tg.create_task(handler.handle(event))

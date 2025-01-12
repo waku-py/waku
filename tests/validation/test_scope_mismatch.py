@@ -5,6 +5,7 @@ import pytest
 
 from tests.mock import DummyDI
 from waku import Application, Module
+from waku.application import ApplicationConfig
 from waku.di import Object, Provider, Scoped, Singleton, Transient
 from waku.ext.validation import ValidationExtension, ValidationRule
 from waku.ext.validation.rules import DIScopeMismatch
@@ -50,9 +51,11 @@ def test_scope_mismatch(
     def create_app() -> None:
         Application(
             'app',
-            modules=[Module(name='module', providers=[provider, dependency])],
-            dependency_provider=DummyDI(),
-            extensions=[ValidationExtension([rule])],
+            ApplicationConfig(
+                modules=[Module(name='module', providers=[provider, dependency])],
+                dependency_provider=DummyDI(),
+                extensions=[ValidationExtension([rule])],
+            ),
         )
 
     if not should_error:

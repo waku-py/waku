@@ -7,6 +7,7 @@ import pytest
 
 from tests.mock import DummyDI
 from waku import Application, Module
+from waku.application import ApplicationConfig
 from waku.di import Scoped, Singleton
 
 if TYPE_CHECKING:
@@ -54,10 +55,12 @@ async def test_application_lifecycle(di_provider: DummyDI) -> None:
 
     app = Application(
         name='test_app',
-        modules=[],
-        dependency_provider=di_provider,
-        extensions=[startup_ext, shutdown_ext],
-        lifespan=[lifespan],
+        config=ApplicationConfig(
+            modules=[],
+            dependency_provider=di_provider,
+            extensions=[startup_ext, shutdown_ext],
+            lifespan=[lifespan],
+        ),
     )
 
     async with app:
@@ -83,8 +86,10 @@ async def test_application_module_registration(di_provider: DummyDI) -> None:
     module_b = Module(name='module_b', providers=[Singleton(ServiceB)], imports=[module_a])
     app = Application(
         name='test_app',
-        modules=[module_a, module_b],
-        dependency_provider=di_provider,
+        config=ApplicationConfig(
+            modules=[module_a, module_b],
+            dependency_provider=di_provider,
+        ),
     )
 
     async with app:
@@ -99,9 +104,11 @@ async def test_multiple_lifespan_managers(di_provider: DummyDI) -> None:
 
     app = Application(
         name='test_app',
-        modules=[],
-        dependency_provider=di_provider,
-        lifespan=[manager1, manager2],
+        config=ApplicationConfig(
+            modules=[],
+            dependency_provider=di_provider,
+            lifespan=[manager1, manager2],
+        ),
     )
 
     async with app:

@@ -74,7 +74,7 @@ poetry add waku
 ```python
 import asyncio
 
-from waku import Application, Module
+from waku import Application, ApplicationConfig, Module
 from waku.di import Scoped, Injected, inject
 from waku.di.contrib.aioinject import AioinjectDependencyProvider
 
@@ -95,8 +95,10 @@ user_module = Module(
 # Create the application
 application = Application(
     name="my_app",
-    dependency_provider=AioinjectDependencyProvider(),
-    modules=[user_module],
+    config=ApplicationConfig(
+        dependency_provider=AioinjectDependencyProvider(),
+        modules=[user_module],
+    ),
 )
 
 # Define entrypoints

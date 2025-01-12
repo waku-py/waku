@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import aioinject
 from aioinject.context import context_var as aioinject_context
+from typing_extensions import override as override_
 
 from waku.di import DependencyProvider, InjectionContext, Object, Provider, Scoped, Singleton, Transient
 
@@ -19,23 +20,28 @@ class AioinjectDependencyProvider(DependencyProvider):
         self._container = container or aioinject.Container()
         self._exit_stack = AsyncExitStack()
 
+    @override_
     def register(self, *providers: Provider[Any]) -> None:
         self._container.register(*[self._map_provider(provider) for provider in providers])
 
+    @override_
     def try_register(self, *providers: Provider[Any]) -> None:
         self._container.try_register(*[self._map_provider(provider) for provider in providers])
 
+    @override_
     @contextmanager
     def override(self, provider: Provider[Any]) -> Iterator[None]:
         override_provider = self._map_provider(provider)
         with self._container.override(override_provider):
             yield
 
+    @override_
     @asynccontextmanager
     async def _lifespan(self) -> AsyncIterator[None]:
         async with self._container:
             yield
 
+    @override_
     def _context(self) -> InjectionContext:
         if current_context := aioinject_context.get(None):
             return cast(InjectionContext, nullcontext(current_context))

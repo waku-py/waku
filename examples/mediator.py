@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from waku import Application, Module
+from waku.application import ApplicationConfig
 from waku.di import Injected, inject
 from waku.di.contrib.aioinject import AioinjectDependencyProvider
 from waku.ext import DEFAULT_EXTENSIONS
@@ -103,16 +104,18 @@ class OnShutdown(OnApplicationShutdown):
 
 application = Application(
     name='app',
-    modules=[module],
-    dependency_provider=AioinjectDependencyProvider(),
-    extensions=[
-        MediatorAppExtension(MediatorExtensionConfig(middlewares=[LogMiddleware])),
-        OnStartup(),
-        OnShutdown(1),
-        OnShutdown(2),
-        *DEFAULT_EXTENSIONS,
-    ],
-    lifespan=[lifespan],
+    config=ApplicationConfig(
+        modules=[module],
+        dependency_provider=AioinjectDependencyProvider(),
+        extensions=[
+            MediatorAppExtension(MediatorExtensionConfig(middlewares=[LogMiddleware])),
+            OnStartup(),
+            OnShutdown(1),
+            OnShutdown(2),
+            *DEFAULT_EXTENSIONS,
+        ],
+        lifespan=[lifespan],
+    ),
 )
 
 

@@ -1,3 +1,9 @@
+"""Module system for the Waku microframework.
+
+This module provides the core `Module` class and its configuration, enabling
+modular application design through dependency injection and composition.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -18,13 +24,30 @@ __all__ = [
 
 @dataclass(kw_only=True, slots=True)
 class ModuleConfig:
+    """Configuration for a module."""
+
     providers: list[Provider[Any]] = field(default_factory=list)
+    """List of providers for dependency injection."""
     imports: list[Module] = field(default_factory=list)
+    """List of modules imported by this module."""
     exports: list[type[object] | Module] = field(default_factory=list)
+    """List of types or modules exported by this module."""
     extensions: list[ModuleExtension] = field(default_factory=list)
+    """List of module extensions for lifecycle hooks."""
 
 
 class Module:
+    """Core class representing a modular component in the application.
+
+    Args:
+        name: The name of the module.
+        providers: Optional sequence of providers for dependency injection.
+        imports: Optional sequence of imported modules.
+        exports: Optional sequence of exported types or modules.
+        extensions: Optional sequence of module extensions.
+        is_global: Whether the module is globally accessible.
+    """
+
     def __init__(
         self,
         name: str,
@@ -53,6 +76,11 @@ class Module:
         self.is_global: Final = is_global
 
     def iter_submodules(self) -> Iterable[Module]:
+        """Iterate over this module and all its imported submodules.
+
+        Yields:
+            This module and all its imported submodules.
+        """
         yield self
         yield from self.imports
 
