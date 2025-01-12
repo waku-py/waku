@@ -112,7 +112,7 @@ jobs:
           root_options: "-v"
 
       - name: Release | Add distribution artifacts to GitHub Release Assets
-        uses: python-semantic-release/publish-action@b9c41d4b0754dee5a6c7188d42b33f66e3a8aafd # v9.15.2
+        uses: python-semantic-release/publish-action@3a3f8e26d788ca664e261dc7660ffc30dfc86c2d # v9.16.1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ steps.release.outputs.tag }}
