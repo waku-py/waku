@@ -2,6 +2,36 @@
 
 <!-- version list -->
 
+## v0.2.0 (2025-01-12)
+
+### Documentation
+
+- Add docstrings to mediator related stuff
+  ([`10728c0`](https://github.com/waku-py/waku/commit/10728c072bc191575aa5183efa74977df9dd66db))
+
+- Deploy mkdocs to github pages #17
+  ([`23872d7`](https://github.com/waku-py/waku/commit/23872d7d4fbf852dbff31dd1c9483a2fd91bb600))
+
+- Improve readme and contributing guide
+  ([`93529d1`](https://github.com/waku-py/waku/commit/93529d1185b0cf74eae2f8af22c5632d6a4eaab0))
+
+- Trigger docs deploy #17
+  ([`096876f`](https://github.com/waku-py/waku/commit/096876f6f08fc361e0bf2ac2517186b37c176acd))
+
+- Use org bot for pages deploy #17
+  ([`dfd1786`](https://github.com/waku-py/waku/commit/dfd17863cf5949abe19157f538b6be77f0bf4f31))
+
+### Features
+
+- Eliminate maps usage in mediator
+  ([`16679d7`](https://github.com/waku-py/waku/commit/16679d7a87f6f90b84c9768105b340113d505280))
+
+- Refactor mediator extension, add events handling support
+  ([`3441375`](https://github.com/waku-py/waku/commit/3441375c67c7947b9194f49c2b2bd4d895b0a2f6))
+
+Resolves #12 Fixes #16
+
+
 ## v0.1.6 (2024-12-20)
 
 ### Bug Fixes

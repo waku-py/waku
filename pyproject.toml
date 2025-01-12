@@ -4,7 +4,7 @@ requires = ["hatchling"]
 
 [project]
 name = "waku"
-version = "0.1.6"
+version = "0.2.0"
 description = "Microframework for building modular and loosely coupled applications"
 readme = "README.md"
 license = "MIT"
