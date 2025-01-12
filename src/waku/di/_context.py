@@ -15,6 +15,8 @@ _P = ParamSpec('_P')
 class InjectionContext(Protocol):
     async def resolve(self, type_: type[_T]) -> _T: ...
 
+    async def resolve_iterable(self, type_: type[_T]) -> list[_T]: ...
+
     @overload
     async def execute(
         self,

@@ -3,22 +3,27 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from uuid import UUID, uuid4
 
 from waku import Application, Module
+from waku.application import ApplicationConfig
 from waku.di import Injected, inject
 from waku.di.contrib.aioinject import AioinjectDependencyProvider
 from waku.ext import DEFAULT_EXTENSIONS
 from waku.ext.mediator import (
-    Mediator,
     MediatorAppExtension,
     MediatorModuleExtension,
-    MiddlewareChain,
     Request,
     RequestHandler,
     RequestMap,
     Response,
 )
-from waku.ext.mediator.handlers.handler import RequestT, ResponseT
+from waku.ext.mediator.contracts.event import Event
+from waku.ext.mediator.contracts.request import RequestT, ResponseT
+from waku.ext.mediator.events.handler import EventHandler
+from waku.ext.mediator.events.map import EventMap
+from waku.ext.mediator.extensions import MediatorExtensionConfig
+from waku.ext.mediator.mediator import IMediator
 from waku.ext.mediator.middlewares import HandleType, Middleware
 from waku.extensions import OnApplicationShutdown, OnApplicationStartup
 
@@ -27,38 +32,54 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, kw_only=True)
-class ExampleResponse(Response):
-    result: bool
+class CreateMeetingResult(Response):
+    meeting_id: UUID
 
 
 @dataclass(frozen=True, kw_only=True)
-class ExampleRequest(Request[ExampleResponse]):
-    result: bool
+class CreateMeetingCommand(Request[CreateMeetingResult]):
+    user_id: UUID
 
 
-class ExampleMiddleware(Middleware[RequestT, ResponseT]):
+@dataclass(frozen=True, kw_only=True)
+class MeetingCreatedEvent(Event):
+    user_id: UUID
+    meeting_id: UUID
+
+
+class CreatingMeetingCommandHandler(RequestHandler[CreateMeetingCommand, CreateMeetingResult]):
+    def __init__(self, mediator: IMediator) -> None:
+        self._mediator = mediator
+
+    async def handle(self, request: CreateMeetingCommand) -> CreateMeetingResult:
+        meeting_id = uuid4()
+        await self._mediator.publish(MeetingCreatedEvent(user_id=request.user_id, meeting_id=meeting_id))
+        return CreateMeetingResult(meeting_id=meeting_id)
+
+
+class MeetingCreatedEventHandler(EventHandler[MeetingCreatedEvent]):
+    async def handle(self, event: MeetingCreatedEvent) -> None:  # noqa: PLR6301
+        logger.info('new meeting created by user_id=%s', event.user_id)
+
+
+class LogMiddleware(Middleware[RequestT, ResponseT]):
     async def __call__(self, request: RequestT, handle: HandleType[RequestT, ResponseT]) -> ResponseT:
-        logger.info('Mediator middleware')
-        return await handle(request)
+        logger.info('request=%s', request)
+        response = await handle(request)
+        logger.info('response=%s', response)
+        return response
 
 
-class ExampleHandler(RequestHandler[ExampleRequest, ExampleResponse]):
-    async def handle(self, request: ExampleRequest) -> ExampleResponse:  # noqa: PLR6301
-        return ExampleResponse(result=request.result)
-
-
-# fmt: off
 module = Module(
     name='module',
-    exports=[ExampleHandler],
+    exports=[CreatingMeetingCommandHandler],
     extensions=[
         MediatorModuleExtension(
-            RequestMap()
-            .bind(ExampleRequest, ExampleHandler)
+            RequestMap().bind(CreateMeetingCommand, CreatingMeetingCommandHandler),
+            EventMap().bind(MeetingCreatedEvent, [MeetingCreatedEventHandler]),
         ),
     ],
 )
-# fmt: on
 
 
 @asynccontextmanager
@@ -83,28 +104,32 @@ class OnShutdown(OnApplicationShutdown):
 
 application = Application(
     name='app',
-    modules=[module],
-    dependency_provider=AioinjectDependencyProvider(),
-    extensions=[
-        MediatorAppExtension(MiddlewareChain([ExampleMiddleware()])),
-        OnStartup(),
-        OnShutdown(1),
-        OnShutdown(2),
-        *DEFAULT_EXTENSIONS,
-    ],
-    lifespan=[lifespan],
+    config=ApplicationConfig(
+        modules=[module],
+        dependency_provider=AioinjectDependencyProvider(),
+        extensions=[
+            MediatorAppExtension(MediatorExtensionConfig(middlewares=[LogMiddleware])),
+            OnStartup(),
+            OnShutdown(1),
+            OnShutdown(2),
+            *DEFAULT_EXTENSIONS,
+        ],
+        lifespan=[lifespan],
+    ),
 )
 
 
 @inject
-async def handler(mediator: Injected[Mediator]) -> ExampleResponse:
-    return await mediator.send(ExampleRequest(result=True))
+async def handler(mediator: Injected[IMediator]) -> CreateMeetingResult:
+    return await mediator.send(CreateMeetingCommand(user_id=uuid4()))
 
 
 async def main() -> None:
     dp = application.dependency_provider
     async with application, dp.context():
-        await handler()  # type: ignore[call-arg]
+        result = await handler()  # type: ignore[call-arg]
+
+    print(result)  # noqa: T201
 
 
 if __name__ == '__main__':

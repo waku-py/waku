@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import MutableMapping
 from typing import Any, Self, TypeAlias
 
-from waku.ext.mediator.exceptions import RequestHandlerAlreadyRegistered, RequestHandlerNotFound
-from waku.ext.mediator.handlers.handler import RequestHandlerType, RequestT, ResponseT
+from waku.ext.mediator.contracts.request import RequestT, ResponseT
+from waku.ext.mediator.exceptions import RequestHandlerAlreadyRegistered
+from waku.ext.mediator.requests.handler import RequestHandlerType
 
 __all__ = [
     'RequestMap',
     'RequestMapRegistry',
 ]
 
-RequestMapRegistry: TypeAlias = dict[type[RequestT], RequestHandlerType[RequestT, ResponseT]]
+RequestMapRegistry: TypeAlias = MutableMapping[type[RequestT], RequestHandlerType[RequestT, ResponseT]]
 
 
 class RequestMap:
@@ -33,9 +35,5 @@ class RequestMap:
     def registry(self) -> RequestMapRegistry[Any, Any]:
         return self._registry
 
-    def __getitem__(self, request_type: type[RequestT]) -> RequestHandlerType[RequestT, ResponseT]:
-        try:
-            return self._registry[request_type]
-        except KeyError as err:
-            msg = f'Request handler for {request_type.__name__} request is not registered'
-            raise RequestHandlerNotFound(msg, request_type) from err
+    def __bool__(self) -> bool:
+        return bool(self._registry)

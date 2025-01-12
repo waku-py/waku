@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-import abc
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Generic, TypeAlias, TypeVar
+from typing import Any, Generic
+
+from typing_extensions import TypeVar
 
 __all__ = [
     'Request',
-    'RequestHandler',
-    'RequestHandlerType',
     'RequestT',
     'Response',
     'ResponseT',
 ]
 
+
 RequestT = TypeVar('RequestT', bound='Request[Any]', contravariant=True)  # noqa: PLC0105
-ResponseT = TypeVar('ResponseT', bound='Response | None', covariant=True)  # noqa: PLC0105
+ResponseT = TypeVar('ResponseT', bound='Response | None', default=None, covariant=True)  # noqa: PLC0105
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -28,12 +28,3 @@ class Request(Generic[ResponseT]):
 @dataclass(frozen=True, kw_only=True)
 class Response:
     """Base class for response type objects."""
-
-
-class RequestHandler(abc.ABC, Generic[RequestT, ResponseT]):
-    @abc.abstractmethod
-    async def handle(self, request: RequestT) -> ResponseT:
-        raise NotImplementedError
-
-
-RequestHandlerType: TypeAlias = type[RequestHandler[RequestT, ResponseT]]

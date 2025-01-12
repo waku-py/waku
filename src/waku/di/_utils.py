@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import collections.abc
+import functools
 import inspect
 import sys
 import typing
@@ -20,6 +21,7 @@ __all__ = [
     'clear_wrapper',
     'collect_dependencies',
     'guess_return_type',
+    'is_iterable_generic_collection',
 ]
 
 _T = typing.TypeVar('_T')
@@ -79,8 +81,13 @@ def guess_return_type(factory: FactoryType[_T]) -> type[_T]:
             return_type = args[0]
 
     # classmethod returning `typing.Self`
-    if return_type == typing.Self and (self_cls := getattr(factory, '__self__', None)):
+    # fmt: off
+    if (
+        return_type == typing.Self  # pyright: ignore[reportUnknownMemberType]
+        and (self_cls := getattr(factory, '__self__', None))
+    ):
         return typing.cast(type[_T], self_cls)
+    # fmt: on
 
     return typing.cast(type[_T], return_type)
 
@@ -105,15 +112,28 @@ def _get_return_annotation(
     return eval(ret_annotation, context)  # type:ignore[no-any-return] # noqa: S307
 
 
-@dataclass(slots=True, kw_only=True, frozen=True)
+@dataclass(kw_only=True)
 class Dependency(typing.Generic[_T]):
     name: str
     type_: type[_T]
+
+    @functools.cached_property
+    def inner_type(self) -> type[_T]:
+        return typing.cast(
+            type[_T],
+            typing.get_args(self.type_)[0] if self.is_iterable else self.type_,
+        )
+
+    @functools.cached_property
+    def is_iterable(self) -> bool:
+        return is_iterable_generic_collection(self.type_)  # type: ignore[arg-type]
 
 
 def collect_dependencies(
     dependent: typing.Callable[..., object] | dict[str, typing.Any],
     ctx: dict[str, type[typing.Any]] | None = None,
+    *,
+    skip_unmarked: bool = True,
 ) -> typing.Iterable[Dependency[object]]:
     if not isinstance(dependent, dict):
         with _remove_annotation(dependent.__annotations__, 'return'):
@@ -123,7 +143,7 @@ def collect_dependencies(
     for name, hint in type_hints.items():
         dep_type, args = _get_annotation_args(hint)
         inject_marker = _find_inject_marker_in_annotation_args(args)
-        if inject_marker is None:
+        if skip_unmarked and inject_marker is None:
             continue
 
         yield Dependency(name=name, type_=dep_type)
@@ -180,3 +200,10 @@ def _remove_annotation(annotations: dict[str, typing.Any], name: str) -> Iterato
     yield
     if annotation is not _sentinel:
         annotations[name] = annotation
+
+
+@functools.cache
+def is_iterable_generic_collection(type_: typing.Any) -> bool:
+    if not (origin := typing.get_origin(type_)):
+        return False
+    return collections.abc.Iterable in inspect.getmro(origin) or issubclass(origin, collections.abc.Iterable)

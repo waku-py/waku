@@ -21,7 +21,7 @@ class Entity(Generic[_TPrimaryKey]):  # noqa: PLW1641
         return super().__eq__(other)
 
 
-@dataclass(kw_only=True, frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class EventData:
     event_time: datetime
 

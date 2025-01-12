@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import contextlib
+import functools
+import inspect
+import typing
 from abc import ABC, abstractmethod
-from collections.abc import Hashable
-from typing import TYPE_CHECKING, Any, Protocol, Self, TypeVar, runtime_checkable
+from collections.abc import Hashable, Sequence
+from typing import TYPE_CHECKING, Any, Protocol, Self, TypeAlias, TypeVar, runtime_checkable
 
 from waku.di._context import InjectionContext
 from waku.di._inject import context_var
-from waku.di._utils import guess_return_type
+from waku.di._utils import Dependency, collect_dependencies, guess_return_type
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -17,6 +20,7 @@ if TYPE_CHECKING:
     from waku.di._types import FactoryType
 
 __all__ = [
+    'AnyProvider',
     'DependencyProvider',
     'InjectionContext',
     'Object',
@@ -34,9 +38,36 @@ _T = TypeVar('_T')
 class Provider(Hashable, Protocol[_T]):
     impl: Any
     type_: type[_T]
+    _cached_dependencies: tuple[Dependency[object], ...]
+
+    def __hash__(self) -> int:
+        return hash(self.type_)
 
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}[{self.type_!r}]'
+
+    def collect_dependencies(self) -> Sequence[Dependency[object]]:
+        try:
+            return self._cached_dependencies
+        except AttributeError:
+            self._cached_dependencies = self._collect_dependencies()
+            return self._cached_dependencies
+
+    def _collect_dependencies(self) -> tuple[Dependency[object], ...]:
+        if isinstance(self, Object):
+            return ()
+
+        source = self.impl
+        if inspect.isclass(source):
+            source = source.__init__
+
+        if isinstance(source, functools.partial):
+            return ()
+
+        type_hints = typing.get_type_hints(source, include_extras=True, localns={})
+        if 'return' in type_hints:
+            del type_hints['return']
+        return tuple(collect_dependencies(type_hints, skip_unmarked=False))
 
 
 class Scoped(Provider[_T]):
@@ -47,9 +78,6 @@ class Scoped(Provider[_T]):
     ) -> None:
         self.impl = factory
         self.type_ = type_ or guess_return_type(factory)
-
-    def __hash__(self) -> int:
-        return hash(self.type_)
 
 
 class Singleton(Scoped[_T]):
@@ -71,8 +99,8 @@ class Object(Provider[_T]):
         self.type_ = type_ or type(object_)
         self.impl = object_
 
-    def __hash__(self) -> int:
-        return hash(self.type_)
+
+AnyProvider: TypeAlias = Scoped[_T] | Singleton[_T] | Transient[_T] | Object[_T]
 
 
 class DependencyProvider(ABC):
@@ -81,10 +109,13 @@ class DependencyProvider(ABC):
     @abstractmethod
     def register(self, *providers: Provider[Any]) -> None: ...
 
+    @abstractmethod
+    def try_register(self, *providers: Provider[Any]) -> None: ...
+
     @contextlib.asynccontextmanager
     async def context(self) -> AsyncIterator[InjectionContext]:
-        if ctx := context_var.get(None):
-            yield ctx
+        if current_ctx := context_var.get(None):
+            yield current_ctx
         else:
             async with self._context() as ctx:
                 token = context_var.set(ctx)
@@ -92,6 +123,14 @@ class DependencyProvider(ABC):
                     yield ctx
                 finally:
                     context_var.reset(token)
+
+    async def get(self, type_: type[_T]) -> _T:
+        async with self.context() as ctx:
+            return await ctx.resolve(type_)
+
+    async def get_all(self, type_: type[_T]) -> list[_T]:
+        async with self.context() as ctx:
+            return await ctx.resolve_iterable(type_)
 
     @abstractmethod
     def override(self, provider: Provider[Any]) -> AbstractContextManager[None]: ...

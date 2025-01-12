@@ -79,6 +79,12 @@ tasks:
     generates:
       - ".mypy_cache/**/*"
 
+  basedpyright:
+    desc: Type check code with basedpyright
+    deps: [ .uv ]
+    cmds:
+      - uv run basedpyright
+
   check:
     aliases: [ ci ]
     desc: Lint & typecheck python source files

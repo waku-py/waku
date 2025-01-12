@@ -10,9 +10,7 @@ if TYPE_CHECKING:
 
     from waku.extensions import ApplicationExtension
 
-__all__ = [
-    'DEFAULT_EXTENSIONS',
-]
+__all__ = ['DEFAULT_EXTENSIONS']
 
 DEFAULT_EXTENSIONS: Sequence[ApplicationExtension] = (
     ValidationExtension(

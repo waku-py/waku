@@ -28,7 +28,9 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Application Frameworks",
   "Typing :: Typed",
 ]
-dependencies = []
+dependencies = [
+  "typing-extensions>=4.12.0",
+]
 
 [project.urls]
 Changelog = "https://github.com/waku-py/waku/blob/master/CHANGELOG.md"
@@ -36,7 +38,7 @@ Issues = "https://github.com/waku-py/waku/issues"
 Repository = "https://github.com/waku-py/waku"
 
 [project.optional-dependencies]
-aioinject = ["aioinject>=0.35.3"]
+aioinject = ["aioinject>=0.36.0"]
 litestar = ["litestar>2"]
 
 [tool.hatch.build.targets.sdist]
@@ -72,8 +74,9 @@ test = [
   "pytest-timeout>=2.3.1",
 ]
 typecheck = [
+  "basedpyright>=1.23.2",
   "mypy>=1.13.0",
-  "types-setuptools>=75.6.0.20241126"
+  "types-setuptools>=75.6.0.20241126",
 ]
 
 all = [
@@ -92,7 +95,7 @@ default-groups = ["dev", "lint", "test", "typecheck"]
 # ----- Pytest settings -----
 [tool.pytest.ini_options]
 xfail_strict = true
-norecursedirs = ".* __pycache__"
+norecursedirs = ".* examples __pycache__"
 disable_test_id_escaping_and_forfeit_all_rights_to_community_support = true
 addopts = [
   "--doctest-modules",
@@ -139,6 +142,7 @@ ignore = [
   "D203", # 1 blank line required before class docstring
   "D213", # Multi-line docstring summary should start at the second line
   "DOC201", # `return` is not documented in docstring
+  "DOC502", # Raised exception is not explicitly raised
   "E501", # Never enforce line length
   "ISC001", # Implicitly concatenated string literals on one line. Conflicts with ruff format
   "RET504", # Unnecessary variable assignment before `return` statement

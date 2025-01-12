@@ -2,14 +2,10 @@ from __future__ import annotations
 
 import functools
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any, Generic, Self, TypeAlias
+from collections.abc import Awaitable, Callable, Sequence
+from typing import Any, Generic, TypeAlias
 
-from waku.ext.mediator.handlers.handler import RequestT, ResponseT
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
-
+from waku.ext.mediator.contracts.request import RequestT, ResponseT
 
 __all__ = [
     'AnyMiddleware',
@@ -30,16 +26,12 @@ class Middleware(ABC, Generic[RequestT, ResponseT]):
     ) -> ResponseT: ...
 
 
-AnyMiddleware = Middleware[Any, Any]
+AnyMiddleware: TypeAlias = Middleware[Any, Any]
 
 
 class MiddlewareChain:
     def __init__(self, middlewares: Sequence[AnyMiddleware] = ()) -> None:
         self._middlewares: list[AnyMiddleware] = list(middlewares)
-
-    def add(self, middleware: AnyMiddleware) -> Self:
-        self._middlewares.append(middleware)
-        return self
 
     def wrap(self, handle: HandleType[RequestT, ResponseT]) -> HandleType[RequestT, ResponseT]:
         original_handle = handle

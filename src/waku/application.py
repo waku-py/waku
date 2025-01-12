@@ -1,12 +1,21 @@
+"""Application module for the Waku microframework.
+
+This module provides the core `Application` class, which serves as the entry point
+for building modular monoliths and loosely coupled applications. It manages the
+application's lifecycle, dependency injection, and extensions.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager, nullcontext
+from dataclasses import dataclass, field
+from itertools import chain
 from typing import TYPE_CHECKING, Any, Final, Self, TypeAlias
 
 from waku.di import DependencyProvider, Object
-from waku.ext import DEFAULT_EXTENSIONS
 from waku.extensions import (
+    AfterApplicationInit,
     ApplicationExtension,
     OnApplicationInit,
     OnApplicationShutdown,
@@ -22,72 +31,122 @@ if TYPE_CHECKING:
 
 __all__ = [
     'Application',
+    'ApplicationConfig',
     'ApplicationLifespan',
 ]
+
 
 ApplicationLifespan: TypeAlias = (
     Callable[['Application'], AbstractAsyncContextManager[None]] | AbstractAsyncContextManager[None]
 )
 
 
+@dataclass(kw_only=True, slots=True)
+class ApplicationConfig:
+    """Configuration for the Application class."""
+
+    dependency_provider: DependencyProvider
+    """The dependency provider for the application."""
+    modules: list[Module] = field(default_factory=list)
+    """List of modules to be imported by the application."""
+    providers: list[Provider[Any]] = field(default_factory=list)
+    """List of providers to be registered in the dependency container."""
+    extensions: list[ApplicationExtension] = field(default_factory=list)
+    """List of application extensions."""
+    lifespan: list[ApplicationLifespan] = field(default_factory=lambda: [nullcontext()])
+    """List of lifespan context managers or callables."""
+
+
 class Application(Module):
+    """Main application class that manages modules, providers, and extensions.
+
+    Attributes:
+        extensions: List of application extensions.
+        dependency_provider: The dependency provider for the application.
+    """
+
     def __init__(
         self,
         name: str,
-        *,
-        modules: Sequence[Module],
-        dependency_provider: DependencyProvider,
-        providers: Sequence[Provider[Any]] = (),
-        extensions: Sequence[ApplicationExtension] = DEFAULT_EXTENSIONS,
-        lifespan: Sequence[ApplicationLifespan] = (),
+        config: ApplicationConfig,
     ) -> None:
+        config = self._before_init(config)
+
         super().__init__(
             name=name,
-            providers=providers,
-            imports=modules,
+            providers=config.providers,
+            imports=config.modules,
             is_global=True,
         )
 
-        self.extensions: Final = extensions
-        self.dependency_provider: Final = dependency_provider
+        self.extensions: Final = config.extensions
+        self.dependency_provider: Final = config.dependency_provider
 
-        self._lifespan_managers: list[ApplicationLifespan] = list(lifespan) or [nullcontext()]
+        self._lifespan_managers: list[ApplicationLifespan] = config.lifespan
         self._exit_stack = AsyncExitStack()
 
-        self._init()
+        self._after_init()
 
     @property
     def modules(self) -> Sequence[Module]:
+        """Get the list of modules imported by the application.
+
+        Returns:
+            Sequence of modules.
+        """
         return self.imports
 
-    def _init(self) -> None:
-        self.dependency_provider.register(Object(self))
-        self.dependency_provider.register(Object(self.dependency_provider, DependencyProvider))
+    def _before_init(self, config: ApplicationConfig) -> ApplicationConfig:
+        """Prepare the application configuration before initialization.
 
-        for module in self.iter_submodules():
-            self.dependency_provider.register(*module.providers)
+        Args:
+            config: The application configuration.
+
+        Returns:
+            The updated application configuration.
+        """
+        config.providers = [
+            Object(self, Application),
+            Object(config.dependency_provider, DependencyProvider),
+            *config.providers,
+        ]
+
+        for ext in config.extensions:
+            if isinstance(ext, OnApplicationInit):
+                config = ext.on_app_init(config)
+
+        return config
+
+    def _after_init(self) -> None:
+        """Perform actions after the application has been initialized."""
+        self._register_providers()
 
         for ext in self.extensions:
-            if isinstance(ext, OnApplicationInit):
-                ext.on_app_init(self)
+            if isinstance(ext, AfterApplicationInit):
+                ext.after_app_init(self)
+
+    def _register_providers(self) -> None:
+        """Register providers from all submodules."""
+        for providers in chain(tuple(module.providers) for module in self.iter_submodules()):
+            self.dependency_provider.register(*providers)
 
     @asynccontextmanager
     async def _lifespan(self) -> AsyncIterator[None]:
-        on_startup = [ext for ext in self.extensions if isinstance(ext, OnApplicationStartup)]
-        on_shutdown = [ext for ext in self.extensions if isinstance(ext, OnApplicationShutdown)]
+        """Manage the application's lifespan, including startup and shutdown handlers."""
+        startup_handlers = [ext.on_app_startup for ext in self.extensions if isinstance(ext, OnApplicationStartup)]
+        shutdown_handlers = [ext.on_app_shutdown for ext in self.extensions if isinstance(ext, OnApplicationShutdown)]
 
-        for ext in on_shutdown[::-1]:
-            self._exit_stack.push_async_callback(ext.on_app_shutdown, self)
+        for shutdown_handler in shutdown_handlers[::-1]:
+            self._exit_stack.push_async_callback(shutdown_handler, self)
 
         for manager in self._lifespan_managers:
-            if not isinstance(manager, AbstractAsyncContextManager):
-                manager = manager(self)  # noqa: PLW2901
-            await self._exit_stack.enter_async_context(manager)
+            ctx_manager = manager(self) if not isinstance(manager, AbstractAsyncContextManager) else manager
+            await self._exit_stack.enter_async_context(ctx_manager)
 
-            for on_startup_ext in on_startup:
-                await on_startup_ext.on_app_startup(self)
+        for startup_handler in startup_handlers:
+            await startup_handler(self)
 
-            yield
+        yield
 
     async def __aenter__(self) -> Self:
         await self._exit_stack.__aenter__()
