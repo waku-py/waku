@@ -62,7 +62,7 @@ class Mediator(IMediator):
         handler = await self._resolve_request_handler(request_type)
         return await self._handle_request(handler, request)
 
-    async def publish(self, event: EventT) -> None:
+    async def publish(self, event: Event) -> None:
         """Publish an event to all registered handlers.
 
         Args:

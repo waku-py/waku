@@ -74,8 +74,9 @@ test = [
   "pytest-timeout>=2.3.1",
 ]
 typecheck = [
+  "basedpyright>=1.23.2",
   "mypy>=1.13.0",
-  "types-setuptools>=75.6.0.20241126"
+  "types-setuptools>=75.6.0.20241126",
 ]
 
 all = [

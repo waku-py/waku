@@ -49,6 +49,18 @@ wheels = [
 ]
 
 [[package]]
+name = "basedpyright"
+version = "1.23.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "nodejs-wheel-binaries" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1c/1c/c97b40be662e8a49d1346b4e2f795c9de58e810852e67252547876c27e90/basedpyright-1.23.2.tar.gz", hash = "sha256:367c3bef9edff8d3ba35ccfc467f2e680a4b5936697eff3d42219e58febfe3c8", size = 21219958 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4a/e4/7227f13269138fca7b7f9cf98e75ce037f50c1afee3cb41db5668cd065d6/basedpyright-1.23.2-py3-none-any.whl", hash = "sha256:a859f035f031e6ce1d1bc43d73b4e364238c39811f9b6fcd31e886183097ea22", size = 11309233 },
+]
+
+[[package]]
 name = "boolean-py"
 version = "4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -894,6 +906,21 @@ wheels = [
 ]
 
 [[package]]
+name = "nodejs-wheel-binaries"
+version = "22.13.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/96/6c/a6e728872c034df952d9bcd67a82da0ba1845df24117097448111896a4e8/nodejs_wheel_binaries-22.13.0.tar.gz", hash = "sha256:dd811e3e5b92f2e5d4eb236cdf1ff814c91d3d3533d90d63b4af41d07a8bb2fc", size = 7868 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/67/5f/e5232e174dfd81e67f5ccfeb144f0952145cf44846ac7605acaf4a0e8d70/nodejs_wheel_binaries-22.13.0-py2.py3-none-macosx_11_0_arm64.whl", hash = "sha256:646ab3e65296de9c578db9a1dcfbca26386d2ead70a49008f75d02e960593b2f", size = 51015509 },
+    { url = "https://files.pythonhosted.org/packages/be/d9/e3f1f2f4576164474cb45ad3bfabf6128d740dbd31c5c98fcb95e61e9018/nodejs_wheel_binaries-22.13.0-py2.py3-none-macosx_11_0_x86_64.whl", hash = "sha256:38c689d556f428415a77655f70d2046ddbe11604039489f029b12f317042eaf4", size = 51813936 },
+    { url = "https://files.pythonhosted.org/packages/4e/e3/5b1e9476bdde955d5d24d969364a9f07149607b173d59c8a09653cbfdbbe/nodejs_wheel_binaries-22.13.0-py2.py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:61885cbcfff0a6d40353c8ea3d861ccb65dba7ce4b19f22427719aeeb35d42f1", size = 57131504 },
+    { url = "https://files.pythonhosted.org/packages/ed/ec/e6dad91654c30f8d1f7b19fd05fe87a436274e3c4d82ade98ae9621731fb/nodejs_wheel_binaries-22.13.0-py2.py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e358439ff830db766006e6eeb85ababb94b8c41c7325c9eb1f873a52d3df3016", size = 57631959 },
+    { url = "https://files.pythonhosted.org/packages/bf/1c/4953049e13d58151a0db3c2e6a5bb1be18c66f3c672813b2bf0577040a1d/nodejs_wheel_binaries-22.13.0-py2.py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:1e26d39448cbb2969da10f5e62e53101591e4d6c6a6ae8d623c65f56bf28ce6b", size = 59735661 },
+    { url = "https://files.pythonhosted.org/packages/d0/a2/6f292b11c70a095ab9d84a7bb4bdfbece36818c925c011769ae1d4344ac3/nodejs_wheel_binaries-22.13.0-py2.py3-none-win_amd64.whl", hash = "sha256:cd9c6cdfd00ec48c55cbcd21a98af1fc9c2a18f039aede729de319346ed8675d", size = 40214108 },
+    { url = "https://files.pythonhosted.org/packages/3a/eb/4cf1c5e602c1f5071c08d5b0750ce5a1a3b857d3ee120bfa06d1a1167827/nodejs_wheel_binaries-22.13.0-py2.py3-none-win_arm64.whl", hash = "sha256:aa8af75d30c3132bc4e998126a78b11c269abc3060f1c7c697907299b21ae0e1", size = 35959537 },
+]
+
+[[package]]
 name = "packageurl-python"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1510,6 +1537,7 @@ litestar = [
 
 [package.dev-dependencies]
 all = [
+    { name = "basedpyright" },
     { name = "deptry" },
     { name = "gitlint" },
     { name = "mkdocs" },
@@ -1560,6 +1588,7 @@ test = [
     { name = "pytest-timeout" },
 ]
 typecheck = [
+    { name = "basedpyright" },
     { name = "mypy" },
     { name = "types-setuptools" },
 ]
@@ -1573,6 +1602,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 all = [
+    { name = "basedpyright", specifier = ">=1.23.2" },
     { name = "deptry", specifier = ">=0.21.2" },
     { name = "gitlint", specifier = ">=0.19.1" },
     { name = "mkdocs", specifier = ">=1.6.1" },
@@ -1623,6 +1653,7 @@ test = [
     { name = "pytest-timeout", specifier = ">=2.3.1" },
 ]
 typecheck = [
+    { name = "basedpyright", specifier = ">=1.23.2" },
     { name = "mypy", specifier = ">=1.13.0" },
     { name = "types-setuptools", specifier = ">=75.6.0.20241126" },
 ]

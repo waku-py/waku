@@ -81,8 +81,13 @@ def guess_return_type(factory: FactoryType[_T]) -> type[_T]:
             return_type = args[0]
 
     # classmethod returning `typing.Self`
-    if return_type == typing.Self and (self_cls := getattr(factory, '__self__', None)):
+    # fmt: off
+    if (
+        return_type == typing.Self  # pyright: ignore[reportUnknownMemberType]
+        and (self_cls := getattr(factory, '__self__', None))
+    ):
         return typing.cast(type[_T], self_cls)
+    # fmt: on
 
     return typing.cast(type[_T], return_type)
 

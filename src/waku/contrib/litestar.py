@@ -63,6 +63,6 @@ class ApplicationPlugin(InitPluginProtocol):
     def on_app_init(self, app_config: AppConfig) -> AppConfig:
         app_config.state[_STATE_KEY] = self._application
         app_config.middleware.append(ApplicationMiddleware)
-        app_config.lifespan.append(self._lifespan)
-        app_config.after_exception.append(_after_exception)
+        app_config.lifespan.append(self._lifespan)  # pyright: ignore [reportUnknownMemberType]
+        app_config.after_exception.append(_after_exception)  # pyright: ignore [reportUnknownMemberType]
         return app_config

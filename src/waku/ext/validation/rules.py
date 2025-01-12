@@ -46,7 +46,7 @@ class DependenciesAccessible(ValidationRule):
         }
         # fmt: on
 
-        errors = []
+        errors: list[ValidationError] = []
         for module in context.app.iter_submodules():
             for provider in module.providers:
                 for dependency in provider.collect_dependencies():
@@ -70,14 +70,14 @@ class DIScopeMismatch(ValidationRule):
     """Check if Singleton and Object providers don't depend on Scoped and Transient ones."""
 
     def validate(self, context: ValidationContext) -> list[ValidationError]:
-        lifespan_scoped: UnionType = Singleton | Object
-        scope_scoped: UnionType = Scoped | Transient
+        lifespan_scoped: UnionType = Singleton | Object  # pyright: ignore [reportMissingTypeArgument]
+        scope_scoped: UnionType = Scoped | Transient  # pyright: ignore [reportMissingTypeArgument]
 
         providers: _Providers[Any] = defaultdict(list)
         for provider in self._all_providers(context.app):
             providers[provider.type_].append(provider)
 
-        errors = []
+        errors: list[ValidationError] = []
         for provider in chain.from_iterable(list(providers.values())):
             for dependency in provider.collect_dependencies():
                 for dependency_provider in providers[dependency.inner_type]:

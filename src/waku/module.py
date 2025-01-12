@@ -42,7 +42,7 @@ class Module:
             extensions=list(extensions or []),
         )
 
-        for handler in (ext.on_module_init for ext in config.extensions if isinstance(ext, OnModuleInit)):
+        for handler in (ext.on_module_init for ext in config.extensions if isinstance(ext, OnModuleInit)):  # pyright: ignore [reportUnnecessaryIsInstance]
             config = handler(config)
 
         self.name: Final = name
