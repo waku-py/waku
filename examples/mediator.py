@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -25,7 +26,7 @@ from waku.ext.mediator.events.map import EventMap
 from waku.ext.mediator.extensions import MediatorExtensionConfig
 from waku.ext.mediator.mediator import IMediator
 from waku.ext.mediator.middlewares import HandleType, Middleware
-from waku.extensions import OnApplicationShutdown, OnApplicationStartup
+from waku.extensions import ApplicationLifespan
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -89,17 +90,17 @@ async def lifespan(_: Application) -> AsyncIterator[None]:  # noqa: RUF029
     logger.info('Lifespan shutdown')
 
 
-class OnStartup(OnApplicationStartup):
-    async def on_app_startup(self, _: Application) -> None:  # noqa: PLR6301
-        logger.info('Application startup')
-
-
-class OnShutdown(OnApplicationShutdown):
+class Lifespan(ApplicationLifespan):
     def __init__(self, num: int) -> None:
         self._num = num
 
-    async def on_app_shutdown(self, _: Application) -> None:
-        logger.info('Application shutdown %s', self._num)
+    @contextlib.asynccontextmanager
+    async def lifespan(self, _: Application) -> AsyncIterator[None]:
+        logger.info('Application startup')
+        try:
+            yield
+        finally:
+            logger.info('Application shutdown %s', self._num)
 
 
 application = Application(
@@ -109,9 +110,8 @@ application = Application(
         dependency_provider=AioinjectDependencyProvider(),
         extensions=[
             MediatorAppExtension(MediatorExtensionConfig(middlewares=[LogMiddleware])),
-            OnStartup(),
-            OnShutdown(1),
-            OnShutdown(2),
+            Lifespan(1),
+            Lifespan(2),
             *DEFAULT_EXTENSIONS,
         ],
         lifespan=[lifespan],

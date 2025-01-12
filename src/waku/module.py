@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Final
 
-from waku.extensions import ModuleExtension, OnModuleInit
+from waku.extensions import Extension, OnModuleInit
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -32,7 +32,7 @@ class ModuleConfig:
     """List of modules imported by this module."""
     exports: list[type[object] | Module] = field(default_factory=list)
     """List of types or modules exported by this module."""
-    extensions: list[ModuleExtension] = field(default_factory=list)
+    extensions: list[Extension] = field(default_factory=list)
     """List of module extensions for lifecycle hooks."""
 
 
@@ -55,7 +55,7 @@ class Module:
         providers: Sequence[Provider[Any]] | None = None,
         imports: Sequence[Module] | None = None,
         exports: Sequence[type[object] | Module] | None = None,
-        extensions: Sequence[ModuleExtension] | None = None,
+        extensions: Sequence[Extension] | None = None,
         is_global: bool = False,
     ) -> None:
         config = ModuleConfig(
@@ -72,7 +72,7 @@ class Module:
         self.providers: Final = config.providers
         self.imports: Final = config.imports
         self.exports: Final = config.exports
-        self.module_extensions: Final = config.extensions
+        self.extensions: Final = config.extensions
         self.is_global: Final = is_global
 
     def iter_submodules(self) -> Iterable[Module]:
