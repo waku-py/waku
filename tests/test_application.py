@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, final
 
 import pytest
 
@@ -9,24 +10,22 @@ from tests.mock import DummyDI
 from waku import Application, Module
 from waku.application import ApplicationConfig
 from waku.di import Scoped, Singleton
+from waku.extensions import ApplicationLifespan
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 
-class MockStartupExtension:
+@final
+class MockLifespanExtension(ApplicationLifespan):
     def __init__(self) -> None:
         self.startup_called = False
-
-    async def on_app_startup(self, app: Application) -> None:  # noqa: ARG002
-        self.startup_called = True
-
-
-class MockShutdownExtension:
-    def __init__(self) -> None:
         self.shutdown_called = False
 
-    async def on_app_shutdown(self, app: Application) -> None:  # noqa: ARG002
+    @contextlib.asynccontextmanager
+    async def lifespan(self, _: Application) -> AsyncIterator[None]:
+        self.startup_called = True
+        yield
         self.shutdown_called = True
 
 
@@ -49,8 +48,7 @@ def di_provider() -> DummyDI:
 
 async def test_application_lifecycle(di_provider: DummyDI) -> None:
     """Test application startup and shutdown lifecycle."""
-    startup_ext = MockStartupExtension()
-    shutdown_ext = MockShutdownExtension()
+    lifespan_extension = MockLifespanExtension()
     lifespan = MockLifespanManager()
 
     app = Application(
@@ -58,18 +56,18 @@ async def test_application_lifecycle(di_provider: DummyDI) -> None:
         config=ApplicationConfig(
             modules=[],
             dependency_provider=di_provider,
-            extensions=[startup_ext, shutdown_ext],
+            extensions=[lifespan_extension],
             lifespan=[lifespan],
         ),
     )
 
     async with app:
-        assert startup_ext.startup_called
-        assert not shutdown_ext.shutdown_called
+        assert lifespan_extension.startup_called
+        assert not lifespan_extension.shutdown_called
         assert lifespan.entered
         assert not lifespan.exited
 
-    assert shutdown_ext.shutdown_called
+    assert lifespan_extension.shutdown_called
     assert lifespan.exited  # type: ignore[unreachable]
 
 

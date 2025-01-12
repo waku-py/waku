@@ -9,16 +9,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, TypeAlias, runtime_checkable
 
 if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager
+
     from waku.application import Application, ApplicationConfig
     from waku.module import ModuleConfig
 
 __all__ = [
     'AfterApplicationInit',
-    'ApplicationExtension',
-    'ModuleExtension',
+    'ApplicationLifespan',
+    'Extension',
     'OnApplicationInit',
-    'OnApplicationShutdown',
-    'OnApplicationStartup',
     'OnModuleInit',
 ]
 
@@ -52,29 +52,8 @@ class AfterApplicationInit(Protocol):
 
 
 @runtime_checkable
-class OnApplicationStartup(Protocol):
-    """Extension for application startup events."""
-
-    __slots__ = ()
-
-    async def on_app_startup(self, app: Application) -> None:
-        """Handle application startup events."""
-
-
-@runtime_checkable
-class OnApplicationShutdown(Protocol):
-    """Extension for application shutdown events."""
-
-    __slots__ = ()
-
-    async def on_app_shutdown(self, app: Application) -> None:
-        """Handle application shutdown events."""
-
-
-ApplicationExtension: TypeAlias = (
-    OnApplicationInit | AfterApplicationInit | OnApplicationStartup | OnApplicationShutdown
-)
-"""Type alias for all application extension protocols."""
+class ApplicationLifespan(Protocol):
+    def lifespan(self, app: Application) -> AbstractAsyncContextManager[None]: ...
 
 
 @runtime_checkable
@@ -95,5 +74,7 @@ class OnModuleInit(Protocol):
         ...
 
 
+ApplicationExtension: TypeAlias = ApplicationLifespan | OnApplicationInit | AfterApplicationInit
 ModuleExtension: TypeAlias = OnModuleInit
+Extension: TypeAlias = ModuleExtension | ApplicationExtension
 """Type alias for all module extension protocols."""

@@ -168,9 +168,7 @@ class _HandlerMapper:
         return request_map, event_map
 
     def _get_mediator_extensions(self, modules: Sequence[Module]) -> list[MediatorModuleExtension]:  # noqa: PLR6301
-        return [
-            ext for module in modules for ext in module.module_extensions if isinstance(ext, MediatorModuleExtension)
-        ]
+        return [ext for module in modules for ext in module.extensions if isinstance(ext, MediatorModuleExtension)]
 
     def _merge_maps(  # noqa: PLR6301
         self,
