@@ -38,7 +38,7 @@ Issues = "https://github.com/waku-py/waku/issues"
 Repository = "https://github.com/waku-py/waku"
 
 [project.optional-dependencies]
-aioinject = ["aioinject>=0.36.0"]
+aioinject = ["aioinject>=0.36.1"]
 litestar = ["litestar>2"]
 
 [tool.hatch.build.targets.sdist]
@@ -75,7 +75,7 @@ test = [
 ]
 typecheck = [
   "basedpyright>=1.23.2",
-  "mypy>=1.13.0",
+  "mypy>=1.14.1",
   "types-setuptools>=75.6.0.20241126",
 ]
 

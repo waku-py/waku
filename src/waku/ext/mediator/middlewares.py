@@ -12,6 +12,7 @@ __all__ = [
     'HandleType',
     'Middleware',
     'MiddlewareChain',
+    'NoopMiddleware',
 ]
 
 HandleType: TypeAlias = Callable[[RequestT], Awaitable[ResponseT]]
@@ -24,6 +25,15 @@ class Middleware(ABC, Generic[RequestT, ResponseT]):
         request: RequestT,
         handle: HandleType[RequestT, ResponseT],
     ) -> ResponseT: ...
+
+
+class NoopMiddleware(Middleware[RequestT, ResponseT]):
+    async def __call__(
+        self,
+        request: RequestT,
+        handle: HandleType[RequestT, ResponseT],
+    ) -> ResponseT:
+        return await handle(request)
 
 
 AnyMiddleware: TypeAlias = Middleware[Any, Any]

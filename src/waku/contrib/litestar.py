@@ -37,7 +37,7 @@ class ApplicationMiddleware(MiddlewareProtocol):
         app: Litestar = scope['app']
         application: Application = app.state[_STATE_KEY]
 
-        async with application.dependency_provider.context() as ctx:
+        async with application.container.context() as ctx:
             scope[_SCOPE_CONTEXT_KEY] = ctx  # type: ignore[typeddict-unknown-key]
             await self.app(scope, receive, send)
 

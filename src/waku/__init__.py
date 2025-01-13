@@ -1,9 +1,11 @@
-from waku.application import Application, ApplicationConfig, ApplicationLifespanFunc
-from waku.module import Module
+from waku._lifespan import LifespanFunc
+from waku.application import Application
+from waku.factory import ApplicationFactory
+from waku.modules import module
 
 __all__ = [
     'Application',
-    'ApplicationConfig',
-    'ApplicationLifespanFunc',
-    'Module',
+    'ApplicationFactory',
+    'LifespanFunc',
+    'module',
 ]
