@@ -4,11 +4,11 @@ from typing import Any
 import pytest
 
 from tests.mock import DummyDI
-from waku import Application, Module
-from waku.application import ApplicationConfig
+from waku import ApplicationFactory
 from waku.di import Object, Provider, Scoped, Singleton, Transient
 from waku.ext.validation import ValidationExtension, ValidationRule
 from waku.ext.validation.rules import DIScopeMismatch
+from waku.modules import module
 
 
 class _A:
@@ -42,28 +42,34 @@ def rule() -> ValidationRule:
         (Singleton(_B), Object(_A()), False),
     ],
 )
-def test_scope_mismatch(
+async def test_scope_mismatch(
     provider: Provider[Any],
     dependency: Provider[Any],
     should_error: bool,
     rule: ValidationRule,
 ) -> None:
-    def create_app() -> None:
-        Application(
-            'app',
-            ApplicationConfig(
-                modules=[Module(name='module', providers=[provider, dependency])],
-                dependency_provider=DummyDI(),
-                extensions=[ValidationExtension([rule])],
-            ),
+    async def bootstrap() -> None:
+        @module(providers=[provider, dependency])
+        class ConfigModule:
+            pass
+
+        @module(imports=[ConfigModule], is_global=True)
+        class AppModule:
+            pass
+
+        application = ApplicationFactory.create(
+            AppModule,
+            dependency_provider=DummyDI(),
+            extensions=[ValidationExtension([rule])],
         )
+        await application.initialize()
 
     if not should_error:
-        create_app()
+        await bootstrap()
         return
 
     with pytest.raises(ExceptionGroup) as exc_info:
-        create_app()
+        await bootstrap()
 
-    error = exc_info.value.exceptions[0]
+    error = exc_info.value.exceptions[0].exceptions[0]
     assert str(error).startswith(f'{provider!r} depends on {dependency!r}')

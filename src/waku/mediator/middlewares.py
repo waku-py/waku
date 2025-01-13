@@ -5,13 +5,14 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Generic, TypeAlias
 
-from waku.ext.mediator.contracts.request import RequestT, ResponseT
+from waku.mediator.contracts.request import RequestT, ResponseT
 
 __all__ = [
     'AnyMiddleware',
     'HandleType',
     'Middleware',
     'MiddlewareChain',
+    'NoopMiddleware',
 ]
 
 HandleType: TypeAlias = Callable[[RequestT], Awaitable[ResponseT]]
@@ -24,6 +25,15 @@ class Middleware(ABC, Generic[RequestT, ResponseT]):
         request: RequestT,
         handle: HandleType[RequestT, ResponseT],
     ) -> ResponseT: ...
+
+
+class NoopMiddleware(Middleware[RequestT, ResponseT]):
+    async def __call__(
+        self,
+        request: RequestT,
+        handle: HandleType[RequestT, ResponseT],
+    ) -> ResponseT:
+        return await handle(request)
 
 
 AnyMiddleware: TypeAlias = Middleware[Any, Any]

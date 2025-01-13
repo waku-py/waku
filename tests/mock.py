@@ -26,7 +26,7 @@ class DummyDI(DependencyProvider):
             with contextlib.suppress(ValueError):
                 self.register(provider)
 
-    def override(self, provider: Provider[Any]) -> AbstractContextManager[None]:
+    def override(self, *providers: Provider[Any]) -> AbstractContextManager[None]:
         raise NotImplementedError
 
     def is_registered(self, type_: type[Any]) -> bool:

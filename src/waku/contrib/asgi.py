@@ -24,5 +24,5 @@ class ApplicationMiddleware:
         self._application = application
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        async with self._application.dependency_provider.context():
+        async with self._application.container.context():
             await self.app(scope, receive, send)

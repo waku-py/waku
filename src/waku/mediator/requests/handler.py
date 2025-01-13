@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 from typing import Generic, TypeAlias
 
-from waku.ext.mediator.contracts.request import RequestT, ResponseT
+from waku.mediator.contracts.request import RequestT, ResponseT
 
 __all__ = [
     'RequestHandler',
