@@ -1,6 +1,6 @@
 """Extension protocols for the Waku microframework.
 
-This module defines protocols for extending application and module behavior.
+This module defines protocols for extending module behavior.
 These protocols allow for hooking into various lifecycle events.
 """
 
@@ -9,15 +9,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, TypeAlias, runtime_checkable
 
 if TYPE_CHECKING:
-    from contextlib import AbstractAsyncContextManager
+    from waku.application import Application
+    from waku.modules import Module
 
-    from waku.application import Application, ApplicationConfig
-    from waku.module import ModuleConfig
 
 __all__ = [
     'AfterApplicationInit',
-    'ApplicationLifespan',
-    'Extension',
+    'ApplicationExtension',
+    'ModuleExtension',
     'OnApplicationInit',
     'OnModuleInit',
 ]
@@ -25,35 +24,22 @@ __all__ = [
 
 @runtime_checkable
 class OnApplicationInit(Protocol):
-    """Extension for handling application initialization."""
+    """Extension for application pre-initialization actions."""
 
     __slots__ = ()
 
-    def on_app_init(self, config: ApplicationConfig) -> ApplicationConfig:
-        """Modify application configuration during initialization.
-
-        Args:
-            config: The current application configuration.
-
-        Returns:
-            The modified application configuration.
-        """
-        ...
+    async def on_app_init(self, app: Application) -> None:
+        """Perform actions before application initialization."""
 
 
 @runtime_checkable
 class AfterApplicationInit(Protocol):
-    """Extension for post-initialization actions."""
+    """Extension for application post-initialization actions."""
 
     __slots__ = ()
 
-    def after_app_init(self, app: Application) -> None:
+    async def after_app_init(self, app: Application) -> None:
         """Perform actions after application initialization."""
-
-
-@runtime_checkable
-class ApplicationLifespan(Protocol):
-    def lifespan(self, app: Application) -> AbstractAsyncContextManager[None]: ...
 
 
 @runtime_checkable
@@ -62,19 +48,10 @@ class OnModuleInit(Protocol):
 
     __slots__ = ()
 
-    def on_module_init(self, config: ModuleConfig) -> ModuleConfig:
-        """Modify module configuration during initialization.
-
-        Args:
-            config: The current module configuration.
-
-        Returns:
-            The modified module configuration.
-        """
+    async def on_module_init(self, module: Module) -> None:
+        """Perform actions before application initialization."""
         ...
 
 
-ApplicationExtension: TypeAlias = ApplicationLifespan | OnApplicationInit | AfterApplicationInit
+ApplicationExtension: TypeAlias = OnApplicationInit | AfterApplicationInit
 ModuleExtension: TypeAlias = OnModuleInit
-Extension: TypeAlias = ModuleExtension | ApplicationExtension
-"""Type alias for all module extension protocols."""

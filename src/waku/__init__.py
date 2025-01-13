@@ -1,9 +1,10 @@
-from waku.application import Application, ApplicationConfig, ApplicationLifespanFunc
-from waku.module import Module
+from waku.application import Application
+from waku.factory import ApplicationFactory
+from waku.modules import DynamicModule, module
 
 __all__ = [
     'Application',
-    'ApplicationConfig',
-    'ApplicationLifespanFunc',
-    'Module',
+    'ApplicationFactory',
+    'DynamicModule',
+    'module',
 ]

@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from waku.ext.mediator.contracts.event import Event
-    from waku.ext.mediator.contracts.request import Request
-    from waku.ext.mediator.events.handler import EventHandlerType
-    from waku.ext.mediator.requests.handler import RequestHandlerType
+    from waku.mediator.contracts.event import Event
+    from waku.mediator.contracts.request import Request
+    from waku.mediator.events.handler import EventHandlerType
+    from waku.mediator.requests.handler import RequestHandlerType
 
 __all__ = [
     'EventHandlerAlreadyRegistered',
