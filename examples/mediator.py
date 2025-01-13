@@ -27,6 +27,7 @@ from waku.ext.mediator.extensions import MediatorExtensionConfig
 from waku.ext.mediator.mediator import IMediator
 from waku.ext.mediator.middlewares import HandleType, Middleware
 from waku.extensions import ApplicationLifespan
+from waku.module import ModuleConfig
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -71,15 +72,17 @@ class LogMiddleware(Middleware[RequestT, ResponseT]):
         return response
 
 
-module = Module(
-    name='module',
-    exports=[CreatingMeetingCommandHandler],
-    extensions=[
-        MediatorModuleExtension(
-            RequestMap().bind(CreateMeetingCommand, CreatingMeetingCommandHandler),
-            EventMap().bind(MeetingCreatedEvent, [MeetingCreatedEventHandler]),
-        ),
-    ],
+mediator_module = Module(
+    name='mediator_module',
+    config=ModuleConfig(
+        exports=[CreatingMeetingCommandHandler],
+        extensions=[
+            MediatorModuleExtension(
+                RequestMap().bind(CreateMeetingCommand, CreatingMeetingCommandHandler),
+                EventMap().bind(MeetingCreatedEvent, [MeetingCreatedEventHandler]),
+            ),
+        ],
+    ),
 )
 
 
@@ -103,13 +106,22 @@ class Lifespan(ApplicationLifespan):
             logger.info('Application shutdown %s', self._num)
 
 
-application = Application(
-    name='app',
-    config=ApplicationConfig(
-        modules=[module],
-        dependency_provider=AioinjectDependencyProvider(),
+root = Module(
+    'root',
+    ModuleConfig(
+        imports=[mediator_module],
         extensions=[
             MediatorAppExtension(MediatorExtensionConfig(middlewares=[LogMiddleware])),
+        ],
+    ),
+    is_global=True,
+)
+
+application = Application(
+    root=root,
+    dependency_provider=AioinjectDependencyProvider(),
+    config=ApplicationConfig(
+        extensions=[
             Lifespan(1),
             Lifespan(2),
             *DEFAULT_EXTENSIONS,

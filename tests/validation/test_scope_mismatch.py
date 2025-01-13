@@ -9,6 +9,7 @@ from waku.application import ApplicationConfig
 from waku.di import Object, Provider, Scoped, Singleton, Transient
 from waku.ext.validation import ValidationExtension, ValidationRule
 from waku.ext.validation.rules import DIScopeMismatch
+from waku.module import ModuleConfig
 
 
 class _A:
@@ -50,10 +51,20 @@ def test_scope_mismatch(
 ) -> None:
     def create_app() -> None:
         Application(
-            'app',
-            ApplicationConfig(
-                modules=[Module(name='module', providers=[provider, dependency])],
-                dependency_provider=DummyDI(),
+            root=Module(
+                'root',
+                config=ModuleConfig(
+                    imports=[
+                        Module(
+                            'module',
+                            config=ModuleConfig(providers=[provider, dependency]),
+                        ),
+                    ],
+                ),
+                is_global=True,
+            ),
+            dependency_provider=DummyDI(),
+            config=ApplicationConfig(
                 extensions=[ValidationExtension([rule])],
             ),
         )
