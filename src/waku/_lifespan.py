@@ -4,23 +4,28 @@ import contextlib
 from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING, final
 
+from waku.extensions import ApplicationLifespan
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from waku.application import Application, ApplicationLifespanFunc
 
-from waku.extensions import ApplicationLifespan
+
+__all__ = ['LifespanWrapper']
 
 
 @final
-class LifespanWrapperExtension(ApplicationLifespan):
-    def __init__(self, context: ApplicationLifespanFunc) -> None:
-        self._context = context
+class LifespanWrapper(ApplicationLifespan):
+    def __init__(self, lifespan_func: ApplicationLifespanFunc) -> None:
+        self._lifespan_func = lifespan_func
 
     @contextlib.asynccontextmanager
     async def lifespan(self, app: Application) -> AsyncIterator[None]:
         ctx_manager = (
-            self._context(app) if not isinstance(self._context, AbstractAsyncContextManager) else self._context
+            self._lifespan_func
+            if isinstance(self._lifespan_func, AbstractAsyncContextManager)
+            else self._lifespan_func(app)
         )
         async with ctx_manager:
             yield

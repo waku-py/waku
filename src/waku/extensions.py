@@ -12,25 +12,28 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
 
     from waku.application import Application, ApplicationConfig
-    from waku.module import ModuleConfig
+    from waku.module import Module, ModuleConfig
 
 __all__ = [
     'AfterApplicationInit',
+    'ApplicationExtension',
     'ApplicationLifespan',
-    'Extension',
+    'ModuleExtension',
+    'OnApplicationConfigure',
     'OnApplicationInit',
+    'OnModuleConfigure',
     'OnModuleInit',
 ]
 
 
 @runtime_checkable
-class OnApplicationInit(Protocol):
-    """Extension for handling application initialization."""
+class OnApplicationConfigure(Protocol):
+    """Extension for handling application configuration phase."""
 
     __slots__ = ()
 
-    def on_app_init(self, config: ApplicationConfig) -> ApplicationConfig:
-        """Modify application configuration during initialization.
+    def on_app_configure(self, config: ApplicationConfig) -> ApplicationConfig:
+        """Modify application configuration during configuration phase.
 
         Args:
             config: The current application configuration.
@@ -42,12 +45,22 @@ class OnApplicationInit(Protocol):
 
 
 @runtime_checkable
-class AfterApplicationInit(Protocol):
-    """Extension for post-initialization actions."""
+class OnApplicationInit(Protocol):
+    """Extension for application pre-initialization actions."""
 
     __slots__ = ()
 
-    def after_app_init(self, app: Application) -> None:
+    async def on_app_init(self, app: Application) -> None:
+        """Perform actions before application initialization."""
+
+
+@runtime_checkable
+class AfterApplicationInit(Protocol):
+    """Extension for application post-initialization actions."""
+
+    __slots__ = ()
+
+    async def after_app_init(self, app: Application) -> None:
         """Perform actions after application initialization."""
 
 
@@ -57,13 +70,13 @@ class ApplicationLifespan(Protocol):
 
 
 @runtime_checkable
-class OnModuleInit(Protocol):
-    """Extension for module initialization."""
+class OnModuleConfigure(Protocol):
+    """Extension for handling module configuration phase."""
 
     __slots__ = ()
 
-    def on_module_init(self, config: ModuleConfig) -> ModuleConfig:
-        """Modify module configuration during initialization.
+    def on_module_configure(self, config: ModuleConfig) -> ModuleConfig:
+        """Modify module configuration during configuration phase.
 
         Args:
             config: The current module configuration.
@@ -74,7 +87,18 @@ class OnModuleInit(Protocol):
         ...
 
 
-ApplicationExtension: TypeAlias = ApplicationLifespan | OnApplicationInit | AfterApplicationInit
-ModuleExtension: TypeAlias = OnModuleInit
-Extension: TypeAlias = ModuleExtension | ApplicationExtension
-"""Type alias for all module extension protocols."""
+@runtime_checkable
+class OnModuleInit(Protocol):
+    """Extension for module initialization."""
+
+    __slots__ = ()
+
+    async def on_module_init(self, module: Module) -> None:
+        """Perform actions before application initialization."""
+        ...
+
+
+ApplicationExtension: TypeAlias = (
+    OnApplicationConfigure | OnApplicationInit | AfterApplicationInit | ApplicationLifespan
+)
+ModuleExtension: TypeAlias = OnModuleConfigure | OnModuleInit

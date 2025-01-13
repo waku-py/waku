@@ -29,6 +29,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
+  "networkx>=3.4.2",
   "typing-extensions>=4.12.0",
 ]
 

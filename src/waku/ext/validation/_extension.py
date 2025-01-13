@@ -25,7 +25,7 @@ class ValidationExtension(AfterApplicationInit):
         self.rules = rules
         self.strict: Final = strict
 
-    def after_app_init(self, app: Application) -> None:
+    async def after_app_init(self, app: Application) -> None:
         context = ValidationContext(app=app)
 
         errors_chain = chain.from_iterable(rule.validate(context) for rule in self.rules)
