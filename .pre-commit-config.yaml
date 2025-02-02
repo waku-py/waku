@@ -32,7 +32,7 @@ repos:
       - id: check-case-conflict
 
   - repo: https://github.com/python-jsonschema/check-jsonschema
-    rev: 0.31.0
+    rev: 0.31.1
     hooks:
       - id: check-github-workflows
         files: ^\.github/workflows/.*\.ya?ml$
