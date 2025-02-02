@@ -20,6 +20,8 @@
 
 `waku` *is a microframework for building modular and loosely coupled applications.*
 
+This project is heavily inspired by [NestJS](https://github.com/nestjs/nest) & [Tramvai](https://tramvai.dev) frameworks.
+
 ## Overview
 
 `waku` helps you build maintainable Python applications by providing:
@@ -74,32 +76,36 @@ poetry add waku
 ```python
 import asyncio
 
-from waku import Application, ApplicationConfig, Module
+from waku import Application, ApplicationFactory, module
 from waku.di import Scoped, Injected, inject
 from waku.di.contrib.aioinject import AioinjectDependencyProvider
 
+
 # Define your providers
 class UserService:
-    async def get_user(self, user_id: str) -> dict[str, str]:
-        return {"id": user_id, "name": "John Doe"}
+  async def get_user(self, user_id: str) -> dict[str, str]:
+    return {"id": user_id, "name": "John Doe"}
 
-# Create a module
-user_module = Module(
-    name="users",
-    providers=[
-        Scoped(UserService),
-    ],
-    exports=[UserService],
-)
 
-# Create the application
-application = Application(
-    name="my_app",
-    config=ApplicationConfig(
+# Define a module
+@module(providers=[Scoped(UserService)], exports=[UserService])
+class UserModule:
+    pass
+
+
+# Define the application composition root module
+@module(imports=[UserModule])
+class AppModule:
+    pass
+
+
+# Create application via factory
+async def bootstrap() -> Application:
+    return await ApplicationFactory.create(
+        AppModule,
         dependency_provider=AioinjectDependencyProvider(),
-        modules=[user_module],
-    ),
-)
+    )
+
 
 # Define entrypoints
 # In real world this can be FastAPI routes, etc.
@@ -111,11 +117,10 @@ async def handler(user_service: Injected[UserService]) -> dict[str, str]:
 # Run the application
 # In real world this would be run by a 3rd party framework like FastAPI
 async def main() -> None:
-    dp = application.dependency_provider
-    async with application, dp.context():
+    application = await bootstrap()
+    async with application, application.container.context():
         result = await handler()
-
-    print(result)
+        print(result)
 
 
 if __name__ == '__main__':

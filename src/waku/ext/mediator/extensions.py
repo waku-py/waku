@@ -4,22 +4,21 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import TYPE_CHECKING, Any, Final, TypeAlias
 
-from waku.di import AnyProvider, Scoped, Transient
+from waku.di import AnyProvider, Transient
 from waku.ext.mediator._utils import get_request_response_type
 from waku.ext.mediator.events.handler import EventHandler
-from waku.ext.mediator.events.map import EventMap
 from waku.ext.mediator.events.publish import EventPublisher, SequentialEventPublisher
 from waku.ext.mediator.mediator import IMediator, IPublisher, ISender, Mediator
-from waku.ext.mediator.middlewares import AnyMiddleware
+from waku.ext.mediator.middlewares import AnyMiddleware, NoopMiddleware
 from waku.ext.mediator.requests.handler import RequestHandler
-from waku.ext.mediator.requests.map import RequestMap
-from waku.extensions import OnApplicationInit, OnModuleInit
+from waku.extensions import OnModuleConfigure
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
-    from waku.application import ApplicationConfig
-    from waku.module import Module, ModuleConfig
+    from waku.ext.mediator.events.map import EventMap
+    from waku.ext.mediator.requests.map import RequestMap
+    from waku.modules import ModuleMetadata
 
 __all__ = [
     'MediatorAppExtension',
@@ -28,7 +27,6 @@ __all__ = [
 ]
 
 
-_ProviderType: TypeAlias = type[Scoped[Any] | Transient[Any]]
 _HandlerProviders: TypeAlias = tuple[AnyProvider[Any], ...]
 
 
@@ -43,8 +41,7 @@ class MediatorExtensionConfig:
         mediator_implementation_type: The concrete implementation class for the mediator
             interface (IMediator). Defaults to the standard Mediator class.
         event_publisher: The implementation class for publishing events. Defaults to `SequentialEventPublisher`.
-        provider_type: The type of dependency injection provider to use for registering
-            mediator components. Defaults to `Scoped` provider.
+
         middlewares: A sequence of middleware classes that will be applied to the
             mediator pipeline. Middlewares are executed in the order they are defined.
             Defaults to an empty sequence.
@@ -60,11 +57,10 @@ class MediatorExtensionConfig:
 
     mediator_implementation_type: type[IMediator] = Mediator
     event_publisher: type[EventPublisher] = SequentialEventPublisher
-    provider_type: _ProviderType = Scoped
     middlewares: Sequence[type[AnyMiddleware]] = ()
 
 
-class MediatorAppExtension(OnApplicationInit):
+class MediatorAppExtension(OnModuleConfigure):
     """Application-level extension for Mediator setup.
 
     Args:
@@ -73,74 +69,46 @@ class MediatorAppExtension(OnApplicationInit):
 
     def __init__(
         self,
-        config: MediatorExtensionConfig,
+        config: MediatorExtensionConfig | None = None,
         /,
     ) -> None:
-        self._config: Final = config
-        self._mapper: Final = _HandlerMapper()
+        self._config: Final = config or MediatorExtensionConfig()
 
-    def on_app_init(self, config: ApplicationConfig) -> ApplicationConfig:
+    def on_module_configure(self, module: ModuleMetadata) -> None:
         """Initialize Mediator components during application setup.
 
         Args:
-            config: The application configuration.
-
-        Returns:
-            The updated application configuration.
+            module: The application configuration.
         """
-        request_map, event_map = self._mapper.map_from_modules(config.modules)
+        providers = self._create_providers()
+        module.providers.extend(providers)
 
-        providers = self._create_providers(request_map, event_map)
-        config.providers.extend(providers)
-
-        return config
-
-    def _create_providers(self, request_map: RequestMap, event_map: EventMap) -> Iterable[AnyProvider[Any]]:
+    def _create_providers(self) -> Iterable[AnyProvider[Any]]:
         return chain(
             self._create_middleware_providers(),
-            self._create_request_handler_providers(request_map),
-            self._create_event_handler_providers(event_map),
             self._create_mediator_providers(),
         )
 
     def _create_middleware_providers(self) -> _HandlerProviders:
+        middlewares = self._config.middlewares or [NoopMiddleware]
         # fmt: off
         return tuple(
-            self._config.provider_type(middleware, type_=AnyMiddleware)
-            for middleware in self._config.middlewares
+            Transient(middleware, type_=AnyMiddleware)
+            for middleware in middlewares
         )
         # fmt: on
 
-    def _create_request_handler_providers(self, request_map: RequestMap) -> _HandlerProviders:
-        provider_type = self._config.provider_type
-        return tuple(
-            provider_type(
-                handler_type,
-                type_=RequestHandler[request_type, get_request_response_type(request_type)],  # type: ignore[arg-type, valid-type, misc]
-            )
-            for request_type, handler_type in request_map.registry.items()
-        )
-
-    def _create_event_handler_providers(self, event_map: EventMap) -> _HandlerProviders:
-        provider_type = self._config.provider_type
-        return tuple(
-            provider_type(handler_type, type_=EventHandler[event_type])  # type: ignore[valid-type]
-            for (event_type, handler_types) in event_map.registry.items()
-            for handler_type in handler_types
-        )
-
     def _create_mediator_providers(self) -> _HandlerProviders:
-        provider_type = self._config.provider_type
         return (
-            provider_type(self._config.mediator_implementation_type, type_=IMediator),
-            provider_type(self._config.mediator_implementation_type, type_=ISender),
-            provider_type(self._config.mediator_implementation_type, type_=IPublisher),
-            provider_type(self._config.event_publisher, type_=EventPublisher),
+            Transient(self._config.mediator_implementation_type, type_=IMediator),
+            Transient(self._config.mediator_implementation_type, type_=ISender),
+            Transient(self._config.mediator_implementation_type, type_=IPublisher),
+            Transient(self._config.event_publisher, type_=EventPublisher),
         )
 
 
 @dataclass(slots=True, frozen=True)
-class MediatorModuleExtension(OnModuleInit):
+class MediatorModuleExtension(OnModuleConfigure):
     """Module-level extension for Mediator setup.
 
     Args:
@@ -151,33 +119,26 @@ class MediatorModuleExtension(OnModuleInit):
     request_map: RequestMap | None = None
     event_map: EventMap | None = None
 
-    def on_module_init(self, config: ModuleConfig) -> ModuleConfig:  # noqa: PLR6301
-        return config
+    def on_module_configure(self, module: ModuleMetadata) -> None:
+        module.providers.extend(self._create_request_handler_providers())
+        module.providers.extend(self._create_event_handler_providers())
 
+    def _create_request_handler_providers(self) -> _HandlerProviders:
+        if not self.request_map:
+            return ()
+        return tuple(
+            Transient(
+                handler_type,
+                type_=RequestHandler[request_type, get_request_response_type(request_type)],  # type: ignore[arg-type, valid-type, misc]
+            )
+            for request_type, handler_type in self.request_map.registry.items()
+        )
 
-class _HandlerMapper:
-    """Handles mapping of request and event handlers."""
-
-    def map_from_modules(self, modules: Sequence[Module]) -> tuple[RequestMap, EventMap]:
-        request_map = RequestMap()
-        event_map = EventMap()
-
-        extensions = self._get_mediator_extensions(modules)
-        self._merge_maps(extensions, request_map, event_map)
-
-        return request_map, event_map
-
-    def _get_mediator_extensions(self, modules: Sequence[Module]) -> list[MediatorModuleExtension]:  # noqa: PLR6301
-        return [ext for module in modules for ext in module.extensions if isinstance(ext, MediatorModuleExtension)]
-
-    def _merge_maps(  # noqa: PLR6301
-        self,
-        extensions: list[MediatorModuleExtension],
-        request_map: RequestMap,
-        event_map: EventMap,
-    ) -> None:
-        for ext in extensions:
-            if ext.request_map:
-                request_map.merge(ext.request_map)
-            if ext.event_map:
-                event_map.merge(ext.event_map)
+    def _create_event_handler_providers(self) -> _HandlerProviders:
+        if not self.event_map:
+            return ()
+        return tuple(
+            Transient(handler_type, type_=EventHandler[event_type])  # type: ignore[valid-type]
+            for (event_type, handler_types) in self.event_map.registry.items()
+            for handler_type in handler_types
+        )

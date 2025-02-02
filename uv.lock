@@ -3,14 +3,14 @@ requires-python = ">=3.11"
 
 [[package]]
 name = "aioinject"
-version = "0.36.0"
+version = "0.36.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1d/7c/e00ebd76e29dded2bfb030523fea1bfa7bf39b3c3f7ee69853cb9bc90a77/aioinject-0.36.0.tar.gz", hash = "sha256:452aa5681317d7b7c902ea129a0e9d3a11d4fdb1335bb9b68d0d4285efd77155", size = 32069 }
+sdist = { url = "https://files.pythonhosted.org/packages/37/39/2acbe8532424b3ce51ee1005893f9727c8d1a74a2d2770448a122144a704/aioinject-0.36.1.tar.gz", hash = "sha256:1448052a15aa46bf1c53ad3e18aa96d759df566ce7f39cbf5c7ff2fab0da0a9e", size = 32126 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e6/52/9d313de840a28e088c16d18f9c5ee89431ae6ce2647761552101b5c361a9/aioinject-0.36.0-py3-none-any.whl", hash = "sha256:742fb490a17edbc0b3b88d1feb3df4ce5939f9f6a81b8882a1cd1576e7295b31", size = 19961 },
+    { url = "https://files.pythonhosted.org/packages/d4/b8/c5ebfb9b4614f298da9ce395101a1b1ec0a335bfd70a6ede810aebf1bad8/aioinject-0.36.1-py3-none-any.whl", hash = "sha256:a58bcae287acfde016f2864476eaa9634e30d09f9c13165e466616daf740e1a4", size = 19955 },
 ]
 
 [[package]]
@@ -1596,7 +1596,7 @@ typecheck = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aioinject", marker = "extra == 'aioinject'", specifier = ">=0.36.0" },
+    { name = "aioinject", marker = "extra == 'aioinject'", specifier = ">=0.36.1" },
     { name = "litestar", marker = "extra == 'litestar'", specifier = ">2" },
     { name = "typing-extensions", specifier = ">=4.12.0" },
 ]
@@ -1611,7 +1611,7 @@ all = [
     { name = "mkdocs-material", specifier = ">=9.5.49" },
     { name = "mkdocs-redirects", specifier = ">=1.2.2" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.27.0" },
-    { name = "mypy", specifier = ">=1.13.0" },
+    { name = "mypy", specifier = ">=1.14.1" },
     { name = "pip-audit", specifier = ">=2.7.3" },
     { name = "pre-commit", specifier = ">=4.0.1" },
     { name = "pytest", specifier = ">=8.3.4" },
@@ -1655,7 +1655,7 @@ test = [
 ]
 typecheck = [
     { name = "basedpyright", specifier = ">=1.23.2" },
-    { name = "mypy", specifier = ">=1.13.0" },
+    { name = "mypy", specifier = ">=1.14.1" },
     { name = "types-setuptools", specifier = ">=75.6.0.20241126" },
 ]
 

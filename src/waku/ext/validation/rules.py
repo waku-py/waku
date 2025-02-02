@@ -5,7 +5,8 @@ from collections import defaultdict
 from itertools import chain
 from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
 
-from waku.di import Object, Provider, Scoped, Singleton, Transient
+from waku import Application
+from waku.di import DependencyProvider, Object, Provider, Scoped, Singleton, Transient
 from waku.ext.validation._abc import ValidationRule
 from waku.ext.validation._errors import ValidationError
 
@@ -13,9 +14,9 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from types import UnionType
 
-    from waku import Application, Module
     from waku.di import Dependency
     from waku.ext.validation._extension import ValidationContext
+    from waku.modules import ModuleMetadata
 
 __all__ = [
     'DIScopeMismatch',
@@ -37,17 +38,20 @@ class DependenciesAccessible(ValidationRule):
     """
 
     def validate(self, context: ValidationContext) -> list[ValidationError]:  # noqa: PLR6301
+        container = context.app.container
+
         # fmt: off
         global_providers = {
-            provider
-            for module in context.app.iter_submodules()
-            for provider in _module_provided_types(module)
-            if module.is_global
+            provider_type
+            for module in container.get_modules()
+            for provider_type in _module_provided_types(module)
+            if container.is_global_module(module)
         }
         # fmt: on
+        global_providers |= {Application, DependencyProvider}
 
         errors: list[ValidationError] = []
-        for module in context.app.iter_submodules():
+        for module in container.get_modules():
             for provider in module.providers:
                 for dependency in provider.collect_dependencies():
                     # 1. Dep available globally or provided by current module
@@ -57,7 +61,7 @@ class DependenciesAccessible(ValidationRule):
                     # 2. Dep provided by any of imported modules
                     dependency_accessible = any(
                         _is_exported_dependency(dependency, imported_module)
-                        for imported_module in module.iter_submodules()
+                        for imported_module in container.get_modules(module.target)
                     )
                     if not dependency_accessible:
                         err_msg = f"{module!r} depends on {dep_type!r} but it's not accessible to it"
@@ -100,11 +104,11 @@ class DIScopeMismatch(ValidationRule):
         return errors
 
     def _all_providers(self, app: Application) -> Iterator[Provider[Any]]:  # noqa: PLR6301
-        for module in app.iter_submodules():
+        for module in app.container.get_modules():
             yield from module.providers
 
 
-def _is_exported_dependency(dependency: Dependency[object], module: Module) -> bool:
+def _is_exported_dependency(dependency: Dependency[object], module: ModuleMetadata) -> bool:
     # fmt: off
     return (
         dependency.inner_type in _module_provided_types(module)
@@ -114,5 +118,5 @@ def _is_exported_dependency(dependency: Dependency[object], module: Module) -> b
 
 
 @functools.cache
-def _module_provided_types(module: Module) -> set[type[object]]:
+def _module_provided_types(module: ModuleMetadata) -> set[type[object]]:
     return {provider.type_ for provider in module.providers}
