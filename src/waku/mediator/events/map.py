@@ -4,9 +4,9 @@ from collections import defaultdict
 from collections.abc import MutableMapping
 from typing import Any, Self, TypeAlias
 
-from waku.ext.mediator.contracts.event import EventT
-from waku.ext.mediator.events.handler import EventHandlerType
-from waku.ext.mediator.exceptions import EventHandlerAlreadyRegistered
+from waku.mediator.contracts.event import EventT
+from waku.mediator.events.handler import EventHandlerType
+from waku.mediator.exceptions import EventHandlerAlreadyRegistered
 
 __all__ = [
     'EventMap',
