@@ -224,14 +224,14 @@ ignore_missing_imports = true
 # ----- Semantic release settings -----
 [tool.semantic_release]
 build_command = """
-command -v uv 2>/dev/null || pip install uv
-uv lock
-git add uv.lock
+    command -v uv 2>/dev/null || pip install uv
+    uv lock
+    git add uv.lock
 """
 assets = []
 commit_message = "chore(release): {version} [skip ci]"
-commit_parser = "angular"
-logging_use_named_masks = false
+commit_parser = "conventional"
+logging_use_named_masks = true
 major_on_zero = false
 allow_zero_version = true
 version_toml = ["pyproject.toml:project.version"]
@@ -241,6 +241,11 @@ tag_format = "v{version}"
 match = "(master|main)"
 prerelease = false
 prerelease_token = "rc"
+
+[tool.semantic_release.branches.other]
+match = ".*"
+prerelease_token = "dev"
+prerelease = true
 
 [tool.semantic_release.changelog]
 mode = "update"
@@ -281,6 +286,8 @@ allowed_tags = ["build", "chore", "ci", "docs", "feat", "fix", "perf", "style", 
 minor_tags = ["feat"]
 patch_tags = ["fix", "perf"]
 default_bump_level = 0
+parse_squash_commits = true
+ignore_merge_commits = true
 
 [tool.semantic_release.remote]
 name = "origin"

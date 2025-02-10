@@ -52,7 +52,7 @@ permissions: { }
 
 env:
   COMMON_PYTHON_VERSION: '3.11'
-  PSR_VERSION: '9.15.2'
+  PSR_VERSION: '9.19.0'
   PYTEST_TIMEOUT: 60
 
 jobs:
