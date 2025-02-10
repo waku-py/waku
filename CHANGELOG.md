@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.3.0 (2025-02-10)
+
+### Features
+
+- Refactor module system
+  ([`43a102a`](https://github.com/waku-py/waku/commit/43a102a1e39bb46a2bfd46f3d07c8b34aef39e9c))
+
+
 ## v0.2.0 (2025-01-12)
 
 ### Documentation
