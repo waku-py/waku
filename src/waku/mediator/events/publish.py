@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from waku.ext.mediator.contracts.event import EventT
-    from waku.ext.mediator.events.handler import EventHandler
+    from waku.mediator.contracts.event import EventT
+    from waku.mediator.events.handler import EventHandler
 
 __all__ = [
     'EventPublisher',
