@@ -58,3 +58,6 @@ coverage.xml
 # taskfile
 .task
 task
+
+.continuerules
+.goose*
