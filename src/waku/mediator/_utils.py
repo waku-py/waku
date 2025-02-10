@@ -3,10 +3,10 @@ from __future__ import annotations
 import functools
 import typing
 
-from waku.ext.mediator.contracts.request import ResponseT
+from waku.mediator.contracts.request import ResponseT
 
 if typing.TYPE_CHECKING:
-    from waku.ext.mediator.contracts.request import Request
+    from waku.mediator.contracts.request import Request
 
 __all__ = ['get_request_response_type']
 

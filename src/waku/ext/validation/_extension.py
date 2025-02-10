@@ -14,6 +14,11 @@ if TYPE_CHECKING:
     from waku.ext.validation import ValidationRule
     from waku.ext.validation._errors import ValidationError
 
+__all__ = [
+    'ValidationContext',
+    'ValidationExtension',
+]
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ValidationContext:
@@ -25,7 +30,7 @@ class ValidationExtension(AfterApplicationInit):
         self.rules = rules
         self.strict: Final = strict
 
-    def after_app_init(self, app: Application) -> None:
+    async def after_app_init(self, app: Application) -> None:
         context = ValidationContext(app=app)
 
         errors_chain = chain.from_iterable(rule.validate(context) for rule in self.rules)

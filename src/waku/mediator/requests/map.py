@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import MutableMapping
 from typing import Any, Self, TypeAlias
 
-from waku.ext.mediator.contracts.request import RequestT, ResponseT
-from waku.ext.mediator.exceptions import RequestHandlerAlreadyRegistered
-from waku.ext.mediator.requests.handler import RequestHandlerType
+from waku.mediator.contracts.request import RequestT, ResponseT
+from waku.mediator.exceptions import RequestHandlerAlreadyRegistered
+from waku.mediator.requests.handler import RequestHandlerType
 
 __all__ = [
     'RequestMap',

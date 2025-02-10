@@ -1,36 +1,18 @@
-import abc
 from collections.abc import Sequence
 from typing import cast
 
+from typing_extensions import override
+
 from waku.di import DependencyProvider
-from waku.ext.mediator._utils import get_request_response_type
-from waku.ext.mediator.contracts.event import Event, EventT
-from waku.ext.mediator.contracts.request import Request, ResponseT
-from waku.ext.mediator.events.handler import EventHandler
-from waku.ext.mediator.events.publish import EventPublisher
-from waku.ext.mediator.exceptions import EventHandlerNotFound, RequestHandlerNotFound
-from waku.ext.mediator.middlewares import AnyMiddleware, MiddlewareChain
-from waku.ext.mediator.requests.handler import RequestHandler
-
-
-class ISender(abc.ABC):
-    """Send a request through the mediator middleware chain to be handled by a single handler."""
-
-    @abc.abstractmethod
-    async def send(self, request: Request[ResponseT]) -> ResponseT:
-        """Asynchronously send a request to a single handler."""
-
-
-class IPublisher(abc.ABC):
-    """Publish event through the mediator to be handled by multiple handlers."""
-
-    @abc.abstractmethod
-    async def publish(self, event: Event) -> None:
-        """Asynchronously send event to multiple handlers."""
-
-
-class IMediator(ISender, IPublisher, abc.ABC):
-    """Defines a mediator to encapsulate request/response and publishing interaction patterns."""
+from waku.mediator._utils import get_request_response_type
+from waku.mediator.contracts.event import Event, EventT
+from waku.mediator.contracts.request import Request, ResponseT
+from waku.mediator.events.handler import EventHandler
+from waku.mediator.events.publish import EventPublisher
+from waku.mediator.exceptions import EventHandlerNotFound, RequestHandlerNotFound
+from waku.mediator.interfaces import IMediator
+from waku.mediator.middlewares import AnyMiddleware, MiddlewareChain
+from waku.mediator.requests.handler import RequestHandler
 
 
 class Mediator(IMediator):
@@ -46,6 +28,7 @@ class Mediator(IMediator):
         self._middleware_chain = MiddlewareChain(middlewares)
         self._event_publisher = event_publisher
 
+    @override
     async def send(self, request: Request[ResponseT]) -> ResponseT:
         """Send a request through the mediator middleware chain.
 
@@ -62,6 +45,7 @@ class Mediator(IMediator):
         handler = await self._resolve_request_handler(request_type)
         return await self._handle_request(handler, request)
 
+    @override
     async def publish(self, event: Event) -> None:
         """Publish an event to all registered handlers.
 

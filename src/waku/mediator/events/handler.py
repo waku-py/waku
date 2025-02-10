@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import abc
 from typing import Generic, TypeAlias
 
-from waku.ext.mediator.contracts.event import EventT
+from waku.mediator.contracts.event import EventT
 
 
 class EventHandler(abc.ABC, Generic[EventT]):

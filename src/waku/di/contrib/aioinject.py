@@ -30,9 +30,9 @@ class AioinjectDependencyProvider(DependencyProvider):
 
     @override_
     @contextmanager
-    def override(self, provider: Provider[Any]) -> Iterator[None]:
-        override_provider = self._map_provider(provider)
-        with self._container.override(override_provider):
+    def override(self, *providers: Provider[Any]) -> Iterator[None]:
+        override_providers = tuple(self._map_provider(provider) for provider in providers)
+        with self._container.override(*override_providers):
             yield
 
     @override_
