@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.3.1 (2025-02-13)
+
+### Bug Fixes
+
+- Do not unwrap generic annotations in `collect_dependencies`
+  ([`c5f1b7c`](https://github.com/waku-py/waku/commit/c5f1b7c18ce44d2c30ca0956b07a0e74ecb0474c))
+
+
 ## v0.3.0 (2025-02-10)
 
 ### Features
