@@ -7,7 +7,7 @@ import sys
 import typing
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import NewType
+from typing import Annotated, NewType
 
 from waku.di._markers import Inject
 
@@ -132,19 +132,21 @@ class Dependency(typing.Generic[_T]):
 def collect_dependencies(
     dependent: typing.Callable[..., object] | dict[str, typing.Any],
     ctx: dict[str, type[typing.Any]] | None = None,
-    *,
-    skip_unmarked: bool = True,
 ) -> typing.Iterable[Dependency[object]]:
     if not isinstance(dependent, dict):
         with _remove_annotation(dependent.__annotations__, 'return'):
             type_hints = _get_type_hints(dependent, context=ctx)
     else:
         type_hints = dependent
+
     for name, hint in type_hints.items():
-        dep_type, args = _get_annotation_args(hint)
-        inject_marker = _find_inject_marker_in_annotation_args(args)
-        if skip_unmarked and inject_marker is None:
-            continue
+        if typing.get_origin(hint) is Annotated:
+            dep_type, args = _get_annotation_args(hint)
+            inject_marker = _find_inject_marker_in_annotation_args(args)
+            if inject_marker is None:
+                continue
+        else:
+            dep_type = hint
 
         yield Dependency(name=name, type_=dep_type)
 

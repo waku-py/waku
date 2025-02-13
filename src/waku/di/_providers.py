@@ -67,7 +67,7 @@ class Provider(Hashable, Protocol[_T]):
         type_hints = typing.get_type_hints(source, include_extras=True, localns={})
         if 'return' in type_hints:
             del type_hints['return']
-        return tuple(collect_dependencies(type_hints, skip_unmarked=False))
+        return tuple(collect_dependencies(type_hints))
 
 
 class Scoped(Provider[_T]):

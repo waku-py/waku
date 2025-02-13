@@ -38,7 +38,7 @@ Issues = "https://github.com/waku-py/waku/issues"
 Repository = "https://github.com/waku-py/waku"
 
 [project.optional-dependencies]
-aioinject = ["aioinject>=0.36.1"]
+aioinject = ["aioinject>=0.37.0"]
 litestar = ["litestar>2"]
 
 [tool.hatch.build.targets.sdist]
