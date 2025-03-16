@@ -10,7 +10,7 @@ from typing_extensions import override as override_
 from waku.di import DependencyProvider, InjectionContext, Object, Provider, Scoped, Singleton, Transient
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterator
+    from collections.abc import AsyncIterator, Iterator, Mapping
 
 __all__ = ['AioinjectDependencyProvider']
 
@@ -42,10 +42,10 @@ class AioinjectDependencyProvider(DependencyProvider):
             yield
 
     @override_
-    def _context(self) -> InjectionContext:
+    def _context(self, context: Mapping[Any, Any] | None = None) -> InjectionContext:
         if current_context := aioinject_context.get(None):
             return cast(InjectionContext, nullcontext(current_context))
-        return cast(InjectionContext, self._container.context())
+        return cast(InjectionContext, self._container.context(context=context))
 
     def _map_provider(self, provider: Provider[Any]) -> aioinject.Provider[Any]:  # noqa: PLR6301
         provider_type_map: dict[type[Provider[Any]], type[aioinject.Provider[Any]]] = {

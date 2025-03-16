@@ -8,7 +8,7 @@ from waku.graph import ModuleGraph
 from waku.modules import DynamicModule, Module, ModuleCompiler
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterable, Iterator
+    from collections.abc import AsyncIterator, Iterable, Iterator, Mapping
     from types import TracebackType
     from uuid import UUID
 
@@ -77,8 +77,8 @@ class ApplicationContainer:
         return module.is_global or module is self._root_module
 
     @asynccontextmanager
-    async def context(self) -> AsyncIterator[InjectionContext]:
-        async with self._dependency_provider.context() as ctx:
+    async def context(self, context: Mapping[Any, Any] | None = None) -> AsyncIterator[InjectionContext]:
+        async with self._dependency_provider.context(context) as ctx:
             yield ctx
 
     async def __aenter__(self) -> Self:
