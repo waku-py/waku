@@ -59,5 +59,9 @@ coverage.xml
 .task
 task
 
+# Documentation
+site/
+
+# LLM
 .continuerules
 .goose*
