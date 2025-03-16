@@ -53,7 +53,9 @@ dev = [
 ]
 docs = [
   "mkdocs>=1.6.1",
+  "mkdocs-callouts>=1.16.0",
   "mkdocs-exclude>=1.0.2",
+  "mkdocs-git-revision-date-localized-plugin>=1.4.4",
   "mkdocs-material>=9.6.8",
   "mkdocs-redirects>=1.2.2",
   "mkdocstrings[python]>=0.29.0",
@@ -164,7 +166,8 @@ pydocstyle = { convention = "google" }
 pylint = { max-args = 7 }
 
 [tool.ruff.lint.per-file-ignores]
-"examples/*" = [
+"docs/code/*" = [
+  "T201",  # `print` found
   "INP001", # File is part of an implicit namespace package
 ]
 "tests/*" = [
@@ -263,17 +266,6 @@ exclude_commit_patterns = [
 ]
 
 [tool.semantic_release.changelog.environment]
-block_start_string = "{%"
-block_end_string = "%}"
-variable_start_string = "{{"
-variable_end_string = "}}"
-comment_start_string = "{#"
-comment_end_string = "#}"
-trim_blocks = false
-lstrip_blocks = false
-newline_sequence = "\n"
-keep_trailing_newline = false
-extensions = []
 autoescape = true
 
 [tool.semantic_release.commit_author]
@@ -281,7 +273,7 @@ env = "GIT_COMMIT_AUTHOR"
 default = "semantic-release <semantic-release>"
 
 [tool.semantic_release.commit_parser_options]
-# Так же используется в `gitlint_plugins.py` для определения доступных типов коммита
+# Also used in `gitlint_plugins.py` for allowed commit types check
 allowed_tags = ["build", "chore", "ci", "docs", "feat", "fix", "perf", "style", "refactor", "test"]
 minor_tags = ["feat"]
 patch_tags = ["fix", "perf"]

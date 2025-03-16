@@ -13,6 +13,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+# Define your providers and modules
 class ConfigService:
     def get(self, option: str) -> str:  # noqa: PLR6301
         return option
@@ -22,6 +23,7 @@ class ConfigService:
 class ConfigModule:
     @classmethod
     def register(cls, env: str = 'dev') -> DynamicModule:
+        # You can select providers based on `env` for example
         logger.info('Loading config for env=%s', env)
         return DynamicModule(
             parent_module=cls,
@@ -53,6 +55,7 @@ class AdminModule:
     pass
 
 
+# Define the application composition root module
 @module(
     imports=[
         AdminModule,
@@ -65,13 +68,15 @@ class AppModule:
     pass
 
 
+# Define entrypoints
+# In real world this can be FastAPI routes, etc.
 @inject
 async def handler(
     user_service: Injected[UserService],
     config_service: Injected[ConfigService],
 ) -> None:
-    print(await user_service.great('World'))  # noqa: T201
-    print(config_service.get('TEST=1'))  # noqa: T201
+    print(await user_service.great('World'))
+    print(config_service.get('TEST=1'))
 
 
 @asynccontextmanager
@@ -81,15 +86,20 @@ async def lifespan(_: Application) -> AsyncIterator[None]:  # noqa: RUF029
     logger.info('Lifespan shutdown')
 
 
-async def main() -> None:
-    dp = AioinjectDependencyProvider()
-    app = ApplicationFactory.create(
+# Create application via factory
+def bootstrap() -> Application:
+    return ApplicationFactory.create(
         AppModule,
-        dependency_provider=dp,
+        dependency_provider=AioinjectDependencyProvider(),
         lifespan=[lifespan],
     )
 
-    async with app, app.container.context():
+
+# Run the application
+# In real world this would be run by a 3rd party framework like FastAPI
+async def main() -> None:
+    application = bootstrap()
+    async with application, application.container.context():
         await handler()  # type: ignore[call-arg]
 
 

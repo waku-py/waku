@@ -2,13 +2,22 @@
 site_name: Waku
 site_description: Microframework for building modular and loosely coupled applications
 strict: true
+copyright: Copyright &copy; 2025 Waku
+
+# Repository
+repo_name: waku-py/waku
 repo_url: https://github.com/waku-py/waku
+
+# Configuration
+watch: [ mkdocs.yml, README.md, CONTRIBUTING.md, CHANGELOG.md, src/waku ]
 
 # https://www.mkdocs.org/user-guide/configuration/#validation
 validation:
   omitted_files: warn
   absolute_links: warn
   unrecognized_links: warn
+  links:
+    absolute_links: relative_to_docs
 
 theme:
   name: material
@@ -16,53 +25,59 @@ theme:
     - content.code.annotate
     - content.code.copy
     - content.code.select
-
-  theme:
-    icon:
-      repo: fontawesome/brands/github
+    - navigation.indexes
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.path
+    - navigation.sections
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.top
+    - navigation.tracking
+    - optimize
+    - toc.follow
 
   palette:
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: pink
+    - media: "(prefers-color-scheme)"
       toggle:
-        icon: material/brightness-4
+        icon: material/brightness-auto
+        name: Switch to light mode
 
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: pink
+      primary: purple
+      accent: deep purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to dark mode
+
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: deep purple
       toggle:
         icon: material/brightness-7
+        name: Switch to system preference
 
-nav:
-  - About: index.md
+  font:
+    text: Roboto
+    code: Roboto Mono
 
-markdown_extensions:
-  - toc:
-      permalink: true
-      title: Page contents
-  - admonition
-  - pymdownx.details
-  - pymdownx.highlight:
-      anchor_linenums: true
-      line_spans: __span
-      pygments_lang_class: true
-  - pymdownx.inlinehilite
-  - pymdownx.snippets
-  - pymdownx.superfences
+  icon:
+    repo: fontawesome/brands/github
 
-watch:
-  - src/waku
-
+# Plugins
 plugins:
   - search
   - exclude:
       glob:
         - __pycache__/*
+  - git-revision-date-localized:
+      enable_creation_date: true
   - mkdocstrings:
       handlers:
         python:
-          paths: [ . ]
+          paths: [ waku ]
           options:
             members_order: source
             separate_signature: true
@@ -72,6 +87,49 @@ plugins:
             merge_init_into_class: true
             show_signature_annotations: true
             signature_crossrefs: true
-          import:
+            show_inheritance_diagram: true
+            show_submodules: true
+          inventories:
             - url: https://docs.python.org/3/objects.inv
               domains: [ py, std ]
+
+
+# Extensions
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      title: Page contents
+      slugify: !!python/object/apply:pymdownx.slugs.slugify { kwds: { case: lower } }
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.snippets:
+      base_path: !relative $config_dir
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+
+# Page tree
+nav:
+  - Overview:
+     - index.md
+     - Examples:
+         - examples/basic.md
+         - examples/mediator.md
+  - Development:
+      - Contributing: contributing.md
+      - Reference: reference.md
+  - Changelog: changelog.md
