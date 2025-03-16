@@ -167,7 +167,7 @@ pylint = { max-args = 7 }
 
 [tool.ruff.lint.per-file-ignores]
 "docs/code/*" = [
-  "T201",  # `print` found
+  "T201", # `print` found
   "INP001", # File is part of an implicit namespace package
 ]
 "tests/*" = [
@@ -226,10 +226,13 @@ ignore_missing_imports = true
 
 # ----- Semantic release settings -----
 [tool.semantic_release]
+# TODO: Use two step release when landed
+#   https://github.com/python-semantic-release/python-semantic-release/pull/1214
 build_command = """
     command -v uv 2>/dev/null || pip install uv
     uv lock
     git add uv.lock
+    uv build
 """
 assets = []
 commit_message = "chore(release): {version} [skip ci]"
