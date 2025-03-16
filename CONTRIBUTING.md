@@ -3,6 +3,7 @@
 First off, thanks for taking the time to contribute! 🎉
 
 ## Table of Contents
+
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
   - [Development Setup](#development-setup)
@@ -23,49 +24,58 @@ Before you begin, ensure you have the following installed:
 
 - Python 3.11 or higher
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) - Modern Python package installer
-- [Task](https://taskfile.dev/installation/) - Task runner
+- [Task](https://taskfile.dev/installation/) - Task runner.
+  Also, it's recommended to set up [auto-completion](https://taskfile.dev/installation/#setup-completions) for Task.
 - Git
 
 ### Development Setup
 
 1. Fork and clone the repository:
-```bash
-git clone git@github.com:<your-username>/waku.git
-cd waku
-```
+
+    ```bash
+    git clone git@github.com:<your-username>/waku.git
+    cd waku
+    ```
 
 2. Install UV (if not already installed):
-```bash
-# On macOS and Linux
-curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# For other platforms, see:
-# https://docs.astral.sh/uv/getting-started/installation/
-```
+    ```bash
+    # On macOS and Linux
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+
+    # For other platforms, see:
+    # https://docs.astral.sh/uv/getting-started/installation/
+
+    # If UV is already installed, make sure it's up to date:
+    uv self update
+    ```
 
 3. Install Task (if not already installed):
-```bash
-# Using the install script
-sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
-# For other installation options:
-# https://taskfile.dev/installation/
-```
+    ```bash
+    # Using the install script
+    sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+
+    # For other installation options:
+    # https://taskfile.dev/installation/
+    ```
 
 4. Setup development environment:
-```bash
-# Install dependencies and setup pre-commit hooks
-task install
-```
+
+    ```bash
+    # Install dependencies and setup pre-commit hooks
+    task install
+    ```
 
 ## Development Workflow
 
 ### Making Changes
 
 1. Create a new branch for your changes:
-```bash
-git checkout -b feature/your-feature-name
-```
+
+    ```bash
+    git checkout -b feature/your-feature-name
+    ```
 
 2. Make your changes following our [code style guidelines](#code-style)
 
@@ -96,10 +106,12 @@ We use several tools to maintain code quality:
 - Type hints are required for all public APIs
 
 Key style points:
+
 - Maximum line length is 120 characters
 - Use explicit type annotations
-- Follow PEP 8 guidelines
-- Write descriptive docstrings (Google style)
+- Follow [PEP 8](https://peps.python.org/pep-0008/) guidelines
+- Write descriptive
+  docstrings ([Google style](https://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings))
 
 ## Submitting Changes
 
@@ -112,6 +124,7 @@ Before creating an issue:
 3. Provide as much context as possible
 
 We welcome:
+
 - Bug reports
 - Feature requests
 - Documentation improvements
@@ -125,7 +138,8 @@ We welcome:
 4. Follow the pull request template
 5. Link related issues in your PR description
 
-Pull request checklist:
+#### Pull request checklist:
+
 - [ ] Tests added/updated
 - [ ] Documentation updated
 - [ ] Type hints added
@@ -147,14 +161,10 @@ task clean       # Clean build artifacts
 task -l          # List all available commands
 ```
 
-For more detailed information about specific topics, please refer to:
-- [Architecture Overview](docs/architecture.md)
-- [Testing Guide](docs/testing.md)
-- [Style Guide](docs/style.md)
-
 ## Questions?
 
 If you have questions, feel free to:
+
 - Open an issue
 - Start a [Discussion](https://github.com/waku-py/waku/discussions)
 - Reach out to maintainers

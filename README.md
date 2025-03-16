@@ -1,11 +1,11 @@
 # waku
 
-<p align="left">
+<p align="center" markdown="1">
     <sup><i>waku</i> [<b>枠</b>] <i>means framework in Japanese.</i></sup>
     <br/>
 </p>
 
-<div align="center">
+<div align="center" markdown="1">
 
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Python version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
@@ -25,6 +25,7 @@ This project is heavily inspired by [NestJS](https://github.com/nestjs/nest) & [
 ## Overview
 
 `waku` helps you build maintainable Python applications by providing:
+
 - Clean architecture patterns
 - Dependency injection
 - Module system
@@ -34,23 +35,27 @@ This project is heavily inspired by [NestJS](https://github.com/nestjs/nest) & [
 ## Features
 
 ### 🏗️ Modular Architecture
+
 - Build modular monoliths with clear boundaries
 - Enforce loose coupling between components
 - Validate dependency graphs automatically
 - Control module visibility and access
 
 ### 🔌 Extensible Plugin System
+
 - Built-in extension mechanism
 - Lifecycle hooks for modules and applications
 - Custom extension points
 - Rich ecosystem of built-in extensions
 
 ### 💉 Flexible Dependency Injection
+
 - Framework-agnostic DI implementation
 - Providers with different lifetimes (singleton, scoped, transient)
 - Easy testing and mocking
 
 ### 🎮 Command Query Responsibility Segregation (CQRS)
+
 - Built-in CQRS extension
 - Command/Query requests handling
 - Event handling
@@ -60,14 +65,19 @@ This project is heavily inspired by [NestJS](https://github.com/nestjs/nest) & [
 
 ### Installation
 
-```sh
-# Using pip
+#### Using pip
+
+```shell
 pip install waku
+```
 
-# Using UV (recommended)
+#### Using UV (recommended)
+```shell
 uv add waku
+```
 
-# Using poetry
+#### Using poetry
+```shell
 poetry add waku
 ```
 
@@ -119,14 +129,6 @@ class AppModule:
     pass
 
 
-# Create application via factory
-async def bootstrap() -> Application:
-    return await ApplicationFactory.create(
-        AppModule,
-        dependency_provider=AioinjectDependencyProvider(),
-    )
-
-
 # Define entrypoints
 # In real world this can be FastAPI routes, etc.
 @inject
@@ -134,12 +136,20 @@ async def handler(user_service: Injected[UserService]) -> dict[str, str]:
     return await user_service.get_user(user_id='123')
 
 
+# Create application via factory
+def bootstrap() -> Application:
+    return ApplicationFactory.create(
+        AppModule,
+        dependency_provider=AioinjectDependencyProvider(),
+    )
+
+
 # Run the application
 # In real world this would be run by a 3rd party framework like FastAPI
 async def main() -> None:
-    application = await bootstrap()
+    application = bootstrap()
     async with application, application.container.context():
-        result = await handler()
+        result = await handler()  # type: ignore[call-arg]
         print(result)
 
 
@@ -153,6 +163,7 @@ if __name__ == '__main__':
 For detailed documentation, visit our [documentation site](https://waku-py.github.io/waku/).
 
 ### Key Topics
+
 - [Getting Started](https://waku-py.github.io/waku/getting-started)
 - [Module System](https://waku-py.github.io/waku/modules)
 - [Dependency Injection](https://waku-py.github.io/waku/dependency-injection)
@@ -162,12 +173,8 @@ For detailed documentation, visit our [documentation site](https://waku-py.githu
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](./CONTRIBUTING.md) for details.
+We welcome contributions! Please see our [Contributing Guide](https://waku-py.github.io/waku/contributing) for details.
 
 ### Development Setup
 
-See out contributing guide for [development setup](./CONTRIBUTING.md#development-setup).
-
-## License
-
-This project is licensed under the [MIT License](./LICENSE).
+See out contributing guide for [development setup](https://waku-py.github.io/waku/contributing#development-setup).

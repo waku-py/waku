@@ -1,5 +1,1 @@
-# Waku
-
-# Installation
-
-TODO
+--8<-- "README.md"
