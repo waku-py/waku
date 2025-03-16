@@ -24,20 +24,40 @@ tasks:
     preconditions:
       - sh: command -v uv > /dev/null 2>&1
         msg: "⚠️ UV not found. Install from: https://docs.astral.sh/uv/getting-started/installation/"
-      - sh: uv lock --locked
-        msg: "⚠️ Lockfile outdated. Run: uv sync --all-extras --all-groups"
 
-  install:
+  .uv-locked:
+    desc: Check UV installation and lockfile status
+    deps: [ .uv ]
+    internal: true
+    silent: true
+    preconditions:
+      - sh: uv lock --locked
+        msg: "⚠️ Lockfile outdated. Run: task deps:sync"
+
+  deps:install:
+    aliases: [ install ]
     desc: Install the package, dependencies, and pre-commit for local development
     deps: [ .uv ]
+    silent: true
     cmds:
-      - uv sync --all-extras --all-groups
+      - task: deps:sync
       - uv run pre-commit install
       - echo "✅ Development environment setup complete"
 
-  upgrade-deps:
-    desc: Upgrade all project dependencies and pre-commit hooks
+  deps:sync:
+    aliases: [ sync ]
+    desc: Sync all project dependencies
     deps: [ .uv ]
+    silent: true
+    cmds:
+      - uv sync --all-extras --all-groups
+      - echo "✅ Dependencies synced"
+
+  deps:upgrade:
+    aliases: [ upgrade ]
+    desc: Upgrade all project dependencies and pre-commit hooks
+    deps: [ .uv-locked ]
+    silent: true
     cmds:
       - uv sync --all-extras --all-groups --upgrade
       - uv run pre-commit autoupdate
@@ -45,7 +65,7 @@ tasks:
 
   lint:
     desc: Lint code
-    deps: [ .uv ]
+    deps: [ .uv-locked ]
     cmds:
       - uv run ruff check {{.SOURCES}} {{.CLI_ARGS}}
       - uv run ruff format --check {{.SOURCES}}
@@ -58,7 +78,7 @@ tasks:
   format:
     aliases: [ fmt ]
     desc: Format code
-    deps: [ .uv ]
+    deps: [ .uv-locked ]
     cmds:
       - uv run ruff check --fix {{.SOURCES}}
       - uv run ruff format {{.SOURCES}}
@@ -71,7 +91,7 @@ tasks:
   typecheck:
     aliases: [ mypy ]
     desc: Type check code
-    deps: [ .uv ]
+    deps: [ .uv-locked ]
     cmds:
       - uv run mypy{{ if ne (env "MYPY_PRETTY") "0" }} --pretty{{end}} {{.SOURCES}}
     sources:
@@ -88,27 +108,28 @@ tasks:
   check:
     aliases: [ ci ]
     desc: Lint & typecheck python source files
-    deps: [ lint, typecheck ]
+    deps: [ lint, typecheck, basedpyright ]
 
   codespell:
     desc: Use Codespell to do spellchecking
-    deps: [ .uv ]
+    deps: [ .uv-locked ]
     cmd: uv run pre-commit run codespell --all-files
 
   pre-commit-all:
     desc: Run all pre-commit hooks against all files
-    deps: [ .uv ]
+    deps: [ .uv-locked ]
+    silent: true
     cmd: uv run pre-commit run --verbose --all-files --hook-stage manual
 
   security-audit:
     desc: Audit dependencies for vulnerabilities
-    deps: [ .uv ]
+    deps: [ .uv-locked ]
     silent: true
     cmd: uv export --no-emit-project --no-header | uv run pip-audit --require-hashes --disable-pip -r /dev/stdin
 
   deptry:
     desc: Find unused, missing and transitive dependencies in project
-    deps: [ .uv ]
+    deps: [ .uv-locked ]
     cmd: uv run deptry .
 
   gitlint:
@@ -120,11 +141,6 @@ tasks:
     desc: Run tests
     deps: [ .uv ]
     cmd: uv run pytest {{.PYTEST_ARGS}} {{.CLI_ARGS}}
-    sources:
-      - "**/*.py"
-      - "pyproject.toml"
-    generates:
-      - ".pytest_cache/**/*"
 
   test:cov:
     aliases: [ 'test:ci', 'test:all' ]
@@ -137,14 +153,11 @@ tasks:
         vars:
           PYTEST_ARGS:
             ref: .PYTEST_ARGS
-    generates:
-      - ".coverage"
 
   all:
     desc: Run the full set of checks
     cmds:
-      - task: format
-      - task: typecheck
+      - task: check
       - task: codespell
       - task: test:cov
 
@@ -155,10 +168,7 @@ tasks:
       - rm -f `find . -type f -name '*.py[co]'`
       - rm -f `find . -type f -name '*~'`
       - rm -f `find . -type f -name '.*~'`
-      - rm -rf .cache
-      - rm -rf .mypy_cache
-      - rm -rf .pytest_cache
-      - rm -rf .ruff_cache
+      - rm -rf `find . -name '.*cache'`
       - rm -rf .task
       - rm -rf htmlcov
       - rm -f .coverage

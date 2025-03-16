@@ -4,27 +4,21 @@ default_install_hook_types: [ pre-commit, pre-push, commit-msg ]
 default_stages: [ pre-commit, pre-push, manual ]
 
 repos:
-  # Meta hooks
-  - repo: meta
-    hooks:
-      - id: check-hooks-apply
-      - id: check-useless-excludes
-
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
       - id: no-commit-to-branch
-        args: [ '--branch', 'master' ]
+        args: [ "--branch", "master" ]
       - id: check-yaml
-        args: [ '--unsafe' ]
-        files: \.(yaml|yml)$
+        args: [ "--unsafe" ]
+        files: '\.(yaml|yml)$'
       - id: check-toml
-        files: \.toml$
+        files: '\.toml$'
       - id: check-merge-conflict
       - id: end-of-file-fixer
         exclude: '^uv\.lock$'
       - id: trailing-whitespace
-        args: [ --markdown-linebreak-ext=md ]
+        args: [ "--markdown-linebreak-ext=md" ]
       - id: detect-private-key
       - id: check-illegal-windows-names
       - id: mixed-line-ending
@@ -35,11 +29,11 @@ repos:
     rev: 0.31.3
     hooks:
       - id: check-github-workflows
-        files: ^\.github/workflows/.*\.ya?ml$
+        files: '^\.github/workflows/.*\.ya?ml$'
       - id: check-renovate
-        files: ^\.github/renovate\.json$
+        files: '^\.github/renovate\.json$'
       - id: check-taskfile
-        files: ^Taskfile\.yml$
+        files: '^Taskfile\.yml$'
 
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.7
@@ -51,7 +45,7 @@ repos:
     hooks:
       - id: codespell
         additional_dependencies: [ tomli ]
-        files: \.(py|pyi|md|yml|yaml|json|toml)$
+        files: '\.(py|pyi|md|yml|yaml|json|toml)$'
 
   - repo: local
     hooks:
@@ -59,7 +53,7 @@ repos:
         name: check commit message
         stages: [ commit-msg ]
         language: system
-        entry: gitlint --msg-filename
+        entry: task gitlint -- --msg-filename
         fail_fast: true
 
       - id: uv-lock-check
@@ -104,3 +98,9 @@ repos:
         fail_fast: true
         stages: [ pre-push, manual ]  # Run on push only to speed up commits
         verbose: true
+
+  # Meta hooks
+  - repo: meta
+    hooks:
+      - id: check-hooks-apply
+      - id: check-useless-excludes
