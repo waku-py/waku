@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://squidfunk.github.io/mkdocs-material/schema.json
 site_name: Waku
 site_description: Microframework for building modular and loosely coupled applications
-strict: true
+strict: false
 copyright: Copyright &copy; 2025 Waku
 
 # Repository
@@ -9,7 +9,7 @@ repo_name: waku-py/waku
 repo_url: https://github.com/waku-py/waku
 
 # Configuration
-watch: [ mkdocs.yml, README.md, CONTRIBUTING.md, CHANGELOG.md, src/waku ]
+watch: [ mkdocs.yml, README.md, CONTRIBUTING.md, CHANGELOG.md, src/waku, docs/ ]
 
 # https://www.mkdocs.org/user-guide/configuration/#validation
 validation:
@@ -25,6 +25,7 @@ theme:
     - content.code.annotate
     - content.code.copy
     - content.code.select
+    - content.tooltips
     - navigation.indexes
     - navigation.instant
     - navigation.instant.prefetch
@@ -71,6 +72,7 @@ plugins:
   - search
   - exclude:
       glob:
+        - includes/*
         - __pycache__/*
   - git-revision-date-localized:
       enable_creation_date: true
@@ -96,6 +98,7 @@ plugins:
 
 # Extensions
 markdown_extensions:
+  - abbr
   - admonition
   - attr_list
   - md_in_html
@@ -114,6 +117,8 @@ markdown_extensions:
       custom_checkbox: true
   - pymdownx.snippets:
       base_path: !relative $config_dir
+      auto_append:
+        - docs/includes/abbreviations.md
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid
@@ -125,10 +130,18 @@ markdown_extensions:
 # Page tree
 nav:
   - Overview:
-     - index.md
-     - Examples:
-         - examples/basic.md
-         - examples/mediator.md
+      - index.md
+      - Examples:
+          - examples/basic.md
+          - examples/mediator.md
+  - Usage:
+      - usage/quickstart.md
+      - usage/modules.md
+      - usage/dp.md
+      - usage/cqrs.md
+  - Extensions:
+      - extensions/lifecycle.md
+      - extensions/validation.md
   - Development:
       - Contributing: contributing.md
       - Reference: reference.md
