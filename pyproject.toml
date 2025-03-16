@@ -29,7 +29,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "typing-extensions>=4.12.0",
+  "typing-extensions>=4.12",
 ]
 
 [project.urls]
@@ -38,7 +38,7 @@ Issues = "https://github.com/waku-py/waku/issues"
 Repository = "https://github.com/waku-py/waku"
 
 [project.optional-dependencies]
-aioinject = ["aioinject>=0.37.0"]
+aioinject = ["aioinject>=0.38.0"]
 litestar = ["litestar>2"]
 
 [tool.hatch.build.targets.sdist]
@@ -47,25 +47,25 @@ only-include = ["src/waku", "tests"]
 
 [dependency-groups]
 dev = [
-  "pip-audit>=2.7.3",
+  "pip-audit>=2.8.0",
   "rich>=13.9.4",
   "setuptools>=75.6.0",
 ]
 docs = [
   "mkdocs>=1.6.1",
   "mkdocs-exclude>=1.0.2",
-  "mkdocs-material>=9.5.49",
+  "mkdocs-material>=9.6.8",
   "mkdocs-redirects>=1.2.2",
-  "mkdocstrings[python]>=0.27.0",
+  "mkdocstrings[python]>=0.29.0",
 ]
 lint = [
-  "deptry>=0.21.2",
+  "deptry>=0.23.0",
   "gitlint>=0.19.1",
-  "pre-commit>=4.0.1",
-  "ruff>=0.8.4",
+  "pre-commit>=4.1.0",
+  "ruff>=0.11.0",
 ]
 test = [
-  "pytest>=8.3.4",
+  "pytest>=8.3.5",
   "pytest-archon>=0.0.6",
   "pytest-clarity>=1.0.1",
   "pytest-cov>=6.0.0",
@@ -74,9 +74,9 @@ test = [
   "pytest-timeout>=2.3.1",
 ]
 typecheck = [
-  "basedpyright>=1.23.2",
-  "mypy>=1.14.1",
-  "types-setuptools>=75.6.0.20241126",
+  "basedpyright>=1.28.1",
+  "mypy>=1.15.0",
+  "types-setuptools>=76.0.0.20250313",
 ]
 
 all = [
