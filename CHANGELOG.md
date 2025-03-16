@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.4.0 (2025-03-16)
+
+### Documentation
+
+- Setup mkdocs and improve documentation
+  ([`d5166d7`](https://github.com/waku-py/waku/commit/d5166d7146b41a2ce18fba6e524008df2c694299))
+
+### Features
+
+- Add ability to pass custom context to dependency provider
+  ([`a0e055f`](https://github.com/waku-py/waku/commit/a0e055f3ae5ca5f4cf6529bbf0026db6bce6f530))
+
+
 ## v0.3.1 (2025-02-13)
 
 ### Bug Fixes
