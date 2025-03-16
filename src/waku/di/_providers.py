@@ -5,7 +5,7 @@ import functools
 import inspect
 import typing
 from abc import ABC, abstractmethod
-from collections.abc import Hashable, Sequence
+from collections.abc import Hashable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Protocol, Self, TypeAlias, TypeVar, runtime_checkable
 
 from waku.di._context import InjectionContext
@@ -113,11 +113,11 @@ class DependencyProvider(ABC):
     def try_register(self, *providers: Provider[Any]) -> None: ...
 
     @contextlib.asynccontextmanager
-    async def context(self) -> AsyncIterator[InjectionContext]:
+    async def context(self, context: Mapping[Any, Any] | None = None) -> AsyncIterator[InjectionContext]:
         if current_ctx := context_var.get(None):
             yield current_ctx
         else:
-            async with self._context() as ctx:
+            async with self._context(context) as ctx:
                 token = context_var.set(ctx)
                 try:
                     yield ctx
@@ -139,7 +139,7 @@ class DependencyProvider(ABC):
     def _lifespan(self) -> AbstractAsyncContextManager[None]: ...
 
     @abstractmethod
-    def _context(self) -> InjectionContext: ...
+    def _context(self, context: Mapping[Any, Any] | None) -> InjectionContext: ...
 
     async def __aenter__(self) -> Self:
         await self._exit_stack.__aenter__()

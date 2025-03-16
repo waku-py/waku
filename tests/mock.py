@@ -1,5 +1,6 @@
 import contextlib
 from collections import defaultdict
+from collections.abc import Mapping
 from contextlib import AbstractAsyncContextManager, AbstractContextManager, AsyncExitStack, nullcontext
 from typing import Any, TypeAlias, TypeVar
 
@@ -35,5 +36,5 @@ class DummyDI(DependencyProvider):
     def _lifespan(self) -> AbstractAsyncContextManager[None]:  # noqa: PLR6301
         return nullcontext()
 
-    def _context(self) -> InjectionContext:
+    def _context(self, context: Mapping[Any, Any] | None) -> InjectionContext:
         raise NotImplementedError
