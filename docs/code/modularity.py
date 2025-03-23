@@ -62,7 +62,6 @@ class AdminModule:
         ConfigModule.register(env='prod'),
     ],
     exports=[ConfigModule],
-    is_global=True,
 )
 class AppModule:
     pass
@@ -80,7 +79,7 @@ async def handler(
 
 
 @asynccontextmanager
-async def lifespan(_: Application) -> AsyncIterator[None]:  # noqa: RUF029
+async def lifespan(_: Application) -> AsyncIterator[None]:
     logger.info('Lifespan startup')
     yield
     logger.info('Lifespan shutdown')

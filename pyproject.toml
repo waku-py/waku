@@ -58,6 +58,7 @@ docs = [
   "mkdocs-git-revision-date-localized-plugin>=1.4.4",
   "mkdocs-material>=9.6.8",
   "mkdocs-redirects>=1.2.2",
+  "mkdocs-section-index>=0.3.9",
   "mkdocstrings[python]>=0.29.0",
 ]
 lint = [
@@ -81,17 +82,10 @@ typecheck = [
   "types-setuptools>=76.0.0.20250313",
 ]
 
-all = [
-  { include-group = "dev" },
-  { include-group = "docs" },
-  { include-group = "lint" },
-  { include-group = "test" },
-  { include-group = "typecheck" },
-]
-
 # ----- UV settings -----
 [tool.uv]
-default-groups = ["dev", "lint", "test", "typecheck"]
+default-groups = "all"
+required-version = "0.6.9"
 
 
 # ----- Pytest settings -----
@@ -167,8 +161,12 @@ pylint = { max-args = 7 }
 
 [tool.ruff.lint.per-file-ignores]
 "docs/code/*" = [
-  "T201", # `print` found
+  "I001", # Import block is un-sorted or un-formatted
   "INP001", # File is part of an implicit namespace package
+  "RUF029", # Function is declared async but doesn't use async features
+  "S101", # Usage of assert
+  "SIM117", # Multiple with-statements should be combined
+  "T201", # `print` found
 ]
 "tests/*" = [
   "FBT001", # Boolean-typed positional argument in function definition
@@ -194,6 +192,7 @@ docstring-code-format = true
 
 # ----- Deptry settings -----
 [tool.deptry]
+extend_exclude = ["docs"]
 known_first_party = ["waku"]
 
 [tool.deptry.per_rule_ignores]
@@ -204,6 +203,9 @@ DEP004 = ["gitlint"]
 [tool.mypy]
 # Mypy configuration:
 # https://mypy.readthedocs.io/en/latest/config_file.html
+exclude = [
+  "docs/code",
+]
 follow_imports = "normal"
 allow_redefinition = false
 # Any is 'ok' as long as it is a wildcard

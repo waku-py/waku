@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, Self, TypeVar
 
 from waku.di import DependencyProvider, InjectionContext, Object, Provider
 from waku.graph import ModuleGraph
@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 
 
 __all__ = ['ApplicationContainer']
+
+_T = TypeVar('_T')
 
 
 class ApplicationContainer:
@@ -80,6 +82,12 @@ class ApplicationContainer:
     async def context(self, context: Mapping[Any, Any] | None = None) -> AsyncIterator[InjectionContext]:
         async with self._dependency_provider.context(context) as ctx:
             yield ctx
+
+    async def get(self, type_: type[_T]) -> _T:
+        return await self._dependency_provider.get(type_)
+
+    async def get_all(self, type_: type[_T]) -> Iterable[_T]:
+        return await self._dependency_provider.get_all(type_)
 
     async def __aenter__(self) -> Self:
         await self._exit_stack.__aenter__()

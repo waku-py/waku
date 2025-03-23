@@ -1,1 +1,0 @@
---8<-- "CONTRIBUTING.md:1:3,18"

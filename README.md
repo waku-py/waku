@@ -1,33 +1,40 @@
 # waku
 
 <p align="center" markdown="1">
-    <sup><i>waku</i> [<b>枠</b>] <i>means framework in Japanese.</i></sup>
+    *waku* **[枠]** *means "framework" in Japanese.*
     <br/>
 </p>
 
+-----
+
 <div align="center" markdown="1">
 
-[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
-[![Python version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff/)
-[![Checked with mypy](http://www.mypy-lang.org/static/mypy_badge.svg)](http://mypy-lang.org/)
-
-[![PyPI](https://img.shields.io/pypi/v/waku.svg)](https://pypi.python.org/pypi/waku)
+[![CI/CD](https://img.shields.io/github/actions/workflow/status/waku-py/waku/release.yml?branch=master&logo=github&label=CI/CD)](https://github.com/waku-py/waku/actions?query=event%3Apush+branch%3Amaster+workflow%3ACI/CD)
 [![Downloads](https://static.pepy.tech/badge/waku/month)](https://pepy.tech/projects/waku)
+[![PyPI](https://img.shields.io/pypi/v/waku.svg?label=PyPI)](https://pypi.python.org/pypi/waku)
+[![Python version](https://img.shields.io/pypi/pyversions/waku.svg?label=Python)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/pypi/l/waku.svg)](https://github.com/waku-py/waku/blob/master/LICENSE)
+[![Docs](https://img.shields.io/badge/docs-mkdocs%20material-blue)](https://waku-py.github.io/waku/)
+
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff/)
+[![mypy - checked](http://www.mypy-lang.org/static/mypy_badge.svg)](http://mypy-lang.org/)
+[![basedpyright - checked](https://img.shields.io/badge/basedpyright-checked-42b983)](https://docs.basedpyright.com)
 
 </div>
 
-`waku` *is a microframework for building modular and loosely coupled applications.*
-
-This project is heavily inspired by [NestJS](https://github.com/nestjs/nest) & [Tramvai](https://tramvai.dev) frameworks.
+-----
 
 ## Overview
 
-`waku` helps you build maintainable Python applications by providing:
+`waku` is a Python framework for building modular, loosely coupled, and maintainable applications.
+It draws inspiration from [NestJS](https://github.com/nestjs/nest) and [Tramvai](https://tramvai.dev),
+adapting their best ideas to the Python ecosystem.
+
+`waku` provides:
 
 - Clean architecture patterns
-- Dependency injection
+- Framework agnostic DI
 - Module system
 - Extension system
 - Command/Query handling (CQRS)
@@ -38,7 +45,7 @@ This project is heavily inspired by [NestJS](https://github.com/nestjs/nest) & [
 
 - Build modular monoliths with clear boundaries
 - Enforce loose coupling between components
-- Validate dependency graphs automatically
+- Automatically validate dependency graphs
 - Control module visibility and access
 
 ### 🔌 Extensible Plugin System
@@ -46,111 +53,99 @@ This project is heavily inspired by [NestJS](https://github.com/nestjs/nest) & [
 - Built-in extension mechanism
 - Lifecycle hooks for modules and applications
 - Custom extension points
-- Rich ecosystem of built-in extensions
+- Rich ecosystem of built-in extensions (work in progress)
 
 ### 💉 Flexible Dependency Injection
 
 - Framework-agnostic DI implementation
 - Providers with different lifetimes (singleton, scoped, transient)
-- Easy testing and mocking
+- Simplified testing and mocking
 
 ### 🎮 Command Query Responsibility Segregation (CQRS)
 
-- Built-in CQRS extension
-- Command/Query requests handling
-- Event handling
+`waku` includes a built-in CQRS implementation with all the features you need to build robust,
+maintainable applications:
+
+- Command and Query request handling
+- Event handling with custom publisher support
 - Middleware support
 
 ## Quick Start
 
 ### Installation
 
-#### Using pip
+Install the `waku` package using your preferred tool.
+We recommend [`uv`](https://github.com/astral-sh/uv) for managing project dependencies due to its speed and simplicity.
 
 ```shell
-pip install waku
-```
-
-#### Using UV (recommended)
-```shell
+# Using UV
 uv add waku
-```
 
-#### Using poetry
-```shell
+# Using pip
+pip install waku
+
+# Using poetry
 poetry add waku
 ```
 
+You also need to install some additional dependencies for the DI system to work.
+
+You can explore all available providers in our [documentation](https://waku-py.github.io/waku/usage/dependency-injection/#included-dependency-providers).
+
 ### Basic Example
 
-```python
-import asyncio
-from typing import Literal
+For our example we stick with [aioinject](https://github.com/aiopylibs/aioinject) as DI provider.
+Install it directly using your preferred package manager or as extra dependency of `waku`:
 
-from waku import Application, ApplicationFactory, DynamicModule, module
+```shell
+uv add "waku[aioinject]"
+```
+
+```python linenums="1"
+import asyncio
+
+from waku import ApplicationFactory, module
 from waku.di import Scoped, Injected, inject
 from waku.di.contrib.aioinject import AioinjectDependencyProvider
 
 
 # Define your providers
-class UserService:
-    async def get_user(self, user_id: str) -> dict[str, str]:
-        return {'id': user_id, 'name': 'John Doe'}
+class GreetingService:
+    async def greet(self, name: str) -> str:
+        return f'Hello, {name}!'
 
 
-# Define a module
-@module(providers=[Scoped(UserService)], exports=[UserService])
-class UserModule:
+# Define a module with your providers
+@module(providers=[Scoped(GreetingService)])
+class GreetingModule:
     pass
 
 
-# Dynamic module example
-@module()
-class ConfigModule:
-    @classmethod
-    def register(cls, env: Literal['dev', 'prod'] = 'prod') -> DynamicModule:
-        # You can select providers based on `env` for example
-        if env == 'dev':
-            providers = [...]
-        else:
-            providers = [...]
-
-        return DynamicModule(parent_module=cls, providers=providers)
-
-
 # Define the application composition root module
-@module(
-    imports=[
-        UserModule,
-        ConfigModule.register('dev'),
-    ]
-)
+@module(imports=[GreetingModule])
 class AppModule:
     pass
 
 
 # Define entrypoints
-# In real world this can be FastAPI routes, etc.
+# In a real-world scenario, this could be FastAPI routes, etc.
 @inject
-async def handler(user_service: Injected[UserService]) -> dict[str, str]:
-    return await user_service.get_user(user_id='123')
+async def greet_user(greeting_service: Injected[GreetingService]) -> str:
+    return greeting_service.greet('waku')
 
 
-# Create application via factory
-def bootstrap() -> Application:
-    return ApplicationFactory.create(
+async def main() -> None:
+    # Create application via factory
+    application = ApplicationFactory.create(
         AppModule,
         dependency_provider=AioinjectDependencyProvider(),
     )
 
-
-# Run the application
-# In real world this would be run by a 3rd party framework like FastAPI
-async def main() -> None:
-    application = bootstrap()
+    # Run the application
+    # In a real-world scenario, this would be run by a framework like FastAPI
     async with application, application.container.context():
-        result = await handler()  # type: ignore[call-arg]
-        print(result)
+        message = await greet_user()
+        print(message)  # Output: Hello, waku!
 
 
 if __name__ == '__main__':
@@ -158,23 +153,25 @@ if __name__ == '__main__':
 
 ```
 
+For explanations of the code above and more realistic examples, see the [Getting Started](https://waku-py.github.io/waku/getting-started) guide.
+
 ## Documentation
 
-For detailed documentation, visit our [documentation site](https://waku-py.github.io/waku/).
+Explore detailed documentation on our [official site](https://waku-py.github.io/waku/).
 
-### Key Topics
+**Key topics include:**
 
 - [Getting Started](https://waku-py.github.io/waku/getting-started)
-- [Module System](https://waku-py.github.io/waku/modules)
-- [Dependency Injection](https://waku-py.github.io/waku/dependency-injection)
-- [Extensions](https://waku-py.github.io/waku/extensions)
-- [CQRS](https://waku-py.github.io/waku/cqrs)
-- [Integrations](https://waku-py.github.io/waku/integrations)
+- [Module System](https://waku-py.github.io/waku/usage/modules)
+- [Dependency Injection](https://waku-py.github.io/waku/usage/dependency-injection)
+- [Extensions](https://waku-py.github.io/waku/usage/extensions)
+- [CQRS](https://waku-py.github.io/waku/usage/mediator)
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](https://waku-py.github.io/waku/contributing) for details.
+We’d love your contributions!
+Check out our [Contributing Guide](https://waku-py.github.io/waku/contributing) to get started.
 
 ### Development Setup
 
-See out contributing guide for [development setup](https://waku-py.github.io/waku/contributing#development-setup).
+Learn how to set up a development environment in the [Contributing Guide](https://waku-py.github.io/waku/contributing#development-setup).

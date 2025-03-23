@@ -16,9 +16,6 @@ assignees: ''
 
 ```python
 # Minimal code example that demonstrates the issue
-from waku import Application, Module
-
-
 def reproduce_bug():
     # Your reproduction code here
     ...
@@ -32,6 +29,7 @@ def reproduce_bug():
 ## Actual Behavior
 
 <!-- What actually happened? Include full error messages and stack traces if any -->
+
 Error output/stack trace here
 
 ## Environment Information
@@ -62,5 +60,6 @@ Application/Module setup, or any other relevant configs
 ## Additional Context
 
 <!-- Link to any related issues, components -->
+
 - Related issues: #
 - Affected components:

@@ -29,13 +29,13 @@ MODULE_METADATA_KEY: Final = '__module_metadata__'
 
 @dataclass(kw_only=True, slots=True)
 class ModuleMetadata:
-    providers: Sequence[Provider[Any]] = field(default_factory=list)
+    providers: list[Provider[Any]] = field(default_factory=list)
     """List of providers for dependency injection."""
-    imports: Sequence[ModuleType | DynamicModule] = field(default_factory=list)
+    imports: list[ModuleType | DynamicModule] = field(default_factory=list)
     """List of modules imported by this module."""
-    exports: Sequence[object | ModuleType | DynamicModule] = field(default_factory=list)
+    exports: list[object | ModuleType | DynamicModule] = field(default_factory=list)
     """List of types or modules exported by this module."""
-    extensions: Sequence[ModuleExtension] = field(default_factory=list)
+    extensions: list[ModuleExtension] = field(default_factory=list)
     """List of module extensions for lifecycle hooks."""
     is_global: bool = False
     """Whether this module is global or not."""
@@ -66,6 +66,16 @@ def module(
     extensions: Sequence[ModuleExtension] = (),
     is_global: bool = False,
 ) -> Callable[[type[_T]], type[_T]]:
+    """Decorator to define a module.
+
+    Args:
+        providers: Sequence of providers for dependency injection.
+        imports: Sequence of modules imported by this module.
+        exports: Sequence of types or modules exported by this module.
+        extensions: Sequence of module extensions for lifecycle hooks.
+        is_global: Whether this module is global or not.
+    """
+
     def decorator(cls: type[_T]) -> type[_T]:
         metadata = ModuleMetadata(
             providers=list(providers),

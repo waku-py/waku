@@ -1,4 +1,4 @@
-"""Extension protocols for the Waku microframework.
+"""Extension protocols for the waku framework.
 
 This module defines protocols for extending module behavior.
 These protocols allow for hooking into various lifecycle events.

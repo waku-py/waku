@@ -70,7 +70,7 @@ class LogMiddleware(Middleware[RequestT, ResponseT]):
 
 
 @asynccontextmanager
-async def lifespan(_: Application) -> AsyncIterator[None]:  # noqa: RUF029
+async def lifespan(_: Application) -> AsyncIterator[None]:
     logger.info('Lifespan startup')
     yield
     logger.info('Lifespan shutdown')
@@ -83,7 +83,6 @@ async def lifespan(_: Application) -> AsyncIterator[None]:  # noqa: RUF029
             event_map=EventMap().bind(MeetingCreatedEvent, [MeetingCreatedEventHandler]),
         ),
     ],
-    exports=[CreatingMeetingCommandHandler],
 )
 class SomeModule:
     pass
@@ -94,7 +93,6 @@ class SomeModule:
         SomeModule,
         MediatorModule.register(MediatorConfig(middlewares=[LogMiddleware])),
     ],
-    is_global=True,
 )
 class AppModule:
     pass

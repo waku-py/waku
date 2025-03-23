@@ -1,3 +1,10 @@
-# Reference
+---
+title: API Reference
+hide:
+- feedback
+- navigation
+---
 
-::: waku
+# ::: waku
+    options:
+        show_submodules: true
