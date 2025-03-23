@@ -4,6 +4,7 @@ from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from typing import TYPE_CHECKING, Any, Self, TypeVar
 
 from waku.di import DependencyProvider, InjectionContext, Object, Provider
+from waku.extensions import OnModuleConfigure
 from waku.graph import ModuleGraph
 from waku.modules import DynamicModule, Module, ModuleCompiler
 
@@ -39,6 +40,10 @@ class ApplicationContainer:
         type_, metadata = self._compiler.extract_metadata(module_type)
         if self.has(metadata.id):
             return self._modules[metadata.id], False
+
+        for extension in metadata.extensions:
+            if isinstance(extension, OnModuleConfigure):
+                extension.on_module_configure(metadata)
 
         module = Module(type_, metadata)
 

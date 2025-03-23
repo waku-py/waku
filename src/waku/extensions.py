@@ -10,14 +10,14 @@ from typing import TYPE_CHECKING, Protocol, TypeAlias, runtime_checkable
 
 if TYPE_CHECKING:
     from waku.application import Application
-    from waku.modules import Module
-
+    from waku.modules import Module, ModuleMetadata
 
 __all__ = [
     'AfterApplicationInit',
     'ApplicationExtension',
     'ModuleExtension',
     'OnApplicationInit',
+    'OnModuleConfigure',
     'OnModuleInit',
 ]
 
@@ -43,6 +43,17 @@ class AfterApplicationInit(Protocol):
 
 
 @runtime_checkable
+class OnModuleConfigure(Protocol):
+    """Extension for module configuration."""
+
+    __slots__ = ()
+
+    def on_module_configure(self, metadata: ModuleMetadata) -> None:
+        """Perform actions before module metadata transformed to module."""
+        ...
+
+
+@runtime_checkable
 class OnModuleInit(Protocol):
     """Extension for module initialization."""
 
@@ -54,4 +65,4 @@ class OnModuleInit(Protocol):
 
 
 ApplicationExtension: TypeAlias = OnApplicationInit | AfterApplicationInit
-ModuleExtension: TypeAlias = OnModuleInit
+ModuleExtension: TypeAlias = OnModuleConfigure | OnModuleInit

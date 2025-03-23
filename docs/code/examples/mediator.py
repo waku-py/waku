@@ -14,15 +14,13 @@ from waku.mediator import (
     MediatorModule,
     Request,
     RequestHandler,
-    RequestMap,
     Response,
 )
 from waku.mediator.contracts.event import Event
 from waku.mediator.contracts.request import RequestT, ResponseT
 from waku.mediator.events.handler import EventHandler
-from waku.mediator.events.map import EventMap
 from waku.mediator.middlewares import HandleType, Middleware
-from waku.mediator.modules import MediatorProvidersCreator
+from waku.mediator.modules import MediatorExtension
 from waku.modules import module
 
 logging.basicConfig(level=logging.INFO)
@@ -77,10 +75,11 @@ async def lifespan(_: Application) -> AsyncIterator[None]:
 
 
 @module(
-    providers=[
-        *MediatorProvidersCreator.create(
-            request_map=RequestMap().bind(CreateMeetingCommand, CreatingMeetingCommandHandler),
-            event_map=EventMap().bind(MeetingCreatedEvent, [MeetingCreatedEventHandler]),
+    extensions=[
+        (
+            MediatorExtension()
+            .bind_request(CreateMeetingCommand, CreatingMeetingCommandHandler)
+            .bind_event(MeetingCreatedEvent, [MeetingCreatedEventHandler])
         ),
     ],
 )

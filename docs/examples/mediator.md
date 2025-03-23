@@ -13,5 +13,5 @@ For full documentation, visit the [Mediator (CQRS)](../usage/mediator.md) sectio
 ## Code
 
 ```python linenums="1"
---8<-- "docs/code/mediator.py"
+--8<-- "docs/code/examples/mediator.py"
 ```
