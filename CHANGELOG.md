@@ -2,6 +2,31 @@
 
 <!-- version list -->
 
+## v0.5.0 (2025-03-23)
+
+### Documentation
+
+- Add basic modules and providers docs
+  ([`9ddbc3b`](https://github.com/waku-py/waku/commit/9ddbc3b78cae401bf72b02f4541bb3f92b70bbcd))
+
+- Further improve documentation #19 #94
+  ([`3d061b6`](https://github.com/waku-py/waku/commit/3d061b69d2321aaa925f939d25de81c2b7a96dc0))
+
+* add getting started section * add more usage docs * change api reference appearance * improve
+  mkdocs config
+
+### Features
+
+- **mediator**: Simplify cqrs handlers registration (#105)
+  ([#107](https://github.com/waku-py/waku/pull/107),
+  [`65fa07d`](https://github.com/waku-py/waku/commit/65fa07d9fcbb685ad9fb7ec8a37e878aa06b5c84))
+
+* Remove `MediatorProvidersCreator` * Add new module extension type `OnModuleConfigure` for allowing
+  change module metadata before module creating * Move handlers binding logic to `MediatorExtension`
+
+Resolves: #105
+
+
 ## v0.4.0 (2025-03-16)
 
 ### Documentation
