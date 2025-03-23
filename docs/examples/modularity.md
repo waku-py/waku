@@ -11,5 +11,5 @@ For full documentation on modules, visit the [Modules](../usage/modules.md) sect
 ## Code
 
 ```python linenums="1"
---8<-- "docs/code/modularity.py"
+--8<-- "docs/code/examples/modularity.py"
 ```

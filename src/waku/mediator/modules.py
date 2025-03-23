@@ -2,28 +2,32 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from itertools import chain
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any, Self, TypeAlias
 
-from waku.di import AnyProvider, Provider, Transient
+from waku.di import AnyProvider, Transient
+from waku.extensions import OnModuleConfigure
 from waku.mediator._utils import get_request_response_type
-from waku.mediator.events.handler import EventHandler
+from waku.mediator.events.handler import EventHandler, EventHandlerType
+from waku.mediator.events.map import EventMap
 from waku.mediator.events.publish import EventPublisher, SequentialEventPublisher
 from waku.mediator.impl import Mediator
 from waku.mediator.interfaces import IMediator, IPublisher, ISender
 from waku.mediator.middlewares import AnyMiddleware, NoopMiddleware
-from waku.mediator.requests.handler import RequestHandler
-from waku.modules import DynamicModule, module
+from waku.mediator.requests.handler import RequestHandler, RequestHandlerType
+from waku.mediator.requests.map import RequestMap
+from waku.modules import DynamicModule, ModuleMetadata, module
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
-    from waku.mediator.events.map import EventMap
-    from waku.mediator.requests.map import RequestMap
+    from waku.mediator.contracts.event import EventT
+    from waku.mediator.contracts.request import RequestT, ResponseT
+
 
 __all__ = [
     'MediatorConfig',
+    'MediatorExtension',
     'MediatorModule',
-    'MediatorProvidersCreator',
 ]
 
 
@@ -102,42 +106,47 @@ class MediatorModule:
         )
 
 
-class MediatorProvidersCreator:
-    @classmethod
-    def create(
-        cls,
-        *,
-        request_map: RequestMap | None = None,
-        event_map: EventMap | None = None,
-    ) -> list[Provider[Any]]:
-        """Mediator module.
+class MediatorExtension(OnModuleConfigure):
+    def __init__(self) -> None:
+        self._request_map = RequestMap()
+        self._event_map = EventMap()
 
-        Args:
-            request_map: Optional request handler map for the module.
-            event_map: Optional event handlers map for the module.
-        """
-        providers: list[Provider[Any]] = []
-        if request_map:
-            providers.extend(cls._create_request_handler_providers(request_map))
-        if event_map:
-            providers.extend(cls._create_event_handler_providers(event_map))
+    def bind_request(
+        self,
+        request_type: type[RequestT],
+        handler_type: RequestHandlerType[RequestT, ResponseT],
+    ) -> Self:
+        self._request_map.bind(request_type, handler_type)
+        return self
 
-        return providers
+    def bind_event(
+        self,
+        event_type: type[EventT],
+        handler_types: list[EventHandlerType[EventT]],
+    ) -> Self:
+        self._event_map.bind(event_type, handler_types)
+        return self
 
-    @staticmethod
-    def _create_request_handler_providers(request_map: RequestMap) -> _HandlerProviders:
+    def on_module_configure(self, metadata: ModuleMetadata) -> None:
+        metadata.providers.extend(
+            chain(
+                self._create_request_handler_providers(),
+                self._create_event_handler_providers(),
+            ),
+        )
+
+    def _create_request_handler_providers(self) -> _HandlerProviders:
         return tuple(
             Transient(
                 handler_type,
                 type_=RequestHandler[request_type, get_request_response_type(request_type)],  # type: ignore[arg-type, valid-type, misc]
             )
-            for request_type, handler_type in request_map.registry.items()
+            for request_type, handler_type in self._request_map.registry.items()
         )
 
-    @staticmethod
-    def _create_event_handler_providers(event_map: EventMap) -> _HandlerProviders:
+    def _create_event_handler_providers(self) -> _HandlerProviders:
         return tuple(
             Transient(handler_type, type_=EventHandler[event_type])  # type: ignore[valid-type]
-            for (event_type, handler_types) in event_map.registry.items()
+            for (event_type, handler_types) in self._event_map.registry.items()
             for handler_type in handler_types
         )
