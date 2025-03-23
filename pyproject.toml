@@ -94,6 +94,7 @@ xfail_strict = true
 norecursedirs = ".* examples __pycache__"
 disable_test_id_escaping_and_forfeit_all_rights_to_community_support = true
 addopts = [
+  "--ignore=docs",
   "--doctest-modules",
   "--strict-markers",
   "--strict-config",
