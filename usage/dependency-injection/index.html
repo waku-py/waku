@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://waku-py.github.io/waku/usage/modules/">
+        <link rel="canonical" href="https://waku-py.github.io/waku/usage/dependency-injection/">
       
       
-        <link rel="prev" href="../../license/">
+        <link rel="prev" href="../modules/">
       
       
-        <link rel="next" href="../dependency-injection/">
+        <link rel="next" href="../mediator/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -24,7 +24,7 @@
     
     
       
-        <title>Modules - waku</title>
+        <title>Dependency Injection - waku</title>
       
     
     
@@ -90,7 +90,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#module" class="md-skip">
+        <a href="#scopes" class="md-skip">
           Skip to content
         </a>
       
@@ -126,7 +126,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Modules
+              Dependency Injection
             
           </span>
         </div>
@@ -261,7 +261,7 @@
     
     
       <li class="md-tabs__item md-tabs__item--active">
-        <a href="./" class="md-tabs__link">
+        <a href="../modules/" class="md-tabs__link">
           
   
   Usage
@@ -575,6 +575,28 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../modules/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Modules
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -589,7 +611,7 @@
           
   
   <span class="md-ellipsis">
-    Modules
+    Dependency Injection
     
   </span>
   
@@ -601,7 +623,7 @@
         
   
   <span class="md-ellipsis">
-    Modules
+    Dependency Injection
     
   </span>
   
@@ -624,38 +646,119 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#module" class="md-nav__link">
+  <a href="#scopes" class="md-nav__link">
     <span class="md-ellipsis">
-      Module
+      Scopes
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Scopes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#transient" class="md-nav__link">
+    <span class="md-ellipsis">
+      Transient
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#module-re-exporting" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#scoped" class="md-nav__link">
     <span class="md-ellipsis">
-      Module Re-exporting
+      Scoped
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#global-modules" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#singleton" class="md-nav__link">
     <span class="md-ellipsis">
-      Global modules
+      Singleton
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#dynamic-module" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#object" class="md-nav__link">
     <span class="md-ellipsis">
-      Dynamic Module
+      Object
     </span>
   </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#included-dependency-providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      Included Dependency Providers
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Included Dependency Providers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#aioinject" class="md-nav__link">
+    <span class="md-ellipsis">
+      Aioinject
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Aioinject">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#basic-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      Basic Usage
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-container-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Custom Container Configuration
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dishka" class="md-nav__link">
+    <span class="md-ellipsis">
+      Dishka
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#writing-custom-dependency-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      Writing Custom Dependency Provider
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -663,28 +766,6 @@
   
 </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../dependency-injection/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Dependency Injection
-    
-  </span>
-  
-
-      </a>
     </li>
   
 
@@ -1146,38 +1227,119 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#module" class="md-nav__link">
+  <a href="#scopes" class="md-nav__link">
     <span class="md-ellipsis">
-      Module
+      Scopes
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Scopes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#transient" class="md-nav__link">
+    <span class="md-ellipsis">
+      Transient
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#module-re-exporting" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#scoped" class="md-nav__link">
     <span class="md-ellipsis">
-      Module Re-exporting
+      Scoped
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#global-modules" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#singleton" class="md-nav__link">
     <span class="md-ellipsis">
-      Global modules
+      Singleton
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#dynamic-module" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#object" class="md-nav__link">
     <span class="md-ellipsis">
-      Dynamic Module
+      Object
     </span>
   </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#included-dependency-providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      Included Dependency Providers
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Included Dependency Providers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#aioinject" class="md-nav__link">
+    <span class="md-ellipsis">
+      Aioinject
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Aioinject">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#basic-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      Basic Usage
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-container-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Custom Container Configuration
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dishka" class="md-nav__link">
+    <span class="md-ellipsis">
+      Dishka
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#writing-custom-dependency-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      Writing Custom Dependency Provider
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1200,50 +1362,23 @@
   
 
 
-  <h1>Modules</h1>
+  <h1>Dependency Injection</h1>
 
-<p><code>waku</code> modularity system is heavily inspired by the <a href="https://github.com/nestjs/nest">NestJS</a>
-and <a href="https://tramvai.dev">Tramvai</a> frameworks.</p>
-<p>The concept of modularity is well-explained with examples in
-the <a href="https://docs.nestjs.com/modules">NestJS documentation</a>.</p>
-<h2 id="module">Module<a class="headerlink" href="#module" title="Permanent link">&para;</a></h2>
-<p>A module is a class annotated with the <code>@module()</code> decorator. This decorator attaches metadata to the class,
-which <code>waku</code> uses to construct the application graph.</p>
-<p>Every <code>waku</code> application has at least one module: the root module, also known as the composition root.
-This module serves as the starting point for <code>waku</code> to build the entire application graph.</p>
-<table>
-<thead>
-<tr>
-<th>Parameter</th>
-<th style="text-align: left;">Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>providers</code></td>
-<td style="text-align: left;">List of providers for dependency injection</td>
-</tr>
-<tr>
-<td><code>imports</code></td>
-<td style="text-align: left;">List of modules imported by this module</td>
-</tr>
-<tr>
-<td><code>exports</code></td>
-<td style="text-align: left;">List of types or modules exported by this module</td>
-</tr>
-<tr>
-<td><code>extensions</code></td>
-<td style="text-align: left;">List of module extensions for lifecycle hooks</td>
-</tr>
-<tr>
-<td><code>is_global</code></td>
-<td style="text-align: left;">Whether this module is global or not</td>
-</tr>
-</tbody>
-</table>
-<p>The module encapsulates providers by default, meaning you can only inject providers that are either part of the current
-module or explicitly exported from other imported modules. The exported providers from a module essentially serve as the
-module's public interface or API.</p>
+<p><code>waku</code> is designed to be modular and extensible.
+To support this principle, it provides a flexible dependency injection (<abbr title="Dependency Injection">DI</abbr>) system that integrates seamlessly
+with various <abbr title="Dependency Injection">DI</abbr> frameworks.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Instead of relying on a specific <abbr title="Dependency Injection">DI</abbr> framework, <code>waku</code> uses a dependency provider interface.
+This allows you to choose any <abbr title="Dependency Injection">DI</abbr> framework you prefer (see <a href="#included-dependency-providers">Included Dependency Providers</a>)
+or even <a href="#writing-custom-dependency-provider">create your own</a>.</p>
+</div>
+<h2 id="scopes">Scopes<a class="headerlink" href="#scopes" title="Permanent link">&para;</a></h2>
+<p><code>waku</code> supports four lifetime scopes for registering dependencies,
+inspired by the <a href="https://learn.microsoft.com/en-us/dotnet/core/extensions/dependency-injection#service-lifetimes">service lifetimes</a>
+in .NET Core’s <abbr title="Dependency Injection">DI</abbr> system.</p>
+<h3 id="transient">Transient<a class="headerlink" href="#transient" title="Permanent link">&para;</a></h3>
+<p><code>Transient</code> lifetime dependencies are created each time they’re requested from the dependency provider.</p>
 <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1"> 1</a></span>
 <span class="normal"><a href="#__codelineno-0-2"> 2</a></span>
 <span class="normal"><a href="#__codelineno-0-3"> 3</a></span>
@@ -1256,87 +1391,94 @@ module's public interface or API.</p>
 <span class="normal"><a href="#__codelineno-0-10">10</a></span>
 <span class="normal"><a href="#__codelineno-0-11">11</a></span>
 <span class="normal"><a href="#__codelineno-0-12">12</a></span>
-<span class="normal"><a href="#__codelineno-0-13">13</a></span>
-<span class="normal"><a href="#__codelineno-0-14">14</a></span>
-<span class="normal"><a href="#__codelineno-0-15">15</a></span>
-<span class="normal"><a href="#__codelineno-0-16">16</a></span>
-<span class="normal"><a href="#__codelineno-0-17">17</a></span>
-<span class="normal"><a href="#__codelineno-0-18">18</a></span>
-<span class="normal"><a href="#__codelineno-0-19">19</a></span>
-<span class="normal"><a href="#__codelineno-0-20">20</a></span>
-<span class="normal"><a href="#__codelineno-0-21">21</a></span>
-<span class="normal"><a href="#__codelineno-0-22">22</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku</span><span class="w"> </span><span class="kn">import</span> <span class="n">module</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di</span><span class="w"> </span><span class="kn">import</span> <span class="n">Scoped</span>
+<span class="normal"><a href="#__codelineno-0-13">13</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di</span><span class="w"> </span><span class="kn">import</span> <span class="n">Transient</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di.contrib.aioinject</span><span class="w"> </span><span class="kn">import</span> <span class="n">AioinjectDependencyProvider</span>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3"></a>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="kn">from</span><span class="w"> </span><span class="nn">app.modules.config.module</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfigModule</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5"></a>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6"></a>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7"></a><span class="k">class</span><span class="w"> </span><span class="nc">UsersService</span><span class="p">:</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8"></a>  <span class="k">pass</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9"></a>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10"></a>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11"></a><span class="hll"><span class="nd">@module</span><span class="p">(</span>
-</span></span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12"></a><span class="hll">  <span class="n">providers</span><span class="o">=</span><span class="p">[</span><span class="n">Scoped</span><span class="p">(</span><span class="n">UsersService</span><span class="p">)],</span>  <span class="c1"># Register the service with a scoped lifetime</span>
-</span></span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13"></a><span class="hll">  <span class="n">imports</span><span class="o">=</span><span class="p">[</span><span class="n">ConfigModule</span><span class="p">],</span>  <span class="c1"># Import another module</span>
-</span></span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14"></a><span class="hll">  <span class="n">exports</span><span class="o">=</span><span class="p">[</span><span class="n">UsersService</span><span class="p">],</span>  <span class="c1"># Expose the service to other modules</span>
-</span></span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15"></a><span class="hll"><span class="p">)</span>
-</span></span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16"></a><span class="k">class</span><span class="w"> </span><span class="nc">UsersModule</span><span class="p">:</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17"></a>  <span class="k">pass</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18"></a>
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19"></a>
-</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20"></a><span class="nd">@module</span><span class="p">(</span><span class="n">imports</span><span class="o">=</span><span class="p">[</span><span class="n">UsersModule</span><span class="p">])</span>  <span class="c1"># Root module importing UsersModule</span>
-</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21"></a><span class="k">class</span><span class="w"> </span><span class="nc">AppModule</span><span class="p">:</span>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22"></a>  <span class="k">pass</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="n">dp</span> <span class="o">=</span> <span class="n">AioinjectDependencyProvider</span><span class="p">()</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5"></a><span class="hll"><span class="n">dp</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">Transient</span><span class="p">(</span><span class="nb">list</span><span class="p">))</span>
+</span></span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6"></a>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7"></a>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">dp</span><span class="p">,</span> <span class="n">dp</span><span class="o">.</span><span class="n">context</span><span class="p">()</span> <span class="k">as</span> <span class="n">ctx</span><span class="p">:</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10"></a>        <span class="n">obj_1</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">resolve</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11"></a>        <span class="n">obj_2</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">resolve</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12"></a>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13"></a>    <span class="k">assert</span> <span class="n">obj_1</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">obj_2</span>
 </span></code></pre></div></td></tr></table></div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Encapsulation is enforced by <a href="../extensions/validation/">validators</a>, which you can disable at runtime if needed.
-However, <strong>disabling them entirely is not recommended</strong>, as they help maintain modularity.</p>
-</div>
-<h2 id="module-re-exporting">Module Re-exporting<a class="headerlink" href="#module-re-exporting" title="Permanent link">&para;</a></h2>
-<p>You can re-export a module by including it in the <code>exports</code> list of another module.
-This is useful for exposing a module’s providers to other modules that import the re-exporting module.</p>
-<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
-<span class="normal"><a href="#__codelineno-1-2">2</a></span>
-<span class="normal"><a href="#__codelineno-1-3">3</a></span>
-<span class="normal"><a href="#__codelineno-1-4">4</a></span>
-<span class="normal"><a href="#__codelineno-1-5">5</a></span>
-<span class="normal"><a href="#__codelineno-1-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="nd">@module</span><span class="p">(</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2"></a>    <span class="n">imports</span><span class="o">=</span><span class="p">[</span><span class="n">UsersModule</span><span class="p">],</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="hll">    <span class="n">exports</span><span class="o">=</span><span class="p">[</span><span class="n">UsersModule</span><span class="p">],</span>
-</span></span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="p">)</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5"></a><span class="k">class</span><span class="w"> </span><span class="nc">IAMModule</span><span class="p">:</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6"></a>    <span class="k">pass</span>
+<h3 id="scoped">Scoped<a class="headerlink" href="#scoped" title="Permanent link">&para;</a></h3>
+<p><code>Scoped</code> lifetime dependencies are created once per dependency provider context and disposed when the context exits.</p>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-1-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-1-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-1-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-1-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-1-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-1-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-1-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-1-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-1-10">10</a></span>
+<span class="normal"><a href="#__codelineno-1-11">11</a></span>
+<span class="normal"><a href="#__codelineno-1-12">12</a></span>
+<span class="normal"><a href="#__codelineno-1-13">13</a></span>
+<span class="normal"><a href="#__codelineno-1-14">14</a></span>
+<span class="normal"><a href="#__codelineno-1-15">15</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di</span><span class="w"> </span><span class="kn">import</span> <span class="n">Scoped</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di.contrib.aioinject</span><span class="w"> </span><span class="kn">import</span> <span class="n">AioinjectDependencyProvider</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3"></a>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="n">dp</span> <span class="o">=</span> <span class="n">AioinjectDependencyProvider</span><span class="p">()</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5"></a><span class="hll"><span class="n">dp</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">Scoped</span><span class="p">(</span><span class="nb">list</span><span class="p">))</span>
+</span></span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6"></a>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7"></a>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">dp</span><span class="p">:</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10"></a>        <span class="k">async</span> <span class="k">with</span> <span class="n">dp</span><span class="o">.</span><span class="n">context</span><span class="p">()</span> <span class="k">as</span> <span class="n">ctx</span><span class="p">:</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11"></a>            <span class="n">obj_1</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ctx</span><span class="o">.</span><span class="n">resolve</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12"></a>            <span class="n">obj_2</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ctx</span><span class="o">.</span><span class="n">resolve</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13"></a>            <span class="k">assert</span> <span class="n">obj_1</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">obj_2</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14"></a>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15"></a>        <span class="c1"># Providers are disposed at this point</span>
 </span></code></pre></div></td></tr></table></div>
-<h2 id="global-modules">Global modules<a class="headerlink" href="#global-modules" title="Permanent link">&para;</a></h2>
-<p>If you need to import the same set of modules across your application, you can mark a module as global.
-Once a module is global, its providers can be injected anywhere in the application without requiring explicit imports in
-every module.</p>
-<p>To make a module global, set the <code>is_global</code> param to <code>True</code> in the <code>@module()</code> decorator.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Root module are always global.</p>
-</div>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>Global modules are not recommended for large applications,
-as they can lead to tight coupling and make the application harder to maintain.</p>
-</div>
-<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
-<span class="normal"><a href="#__codelineno-2-2">2</a></span>
-<span class="normal"><a href="#__codelineno-2-3">3</a></span>
-<span class="normal"><a href="#__codelineno-2-4">4</a></span>
-<span class="normal"><a href="#__codelineno-2-5">5</a></span>
-<span class="normal"><a href="#__codelineno-2-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku</span><span class="w"> </span><span class="kn">import</span> <span class="n">module</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2"></a>
+<h3 id="singleton">Singleton<a class="headerlink" href="#singleton" title="Permanent link">&para;</a></h3>
+<p><code>Singleton</code> lifetime dependencies are created the first time they’re requested from the dependency provider
+and disposed when the dependency provider lifecycle ends.</p>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-2-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-2-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-2-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-2-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-2-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-2-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-2-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-2-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-2-10">10</a></span>
+<span class="normal"><a href="#__codelineno-2-11">11</a></span>
+<span class="normal"><a href="#__codelineno-2-12">12</a></span>
+<span class="normal"><a href="#__codelineno-2-13">13</a></span>
+<span class="normal"><a href="#__codelineno-2-14">14</a></span>
+<span class="normal"><a href="#__codelineno-2-15">15</a></span>
+<span class="normal"><a href="#__codelineno-2-16">16</a></span>
+<span class="normal"><a href="#__codelineno-2-17">17</a></span>
+<span class="normal"><a href="#__codelineno-2-18">18</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di</span><span class="w"> </span><span class="kn">import</span> <span class="n">Singleton</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di.contrib.aioinject</span><span class="w"> </span><span class="kn">import</span> <span class="n">AioinjectDependencyProvider</span>
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3"></a>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4"></a><span class="hll"><span class="nd">@module</span><span class="p">(</span><span class="n">is_global</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span></span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5"></a><span class="k">class</span><span class="w"> </span><span class="nc">UsersModule</span><span class="p">:</span>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6"></a>    <span class="k">pass</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4"></a><span class="n">dp</span> <span class="o">=</span> <span class="n">AioinjectDependencyProvider</span><span class="p">()</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5"></a><span class="hll"><span class="n">dp</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">Singleton</span><span class="p">(</span><span class="nb">list</span><span class="p">))</span>
+</span></span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6"></a>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7"></a>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">dp</span><span class="p">:</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10"></a>        <span class="k">async</span> <span class="k">with</span> <span class="n">dp</span><span class="o">.</span><span class="n">context</span><span class="p">()</span> <span class="k">as</span> <span class="n">ctx</span><span class="p">:</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11"></a>            <span class="n">obj_1</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ctx</span><span class="o">.</span><span class="n">resolve</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12"></a>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13"></a>        <span class="k">async</span> <span class="k">with</span> <span class="n">dp</span><span class="o">.</span><span class="n">context</span><span class="p">()</span> <span class="k">as</span> <span class="n">ctx</span><span class="p">:</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14"></a>            <span class="n">obj_2</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ctx</span><span class="o">.</span><span class="n">resolve</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15"></a>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16"></a>        <span class="k">assert</span> <span class="n">obj_1</span> <span class="ow">is</span> <span class="n">obj_2</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17"></a>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18"></a>    <span class="c1"># Providers are disposed at this point</span>
 </span></code></pre></div></td></tr></table></div>
-<h2 id="dynamic-module">Dynamic Module<a class="headerlink" href="#dynamic-module" title="Permanent link">&para;</a></h2>
-<p>Dynamic modules allow you to create modules dynamically based on conditions,
-such as the runtime environment of your application.</p>
+<h3 id="object">Object<a class="headerlink" href="#object" title="Permanent link">&para;</a></h3>
+<p><code>Object</code> lifetime dependencies behave like <code>Singleton</code>, but you must provide the implementation instance directly
+and manage its lifecycle manually.</p>
 <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1"> 1</a></span>
 <span class="normal"><a href="#__codelineno-3-2"> 2</a></span>
 <span class="normal"><a href="#__codelineno-3-3"> 3</a></span>
@@ -1350,76 +1492,93 @@ such as the runtime environment of your application.</p>
 <span class="normal"><a href="#__codelineno-3-11">11</a></span>
 <span class="normal"><a href="#__codelineno-3-12">12</a></span>
 <span class="normal"><a href="#__codelineno-3-13">13</a></span>
-<span class="normal"><a href="#__codelineno-3-14">14</a></span>
-<span class="normal"><a href="#__codelineno-3-15">15</a></span>
-<span class="normal"><a href="#__codelineno-3-16">16</a></span>
-<span class="normal"><a href="#__codelineno-3-17">17</a></span>
-<span class="normal"><a href="#__codelineno-3-18">18</a></span>
-<span class="normal"><a href="#__codelineno-3-19">19</a></span>
-<span class="normal"><a href="#__codelineno-3-20">20</a></span>
-<span class="normal"><a href="#__codelineno-3-21">21</a></span>
-<span class="normal"><a href="#__codelineno-3-22">22</a></span>
-<span class="normal"><a href="#__codelineno-3-23">23</a></span>
-<span class="normal"><a href="#__codelineno-3-24">24</a></span>
-<span class="normal"><a href="#__codelineno-3-25">25</a></span>
-<span class="normal"><a href="#__codelineno-3-26">26</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku</span><span class="w"> </span><span class="kn">import</span> <span class="n">DynamicModule</span><span class="p">,</span> <span class="n">module</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di</span><span class="w"> </span><span class="kn">import</span> <span class="n">Scoped</span>
+<span class="normal"><a href="#__codelineno-3-14">14</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di</span><span class="w"> </span><span class="kn">import</span> <span class="n">Object</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di.contrib.aioinject</span><span class="w"> </span><span class="kn">import</span> <span class="n">AioinjectDependencyProvider</span>
 </span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3"></a>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4"></a>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5"></a><span class="k">class</span><span class="w"> </span><span class="nc">ConfigService</span><span class="p">:</span>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6"></a>    <span class="k">pass</span>
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7"></a>
-</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8"></a>
-</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9"></a><span class="k">class</span><span class="w"> </span><span class="nc">DevConfigService</span><span class="p">(</span><span class="n">ConfigService</span><span class="p">):</span>
-</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10"></a>    <span class="k">pass</span>
-</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11"></a>
-</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12"></a>
-</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13"></a><span class="k">class</span><span class="w"> </span><span class="nc">DefaultConfigService</span><span class="p">(</span><span class="n">ConfigService</span><span class="p">):</span>
-</span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14"></a>    <span class="k">pass</span>
-</span><span id="__span-3-15"><a id="__codelineno-3-15" name="__codelineno-3-15"></a>
-</span><span id="__span-3-16"><a id="__codelineno-3-16" name="__codelineno-3-16"></a>
-</span><span id="__span-3-17"><a id="__codelineno-3-17" name="__codelineno-3-17"></a><span class="nd">@module</span><span class="p">()</span>
-</span><span id="__span-3-18"><a id="__codelineno-3-18" name="__codelineno-3-18"></a><span class="k">class</span><span class="w"> </span><span class="nc">ConfigModule</span><span class="p">:</span>
-</span><span id="__span-3-19"><a id="__codelineno-3-19" name="__codelineno-3-19"></a>    <span class="nd">@classmethod</span>
-</span><span id="__span-3-20"><a id="__codelineno-3-20" name="__codelineno-3-20"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">register</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">env</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;dev&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DynamicModule</span><span class="p">:</span>
-</span><span id="__span-3-21"><a id="__codelineno-3-21" name="__codelineno-3-21"></a>        <span class="c1"># Choose the config provider based on the environment</span>
-</span><span id="__span-3-22"><a id="__codelineno-3-22" name="__codelineno-3-22"></a>        <span class="n">config_provider</span> <span class="o">=</span> <span class="n">DevConfigService</span> <span class="k">if</span> <span class="n">env</span> <span class="o">==</span> <span class="s1">&#39;dev&#39;</span> <span class="k">else</span> <span class="n">DefaultConfigService</span>
-</span><span id="__span-3-23"><a id="__codelineno-3-23" name="__codelineno-3-23"></a><span class="hll">        <span class="k">return</span> <span class="n">DynamicModule</span><span class="p">(</span>
-</span></span><span id="__span-3-24"><a id="__codelineno-3-24" name="__codelineno-3-24"></a><span class="hll">            <span class="n">parent_module</span><span class="o">=</span><span class="bp">cls</span><span class="p">,</span>
-</span></span><span id="__span-3-25"><a id="__codelineno-3-25" name="__codelineno-3-25"></a><span class="hll">            <span class="n">providers</span><span class="o">=</span><span class="p">[</span><span class="n">Scoped</span><span class="p">(</span><span class="n">config_provider</span><span class="p">,</span> <span class="n">type_</span><span class="o">=</span><span class="n">ConfigService</span><span class="p">)],</span>  <span class="c1"># Register with interface type</span>
-</span></span><span id="__span-3-26"><a id="__codelineno-3-26" name="__codelineno-3-26"></a><span class="hll">        <span class="p">)</span>
-</span></span></code></pre></div></td></tr></table></div>
-<p>And then you can use it in any of your modules or in the root module:</p>
-<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-4-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-4-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-4-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-4-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-4-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-4-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-4-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-4-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-4-10">10</a></span>
-<span class="normal"><a href="#__codelineno-4-11">11</a></span>
-<span class="normal"><a href="#__codelineno-4-12">12</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku</span><span class="w"> </span><span class="kn">import</span> <span class="n">module</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2"></a>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">app.modules.config.module</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfigModule</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4"></a>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5"></a>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6"></a><span class="nd">@module</span><span class="p">(</span>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7"></a>    <span class="n">imports</span><span class="o">=</span><span class="p">[</span>
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8"></a><span class="hll">        <span class="n">ConfigModule</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">env</span><span class="o">=</span><span class="s1">&#39;dev&#39;</span><span class="p">),</span>
-</span></span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9"></a>    <span class="p">],</span>
-</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10"></a><span class="p">)</span>
-</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11"></a><span class="k">class</span><span class="w"> </span><span class="nc">AppModule</span><span class="p">:</span>
-</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12"></a>    <span class="k">pass</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4"></a><span class="n">some_object</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5"></a>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6"></a><span class="n">dp</span> <span class="o">=</span> <span class="n">AioinjectDependencyProvider</span><span class="p">()</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7"></a><span class="hll"><span class="n">dp</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">Object</span><span class="p">(</span><span class="n">some_object</span><span class="p">,</span> <span class="n">type_</span><span class="o">=</span><span class="nb">tuple</span><span class="p">))</span>
+</span></span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8"></a>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9"></a>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">dp</span><span class="p">,</span> <span class="n">dp</span><span class="o">.</span><span class="n">context</span><span class="p">()</span> <span class="k">as</span> <span class="n">ctx</span><span class="p">:</span>
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12"></a>        <span class="n">obj_from_provider</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ctx</span><span class="o">.</span><span class="n">resolve</span><span class="p">(</span><span class="nb">tuple</span><span class="p">)</span>
+</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13"></a>
+</span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14"></a>    <span class="k">assert</span> <span class="n">obj_from_provider</span> <span class="ow">is</span> <span class="n">some_object</span>
 </span></code></pre></div></td></tr></table></div>
-<p>You can also make a <a href="#dynamic-module">dynamic module</a> global by setting <code>is_global=True</code> in the <code>DynamicModule</code>
-constructor.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>While you can use any method name instead of <code>register</code>, we recommend sticking with <code>register</code> for consistency.</p>
-</div>
+<h2 id="included-dependency-providers">Included Dependency Providers<a class="headerlink" href="#included-dependency-providers" title="Permanent link">&para;</a></h2>
+<p><code>waku</code> includes out-of-the-box support for several popular <abbr title="Dependency Injection">DI</abbr> frameworks through its dependency provider system.</p>
+<h3 id="aioinject"><a href="https://github.com/ThirVondukr/aioinject/">Aioinject</a><a class="headerlink" href="#aioinject" title="Permanent link">&para;</a></h3>
+<p><code>waku</code> dependency provider interface is heavily inspired by <a href="https://github.com/ThirVondukr/aioinject">Aioinject</a>,
+making it our recommended default choice.
+Aioinject integrates seamlessly with <code>waku</code> and offers all the necessary features:</p>
+<ul>
+<li>Support for all providers scopes (transient, singleton, scoped, object)</li>
+<li>Container lifecycle management</li>
+<li>Providers overriding</li>
+<li>Custom context passing</li>
+</ul>
+<p>Available by installing <code>waku</code> with <code>aioinject</code> extra or by directly installing <code>aioinject</code>:</p>
+<div class="language-shell highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>uv<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;waku[aioinject]&quot;</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="c1"># or</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>uv<span class="w"> </span>add<span class="w"> </span>aioinject
+</span></code></pre></div>
+<h4 id="basic-usage">Basic Usage<a class="headerlink" href="#basic-usage" title="Permanent link">&para;</a></h4>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-5-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-5-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-5-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-5-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-5-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-5-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-5-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-5-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-5-10">10</a></span>
+<span class="normal"><a href="#__codelineno-5-11">11</a></span>
+<span class="normal"><a href="#__codelineno-5-12">12</a></span>
+<span class="normal"><a href="#__codelineno-5-13">13</a></span>
+<span class="normal"><a href="#__codelineno-5-14">14</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku</span><span class="w"> </span><span class="kn">import</span> <span class="n">ApplicationFactory</span><span class="p">,</span> <span class="n">module</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di.contrib.aioinject</span><span class="w"> </span><span class="kn">import</span> <span class="n">AioinjectDependencyProvider</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3"></a>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4"></a>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5"></a><span class="nd">@module</span><span class="p">()</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6"></a><span class="k">class</span><span class="w"> </span><span class="nc">AppModule</span><span class="p">:</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7"></a>    <span class="k">pass</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8"></a>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9"></a>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10"></a><span class="c1"># Create application with AioinjectDependencyProvider</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11"></a><span class="n">application</span> <span class="o">=</span> <span class="n">ApplicationFactory</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12"></a>    <span class="n">AppModule</span><span class="p">,</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13"></a>    <span class="n">dependency_provider</span><span class="o">=</span><span class="n">AioinjectDependencyProvider</span><span class="p">(),</span>
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14"></a><span class="p">)</span>
+</span></code></pre></div></td></tr></table></div>
+<h4 id="custom-container-configuration">Custom Container Configuration<a class="headerlink" href="#custom-container-configuration" title="Permanent link">&para;</a></h4>
+<p>You can provide your own pre-configured <code>aioinject</code> container:</p>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-6-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-6-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-6-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-6-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-6-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-6-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-6-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-6-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-6-10">10</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">aioinject</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di.contrib.aioinject</span><span class="w"> </span><span class="kn">import</span> <span class="n">AioinjectDependencyProvider</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3"></a>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4"></a><span class="c1"># Create and configure a custom aioinject container</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5"></a><span class="n">custom_container</span> <span class="o">=</span> <span class="n">aioinject</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span><span class="n">extensions</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6"></a><span class="n">custom_container</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">aioinject</span><span class="o">.</span><span class="n">Scoped</span><span class="p">(</span><span class="n">MyService</span><span class="p">))</span>  <span class="c1"># Example registration</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7"></a><span class="c1"># ... configure container</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8"></a>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9"></a><span class="c1"># Use the custom container with waku</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10"></a><span class="n">dp</span> <span class="o">=</span> <span class="n">AioinjectDependencyProvider</span><span class="p">(</span><span class="n">container</span><span class="o">=</span><span class="n">custom_container</span><span class="p">)</span>
+</span></code></pre></div></td></tr></table></div>
+<h3 id="dishka"><a href="https://github.com/ThirVondukr/dishka">Dishka</a><a class="headerlink" href="#dishka" title="Permanent link">&para;</a></h3>
+<p>Currently not supported but planned.</p>
+<h3 id="writing-custom-dependency-provider">Writing Custom Dependency Provider<a class="headerlink" href="#writing-custom-dependency-provider" title="Permanent link">&para;</a></h3>
+<p>To create custom dependency provider you need to implement <code>DependencyProvider</code> interface.</p>
 
 
 
@@ -1452,7 +1611,7 @@ constructor.</p>
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="March 16, 2025 22:47:36"><span class="timeago" datetime="2025-03-16T22:47:36+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="March 16, 2025 22:47:36">2025-03-16</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="March 23, 2025 11:50:38"><span class="timeago" datetime="2025-03-23T11:50:38+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="March 23, 2025 11:50:38">2025-03-23</span>
   </span>
 
     
@@ -1529,7 +1688,7 @@ constructor.</p>
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../../license/" class="md-footer__link md-footer__link--prev" aria-label="Previous: License">
+          <a href="../modules/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Modules">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -1539,20 +1698,20 @@ constructor.</p>
                 Previous
               </span>
               <div class="md-ellipsis">
-                License
+                Modules
               </div>
             </div>
           </a>
         
         
           
-          <a href="../dependency-injection/" class="md-footer__link md-footer__link--next" aria-label="Next: Dependency Injection">
+          <a href="../mediator/" class="md-footer__link md-footer__link--next" aria-label="Next: Mediator (CQRS)">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Dependency Injection
+                Mediator (CQRS)
               </div>
             </div>
             <div class="md-footer__button md-icon">
