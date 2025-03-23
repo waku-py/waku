@@ -1,7 +1,7 @@
 # waku
 
 <p align="center" markdown="1">
-    *waku* **[枠]** *means "framework" in Japanese.*
+    <sup><i>waku</i> [<b>枠</b>] <i>means framework in Japanese.</i></sup>
     <br/>
 </p>
 
