@@ -1,16 +1,20 @@
-# Modules
+---
+title: Modules
+---
 
-**Waku** modularity system are heavily inspired
-by [NestJS](https://github.com/nestjs/nest) & [Tramvai](https://tramvai.dev) frameworks. Modularity concept is well
-explained in [NestJS documentation](https://docs.nestjs.com/modules).
+`waku` modularity system is heavily inspired by the [NestJS](https://github.com/nestjs/nest)
+and [Tramvai](https://tramvai.dev) frameworks.
+
+The concept of modularity is well-explained with examples in
+the [NestJS documentation](https://docs.nestjs.com/modules).
 
 ## Module
 
-A module is a class that is annotated with the `@module()` decorator. This decorator used to attach metadata to class
-that **Waku** later use to build the application graph.
+A module is a class annotated with the `@module()` decorator. This decorator attaches metadata to the class,
+which `waku` uses to construct the application graph.
 
-Every application has at least one module, a root module, also called composition root. The root module is the starting
-point **Waku** uses to build the entire application graph.
+Every `waku` application has at least one module: the root module, also known as the composition root.
+This module serves as the starting point for `waku` to build the entire application graph.
 
 | Parameter    | Description                                      |
 |--------------|:-------------------------------------------------|
@@ -24,41 +28,42 @@ The module encapsulates providers by default, meaning you can only inject provid
 module or explicitly exported from other imported modules. The exported providers from a module essentially serve as the
 module's public interface or API.
 
-```python hl_lines="10-14"
+```python hl_lines="11-15" linenums="1"
 from waku import module
 from waku.di import Scoped
 
 from app.modules.config.module import ConfigModule
 
+
 class UsersService:
-    pass
+  pass
 
 
 @module(
-    providers=[Scoped(UsersService)],
-    imports=[ConfigModule],
-    exports=[UsersService],
+  providers=[Scoped(UsersService)],  # Register the service with a scoped lifetime
+  imports=[ConfigModule],  # Import another module
+  exports=[UsersService],  # Expose the service to other modules
 )
 class UsersModule:
-    pass
+  pass
 
 
-@module(imports=[UsersModule])
+@module(imports=[UsersModule])  # Root module importing UsersModule
 class AppModule:
-    pass
+  pass
+
 ```
 
 !!! note
-    Encapsulation enforcements currently are implemented by [validators](../extensions/validation.md), so you can
-    always disable them at runtime and use only what you need. But it's not recommended to completely disable them.
+    Encapsulation is enforced by [validators](extensions/validation.md), which you can disable at runtime if needed.
+    However, **disabling them entirely is not recommended**, as they help maintain modularity.
 
+## Module Re-exporting
 
-## Module re-exporting
+You can re-export a module by including it in the `exports` list of another module.
+This is useful for exposing a module’s providers to other modules that import the re-exporting module.
 
-You can re-export a module by adding it to the `exports` list of another module. This is useful when you want to
-expose a module's providers to other modules that import the re-exporting module.
-
-```python
+```python hl_lines="3" linenums="1"
 @module(
     imports=[UsersModule],
     exports=[UsersModule],
@@ -70,26 +75,35 @@ class IAMModule:
 
 ## Global modules
 
-If you have to import the same set of modules everywhere, you can make a module global. Once a module is global, you can
-inject it providers to any part of your application without having to import it in every module.
+If you need to import the same set of modules across your application, you can mark a module as global.
+Once a module is global, its providers can be injected anywhere in the application without requiring explicit imports in
+every module.
 
 To make a module global, set the `is_global` param to `True` in the `@module()` decorator.
 
-```python hl_lines="4"
+!!! note
+    Root module are always global.
+
+!!! warning
+    Global modules are not recommended for large applications,
+    as they can lead to tight coupling and make the application harder to maintain.
+
+```python hl_lines="4" linenums="1"
 from waku import module
 
 
 @module(is_global=True)
 class UsersModule:
     pass
+
 ```
 
 ## Dynamic Module
 
-With dynamic modules, you can create modules on the fly, based on some conditions, for example, based on the environment
-your application is running in.
+Dynamic modules allow you to create modules dynamically based on conditions,
+such as the runtime environment of your application.
 
-```python
+```python hl_lines="23-26" linenums="1"
 from waku import DynamicModule, module
 from waku.di import Scoped
 
@@ -110,21 +124,18 @@ class DefaultConfigService(ConfigService):
 class ConfigModule:
     @classmethod
     def register(cls, env: str = 'dev') -> DynamicModule:
-        if env == 'dev':
-            return DynamicModule(
-                parent_module=cls,
-                providers=[Scoped(DevConfigService, type_=ConfigService)],
-            )
-
+        # Choose the config provider based on the environment
+        config_provider = DevConfigService if env == 'dev' else DefaultConfigService
         return DynamicModule(
             parent_module=cls,
-            providers=[Scoped(DefaultConfigService, type_=ConfigService)],
+            providers=[Scoped(config_provider, type_=ConfigService)],  # Register with interface type
         )
+
 ```
 
-And then use it in your application root module:
+And then you can use it in any of your modules or in the root module:
 
-```python hl_lines="8"
+```python hl_lines="8" linenums="1"
 from waku import module
 
 from app.modules.config.module import ConfigModule
@@ -140,8 +151,8 @@ class AppModule:
 
 ```
 
-You can also register dynamic modules in the global scope by setting the `is_global` param to `True` in the
-`DynamicModule` class instantiation.
+You can also make a [dynamic module](#dynamic-module) global by setting `is_global=True` in the `DynamicModule`
+constructor.
 
 !!! note
-    You can use any method name instead of `register` but it's recommended to use `register` to keep the convention.
+    While you can use any method name instead of `register`, we recommend sticking with `register` for consistency.

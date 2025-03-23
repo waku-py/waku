@@ -1,6 +1,8 @@
-# Contributing to Waku
+# Contributing to `waku`
 
-First off, thanks for taking the time to contribute! 🎉
+Thank you for considering a contribution to `waku`! 🎉
+
+This guide will help you get started and ensure a smooth process.
 
 ## Table of Contents
 
@@ -23,9 +25,9 @@ First off, thanks for taking the time to contribute! 🎉
 Before you begin, ensure you have the following installed:
 
 - Python 3.11 or higher
-- [uv](https://docs.astral.sh/uv/getting-started/installation/) - Modern Python package installer
-- [Task](https://taskfile.dev/installation/) - Task runner.
-  Also, it's recommended to set up [auto-completion](https://taskfile.dev/installation/#setup-completions) for Task.
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) - A modern Python package manager
+- [Task](https://taskfile.dev/installation/) - A task runner for automating development workflows.
+  We recommend setting up [auto-completion](https://taskfile.dev/installation/#setup-completions) for Task.
 - Git
 
 ### Development Setup
@@ -46,7 +48,7 @@ Before you begin, ensure you have the following installed:
     # For other platforms, see:
     # https://docs.astral.sh/uv/getting-started/installation/
 
-    # If UV is already installed, make sure it's up to date:
+    # If uv is already installed, ensure it’s up to date:
     uv self update
     ```
 
@@ -56,16 +58,18 @@ Before you begin, ensure you have the following installed:
     # Using the install script
     sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
-    # For other installation options:
+    # For other installation options, see:
     # https://taskfile.dev/installation/
     ```
 
 4. Setup development environment:
 
     ```bash
-    # Install dependencies and setup pre-commit hooks
+    # Install dependencies and configure pre-commit hooks
     task install
     ```
+
+    > **Tip:** Run `task -l` after setup to verify everything is working and see available commands.
 
 ## Development Workflow
 
@@ -83,18 +87,21 @@ Before you begin, ensure you have the following installed:
 
 ### Testing
 
-Run the test suite before submitting your changes:
+Ensure your changes are thoroughly tested by running the following commands:
 
 ```bash
 # Run all checks (recommended)
 task
 
+# Run linters and type checkers
+task check
+
 # Run specific checks
-task test        # Run tests only
-task test:cov    # Run tests with coverage
-task lint        # Run linters only
-task format      # Format code
-task typecheck   # Run type checker only
+task test         # Run tests only
+task test:cov     # Run tests with coverage
+task lint         # Run linters only
+task format       # Format code
+task typecheck    # Run type checkers only
 ```
 
 ### Code Style
@@ -102,16 +109,15 @@ task typecheck   # Run type checker only
 We use several tools to maintain code quality:
 
 - [Ruff](https://github.com/astral-sh/ruff) for linting and formatting
-- [MyPy](http://mypy-lang.org/) for type checking
-- Type hints are required for all public APIs
+- [MyPy](http://mypy-lang.org/) and [basedpyright](https://github.com/detachhead/basedpyright) for type checking
+- [pre-commit](https://pre-commit.com/) for running checks before commits and pushes
 
-Key style points:
+**Key style guidelines:**
 
-- Maximum line length is 120 characters
-- Use explicit type annotations
-- Follow [PEP 8](https://peps.python.org/pep-0008/) guidelines
-- Write descriptive
-  docstrings ([Google style](https://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings))
+- Maximum line length: 120 characters
+- Use explicit type annotations throughout the codebase
+- Follow [PEP 8](https://peps.python.org/pep-0008/) conventions
+- Write descriptive docstrings using the [Google style](https://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings)
 
 ## Submitting Changes
 
@@ -119,42 +125,42 @@ Key style points:
 
 Before creating an issue:
 
-1. Search existing issues to avoid duplicates
-2. Use the appropriate issue template
-3. Provide as much context as possible
+1. Search existing issues to avoid duplicates.
+2. Use the appropriate issue template.
+3. Provide as much context as possible (e.g., steps to reproduce, environment details).
 
 We welcome:
 
 - Bug reports
 - Feature requests
 - Documentation improvements
-- General questions
+- General questions or ideas
 
 ### Pull Requests
 
-1. Create an issue first to discuss significant changes
-2. Ensure all tests pass and code is formatted
-3. Update documentation if needed
-4. Follow the pull request template
-5. Link related issues in your PR description
+1. Discuss significant changes by creating an issue first.
+2. Ensure all tests pass and code is formatted.
+3. Update documentation if your changes affect it.
+4. Follow the pull request template.
+5. Link related issues in your PR description (e.g., "Fixes #123").
 
-#### Pull request checklist:
+**Pull request checklist:**
 
-- [ ] Tests added/updated
-- [ ] Documentation updated
-- [ ] Type hints added
-- [ ] Changelog updated
-- [ ] All checks passing
+- [ ] Tests added or updated
+- [ ] Documentation updated (if applicable)
+- [ ] Type hints added or refined
+- [ ] Commit messages include a detailed description for the changelog
+- [ ] All checks pass
 
 ## Development Commands
 
-Common `task` commands:
+Use these common `task` commands during development:
 
 ```bash
-task install     # Install dependencies and setup pre-commit hooks
-task format      # Format code using ruff
+task install     # Install dependencies and set up pre-commit hooks
+task format      # Format code using Ruff
 task lint        # Run all linters
-task typecheck   # Run type checker (mypy)
+task typecheck   # Run type checkers (MyPy and basedpyright)
 task test        # Run tests
 task test:cov    # Run tests with coverage
 task clean       # Clean build artifacts
@@ -163,10 +169,10 @@ task -l          # List all available commands
 
 ## Questions?
 
-If you have questions, feel free to:
+Need help? Feel free to:
 
-- Open an issue
-- Start a [Discussion](https://github.com/waku-py/waku/discussions)
-- Reach out to maintainers
+- Open an [issue](https://github.com/waku-py/waku/issues)
+- Start a [discussion](https://github.com/waku-py/waku/discussions)
+- Contact the maintainers directly
 
-Thank you for contributing to Waku! 🙏
+Thank you for contributing to `waku`! 🙏

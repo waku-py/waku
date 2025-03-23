@@ -7,28 +7,30 @@ assignees: ''
 ---
 
 ## Problem Statement
+
 <!--
 Describe the problem this feature would solve. Be specific and provide context.
 Example: "When building modular applications, I struggle with [specific issue]..."
 -->
 
 ## Proposed Solution
+
 <!--
 Describe your proposed solution. Be specific about:
 - How it would work
 - What components it would affect
-- How it fits into waku's architecture
+- How it fits into `waku` architecture
 -->
 
 ### API Design (if applicable)
+
 ```python
 # Example usage of your proposed feature
-from waku import ...
 
-# Show how the API would be used
 ```
 
 ### Configuration (if applicable)
+
 ```yaml
 # Example configuration if needed
 ```
@@ -40,6 +42,7 @@ Explain why your proposed solution is better.
 -->
 
 ## Implementation Considerations
+
 <!--
 Include any thoughts on:
 - Potential breaking changes
@@ -49,6 +52,7 @@ Include any thoughts on:
 -->
 
 ## Additional Context
+
 <!--
 Add any other context, examples, or screenshots:
 - Use cases
@@ -57,14 +61,18 @@ Add any other context, examples, or screenshots:
 -->
 
 ## Checklist
+
 <!-- Mark completed items with [x] -->
+
 - [ ] I have searched existing issues for duplicates
-- [ ] This feature aligns with waku's modular architecture
+- [ ] This feature aligns with `waku` modular architecture
 - [ ] This feature maintains loose coupling principles
 - [ ] I'm willing to help implement this feature
 
 ## Related Links
+
 <!-- Link to any related issues, documentation, or external resources -->
+
 - Related issues: #
 - Documentation:
 - External references:

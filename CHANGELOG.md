@@ -1,4 +1,4 @@
-# CHANGELOG
+# Changelog
 
 <!-- version list -->
 

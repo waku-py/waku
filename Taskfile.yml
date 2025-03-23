@@ -50,7 +50,7 @@ tasks:
     deps: [ .uv ]
     silent: true
     cmds:
-      - uv sync --all-extras --all-groups
+      - uv sync --all-extras --all-groups {{.CLI_ARGS}}
       - echo "✅ Dependencies synced"
 
   deps:upgrade:

@@ -1,15 +1,42 @@
 # yaml-language-server: $schema=https://squidfunk.github.io/mkdocs-material/schema.json
-site_name: Waku
-site_description: Microframework for building modular and loosely coupled applications
-strict: false
-copyright: Copyright &copy; 2025 Waku
+site_name: waku
+site_description: A Python framework for creating modular, loosely coupled, and extensible applications
+site_url: https://waku-py.github.io/waku/
+site_dir: site
+strict: true
+copyright: '&copy; 2024-2025 <a href="https://github.com/waku-py" target="_blank" rel="noopener">waku-py</a>'
 
 # Repository
 repo_name: waku-py/waku
 repo_url: https://github.com/waku-py/waku
 
+extra:
+  analytics:
+    provider: google
+    property: G-58BG5HHK50
+    feedback:
+      title: Was this page helpful?
+      ratings:
+        - icon: material/emoticon-happy-outline
+          name: This page was helpful
+          data: 1
+          note: >-
+            Thanks for your feedback!
+        - icon: material/emoticon-sad-outline
+          name: This page could be improved
+          data: 0
+          note: >-
+            Thanks for your feedback! Help us improve this page by
+            using our <a href="..." target="_blank" rel="noopener">feedback form</a>.
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/waku-py/waku
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/waku/
+
+
 # Configuration
-watch: [ mkdocs.yml, README.md, CONTRIBUTING.md, CHANGELOG.md, src/waku, docs/ ]
+watch: [ mkdocs.yml, README.md, CONTRIBUTING.md, CHANGELOG.md, src/waku ]
 
 # https://www.mkdocs.org/user-guide/configuration/#validation
 validation:
@@ -26,7 +53,7 @@ theme:
     - content.code.copy
     - content.code.select
     - content.tooltips
-    - navigation.indexes
+    - navigation.footer
     - navigation.instant
     - navigation.instant.prefetch
     - navigation.path
@@ -36,29 +63,32 @@ theme:
     - navigation.top
     - navigation.tracking
     - optimize
+    - search.highlight
+    - search.suggest
     - toc.follow
 
   palette:
     - media: "(prefers-color-scheme)"
+      scheme: auto
       toggle:
         icon: material/brightness-auto
-        name: Switch to light mode
+        name: Switch to Light Mode
 
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: purple
-      accent: deep purple
+      primary: deep purple
+      accent: cyan
       toggle:
         icon: material/brightness-4
-        name: Switch to dark mode
+        name: Switch to Dark Mode
 
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: black
-      accent: deep purple
+      primary: deep purple
+      accent: cyan
       toggle:
         icon: material/brightness-7
-        name: Switch to system preference
+        name: Switch to System Preference
 
   font:
     text: Roboto
@@ -70,79 +100,101 @@ theme:
 # Plugins
 plugins:
   - search
+  - section-index
   - exclude:
       glob:
         - includes/*
         - __pycache__/*
+        - "*.pyc"
+        - "*.pyo"
+        - ".git/*"
   - git-revision-date-localized:
+      enabled: !ENV [ DOCS_DEPLOY, false ]
+      type: timeago
       enable_creation_date: true
+      fallback_to_build_date: true
   - mkdocstrings:
       handlers:
         python:
-          paths: [ waku ]
-          options:
-            members_order: source
-            separate_signature: true
-            filters: [ "!^_" ]
-            docstring_options:
-              ignore_init_summary: true
-            merge_init_into_class: true
-            show_signature_annotations: true
-            signature_crossrefs: true
-            show_inheritance_diagram: true
-            show_submodules: true
           inventories:
             - url: https://docs.python.org/3/objects.inv
               domains: [ py, std ]
+          paths: [ src ]
+          options:
+            filters:
+              - '!^_'
+            show_root_heading: true
+            show_if_no_docstring: true
+            inherited_members: true
+            members_order: source
+            separate_signature: true
+            unwrap_annotated: true
+            merge_init_into_class: true
+            docstring_section_style: spacy
+            signature_crossrefs: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
 
 
 # Extensions
 markdown_extensions:
   - abbr
-  - admonition
-  - attr_list
-  - md_in_html
+  - admonition  # !!! blocks support
+  - attr_list  # specify html attrs in markdown
+  - md_in_html  # render md wrapped to html tags
   - tables
   - toc:
       permalink: true
       title: Page contents
       slugify: !!python/object/apply:pymdownx.slugs.slugify { kwds: { case: lower } }
-  - pymdownx.details
+  - pymdownx.details  # admonition collapsible
+  - pymdownx.emoji: # render material icons
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.highlight:
-      anchor_linenums: true
+      anchor_linenums: true  # allows link to codeline
       line_spans: __span
       pygments_lang_class: true
-  - pymdownx.inlinehilite
-  - pymdownx.tasklist:
-      custom_checkbox: true
+  - pymdownx.inlinehilite  # inline code highlighting `#!python <code>`
+  - pymdownx.magiclink
   - pymdownx.snippets:
-      base_path: !relative $config_dir
+      base_path: [ !relative $config_dir ]
+      check_paths: true
       auto_append:
         - docs/includes/abbreviations.md
-  - pymdownx.superfences:
+  - pymdownx.superfences: # highlight code syntax
       custom_fences:
         - name: mermaid
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
-      alternate_style: true
+      alternate_style: true  # create tabs group
+      slugify: !!python/object/apply:pymdownx.slugs.slugify { kwds: { case: lower } }
+  - pymdownx.tasklist: # create task lists with `- [ ]`
+      custom_checkbox: true
 
 # Page tree
+# TODO: move to literate-nav plugin
 nav:
-  - Overview:
-      - index.md
-      - Examples:
-          - examples/basic.md
-          - examples/mediator.md
+  - Home:
+      - Overview: index.md
+      - Getting Started: getting-started.md
+      - License: license.md
   - Usage:
-      - usage/quickstart.md
-      - usage/modules.md
-      - usage/dp.md
-      - usage/cqrs.md
-  - Extensions:
-      - extensions/lifecycle.md
-      - extensions/validation.md
+      - Modules: usage/modules.md
+      - usage/dependency-injection.md
+      - usage/mediator.md
+      - Extensions:
+          - usage/extensions/index.md
+          - Validation: usage/extensions/validation.md
+  - Integrations:
+      - ASGI: integrations/asgi.md
+      - Litestar: integrations/litestar.md
+  - Examples:
+      - Modularity: examples/modularity.md
+      - Mediator (CQRS): examples/mediator.md
+  - API Reference: reference.md
   - Development:
-      - Contributing: contributing.md
-      - Reference: reference.md
+      - Contributing: development/contributing.md
+      - Documentation: development/docs.md
   - Changelog: changelog.md

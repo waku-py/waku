@@ -163,7 +163,7 @@ jobs:
           enable-cache: true
 
       - name: Setup | Install dependencies
-        run: task install
+        run: task install -- --no-group=docs
 
       - name: Lint | Run all pre-commit hooks
         id: lint
@@ -219,7 +219,7 @@ jobs:
 
       - name: Setup | Install dependencies
         run: |
-          task install
+          task install -- --no-group=docs
           uv pip install pytest-github-actions-annotate-failures
 
       - name: Test | Run pytest on ${{ matrix.python-version }}
