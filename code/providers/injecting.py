@@ -7,8 +7,10 @@ class Service:
         print(f'Hello, {name}!')
 
 
-@module(providers=[Scoped(Service)])
-class Module:
+@module(
+    providers=[Scoped(Service)],
+)
+class SomeModule:
     pass
 
 
