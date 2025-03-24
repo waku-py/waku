@@ -58,7 +58,6 @@ docs = [
   "mkdocs-git-revision-date-localized-plugin>=1.4.5",
   "mkdocs-material>=9.6.9",
   "mkdocs-redirects>=1.2.2",
-  "mkdocs-section-index>=0.3.9",
   "mkdocstrings[python]>=0.29.0",
 ]
 lint = [
@@ -164,6 +163,7 @@ pylint = { max-args = 7 }
 "docs/code/*" = [
   "I001", # Import block is un-sorted or un-formatted
   "INP001", # File is part of an implicit namespace package
+  "PLR6301", # Method could be a function, class method, or static method
   "RUF029", # Function is declared async but doesn't use async features
   "S101", # Usage of assert
   "SIM117", # Multiple with-statements should be combined
@@ -253,8 +253,8 @@ prerelease_token = "rc"
 
 [tool.semantic_release.branches.other]
 match = ".*"
-prerelease_token = "dev"
 prerelease = true
+prerelease_token = "dev"
 
 [tool.semantic_release.changelog]
 mode = "update"

@@ -739,18 +739,6 @@ wheels = [
 ]
 
 [[package]]
-name = "mkdocs-section-index"
-version = "0.3.9"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "mkdocs" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/86/09/3cfcfec56740fba157991cd098c76dd08ef9c211db292c7c7d820d16c351/mkdocs_section_index-0.3.9.tar.gz", hash = "sha256:b66128d19108beceb08b226ee1ba0981840d14baf8a652b6c59e650f3f92e4f8", size = 13941 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d2/19/16f6368f69949ea2d0086197a86beda4d4f27f09bb8c59130922f03d335d/mkdocs_section_index-0.3.9-py3-none-any.whl", hash = "sha256:5e5eb288e8d7984d36c11ead5533f376fdf23498f44e903929d72845b24dfe34", size = 8728 },
-]
-
-[[package]]
 name = "mkdocstrings"
 version = "0.29.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1604,7 +1592,6 @@ docs = [
     { name = "mkdocs-git-revision-date-localized-plugin" },
     { name = "mkdocs-material" },
     { name = "mkdocs-redirects" },
-    { name = "mkdocs-section-index" },
     { name = "mkdocstrings", extra = ["python"] },
 ]
 lint = [
@@ -1649,7 +1636,6 @@ docs = [
     { name = "mkdocs-git-revision-date-localized-plugin", specifier = ">=1.4.5" },
     { name = "mkdocs-material", specifier = ">=9.6.9" },
     { name = "mkdocs-redirects", specifier = ">=1.2.2" },
-    { name = "mkdocs-section-index", specifier = ">=0.3.9" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.29.0" },
 ]
 lint = [

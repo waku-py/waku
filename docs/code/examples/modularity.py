@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # Define your providers and modules
 class ConfigService:
-    def get(self, option: str) -> str:  # noqa: PLR6301
+    def get(self, option: str) -> str:
         return option
 
 
@@ -33,7 +33,7 @@ class ConfigModule:
 
 
 class UserService:
-    async def great(self, name: str) -> str:  # noqa: PLR6301
+    async def great(self, name: str) -> str:
         return f'Hello, {name}!'
 
 

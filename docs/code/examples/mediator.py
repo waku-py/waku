@@ -55,7 +55,7 @@ class CreatingMeetingCommandHandler(RequestHandler[CreateMeetingCommand, CreateM
 
 
 class MeetingCreatedEventHandler(EventHandler[MeetingCreatedEvent]):
-    async def handle(self, event: MeetingCreatedEvent) -> None:  # noqa: PLR6301
+    async def handle(self, event: MeetingCreatedEvent) -> None:
         logger.info('meeting created event handled user_id=%s', event.user_id)
 
 

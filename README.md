@@ -19,7 +19,7 @@
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff/)
 [![mypy - checked](http://www.mypy-lang.org/static/mypy_badge.svg)](http://mypy-lang.org/)
-[![basedpyright - checked](https://img.shields.io/badge/basedpyright-checked-42b983)](https://docs.basedpyright.com)
+[![basedpyright - checked](https://img.shields.io/badge/basedpyright-checked-42b983?color=ffc105)](https://docs.basedpyright.com)
 
 </div>
 
@@ -29,15 +29,22 @@
 
 `waku` is a Python framework for building modular, loosely coupled, and maintainable applications.
 It draws inspiration from [NestJS](https://github.com/nestjs/nest) and [Tramvai](https://tramvai.dev),
-adapting their best ideas to the Python ecosystem.
+adapting their best ideas to the Python ecosystem. Here's list of some `waku` key features:
 
-`waku` provides:
-
-- Clean architecture patterns
-- Framework agnostic DI
-- Module system
-- Extension system
-- Command/Query handling (CQRS)
+* 🧩 [**Modularity**](https://waku-py.github.io/waku/usage/modules/): Build applications as a set of loosely coupled
+  modules
+* 💉 [**Powerful Dependency Injection System**](https://waku-py.github.io/waku/usage/dependency-injection/): Manage
+  dependencies with built-in DI framework-agnostic IoC-container
+* 🔧 [**Extensions**](https://waku-py.github.io/waku/usage/extensions/): Use application and modules lifecycle hooks to
+  extend `waku`
+* 📊 [**Lifespan**](https://waku-py.github.io/waku/usage/lifespan/): Automatic manage application and IoC-container
+  lifecycle
+* ⚙️ [**Command/Query handling (CQRS)**](https://waku-py.github.io/waku/usage/mediator/): Use mediator abstraction
+  heavily inspired by C# [MediatR](https://github.com/jbogard/MediatR) library to handle commands and queries
+* 🤝 [**Integrations**](https://waku-py.github.io/waku/usage/dependency-injection/integrations/): `waku` comes with
+  built-in integrations for popular web frameworks like [**FastAPI**](https://fastapi.tiangolo.com/)
+  or [**Litestar**](https://litestar.dev/) and allows you to easily create your own integrations with any other
+  frameworks
 
 ## Features
 
@@ -58,16 +65,16 @@ adapting their best ideas to the Python ecosystem.
 ### 💉 Flexible Dependency Injection
 
 - Framework-agnostic DI implementation
-- Providers with different lifetimes (singleton, scoped, transient)
+- Providers with different lifetimes (singleton, scoped, transient, object)
 - Simplified testing and mocking
 
 ### 🎮 Command Query Responsibility Segregation (CQRS)
 
-`waku` includes a built-in CQRS implementation with all the features you need to build robust,
+`waku` includes a built-in **CQRS** implementation with all the features you need to build robust,
 maintainable applications:
 
 - Command and Query request handling
-- Event handling with custom publisher support
+- Event handling with custom publishers support
 - Middleware support
 
 ## Quick Start
@@ -161,17 +168,17 @@ Explore detailed documentation on our [official site](https://waku-py.github.io/
 
 **Key topics include:**
 
-- [Getting Started](https://waku-py.github.io/waku/getting-started)
-- [Module System](https://waku-py.github.io/waku/usage/modules)
-- [Dependency Injection](https://waku-py.github.io/waku/usage/dependency-injection)
-- [Extensions](https://waku-py.github.io/waku/usage/extensions)
-- [CQRS](https://waku-py.github.io/waku/usage/mediator)
+- [Getting Started](https://waku-py.github.io/waku/getting-started/)
+- [Module System](https://waku-py.github.io/waku/usage/modules/)
+- [Dependency Injection](https://waku-py.github.io/waku/usage/dependency-injection/)
+- [Extensions](https://waku-py.github.io/waku/usage/extensions/)
+- [Mediator (CQRS)](https://waku-py.github.io/waku/usage/mediator/)
 
 ## Contributing
 
 We’d love your contributions!
-Check out our [Contributing Guide](https://waku-py.github.io/waku/contributing) to get started.
+Check out our [Contributing Guide](https://waku-py.github.io/waku/contributing/) to get started.
 
 ### Development Setup
 
-Learn how to set up a development environment in the [Contributing Guide](https://waku-py.github.io/waku/contributing#development-setup).
+Learn how to set up a development environment in the [Contributing Guide](https://waku-py.github.io/waku/development/contributing/#development-setup).
