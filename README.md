@@ -33,7 +33,7 @@ adapting their best ideas to the Python ecosystem. Here's list of some `waku` ke
 
 * 🧩 [**Modularity**](https://waku-py.github.io/waku/usage/modules/): Build applications as a set of loosely coupled
   modules
-* 💉 [**Powerful Dependency Injection System**](https://waku-py.github.io/waku/usage/dependency-injection/): Manage
+* 💉 [**Powerful Dependency Injection System**](https://waku-py.github.io/waku/usage/providers/): Manage
   dependencies with built-in DI framework-agnostic IoC-container
 * 🔧 [**Extensions**](https://waku-py.github.io/waku/usage/extensions/): Use application and modules lifecycle hooks to
   extend `waku`
@@ -170,7 +170,7 @@ Explore detailed documentation on our [official site](https://waku-py.github.io/
 
 - [Getting Started](https://waku-py.github.io/waku/getting-started/)
 - [Module System](https://waku-py.github.io/waku/usage/modules/)
-- [Dependency Injection](https://waku-py.github.io/waku/usage/dependency-injection/)
+- [Providers](https://waku-py.github.io/waku/usage/providers/)
 - [Extensions](https://waku-py.github.io/waku/usage/extensions/)
 - [Mediator (CQRS)](https://waku-py.github.io/waku/usage/mediator/)
 
