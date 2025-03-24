@@ -1,20 +1,29 @@
 ---
-title: Dependency Injection
+title: Providers
 ---
 
-# Dependency Injection
+# Providers
 
 ## Introduction
 
+Providers are the core of `waku` dependency injection system.
+Idea behind a provider is that it can be injected as a dependency into other provider constructors,
+allowing objects to form various relationships with each other.
+
+`waku` responsibility is to "wire up" all the providers using DI framework and manage the lifecycle its lifecycle.
+This way you can focus on writing your application logic.
+
+## Dependency Injection
+
 `waku` is designed to be modular and extensible.
 To support this principle, it provides a flexible dependency injection (DI) system that integrates seamlessly
-with various DI frameworks. `waku` itself acts like and IoC-container,
-allowing you to register and resolve dependencies by using [modules system](modules.md).
+with various DI frameworks. `waku` itself acts like an IoC-container,
+allowing you to register and resolve dependencies using [modules system](modules.md).
 
 !!! note
-    Instead of relying on a specific DI framework, `waku` uses a dependency provider interface.
+    Instead of relying on a specific DI framework, `waku` uses an interface called `DependencyProvider`.
     This allows you to choose any DI framework you prefer (see [Included Dependency Providers](#included-dependency-providers))
-    or even [create your own](#writing-custom-dependency-provider).
+    or even [create your own provider](#writing-custom-dependency-provider).
 
 ### What is Dependency Injection?
 
@@ -28,12 +37,13 @@ to focus on their core functionality rather than how dependencies are created. T
 testability, and flexibility, as dependencies can be easily swapped or modified without altering the class's code.
 Ultimately, DI improves system design by reducing interdependencies and making code more modular and scalable.
 
-```python title="Example" linenums="1"
---8<-- "docs/code/di/manual_di.py"
-```
+??? note "Manual DI Example"
+    ```python linenums="1"
+    --8<-- "docs/code/providers/manual_di.py"
+    ```
 
-Here, a `MockClient` is injected into `Service`, making it easy to test `Service` in isolation without relying
-on a real client implementation.
+    Here, a `MockClient` is injected into `Service`, making it easy to test `Service` in isolation without relying
+    on a real client implementation.
 
 ### What is IoC-container?
 
@@ -44,7 +54,68 @@ scalable application design.
 
 With power of IoC-container you can leverage all the benefits of DI without manually managing dependencies.
 
-## When and how to inject dependencies?
+## Providers
+
+`Provider` is an object that holds dependency metadata, such as its type, lifetime [scope](#scopes) and factory.
+
+In `waku` there are four types of providers, for one for each [scope](#scopes):
+
+- [`Transient`](#transient)
+- [`Scoped`](#scoped)
+- [`Singleton`](#singleton)
+- [`Object`](#object)
+
+Each provider take two arguments:
+
+- `factory`: type or callable that returns or yields an instance of the dependency.
+- `type_`: type of the dependency. If not provided, it will be inferred from the factory function's return type.
+
+!!! note
+    `Object` provider is a special case, it first argument named `object` instead of a `factory` because you should
+    pass already instantiated object directly, not a factory function.
+
+## Scopes
+
+`waku` supports four different lifetime scopes for providers, inspired by
+the [service lifetimes](https://learn.microsoft.com/en-us/dotnet/core/extensions/dependency-injection#service-lifetimes)
+in .NET Core’s DI system.
+
+### Transient
+
+Dependency defined with the `Transient` provider are created each time they’re requested.
+
+```python hl_lines="6" linenums="1"
+--8<-- "docs/code/providers/scopes/transient.py"
+```
+
+### Scoped
+
+Dependency defined with the `Scoped` provider are created once per dependency provider context entrance and disposed
+when the context exits.
+
+```python hl_lines="6" linenums="1"
+--8<-- "docs/code/providers/scopes/scoped.py"
+```
+
+### Singleton
+
+Dependency defined with the `Singleton` provider are created the first time they’re requested and disposed when the
+application lifecycle ends.
+
+```python hl_lines="6" linenums="1"
+--8<-- "docs/code/providers/scopes/singleton.py"
+```
+
+### Object
+
+Dependency defined with the `Object` provider behave like `Singleton`, but you must provide the implementation instance
+directly to the provide and manage its lifecycle manually, outside the IoC-container.
+
+```python hl_lines="8" linenums="1"
+--8<-- "docs/code/providers/scopes/object.py"
+```
+
+## Where and how to inject dependencies?
 
 To inject dependencies with `waku` you need:
 
@@ -53,47 +124,7 @@ To inject dependencies with `waku` you need:
 3. Add dependencies as arguments to your entrypoint signature using `Injected` type hint.
 
 ```python linenums="1"
---8<-- "docs/code/di/injecting.py"
-```
-
-## Scopes
-
-`waku` supports four lifetime scopes for registering dependencies,
-inspired by the [service lifetimes](https://learn.microsoft.com/en-us/dotnet/core/extensions/dependency-injection#service-lifetimes)
-in .NET Core’s DI system.
-
-### Transient
-
-`Transient` lifetime dependencies are created each time they’re requested from the dependency provider.
-
-```python hl_lines="5" linenums="1"
---8<-- "docs/code/di/scopes/transient.py"
-```
-
-### Scoped
-
-`Scoped` lifetime dependencies are created once per dependency provider context and disposed when the context exits.
-
-```python hl_lines="5" linenums="1"
---8<-- "docs/code/di/scopes/scoped.py"
-```
-
-### Singleton
-
-`Singleton` lifetime dependencies are created the first time they’re requested from the dependency provider
-and disposed when the dependency provider lifecycle ends.
-
-```python hl_lines="5" linenums="1"
---8<-- "docs/code/di/scopes/singleton.py"
-```
-
-### Object
-
-`Object` lifetime dependencies behave like `Singleton`, but you must provide the implementation instance directly
-and manage its lifecycle manually.
-
-```python hl_lines="7" linenums="1"
---8<-- "docs/code/di/scopes/object.py"
+--8<-- "docs/code/providers/injecting.py"
 ```
 
 ## Included Dependency Providers
@@ -113,11 +144,21 @@ Aioinject integrates seamlessly with `waku` and offers all the necessary feature
 
 Available by installing `waku` with `aioinject` extra or by directly installing `aioinject`:
 
-```shell
-uv add "waku[aioinject]"
-# or
-uv add aioinject
-```
+=== "uv"
+
+    ```shell
+    uv add "waku[aioinject]"
+    # or
+    uv add aioinject
+    ```
+
+=== "pip"
+
+    ```shell
+    pip install "waku[aioinject]"
+    # or
+    pip install aioinject
+    ```
 
 #### Basic Usage
 

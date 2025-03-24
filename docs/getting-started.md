@@ -9,9 +9,21 @@ hide:
 !!! note
     For our examples we stick with [aioinject](https://github.com/aiopylibs/aioinject) as DI provider.
     Install it directly using your preferred package manager or as extra dependency of `waku`:
-    ```shell
-    uv add "waku[aioinject]"
-    ```
+    === "uv"
+
+        ```shell
+        uv add "waku[aioinject]"
+        # or
+        uv add aioinject
+        ```
+
+    === "pip"
+
+        ```shell
+        pip install "waku[aioinject]"
+        # or
+        pip install aioinject
+        ```
 
 ## Creating Your First `waku` Application
 
@@ -134,7 +146,10 @@ In this example:
 - `providers` defines which providers this module creates and manages
 - `exports` makes these providers (or imported modules) available to other modules that import this one
 - `Scoped` indicates this provider should be created once for every container context entrance.
-  For more information on scopes, see [Dependency Injection](usage/dependency-injection.md#scopes).
+
+!!! info
+    For more information on providers and scopes, see [Providers](usage/providers.md#scopes).
+
 
 ### Application Bootstrap
 
@@ -288,7 +303,7 @@ Now that you have a basic understanding of `waku`, you can:
 2. Learn about [Extensions](usage/extensions/index.md) for adding functionality to your application
 3. Integrate with web frameworks like [FastAPI](integrations/asgi.md)
 4. Understand [Module System](usage/modules.md) in depth
-5. Explore [Dependency Injection](usage/dependency-injection.md) techniques
+5. Explore [Dependency Injection](usage/providers.md) techniques
 
 `waku` modular architecture allows your application to grow while maintaining clear separation of concerns and a clean,
 maintainable codebase.

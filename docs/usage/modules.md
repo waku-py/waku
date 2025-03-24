@@ -36,21 +36,21 @@ from app.modules.config.module import ConfigModule
 
 
 class UsersService:
-  pass
+    pass
 
 
 @module(
-  providers=[Scoped(UsersService)],  # Register the service with a scoped lifetime
-  imports=[ConfigModule],  # Import another module
-  exports=[UsersService],  # Expose the service to other modules
+    providers=[Scoped(UsersService)],  # Register the service with a scoped lifetime
+    imports=[ConfigModule],  # Import another module
+    exports=[UsersService],  # Expose the service to other modules
 )
 class UsersModule:
-  pass
+    pass
 
 
 @module(imports=[UsersModule])  # Root module importing UsersModule
 class AppModule:
-  pass
+    pass
 
 ```
 

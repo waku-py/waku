@@ -177,8 +177,8 @@ nav:
   - Overview: index.md
   - Getting Started: getting-started.md
   - Usage:
-      - Modules: usage/modules.md
-      - usage/dependency-injection.md
+      - usage/providers.md
+      - usage/modules.md
       - usage/lifespan.md
       - usage/mediator.md
       - Extensions:
