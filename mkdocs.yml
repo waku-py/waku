@@ -143,7 +143,7 @@ markdown_extensions:
   - tables
   - toc:
       permalink: true
-      title: Page contents
+      title: Table of contents
       slugify: !!python/object/apply:pymdownx.slugs.slugify { kwds: { case: lower } }
   - pymdownx.details  # admonition collapsible
   - pymdownx.emoji: # render material icons
@@ -174,10 +174,8 @@ markdown_extensions:
 # Page tree
 # TODO: move to literate-nav plugin
 nav:
-  - Home:
-      - Overview: overview.md
-      - Getting Started: getting-started.md
-      - License: license.md
+  - Overview: index.md
+  - Getting Started: getting-started.md
   - Usage:
       - Modules: usage/modules.md
       - usage/dependency-injection.md
