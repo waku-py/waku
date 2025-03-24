@@ -191,7 +191,7 @@ nav:
       - Modularity: examples/modularity.md
       - Mediator (CQRS): examples/mediator.md
   - API Reference: reference.md
-  - Development:
-      - Contributing: development/contributing.md
-      - Documentation: development/docs.md
+  - Contributing:
+      - contributing/index.md
+      - Documentation: contributing/docs.md
   - Changelog: changelog.md

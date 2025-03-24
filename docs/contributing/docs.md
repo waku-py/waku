@@ -19,7 +19,7 @@ an [issue](https://github.com/waku-py/waku/issues).
 
 ## How to get started
 
-1. Follow the steps for development setup in the [contributing guide](contributing.md#development-setup)
+1. Follow the steps for development setup in the [contributing guide](index.md#development-setup)
 2. Start the local documentation server for live preview of changes
     ```shell
     mkdocs serve

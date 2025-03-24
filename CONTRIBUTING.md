@@ -1,4 +1,4 @@
-# Contributing to `waku`
+# Contributing
 
 Thank you for considering a contribution to `waku`! 🎉
 
