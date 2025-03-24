@@ -2,14 +2,59 @@
 title: Dependency Injection
 ---
 
+# Dependency Injection
+
+## Introduction
+
 `waku` is designed to be modular and extensible.
 To support this principle, it provides a flexible dependency injection (DI) system that integrates seamlessly
-with various DI frameworks.
+with various DI frameworks. `waku` itself acts like and IoC-container,
+allowing you to register and resolve dependencies by using [modules system](modules.md).
 
 !!! note
     Instead of relying on a specific DI framework, `waku` uses a dependency provider interface.
     This allows you to choose any DI framework you prefer (see [Included Dependency Providers](#included-dependency-providers))
     or even [create your own](#writing-custom-dependency-provider).
+
+### What is Dependency Injection?
+
+Dependency Injection (DI) is a design pattern that addresses the issue of tightly coupled code by decoupling the
+creation and management of dependencies from the classes that rely on them. In traditional approaches, classes directly
+instantiate their dependencies, resulting in rigid, hard-to-maintain code. DI solves this problem by enabling
+dependencies to be supplied externally, typically through mechanisms like constructor or setter injection.
+
+By shifting the responsibility of dependency management outside the class, DI promotes loose coupling, allowing classes
+to focus on their core functionality rather than how dependencies are created. This separation enhances maintainability,
+testability, and flexibility, as dependencies can be easily swapped or modified without altering the class's code.
+Ultimately, DI improves system design by reducing interdependencies and making code more modular and scalable.
+
+```python title="Example" linenums="1"
+--8<-- "docs/code/di/manual_di.py"
+```
+
+Here, a `MockClient` is injected into `Service`, making it easy to test `Service` in isolation without relying
+on a real client implementation.
+
+### What is IoC-container?
+
+An IoC container is a framework that automates object creation and dependency management based on the Inversion of
+Control (IoC) principle. It centralizes the configuration and instantiation of components, reducing tight coupling and
+simplifying code maintenance. By handling dependency resolution, an IoC container promotes modular, testable, and
+scalable application design.
+
+With power of IoC-container you can leverage all the benefits of DI without manually managing dependencies.
+
+## When and how to inject dependencies?
+
+To inject dependencies with `waku` you need:
+
+1. Register them to `providers` with desired [scope](#scopes) in [modules](modules.md).
+2. Identify your application entrypoints and decorate them with `@inject`.
+3. Add dependencies as arguments to your entrypoint signature using `Injected` type hint.
+
+```python linenums="1"
+--8<-- "docs/code/di/injecting.py"
+```
 
 ## Scopes
 
@@ -22,7 +67,7 @@ in .NET Core’s DI system.
 `Transient` lifetime dependencies are created each time they’re requested from the dependency provider.
 
 ```python hl_lines="5" linenums="1"
---8<-- "docs/code/scopes/transient.py"
+--8<-- "docs/code/di/scopes/transient.py"
 ```
 
 ### Scoped
@@ -30,7 +75,7 @@ in .NET Core’s DI system.
 `Scoped` lifetime dependencies are created once per dependency provider context and disposed when the context exits.
 
 ```python hl_lines="5" linenums="1"
---8<-- "docs/code/scopes/scoped.py"
+--8<-- "docs/code/di/scopes/scoped.py"
 ```
 
 ### Singleton
@@ -39,7 +84,7 @@ in .NET Core’s DI system.
 and disposed when the dependency provider lifecycle ends.
 
 ```python hl_lines="5" linenums="1"
---8<-- "docs/code/scopes/singleton.py"
+--8<-- "docs/code/di/scopes/singleton.py"
 ```
 
 ### Object
@@ -48,7 +93,7 @@ and disposed when the dependency provider lifecycle ends.
 and manage its lifecycle manually.
 
 ```python hl_lines="7" linenums="1"
---8<-- "docs/code/scopes/object.py"
+--8<-- "docs/code/di/scopes/object.py"
 ```
 
 ## Included Dependency Providers

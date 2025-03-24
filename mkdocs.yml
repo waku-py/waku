@@ -54,10 +54,9 @@ theme:
     - content.code.select
     - content.tooltips
     - navigation.footer
+    - navigation.indexes
     - navigation.instant
-    - navigation.instant.prefetch
-    - navigation.path
-    - navigation.sections
+    - navigation.instant.progress
     - navigation.tabs
     - navigation.tabs.sticky
     - navigation.top
@@ -92,7 +91,7 @@ theme:
 
   font:
     text: Roboto
-    code: Roboto Mono
+    code: JetBrains Mono
 
   icon:
     repo: fontawesome/brands/github
@@ -100,11 +99,10 @@ theme:
 # Plugins
 plugins:
   - search
-  - section-index
   - exclude:
       glob:
-        - includes/*
-        - __pycache__/*
+        - "includes/*"
+        - "__pycache__/*"
         - "*.pyc"
         - "*.pyo"
         - ".git/*"
@@ -177,12 +175,13 @@ markdown_extensions:
 # TODO: move to literate-nav plugin
 nav:
   - Home:
-      - Overview: index.md
+      - Overview: overview.md
       - Getting Started: getting-started.md
       - License: license.md
   - Usage:
       - Modules: usage/modules.md
       - usage/dependency-injection.md
+      - usage/lifespan.md
       - usage/mediator.md
       - Extensions:
           - usage/extensions/index.md
