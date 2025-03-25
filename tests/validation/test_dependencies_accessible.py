@@ -54,11 +54,13 @@ async def test_inaccessible(
     exports: bool,
     rule: ValidationRule,
 ) -> None:
+    b_provider = Scoped(B)
+
     @module(providers=[Scoped(A)], exports=[A] if exports else [])
     class AModule:
         pass
 
-    @module(providers=[Scoped(B)], imports=[AModule] if imports else [])
+    @module(providers=[b_provider], imports=[AModule] if imports else [])
     class BModule:
         pass
 
@@ -77,8 +79,8 @@ async def test_inaccessible(
 
     error = exc_info.value.exceptions[0].exceptions[0]
     b_module = application.container.get_module(BModule)
-    error_message = f"{b_module!r} depends on {A!r} but it's not accessible to it"
-    assert str(error) == error_message
+    error_message = f'Provider "{b_provider!r}" from "{b_module!r}" depends on "{A!r}" but it\'s not accessible to it'
+    assert str(error).startswith(error_message)
 
     application = ApplicationFactory.create(
         AppModule,

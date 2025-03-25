@@ -67,7 +67,12 @@ class DependenciesAccessible(ValidationRule):
                         for imported_module in container.get_modules(module)
                     )
                     if not dependency_accessible:
-                        err_msg = f"{module!r} depends on {dep_type!r} but it's not accessible to it"
+                        err_msg = (
+                            f'Provider "{provider!r}" from "{module!r}" depends on "{dep_type!r}" but it\'s not accessible to it\n'
+                            f'To resolve this issue:\n'
+                            f'   1. Export "{dep_type!r}" from some module\n'
+                            f'   2. Add module which exports "{dep_type!r}" to "{module!r}" imports'
+                        )
                         errors.append(ValidationError(err_msg))
 
         return errors
@@ -98,8 +103,8 @@ class DIScopeMismatch(ValidationRule):
                         and not isinstance(dependency_provider, lifespan_scoped)
                     ):
                         err_msg = (
-                            f'{provider!r} depends on {dependency_provider!r}\n'
-                            f'Consider either:\n'
+                            f'Application level provider "{provider!r}" depends on request level "{dependency_provider!r}"\n'
+                            f'To resolve this issue, consider either:\n'
                             f'  - Making {provider!r} {Scoped.__name__} or {Transient.__name__}\n'
                             f'  - Making {dependency_provider!r} {Singleton.__name__} or {Object.__name__}'
                         )

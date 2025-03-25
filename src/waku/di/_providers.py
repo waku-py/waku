@@ -43,8 +43,11 @@ class Provider(Hashable, Protocol[_T]):
     def __hash__(self) -> int:
         return hash(self.type_)
 
+    def __str__(self) -> str:
+        return self.__repr__()
+
     def __repr__(self) -> str:
-        return f'{self.__class__.__name__}[{self.type_!r}]'
+        return f'{self.__class__.__name__}[{self.type_.__name__}]'
 
     def collect_dependencies(self) -> Sequence[Dependency[object]]:
         try:
