@@ -72,4 +72,5 @@ async def test_scope_mismatch(
         await bootstrap()
 
     error = exc_info.value.exceptions[0].exceptions[0]
-    assert str(error).startswith(f'{provider!r} depends on {dependency!r}')
+    error_message = f'Application level provider "{provider!r}" depends on request level "{dependency!r}"'
+    assert str(error).startswith(error_message)
