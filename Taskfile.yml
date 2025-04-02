@@ -125,7 +125,7 @@ tasks:
     desc: Audit dependencies for vulnerabilities
     deps: [ .uv-locked ]
     silent: true
-    cmd: uv export --no-emit-project --no-header | uv run pip-audit --require-hashes --disable-pip -r /dev/stdin
+    cmd: uv export --no-emit-project --no-header --no-annotate | uv run pip-audit --require-hashes --disable-pip -r /dev/stdin
 
   deptry:
     desc: Find unused, missing and transitive dependencies in project
