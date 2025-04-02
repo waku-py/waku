@@ -84,7 +84,7 @@ typecheck = [
 # ----- UV settings -----
 [tool.uv]
 default-groups = "all"
-required-version = "0.6.9"
+required-version = ">=0.6.11"
 
 
 # ----- Pytest settings -----
