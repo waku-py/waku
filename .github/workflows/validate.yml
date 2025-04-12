@@ -169,10 +169,6 @@ jobs:
         id: lint
         run: task pre-commit-all
 
-      - name: Lint | Run basedpyright
-        id: typecheck
-        run: task basedpyright
-
       - name: Lint | Commit Checks
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then

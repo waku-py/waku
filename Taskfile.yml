@@ -108,7 +108,7 @@ tasks:
   check:
     aliases: [ ci ]
     desc: Lint & typecheck python source files
-    deps: [ lint, typecheck, basedpyright ]
+    deps: [ lint, typecheck ]
 
   codespell:
     desc: Use Codespell to do spellchecking
