@@ -15,11 +15,11 @@ Here’s how to integrate `waku` with a Litestar application:
 
 ```python linenums="1"
 from litestar import Litestar
-from waku import Application
-from waku.contrib.litestar import ApplicationPlugin
+from waku import WakuApplication
+from waku.contrib.litestar import WakuPlugin
 
 
-def bootstrap_application() -> Application:
+def bootstrap_application() -> WakuApplication:
     # Replace with your actual waku app setup (e.g., ApplicationFactory.create)
     ...
 
@@ -28,7 +28,7 @@ def bootstrap_application() -> Application:
 application = bootstrap_application()
 
 # Create the Litestar app with the waku plugin
-app = Litestar(plugins=[ApplicationPlugin(application)])
+app = Litestar(plugins=[WakuPlugin(application)])
 
 ```
 

@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 
 from tests.mock import DummyDI
-from waku import ApplicationFactory
+from waku import WakuFactory
 from waku.di import Object, Provider, Scoped, Singleton, Transient
 from waku.ext.validation import ValidationExtension, ValidationRule
 from waku.ext.validation.rules import DIScopeMismatch
@@ -57,7 +57,7 @@ async def test_scope_mismatch(
         class AppModule:
             pass
 
-        application = ApplicationFactory.create(
+        application = WakuFactory.create(
             AppModule,
             dependency_provider=DummyDI(),
             extensions=[ValidationExtension([rule])],

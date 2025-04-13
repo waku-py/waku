@@ -14,11 +14,11 @@ then add the `ApplicationMiddleware` to your ASGI application’s middleware sta
 ```python linenums="1"
 from fastapi import FastAPI
 from fastapi.middleware import Middleware
-from waku import Application
-from waku.contrib.asgi import ApplicationMiddleware
+from waku import WakuApplication
+from waku.contrib.asgi import WakuMiddleware
 
 
-def bootstrap_application() -> Application:
+def bootstrap_application() -> WakuApplication:
     # Replace with your actual waku app setup (e.g., ApplicationFactory.create)
     ...
 
@@ -29,7 +29,7 @@ application = bootstrap_application()
 # Create the FastAPI app with the waku middleware
 app = FastAPI(
     middleware=[
-        Middleware(ApplicationMiddleware, application=application),
+        Middleware(WakuMiddleware, application=application),
     ],
 )
 

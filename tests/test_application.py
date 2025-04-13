@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tests.mock import DummyDI
-from waku import Application, ApplicationFactory
+from waku import WakuApplication, WakuFactory
 from waku.di import Scoped, Singleton
 from waku.modules import module
 
@@ -20,7 +20,7 @@ class MockLifespanManager:
         self.exited = False
 
     @asynccontextmanager
-    async def __call__(self, _: Application) -> AsyncIterator[None]:
+    async def __call__(self, _: WakuApplication) -> AsyncIterator[None]:
         self.entered = True
         yield
         self.exited = True
@@ -40,7 +40,7 @@ async def test_application_lifespan(di_provider: DummyDI) -> None:
     class AppModule:
         pass
 
-    application = ApplicationFactory.create(
+    application = WakuFactory.create(
         AppModule,
         dependency_provider=di_provider,
         lifespan=[manager_1, manager_2],
@@ -77,7 +77,7 @@ async def test_application_module_registration(di_provider: DummyDI) -> None:
     class AppModule:
         pass
 
-    application = ApplicationFactory.create(
+    application = WakuFactory.create(
         AppModule,
         dependency_provider=di_provider,
     )

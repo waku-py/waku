@@ -7,7 +7,7 @@ from typing import NewType
 import pytest
 
 from tests.mock import DummyDI
-from waku import ApplicationFactory
+from waku import WakuFactory
 from waku.di import Scoped
 from waku.ext.validation import ValidationExtension, ValidationRule
 from waku.ext.validation.rules import DependenciesAccessible
@@ -68,7 +68,7 @@ async def test_inaccessible(
     class AppModule:
         pass
 
-    application = ApplicationFactory.create(
+    application = WakuFactory.create(
         AppModule,
         dependency_provider=DummyDI(),
         extensions=[ValidationExtension([rule])],
@@ -82,7 +82,7 @@ async def test_inaccessible(
     error_message = f'Provider "{b_provider!r}" from "{b_module!r}" depends on "{A!r}" but it\'s not accessible to it'
     assert str(error).startswith(error_message)
 
-    application = ApplicationFactory.create(
+    application = WakuFactory.create(
         AppModule,
         dependency_provider=DummyDI(),
         extensions=[ValidationExtension([rule], strict=False)],
@@ -104,7 +104,7 @@ async def test_ok(rule: ValidationRule) -> None:
     class AppModule:
         pass
 
-    application = ApplicationFactory.create(
+    application = WakuFactory.create(
         AppModule,
         dependency_provider=DummyDI(),
         extensions=[ValidationExtension([rule])],
@@ -125,7 +125,7 @@ async def test_ok_with_global_providers(rule: ValidationRule) -> None:
     class AppModule:
         pass
 
-    application = ApplicationFactory.create(
+    application = WakuFactory.create(
         AppModule,
         dependency_provider=DummyDI(),
         extensions=[ValidationExtension([rule])],
@@ -142,7 +142,7 @@ async def test_ok_with_application_providers(rule: ValidationRule) -> None:
     class AppModule:
         pass
 
-    application = ApplicationFactory.create(
+    application = WakuFactory.create(
         AppModule,
         dependency_provider=DummyDI(),
         extensions=[ValidationExtension([rule])],

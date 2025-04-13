@@ -11,16 +11,16 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from types import TracebackType
 
-    from waku.container import ApplicationContainer
+    from waku.container import WakuContainer
     from waku.modules import Module
 
-__all__ = ['Application']
+__all__ = ['WakuApplication']
 
 
-class Application:
+class WakuApplication:
     def __init__(
         self,
-        container: ApplicationContainer,
+        container: WakuContainer,
         lifespan: Sequence[LifespanFunc | LifespanWrapper],
         extensions: Sequence[ApplicationExtension],
     ) -> None:
@@ -42,7 +42,7 @@ class Application:
         await self._call_after_init_extensions()
 
     @property
-    def container(self) -> ApplicationContainer:
+    def container(self) -> WakuContainer:
         return self._container
 
     async def __aenter__(self) -> Self:

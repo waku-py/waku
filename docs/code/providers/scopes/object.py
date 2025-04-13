@@ -1,4 +1,4 @@
-from waku import ApplicationFactory, module
+from waku import WakuFactory, module
 from waku.di import inject, Injected, Object
 from waku.di.contrib.aioinject import AioinjectDependencyProvider
 
@@ -16,7 +16,7 @@ async def handler(obj: Injected[tuple]) -> None:
 
 
 async def main() -> None:
-    application = ApplicationFactory.create(
+    application = WakuFactory.create(
         AppModule,
         dependency_provider=AioinjectDependencyProvider(),
     )

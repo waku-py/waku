@@ -163,7 +163,7 @@ Available by installing `waku` with `aioinject` extra or by directly installing 
 #### Basic Usage
 
 ```python linenums="1"
-from waku import ApplicationFactory, module
+from waku import WakuFactory, module
 from waku.di.contrib.aioinject import AioinjectDependencyProvider
 
 
@@ -173,7 +173,7 @@ class AppModule:
 
 
 # Create application with AioinjectDependencyProvider
-application = ApplicationFactory.create(
+application = WakuFactory.create(
     AppModule,
     dependency_provider=AioinjectDependencyProvider(),
 )

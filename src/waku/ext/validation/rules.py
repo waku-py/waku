@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
 
 from typing_extensions import override
 
-from waku import Application
+from waku import WakuApplication
 from waku.di import DependencyProvider, Object, Provider, Scoped, Singleton, Transient
 from waku.ext.validation._abc import ValidationRule
 from waku.ext.validation._errors import ValidationError
@@ -51,7 +51,7 @@ class DependenciesAccessible(ValidationRule):
             if container.is_global_module(module)
         }
         # fmt: on
-        global_providers |= {Application, DependencyProvider}
+        global_providers |= {WakuApplication, DependencyProvider}
 
         errors: list[ValidationError] = []
         for module in container.get_modules():
@@ -112,7 +112,7 @@ class DIScopeMismatch(ValidationRule):
 
         return errors
 
-    def _all_providers(self, app: Application) -> Iterator[Provider[Any]]:  # noqa: PLR6301
+    def _all_providers(self, app: WakuApplication) -> Iterator[Provider[Any]]:  # noqa: PLR6301
         for module in app.container.get_modules():
             yield from module.providers
 

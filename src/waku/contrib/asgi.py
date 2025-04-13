@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, MutableMapping
 
-    from waku.application import Application
+    from waku.application import WakuApplication
 
     Scope: TypeAlias = MutableMapping[str, Any]
     Message: TypeAlias = MutableMapping[str, Any]
@@ -15,11 +15,11 @@ if TYPE_CHECKING:
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
 
-__all__ = ['ApplicationMiddleware']
+__all__ = ['WakuMiddleware']
 
 
-class ApplicationMiddleware:
-    def __init__(self, app: ASGIApp, *, application: Application) -> None:
+class WakuMiddleware:
+    def __init__(self, app: ASGIApp, *, application: WakuApplication) -> None:
         self.app = app
         self._application = application
 
