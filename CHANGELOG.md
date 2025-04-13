@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.7.0 (2025-04-13)
+
+### Features
+
+- Rename application to waku
+  ([`12c9cd8`](https://github.com/waku-py/waku/commit/12c9cd872de32d4ba38d6b0fafeb66c22cb1c6d0))
+
+
 ## v0.6.0 (2025-03-25)
 
 ### Bug Fixes
