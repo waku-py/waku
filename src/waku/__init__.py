@@ -1,10 +1,10 @@
-from waku.application import Application
-from waku.factory import ApplicationFactory
+from waku.application import WakuApplication
+from waku.factory import WakuFactory
 from waku.modules import DynamicModule, module
 
 __all__ = [
-    'Application',
-    'ApplicationFactory',
     'DynamicModule',
+    'WakuApplication',
+    'WakuFactory',
     'module',
 ]

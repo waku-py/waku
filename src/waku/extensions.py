@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, TypeAlias, runtime_checkable
 
 if TYPE_CHECKING:
-    from waku.application import Application
+    from waku.application import WakuApplication
     from waku.modules import Module, ModuleMetadata
 
 __all__ = [
@@ -28,7 +28,7 @@ class OnApplicationInit(Protocol):
 
     __slots__ = ()
 
-    async def on_app_init(self, app: Application) -> None:
+    async def on_app_init(self, app: WakuApplication) -> None:
         """Perform actions before application initialization."""
 
 
@@ -38,7 +38,7 @@ class AfterApplicationInit(Protocol):
 
     __slots__ = ()
 
-    async def after_app_init(self, app: Application) -> None:
+    async def after_app_init(self, app: WakuApplication) -> None:
         """Perform actions after application initialization."""
 
 

@@ -1,7 +1,7 @@
 # waku
 
 <p align="center" markdown="1">
-    <sup><i>waku</i> [<b>枠</b>] <i>means framework in Japanese.</i></sup>
+    <sup><i>waku</i> [<b>枠</b> or <b>わく</b>] <i>means framework in Japanese.</i></sup>
     <br/>
 </p>
 
@@ -111,7 +111,7 @@ uv add "waku[aioinject]"
 ```python linenums="1"
 import asyncio
 
-from waku import ApplicationFactory, module
+from waku import WakuFactory, module
 from waku.di import Scoped, Injected, inject
 from waku.di.contrib.aioinject import AioinjectDependencyProvider
 
@@ -143,7 +143,7 @@ async def greet_user(greeting_service: Injected[GreetingService]) -> str:
 
 async def main() -> None:
     # Create application via factory
-    application = ApplicationFactory.create(
+    application = WakuFactory.create(
         AppModule,
         dependency_provider=AioinjectDependencyProvider(),
     )

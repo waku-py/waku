@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
-from waku import Application, ApplicationFactory
+from waku import WakuApplication, WakuFactory
 from waku.di import Injected, inject
 from waku.di.contrib.aioinject import AioinjectDependencyProvider
 from waku.mediator import (
@@ -68,7 +68,7 @@ class LogMiddleware(Middleware[RequestT, ResponseT]):
 
 
 @asynccontextmanager
-async def lifespan(_: Application) -> AsyncIterator[None]:
+async def lifespan(_: WakuApplication) -> AsyncIterator[None]:
     logger.info('Lifespan startup')
     yield
     logger.info('Lifespan shutdown')
@@ -105,7 +105,7 @@ async def handler(mediator: Injected[IMediator]) -> None:
 
 async def main() -> None:
     dp = AioinjectDependencyProvider()
-    app = ApplicationFactory.create(
+    app = WakuFactory.create(
         AppModule,
         dependency_provider=dp,
         lifespan=[lifespan],

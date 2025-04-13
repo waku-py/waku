@@ -13,18 +13,18 @@ if TYPE_CHECKING:
     from litestar.config.app import AppConfig
     from litestar.types import ASGIApp, Receive, Scope, Send
 
-    from waku.application import Application
+    from waku.application import WakuApplication
 
 __all__ = [
-    'ApplicationMiddleware',
-    'ApplicationPlugin',
+    'WakuMiddleware',
+    'WakuPlugin',
 ]
 
 _STATE_KEY: Final = '__waku_application__'
 _SCOPE_CONTEXT_KEY: Final = '__waku_injection_context__'
 
 
-class ApplicationMiddleware(MiddlewareProtocol):
+class WakuMiddleware(MiddlewareProtocol):
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
@@ -35,7 +35,7 @@ class ApplicationMiddleware(MiddlewareProtocol):
         send: Send,
     ) -> None:
         app: Litestar = scope['app']
-        application: Application = app.state[_STATE_KEY]
+        application: WakuApplication = app.state[_STATE_KEY]
 
         async with application.container.context() as ctx:
             scope[_SCOPE_CONTEXT_KEY] = ctx  # type: ignore[typeddict-unknown-key]
@@ -51,8 +51,8 @@ async def _after_exception(exception: BaseException, scope: Scope) -> None:
         )
 
 
-class ApplicationPlugin(InitPluginProtocol):
-    def __init__(self, application: Application) -> None:
+class WakuPlugin(InitPluginProtocol):
+    def __init__(self, application: WakuApplication) -> None:
         self._application = application
 
     @contextlib.asynccontextmanager
@@ -62,7 +62,7 @@ class ApplicationPlugin(InitPluginProtocol):
 
     def on_app_init(self, app_config: AppConfig) -> AppConfig:
         app_config.state[_STATE_KEY] = self._application
-        app_config.middleware.append(ApplicationMiddleware)
+        app_config.middleware.append(WakuMiddleware)
         app_config.lifespan.append(self._lifespan)  # pyright: ignore [reportUnknownMemberType]
         app_config.after_exception.append(_after_exception)  # pyright: ignore [reportUnknownMemberType]
         return app_config

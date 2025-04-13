@@ -57,7 +57,7 @@ In `app.py`, let's define our modules and application setup:
 ```python title="app.py" linenums="1"
 import asyncio
 
-from waku import Application, ApplicationFactory, module
+from waku import WakuApplication, WakuFactory, module
 from waku.di import Scoped, Injected, inject
 from waku.di.contrib.aioinject import AioinjectDependencyProvider
 
@@ -86,8 +86,8 @@ async def greet_user(greeting_service: Injected[GreetingService]) -> str:
 
 
 # Bootstrap the application
-def bootstrap() -> Application:
-    return ApplicationFactory.create(
+def bootstrap() -> WakuApplication:
+    return WakuFactory.create(
         AppModule,
         dependency_provider=AioinjectDependencyProvider(),
     )

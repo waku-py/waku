@@ -16,12 +16,12 @@ if TYPE_CHECKING:
     from waku.modules import ModuleType
 
 
-__all__ = ['ApplicationContainer']
+__all__ = ['WakuContainer']
 
 _T = TypeVar('_T')
 
 
-class ApplicationContainer:
+class WakuContainer:
     def __init__(self, dependency_provider: DependencyProvider, root_module: ModuleType) -> None:
         self._dependency_provider = dependency_provider
 
@@ -32,7 +32,7 @@ class ApplicationContainer:
         self._graph = ModuleGraph(self._root_module)
 
         self._dependency_provider.register(Object(dependency_provider, DependencyProvider))
-        self._dependency_provider.register(Object(self, ApplicationContainer))
+        self._dependency_provider.register(Object(self, WakuContainer))
 
         self._exit_stack = AsyncExitStack()
 

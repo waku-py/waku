@@ -10,7 +10,7 @@ from waku.extensions import AfterApplicationInit
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from waku.application import Application
+    from waku.application import WakuApplication
     from waku.ext.validation import ValidationRule
     from waku.ext.validation._errors import ValidationError
 
@@ -22,7 +22,7 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ValidationContext:
-    app: Application
+    app: WakuApplication
 
 
 class ValidationExtension(AfterApplicationInit):
@@ -30,7 +30,7 @@ class ValidationExtension(AfterApplicationInit):
         self.rules = rules
         self.strict: Final = strict
 
-    async def after_app_init(self, app: Application) -> None:
+    async def after_app_init(self, app: WakuApplication) -> None:
         context = ValidationContext(app=app)
 
         errors_chain = chain.from_iterable(rule.validate(context) for rule in self.rules)
