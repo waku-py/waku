@@ -522,46 +522,28 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#features" class="md-nav__link">
+  <a href="#motivation" class="md-nav__link">
     <span class="md-ellipsis">
-      Features
+      Motivation
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Features">
+    <nav class="md-nav" aria-label="Motivation">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
   <a href="#-modular-architecture" class="md-nav__link">
     <span class="md-ellipsis">
-      🏗️ Modular Architecture
+      🧩 Modular Architecture
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#-extensible-plugin-system" class="md-nav__link">
+  <a href="#-dependency-injection" class="md-nav__link">
     <span class="md-ellipsis">
-      🔌 Extensible Plugin System
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#-flexible-dependency-injection" class="md-nav__link">
-    <span class="md-ellipsis">
-      💉 Flexible Dependency Injection
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#-command-query-responsibility-segregation-cqrs" class="md-nav__link">
-    <span class="md-ellipsis">
-      🎮 Command Query Responsibility Segregation (CQRS)
+      💉 Dependency Injection
     </span>
   </a>
   
@@ -581,6 +563,15 @@
   
     <nav class="md-nav" aria-label="Quick Start">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      Prerequisites
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#installation" class="md-nav__link">
@@ -1281,46 +1272,28 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#features" class="md-nav__link">
+  <a href="#motivation" class="md-nav__link">
     <span class="md-ellipsis">
-      Features
+      Motivation
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Features">
+    <nav class="md-nav" aria-label="Motivation">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
   <a href="#-modular-architecture" class="md-nav__link">
     <span class="md-ellipsis">
-      🏗️ Modular Architecture
+      🧩 Modular Architecture
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#-extensible-plugin-system" class="md-nav__link">
+  <a href="#-dependency-injection" class="md-nav__link">
     <span class="md-ellipsis">
-      🔌 Extensible Plugin System
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#-flexible-dependency-injection" class="md-nav__link">
-    <span class="md-ellipsis">
-      💉 Flexible Dependency Injection
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#-command-query-responsibility-segregation-cqrs" class="md-nav__link">
-    <span class="md-ellipsis">
-      🎮 Command Query Responsibility Segregation (CQRS)
+      💉 Dependency Injection
     </span>
   </a>
   
@@ -1340,6 +1313,15 @@
   
     <nav class="md-nav" aria-label="Quick Start">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      Prerequisites
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#installation" class="md-nav__link">
@@ -1438,55 +1420,53 @@
 </div>
 <hr />
 <h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
-<p><code>waku</code> is a Python framework for building modular, loosely coupled, and maintainable applications.
-It draws inspiration from <a href="https://github.com/nestjs/nest">NestJS</a> and <a href="https://tramvai.dev">Tramvai</a>,
+<p><code>waku</code> is a modern Python framework designed for building scalable, maintainable applications with a focus on clean architecture and developer experience. It's particularly well-suited for:</p>
+<ul>
+<li>Enterprise applications requiring clear boundaries and maintainability</li>
+<li>Microservices architectures needing consistent patterns</li>
+<li>Teams looking for standardized approaches to common problems</li>
+<li>Projects that value testability and loose coupling</li>
+</ul>
+<p>The framework draws inspiration from <a href="https://github.com/nestjs/nest">NestJS</a> and <a href="https://tramvai.dev">Tramvai</a>,
 adapting their best ideas to the Python ecosystem. Here's list of some <code>waku</code> key features:</p>
 <ul>
 <li>🧩 <a href="https://waku-py.github.io/waku/usage/modules/"><strong>Modularity</strong></a>: Build applications as a set of loosely coupled
-  modules</li>
+  modules with clear boundaries, automatic dependency validation, and controlled visibility</li>
 <li>💉 <a href="https://waku-py.github.io/waku/usage/providers/"><strong>Powerful Dependency Injection System</strong></a>: Manage
-  dependencies with built-in <abbr title="Dependency Injection">DI</abbr> framework-agnostic <abbr title="Inversion of Control">IoC</abbr>-container</li>
-<li>🔧 <a href="https://waku-py.github.io/waku/usage/extensions/"><strong>Extensions</strong></a>: Use application and modules lifecycle hooks to
-  extend <code>waku</code></li>
+  dependencies with built-in <abbr title="Dependency Injection">DI</abbr> framework-agnostic <abbr title="Inversion of Control">IoC</abbr>-container, multiple lifetime scopes, and automatic resolution</li>
+<li>🔧 <a href="https://waku-py.github.io/waku/usage/extensions/"><strong>Extensions</strong></a>: Extend <code>waku</code> with custom plugins that can
+  hook into application lifecycle, add new providers, and integrate with external systems</li>
 <li>📊 <a href="https://waku-py.github.io/waku/usage/lifespan/"><strong>Lifespan</strong></a>: Automatic manage application and <abbr title="Inversion of Control">IoC</abbr>-container
-  lifecycle</li>
+  lifecycle with built-in hooks and event system</li>
 <li>⚙️ <a href="https://waku-py.github.io/waku/usage/mediator/"><strong>Command/Query handling (<abbr title="Command and Query Responsibility Segregation">CQRS</abbr>)</strong></a>: Use mediator abstraction
-  heavily inspired by C# <a href="https://github.com/jbogard/MediatR">MediatR</a> library to handle commands and queries</li>
-<li>🤝 <a href="https://waku-py.github.io/waku/usage/dependency-injection/integrations/"><strong>Integrations</strong></a>: <code>waku</code> comes with
+  heavily inspired by C# <a href="https://github.com/jbogard/MediatR">MediatR</a> library to handle commands, queries, and events</li>
+<li>🤝 <a href="https://waku-py.github.io/waku/integrations/asgi/"><strong>Integrations</strong></a>: <code>waku</code> comes with
   built-in integrations for popular web frameworks like <a href="https://fastapi.tiangolo.com/"><strong>FastAPI</strong></a>
   or <a href="https://litestar.dev/"><strong>Litestar</strong></a> and allows you to easily create your own integrations with any other
   frameworks</li>
 </ul>
-<h2 id="features">Features<a class="headerlink" href="#features" title="Permanent link">&para;</a></h2>
-<h3 id="-modular-architecture">🏗️ Modular Architecture<a class="headerlink" href="#-modular-architecture" title="Permanent link">&para;</a></h3>
+<h2 id="motivation">Motivation<a class="headerlink" href="#motivation" title="Permanent link">&para;</a></h2>
+<p>While Python offers excellent web frameworks, they often lack robust architectural patterns for building complex applications. The challenge of managing dependencies and maintaining clean boundaries between components becomes increasingly difficult as applications grow.</p>
+<p><code>waku</code> addresses these challenges through its core concepts:</p>
+<h3 id="-modular-architecture">🧩 Modular Architecture<a class="headerlink" href="#-modular-architecture" title="Permanent link">&para;</a></h3>
+<p>Break down complex applications into self-contained modules with clear boundaries and responsibilities. Each module encapsulates its own providers, making the codebase more maintainable and easier to understand.</p>
+<h3 id="-dependency-injection">💉 Dependency Injection<a class="headerlink" href="#-dependency-injection" title="Permanent link">&para;</a></h3>
+<p>Manage dependencies explicitly through a powerful <abbr title="Dependency Injection">DI</abbr> system that supports different lifetime scopes (singleton, scoped, transient). This enables:</p>
 <ul>
-<li>Build modular monoliths with clear boundaries</li>
-<li>Enforce loose coupling between components</li>
-<li>Automatically validate dependency graphs</li>
-<li>Control module visibility and access</li>
+<li>🔄 Loose coupling between components</li>
+<li>🧪 Easier testing through dependency substitution</li>
+<li>📊 Clear dependency graphs</li>
+<li>⚡ Automatic lifecycle management</li>
+<li>🛠️ Framework-agnostic dependency resolution</li>
 </ul>
-<h3 id="-extensible-plugin-system">🔌 Extensible Plugin System<a class="headerlink" href="#-extensible-plugin-system" title="Permanent link">&para;</a></h3>
-<ul>
-<li>Built-in extension mechanism</li>
-<li>Lifecycle hooks for modules and applications</li>
-<li>Custom extension points</li>
-<li>Rich ecosystem of built-in extensions (work in progress)</li>
-</ul>
-<h3 id="-flexible-dependency-injection">💉 Flexible Dependency Injection<a class="headerlink" href="#-flexible-dependency-injection" title="Permanent link">&para;</a></h3>
-<ul>
-<li>Framework-agnostic <abbr title="Dependency Injection">DI</abbr> implementation</li>
-<li>Providers with different lifetimes (singleton, scoped, transient, object)</li>
-<li>Simplified testing and mocking</li>
-</ul>
-<h3 id="-command-query-responsibility-segregation-cqrs">🎮 Command Query Responsibility Segregation (<abbr title="Command and Query Responsibility Segregation">CQRS</abbr>)<a class="headerlink" href="#-command-query-responsibility-segregation-cqrs" title="Permanent link">&para;</a></h3>
-<p><code>waku</code> includes a built-in <strong><abbr title="Command and Query Responsibility Segregation">CQRS</abbr></strong> implementation with all the features you need to build robust,
-maintainable applications:</p>
-<ul>
-<li>Command and Query request handling</li>
-<li>Event handling with custom publishers support</li>
-<li>Middleware support</li>
-</ul>
+<p>By combining these concepts, <code>waku</code> provides a structured approach to building Python applications that scales from small services to large enterprise systems.</p>
 <h2 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
+<h3 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Python 3.11 or higher</li>
+<li>Basic understanding of dependency injection and modular architecture</li>
+<li>Familiarity with async/await syntax</li>
+</ul>
 <h3 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h3>
 <p>Install the <code>waku</code> package using your preferred tool.
 We recommend <a href="https://github.com/astral-sh/uv"><code>uv</code></a> for managing project dependencies due to its speed and simplicity.</p>
@@ -1614,7 +1594,7 @@ Install it directly using your preferred package manager or as extra dependency 
 <li><a href="https://waku-py.github.io/waku/usage/mediator/">Mediator (<abbr title="Command and Query Responsibility Segregation">CQRS</abbr>)</a></li>
 </ul>
 <h2 id="contributing">Contributing<a class="headerlink" href="#contributing" title="Permanent link">&para;</a></h2>
-<p>We’d love your contributions!
+<p>We'd love your contributions!
 Check out our <a href="https://waku-py.github.io/waku/contributing/">Contributing Guide</a> to get started.</p>
 <h3 id="development-setup">Development Setup<a class="headerlink" href="#development-setup" title="Permanent link">&para;</a></h3>
 <p>Learn how to set up a development environment in the <a href="https://waku-py.github.io/waku/development/contributing/#development-setup">Contributing Guide</a>.</p>
