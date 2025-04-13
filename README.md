@@ -27,57 +27,60 @@
 
 ## Overview
 
-`waku` is a Python framework for building modular, loosely coupled, and maintainable applications.
-It draws inspiration from [NestJS](https://github.com/nestjs/nest) and [Tramvai](https://tramvai.dev),
+`waku` is a modern Python framework designed for building scalable, maintainable applications with a focus on clean architecture and developer experience. It's particularly well-suited for:
+
+- Enterprise applications requiring clear boundaries and maintainability
+- Microservices architectures needing consistent patterns
+- Teams looking for standardized approaches to common problems
+- Projects that value testability and loose coupling
+
+The framework draws inspiration from [NestJS](https://github.com/nestjs/nest) and [Tramvai](https://tramvai.dev),
 adapting their best ideas to the Python ecosystem. Here's list of some `waku` key features:
 
 * 🧩 [**Modularity**](https://waku-py.github.io/waku/usage/modules/): Build applications as a set of loosely coupled
-  modules
+  modules with clear boundaries, automatic dependency validation, and controlled visibility
 * 💉 [**Powerful Dependency Injection System**](https://waku-py.github.io/waku/usage/providers/): Manage
-  dependencies with built-in DI framework-agnostic IoC-container
-* 🔧 [**Extensions**](https://waku-py.github.io/waku/usage/extensions/): Use application and modules lifecycle hooks to
-  extend `waku`
+  dependencies with built-in DI framework-agnostic IoC-container, multiple lifetime scopes, and automatic resolution
+* 🔧 [**Extensions**](https://waku-py.github.io/waku/usage/extensions/): Extend `waku` with custom plugins that can
+  hook into application lifecycle, add new providers, and integrate with external systems
 * 📊 [**Lifespan**](https://waku-py.github.io/waku/usage/lifespan/): Automatic manage application and IoC-container
-  lifecycle
+  lifecycle with built-in hooks and event system
 * ⚙️ [**Command/Query handling (CQRS)**](https://waku-py.github.io/waku/usage/mediator/): Use mediator abstraction
-  heavily inspired by C# [MediatR](https://github.com/jbogard/MediatR) library to handle commands and queries
-* 🤝 [**Integrations**](https://waku-py.github.io/waku/usage/dependency-injection/integrations/): `waku` comes with
+  heavily inspired by C# [MediatR](https://github.com/jbogard/MediatR) library to handle commands, queries, and events
+* 🤝 [**Integrations**](https://waku-py.github.io/waku/integrations/asgi/): `waku` comes with
   built-in integrations for popular web frameworks like [**FastAPI**](https://fastapi.tiangolo.com/)
   or [**Litestar**](https://litestar.dev/) and allows you to easily create your own integrations with any other
   frameworks
 
-## Features
+## Motivation
 
-### 🏗️ Modular Architecture
+While Python offers excellent web frameworks, they often lack robust architectural patterns for building complex applications. The challenge of managing dependencies and maintaining clean boundaries between components becomes increasingly difficult as applications grow.
 
-- Build modular monoliths with clear boundaries
-- Enforce loose coupling between components
-- Automatically validate dependency graphs
-- Control module visibility and access
+`waku` addresses these challenges through its core concepts:
 
-### 🔌 Extensible Plugin System
+### 🧩 Modular Architecture
 
-- Built-in extension mechanism
-- Lifecycle hooks for modules and applications
-- Custom extension points
-- Rich ecosystem of built-in extensions (work in progress)
+Break down complex applications into self-contained modules with clear boundaries and responsibilities. Each module encapsulates its own providers, making the codebase more maintainable and easier to understand.
 
-### 💉 Flexible Dependency Injection
+### 💉 Dependency Injection
 
-- Framework-agnostic DI implementation
-- Providers with different lifetimes (singleton, scoped, transient, object)
-- Simplified testing and mocking
+Manage dependencies explicitly through a powerful DI system that supports different lifetime scopes (singleton, scoped, transient). This enables:
 
-### 🎮 Command Query Responsibility Segregation (CQRS)
+- 🔄 Loose coupling between components
+- 🧪 Easier testing through dependency substitution
+- 📊 Clear dependency graphs
+- ⚡ Automatic lifecycle management
+- 🛠️ Framework-agnostic dependency resolution
 
-`waku` includes a built-in **CQRS** implementation with all the features you need to build robust,
-maintainable applications:
-
-- Command and Query request handling
-- Event handling with custom publishers support
-- Middleware support
+By combining these concepts, `waku` provides a structured approach to building Python applications that scales from small services to large enterprise systems.
 
 ## Quick Start
+
+### Prerequisites
+
+- Python 3.11 or higher
+- Basic understanding of dependency injection and modular architecture
+- Familiarity with async/await syntax
 
 ### Installation
 
@@ -176,7 +179,7 @@ Explore detailed documentation on our [official site](https://waku-py.github.io/
 
 ## Contributing
 
-We’d love your contributions!
+We'd love your contributions!
 Check out our [Contributing Guide](https://waku-py.github.io/waku/contributing/) to get started.
 
 ### Development Setup
