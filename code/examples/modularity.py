@@ -3,10 +3,10 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from waku import Application
+from waku import WakuApplication
 from waku.di import Injected, Scoped, Singleton, inject
 from waku.di.contrib.aioinject import AioinjectDependencyProvider
-from waku.factory import ApplicationFactory
+from waku.factory import WakuFactory
 from waku.modules import DynamicModule, module
 
 logging.basicConfig(level=logging.INFO)
@@ -79,15 +79,15 @@ async def handler(
 
 
 @asynccontextmanager
-async def lifespan(_: Application) -> AsyncIterator[None]:
+async def lifespan(_: WakuApplication) -> AsyncIterator[None]:
     logger.info('Lifespan startup')
     yield
     logger.info('Lifespan shutdown')
 
 
 # Create application via factory
-def bootstrap() -> Application:
-    return ApplicationFactory.create(
+def bootstrap() -> WakuApplication:
+    return WakuFactory.create(
         AppModule,
         dependency_provider=AioinjectDependencyProvider(),
         lifespan=[lifespan],

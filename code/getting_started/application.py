@@ -1,4 +1,4 @@
-from waku import Application, ApplicationFactory, module
+from waku import WakuApplication, WakuFactory, module
 from waku.di.contrib.aioinject import AioinjectDependencyProvider
 
 from app.settings import ConfigModule
@@ -18,8 +18,8 @@ class AppModule:
     pass
 
 
-def bootstrap_application() -> Application:
-    return ApplicationFactory.create(
+def bootstrap_application() -> WakuApplication:
+    return WakuFactory.create(
         AppModule,
         dependency_provider=AioinjectDependencyProvider(),
     )
