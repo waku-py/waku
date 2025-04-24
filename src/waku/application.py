@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, Self
+
+from dishka.override import override
 
 from waku.extensions import AfterApplicationInit, ApplicationExtension, OnApplicationInit, OnModuleInit
 from waku.lifespan import LifespanFunc, LifespanWrapper
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterator, Sequence
     from types import TracebackType
 
-    from dishka import AsyncContainer
+    from dishka import AsyncContainer, Provider
 
     from waku.graph import ModuleGraph
     from waku.modules import Module
@@ -53,6 +56,11 @@ class WakuApplication:
     @property
     def graph(self) -> ModuleGraph:
         return self._graph
+
+    @contextlib.contextmanager
+    def override(self, *providers: Provider) -> Iterator[None]:
+        with override(self.container, *providers):
+            yield
 
     async def __aenter__(self) -> Self:
         await self.initialize()
