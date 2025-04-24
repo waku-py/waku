@@ -99,9 +99,6 @@ uv add waku
 
 # Using pip
 pip install waku
-
-# Using poetry
-poetry add waku
 ```
 
 ### Basic Example
