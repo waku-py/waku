@@ -3,11 +3,10 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
-import pytest
+from dishka import Scope
 
-from tests.mock import DummyDI
 from waku import WakuApplication, WakuFactory
-from waku.di import Scoped, Singleton
+from waku.di import provide
 from waku.modules import module
 
 if TYPE_CHECKING:
@@ -26,12 +25,7 @@ class MockLifespanManager:
         self.exited = True
 
 
-@pytest.fixture
-def di_provider() -> DummyDI:
-    return DummyDI()
-
-
-async def test_application_lifespan(di_provider: DummyDI) -> None:
+async def test_application_lifespan() -> None:
     """Test application startup and shutdown lifecycle."""
     manager_1 = MockLifespanManager()
     manager_2 = MockLifespanManager()
@@ -40,11 +34,10 @@ async def test_application_lifespan(di_provider: DummyDI) -> None:
     class AppModule:
         pass
 
-    application = WakuFactory.create(
+    application = WakuFactory(
         AppModule,
-        dependency_provider=di_provider,
         lifespan=[manager_1, manager_2],
-    )
+    ).create()
 
     async with application:
         assert manager_1.entered
@@ -56,7 +49,7 @@ async def test_application_lifespan(di_provider: DummyDI) -> None:
     assert manager_2.exited  # type: ignore[unreachable]
 
 
-async def test_application_module_registration(di_provider: DummyDI) -> None:
+async def test_application_module_registration() -> None:
     """Test that modules are properly registered with the application."""
 
     class ServiceA:
@@ -65,11 +58,11 @@ async def test_application_module_registration(di_provider: DummyDI) -> None:
     class ServiceB:
         pass
 
-    @module(providers=[Scoped(ServiceA)], exports=[ServiceA])
+    @module(providers=[provide(ServiceA)], exports=[ServiceA])
     class ModuleA:
         pass
 
-    @module(providers=[Singleton(ServiceB)], imports=[ModuleA])
+    @module(providers=[provide(ServiceB, scope=Scope.APP)], imports=[ModuleA])
     class ModuleB:
         pass
 
@@ -77,11 +70,8 @@ async def test_application_module_registration(di_provider: DummyDI) -> None:
     class AppModule:
         pass
 
-    application = WakuFactory.create(
-        AppModule,
-        dependency_provider=di_provider,
-    )
+    application = WakuFactory(AppModule).create()
 
-    async with application:
-        assert di_provider.is_registered(ServiceA)
-        assert di_provider.is_registered(ServiceB)
+    async with application, application.container() as request_container:
+        await request_container.get(ServiceA)
+        await application.container.get(ServiceB)

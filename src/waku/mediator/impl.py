@@ -1,9 +1,8 @@
-from collections.abc import Sequence
 from typing import cast
 
+from dishka import AsyncContainer
 from typing_extensions import override
 
-from waku.di import DependencyProvider
 from waku.mediator._utils import get_request_response_type
 from waku.mediator.contracts.event import Event, EventT
 from waku.mediator.contracts.request import Request, ResponseT
@@ -11,7 +10,7 @@ from waku.mediator.events.handler import EventHandler
 from waku.mediator.events.publish import EventPublisher
 from waku.mediator.exceptions import EventHandlerNotFound, RequestHandlerNotFound
 from waku.mediator.interfaces import IMediator
-from waku.mediator.middlewares import AnyMiddleware, MiddlewareChain
+from waku.mediator.middlewares import MiddlewareChain
 from waku.mediator.requests.handler import RequestHandler
 
 
@@ -20,12 +19,12 @@ class Mediator(IMediator):
 
     def __init__(
         self,
-        dependency_provider: DependencyProvider,
-        middlewares: Sequence[AnyMiddleware],
+        container: AsyncContainer,
+        middleware_chain: MiddlewareChain,
         event_publisher: EventPublisher,
     ) -> None:
-        self._dependency_provider = dependency_provider
-        self._middleware_chain = MiddlewareChain(middlewares)
+        self._container = container
+        self._middleware_chain = middleware_chain
         self._event_publisher = event_publisher
 
     @override
@@ -70,7 +69,7 @@ class Mediator(IMediator):
         )
 
         try:
-            return await self._dependency_provider.get(handler_type)
+            return await self._container.get(handler_type)
         except ValueError as err:
             msg = f'Request handler for {request_type.__name__} request is not registered'
             raise RequestHandlerNotFound(msg, request_type) from err
@@ -81,7 +80,7 @@ class Mediator(IMediator):
     ) -> list[EventHandler[EventT]]:
         handler_type = cast(type[EventHandler[EventT]], EventHandler[event_type])  # type: ignore[valid-type]
         try:
-            return await self._dependency_provider.get_all(handler_type)
+            return await self._container.get(list[handler_type])  # type: ignore[valid-type]
         except ValueError as err:
             msg = f'Event handlers for {event_type.__name__} event is not registered'
             raise EventHandlerNotFound(msg, event_type) from err
@@ -91,5 +90,6 @@ class Mediator(IMediator):
         handler: RequestHandler[Request[ResponseT], ResponseT],
         request: Request[ResponseT],
     ) -> ResponseT:
-        wrapped_handler = self._middleware_chain.wrap(handler.handle)
-        return await wrapped_handler(request)
+        wrapped_handler = self._middleware_chain.wrap(self._container, handle=handler.handle)
+        result = await wrapped_handler(request)
+        return cast(ResponseT, result)

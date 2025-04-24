@@ -1,13 +1,15 @@
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
 import sys
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Final
+
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from uuid import UUID
 
-    from waku.di import Provider
+    from dishka import Provider
+
     from waku.extensions import ModuleExtension
     from waku.modules._metadata import DynamicModule, ModuleMetadata, ModuleType
 
@@ -18,7 +20,7 @@ class Module:
         self.target: Final[ModuleType] = module_type
         self.distance: Final[int] = sys.maxsize if metadata.is_global else 0
 
-        self.providers: Final[Sequence[Provider[Any]]] = metadata.providers
+        self.providers: Final[Sequence[Provider]] = metadata.providers
         self.imports: Final[Sequence[ModuleType | DynamicModule]] = metadata.imports
         self.exports: Final[Sequence[object | ModuleType]] = metadata.exports
         self.extensions: Final[Sequence[ModuleExtension]] = metadata.extensions
@@ -36,6 +38,11 @@ class Module:
 
     def __hash__(self) -> int:
         return hash(self.id)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Module):
+            return False
+        return self.id == other.id
 
     def __lt__(self, other: Module) -> bool:
         return self.distance < other.distance

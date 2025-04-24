@@ -119,6 +119,7 @@ plugins:
               domains: [ py, std ]
           paths: [ src ]
           options:
+            docstring_style: google
             filters:
               - '!^_'
             show_root_heading: true

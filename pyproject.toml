@@ -8,7 +8,7 @@ version = "0.7.0"
 description = "Framework for building modular and loosely coupled applications"
 readme = "README.md"
 license = "MIT"
-keywords = ["architecture", "modular", "decoupled", "framework"]
+keywords = ["architecture", "modular", "decoupled", "framework", "dishka"]
 authors = [
   { name = "Daniil Kharkov", email = "fadeddexofan@gmail.com" },
   { name = "Doctor", email = "thirvondukr@gmail.com" },
@@ -29,6 +29,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
+  "dishka>=1.5.3",
   "typing-extensions>=4.12",
 ]
 
@@ -36,10 +37,6 @@ dependencies = [
 Changelog = "https://github.com/waku-py/waku/blob/master/CHANGELOG.md"
 Issues = "https://github.com/waku-py/waku/issues"
 Repository = "https://github.com/waku-py/waku"
-
-[project.optional-dependencies]
-aioinject = ["aioinject>=0.38.0"]
-litestar = ["litestar>2"]
 
 [tool.hatch.build.targets.sdist]
 ignore-vcs = true
@@ -67,6 +64,7 @@ lint = [
   "ruff>=0.11.2",
 ]
 test = [
+  "anyio>=4.9.0",
   "pytest>=8.3.5",
   "pytest-archon>=0.0.6",
   "pytest-clarity>=1.0.1",
@@ -89,6 +87,7 @@ required-version = ">=0.6.11"
 
 # ----- Pytest settings -----
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 xfail_strict = true
 norecursedirs = ".* examples __pycache__"
 disable_test_id_escaping_and_forfeit_all_rights_to_community_support = true
@@ -125,6 +124,7 @@ unsafe-fixes = true
 show-fixes = true
 line-length = 120
 target-version = "py311"
+extend-exclude = ["pyproject.toml"]
 
 [tool.ruff.lint]
 preview = true

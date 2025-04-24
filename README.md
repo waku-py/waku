@@ -113,10 +113,16 @@ uv add "waku[aioinject]"
 
 ```python linenums="1"
 import asyncio
+from collections.abc import Callable
+from typing import ParamSpec, TypeVar
 
+from dishka import AsyncContainer, FromDishka
+from dishka.integrations.base import wrap_injection
 from waku import WakuFactory, module
-from waku.di import Scoped, Injected, inject
-from waku.di.contrib.aioinject import AioinjectDependencyProvider
+from waku.di import provide
+
+P = ParamSpec('P')
+T = TypeVar('T')
 
 
 # Define your providers
@@ -126,7 +132,7 @@ class GreetingService:
 
 
 # Define a module with your providers
-@module(providers=[Scoped(GreetingService)])
+@module(providers=[provide(GreetingService)])
 class GreetingModule:
     pass
 
@@ -137,24 +143,31 @@ class AppModule:
     pass
 
 
+# Simple inject decorator for example purposes
+# In real world you should import `@inject` decorator for your framework from `dishka.integrations.<framework>`
+def _inject(func: Callable[P, T]) -> Callable[P, T]:
+    return wrap_injection(
+        func=func,
+        is_async=True,
+        container_getter=lambda args, _: args[0],
+    )
+
+
 # Define entrypoints
 # In a real-world scenario, this could be FastAPI routes, etc.
-@inject
-async def greet_user(greeting_service: Injected[GreetingService]) -> str:
+@_inject
+async def greet_user(container: AsyncContainer, greeting_service: FromDishka[GreetingService]) -> str:
     return greeting_service.greet('waku')
 
 
 async def main() -> None:
     # Create application via factory
-    application = WakuFactory.create(
-        AppModule,
-        dependency_provider=AioinjectDependencyProvider(),
-    )
+    application = WakuFactory(AppModule).create()
 
     # Run the application
     # In a real-world scenario, this would be run by a framework like FastAPI
-    async with application, application.container.context():
-        message = await greet_user()
+    async with application, application.container() as request_container:
+        message = await greet_user(request_container)
         print(message)  # Output: Hello, waku!
 
 

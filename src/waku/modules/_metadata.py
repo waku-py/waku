@@ -4,12 +4,13 @@ import functools
 import uuid
 from collections.abc import Hashable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Final, Protocol, TypeAlias, TypeVar, cast
+from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, TypeVar, cast
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from waku.di import Provider
+    from dishka import Provider
+
     from waku.extensions import ModuleExtension
 
 __all__ = [
@@ -29,7 +30,7 @@ MODULE_METADATA_KEY: Final = '__module_metadata__'
 
 @dataclass(kw_only=True, slots=True)
 class ModuleMetadata:
-    providers: list[Provider[Any]] = field(default_factory=list)
+    providers: list[Provider] = field(default_factory=list)
     """List of providers for dependency injection."""
     imports: list[ModuleType | DynamicModule] = field(default_factory=list)
     """List of modules imported by this module."""
@@ -60,7 +61,7 @@ class DynamicModule(ModuleMetadata):
 
 def module(
     *,
-    providers: Sequence[Provider[Any]] = (),
+    providers: Sequence[Provider] = (),
     imports: Sequence[ModuleType | DynamicModule] = (),
     exports: Sequence[object | ModuleType | DynamicModule] = (),
     extensions: Sequence[ModuleExtension] = (),

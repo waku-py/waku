@@ -1,28 +1,25 @@
-from __future__ import annotations
-
+from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import chain
-from typing import TYPE_CHECKING, Any, Self, TypeAlias
+from typing import Any, Self, TypeAlias
 
-from waku.di import AnyProvider, Transient
+from dishka import Provider, Scope
+
+from waku.di import provide
 from waku.extensions import OnModuleConfigure
+from waku.mediator import MiddlewareChain
 from waku.mediator._utils import get_request_response_type
+from waku.mediator.contracts.event import EventT
+from waku.mediator.contracts.request import RequestT, ResponseT
 from waku.mediator.events.handler import EventHandler, EventHandlerType
 from waku.mediator.events.map import EventMap
 from waku.mediator.events.publish import EventPublisher, SequentialEventPublisher
 from waku.mediator.impl import Mediator
 from waku.mediator.interfaces import IMediator, IPublisher, ISender
-from waku.mediator.middlewares import AnyMiddleware, NoopMiddleware
+from waku.mediator.middlewares import Middleware
 from waku.mediator.requests.handler import RequestHandler, RequestHandlerType
 from waku.mediator.requests.map import RequestMap
 from waku.modules import DynamicModule, ModuleMetadata, module
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
-
-    from waku.mediator.contracts.event import EventT
-    from waku.mediator.contracts.request import RequestT, ResponseT
-
 
 __all__ = [
     'MediatorConfig',
@@ -31,7 +28,7 @@ __all__ = [
 ]
 
 
-_HandlerProviders: TypeAlias = tuple[AnyProvider[Any], ...]
+_HandlerProviders: TypeAlias = tuple[Provider, ...]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -54,14 +51,14 @@ class MediatorConfig:
         ```python
         config = MediatorConfig(
             mediator_implementation_type=CustomMediator,
-            middlewares=[LoggingMiddleware, ValidationMiddleware],
+            middlewares=[LoggingMiddleware(), ValidationMiddleware()],
         )
         ```
     """
 
     mediator_implementation_type: type[IMediator] = Mediator
     event_publisher: type[EventPublisher] = SequentialEventPublisher
-    middlewares: Sequence[type[AnyMiddleware]] = ()
+    middlewares: Sequence[Middleware] = ()
 
 
 @module()
@@ -73,37 +70,30 @@ class MediatorModule:
         Args:
             config: Configuration for the Mediator extension.
         """
+        config_ = config or MediatorConfig()
         return DynamicModule(
             parent_module=cls,
-            providers=list(cls._create_providers(config or MediatorConfig())),
+            providers=list(
+                chain(
+                    cls._create_mediator_providers(config_),
+                    cls._create_middleware_chain_provider(config_),
+                ),
+            ),
             is_global=True,
         )
-
-    @classmethod
-    def _create_providers(cls, config: MediatorConfig) -> Iterable[AnyProvider[Any]]:
-        return chain(
-            cls._create_middleware_providers(config),
-            cls._create_mediator_providers(config),
-        )
-
-    @staticmethod
-    def _create_middleware_providers(config: MediatorConfig) -> _HandlerProviders:
-        middlewares = config.middlewares or [NoopMiddleware]
-        # fmt: off
-        return tuple(
-            Transient(middleware, type_=AnyMiddleware)
-            for middleware in middlewares
-        )
-        # fmt: on
 
     @staticmethod
     def _create_mediator_providers(config: MediatorConfig) -> _HandlerProviders:
         return (
-            Transient(config.mediator_implementation_type, type_=IMediator),
-            Transient(config.mediator_implementation_type, type_=ISender),
-            Transient(config.mediator_implementation_type, type_=IPublisher),
-            Transient(config.event_publisher, type_=EventPublisher),
+            provide(config.mediator_implementation_type, provided_type=IMediator),
+            provide(config.mediator_implementation_type, provided_type=ISender),
+            provide(config.mediator_implementation_type, provided_type=IPublisher),
+            provide(config.event_publisher, provided_type=EventPublisher),
         )
+
+    @classmethod
+    def _create_middleware_chain_provider(cls, config: MediatorConfig) -> _HandlerProviders:
+        return (provide(lambda: MiddlewareChain(config.middlewares), provided_type=MiddlewareChain),)
 
 
 class MediatorExtension(OnModuleConfigure):
@@ -137,16 +127,27 @@ class MediatorExtension(OnModuleConfigure):
 
     def _create_request_handler_providers(self) -> _HandlerProviders:
         return tuple(
-            Transient(
+            provide(
                 handler_type,
-                type_=RequestHandler[request_type, get_request_response_type(request_type)],  # type: ignore[arg-type, valid-type, misc]
+                provided_type=RequestHandler[request_type, get_request_response_type(request_type)],  # type: ignore[arg-type, valid-type, misc]
+                cache=False,
             )
             for request_type, handler_type in self._request_map.registry.items()
         )
 
     def _create_event_handler_providers(self) -> _HandlerProviders:
+        def reg_list(provider: Provider, classes: list[type[Any]], base: type[Any]) -> Provider:
+            provider.provide_all(*classes)
+            provider.provide(lambda: [], provides=list[base])  # type: ignore[valid-type]  # noqa: PIE807
+            for cls in classes:
+
+                @provider.decorate
+                def foo(many: list[base], one: cls) -> list[base]:  # type: ignore[valid-type]
+                    return [*many, one]
+
+            return provider
+
         return tuple(
-            Transient(handler_type, type_=EventHandler[event_type])  # type: ignore[valid-type]
-            for (event_type, handler_types) in self._event_map.registry.items()
-            for handler_type in handler_types
+            reg_list(Provider(scope=Scope.REQUEST), handler_types, base=EventHandler[event_type])  # type: ignore[valid-type]
+            for event_type, handler_types in self._event_map.registry.items()
         )
