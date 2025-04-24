@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.8.0 (2025-04-24)
+
+### Documentation
+
+- Improve readme, add motivation section
+  ([`059e5c9`](https://github.com/waku-py/waku/commit/059e5c94169388f744f0f76b5f77352fa1e3cd7c))
+
+### Features
+
+- Migrate to dishka as ioc provider
+  ([`7296122`](https://github.com/waku-py/waku/commit/7296122524eaa6ef172582bcfa4f003d6af46640))
+
+
 ## v0.7.0 (2025-04-13)
 
 ### Features
