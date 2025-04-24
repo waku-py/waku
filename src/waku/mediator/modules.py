@@ -5,7 +5,7 @@ from typing import Any, Self, TypeAlias
 
 from dishka import Provider, Scope
 
-from waku.di import provide
+from waku.di import provider
 from waku.extensions import OnModuleConfigure
 from waku.mediator import MiddlewareChain
 from waku.mediator._utils import get_request_response_type
@@ -85,15 +85,15 @@ class MediatorModule:
     @staticmethod
     def _create_mediator_providers(config: MediatorConfig) -> _HandlerProviders:
         return (
-            provide(config.mediator_implementation_type, provided_type=IMediator),
-            provide(config.mediator_implementation_type, provided_type=ISender),
-            provide(config.mediator_implementation_type, provided_type=IPublisher),
-            provide(config.event_publisher, provided_type=EventPublisher),
+            provider(config.mediator_implementation_type, provided_type=IMediator),
+            provider(config.mediator_implementation_type, provided_type=ISender),
+            provider(config.mediator_implementation_type, provided_type=IPublisher),
+            provider(config.event_publisher, provided_type=EventPublisher),
         )
 
     @classmethod
     def _create_middleware_chain_provider(cls, config: MediatorConfig) -> _HandlerProviders:
-        return (provide(lambda: MiddlewareChain(config.middlewares), provided_type=MiddlewareChain),)
+        return (provider(lambda: MiddlewareChain(config.middlewares), provided_type=MiddlewareChain),)
 
 
 class MediatorExtension(OnModuleConfigure):
@@ -127,7 +127,7 @@ class MediatorExtension(OnModuleConfigure):
 
     def _create_request_handler_providers(self) -> _HandlerProviders:
         return tuple(
-            provide(
+            provider(
                 handler_type,
                 provided_type=RequestHandler[request_type, get_request_response_type(request_type)],  # type: ignore[arg-type, valid-type, misc]
                 cache=False,

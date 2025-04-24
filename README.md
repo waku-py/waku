@@ -114,7 +114,7 @@ from typing import ParamSpec, TypeVar
 from dishka import AsyncContainer, FromDishka
 from dishka.integrations.base import wrap_injection
 from waku import WakuFactory, module
-from waku.di import provide
+from waku.di import provider
 
 P = ParamSpec('P')
 T = TypeVar('T')
@@ -122,52 +122,52 @@ T = TypeVar('T')
 
 # Define your providers
 class GreetingService:
-    async def greet(self, name: str) -> str:
-        return f'Hello, {name}!'
+  async def greet(self, name: str) -> str:
+    return f'Hello, {name}!'
 
 
 # Define a module with your providers
-@module(providers=[provide(GreetingService)])
+@module(providers=[provider(GreetingService)])
 class GreetingModule:
-    pass
+  pass
 
 
 # Define the application composition root module
 @module(imports=[GreetingModule])
 class AppModule:
-    pass
+  pass
 
 
 # Simple inject decorator for example purposes
 # In real world you should import `@inject` decorator for your framework from `dishka.integrations.<framework>`
 def _inject(func: Callable[P, T]) -> Callable[P, T]:
-    return wrap_injection(
-        func=func,
-        is_async=True,
-        container_getter=lambda args, _: args[0],
-    )
+  return wrap_injection(
+    func=func,
+    is_async=True,
+    container_getter=lambda args, _: args[0],
+  )
 
 
 # Define entrypoints
 # In a real-world scenario, this could be FastAPI routes, etc.
 @_inject
 async def greet_user(container: AsyncContainer, greeting_service: FromDishka[GreetingService]) -> str:
-    return greeting_service.greet('waku')
+  return greeting_service.greet('waku')
 
 
 async def main() -> None:
-    # Create application via factory
-    application = WakuFactory(AppModule).create()
+  # Create application via factory
+  application = WakuFactory(AppModule).create()
 
-    # Run the application
-    # In a real-world scenario, this would be run by a framework like FastAPI
-    async with application, application.container() as request_container:
-        message = await greet_user(request_container)
-        print(message)  # Output: Hello, waku!
+  # Run the application
+  # In a real-world scenario, this would be run by a framework like FastAPI
+  async with application, application.container() as request_container:
+    message = await greet_user(request_container)
+    print(message)  # Output: Hello, waku!
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+  asyncio.run(main())
 
 ```
 

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from dishka import Scope
 
 from waku import WakuApplication, WakuFactory
-from waku.di import provide
+from waku.di import provider
 from waku.modules import module
 
 if TYPE_CHECKING:
@@ -58,11 +58,11 @@ async def test_application_module_registration() -> None:
     class ServiceB:
         pass
 
-    @module(providers=[provide(ServiceA)], exports=[ServiceA])
+    @module(providers=[provider(ServiceA)], exports=[ServiceA])
     class ModuleA:
         pass
 
-    @module(providers=[provide(ServiceB, scope=Scope.APP)], imports=[ModuleA])
+    @module(providers=[provider(ServiceB, scope=Scope.APP)], imports=[ModuleA])
     class ModuleB:
         pass
 
