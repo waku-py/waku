@@ -11,7 +11,9 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from types import TracebackType
 
-    from waku.container import WakuContainer
+    from dishka import AsyncContainer
+
+    from waku.graph import ModuleGraph
     from waku.modules import Module
 
 __all__ = ['WakuApplication']
@@ -20,11 +22,14 @@ __all__ = ['WakuApplication']
 class WakuApplication:
     def __init__(
         self,
-        container: WakuContainer,
+        *,
+        container: AsyncContainer,
+        graph: ModuleGraph,
         lifespan: Sequence[LifespanFunc | LifespanWrapper],
         extensions: Sequence[ApplicationExtension],
     ) -> None:
         self._container = container
+        self._graph = graph
         self._lifespan = tuple(
             LifespanWrapper(lifespan_func) if not isinstance(lifespan_func, LifespanWrapper) else lifespan_func
             for lifespan_func in lifespan
@@ -42,15 +47,18 @@ class WakuApplication:
         await self._call_after_init_extensions()
 
     @property
-    def container(self) -> WakuContainer:
+    def container(self) -> AsyncContainer:
         return self._container
+
+    @property
+    def graph(self) -> ModuleGraph:
+        return self._graph
 
     async def __aenter__(self) -> Self:
         await self.initialize()
         await self._exit_stack.__aenter__()
         for lifespan_wrapper in self._lifespan:
             await self._exit_stack.enter_async_context(lifespan_wrapper.lifespan(self))
-        await self._exit_stack.enter_async_context(self._container)
         return self
 
     async def __aexit__(
@@ -60,6 +68,8 @@ class WakuApplication:
         exc_tb: TracebackType | None,
     ) -> None:
         await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)
+        # Close APP scoped container
+        await self._container.close(exc_val)
 
     async def _call_on_init_extensions(self) -> None:
         async with asyncio.TaskGroup() as tg:
@@ -79,4 +89,4 @@ class WakuApplication:
                     tg.create_task(extension.after_app_init(self))
 
     def _get_modules_for_triggering_extensions(self) -> list[Module]:
-        return sorted(self._container.get_modules(), reverse=True)
+        return sorted(self.graph.traverse(), reverse=True)

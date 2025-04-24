@@ -1,13 +1,18 @@
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from typing import ParamSpec, TypeVar
+
+from dishka import AsyncContainer, FromDishka, provide, Provider, Scope
+from dishka.integrations.base import wrap_injection
 
 from waku import WakuApplication
-from waku.di import Injected, Scoped, Singleton, inject
-from waku.di.contrib.aioinject import AioinjectDependencyProvider
 from waku.factory import WakuFactory
 from waku.modules import DynamicModule, module
+
+P = ParamSpec('P')
+T = TypeVar('T')
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,6 +24,11 @@ class ConfigService:
         return option
 
 
+class ConfigServiceProvider(Provider):
+    scope = Scope.APP
+    config_service = provide(ConfigService)
+
+
 @module()
 class ConfigModule:
     @classmethod
@@ -27,7 +37,7 @@ class ConfigModule:
         logger.info('Loading config for env=%s', env)
         return DynamicModule(
             parent_module=cls,
-            providers=[Singleton(ConfigService)],
+            providers=[ConfigServiceProvider()],
             exports=[ConfigService],
         )
 
@@ -37,8 +47,13 @@ class UserService:
         return f'Hello, {name}!'
 
 
+class UserServiceProvider(Provider):
+    scope = Scope.REQUEST
+    user_service = provide(UserService)
+
+
 @module(
-    providers=[Scoped(UserService)],
+    providers=[UserServiceProvider()],
     exports=[UserService],
 )
 class UserModule:
@@ -67,12 +82,23 @@ class AppModule:
     pass
 
 
+# Simple inject decorator for example purposes
+# In real world you should import `@inject` decorator for your framework from `dishka.integrations.<framework>`
+def _inject(func: Callable[P, T]) -> Callable[P, T]:
+    return wrap_injection(
+        func=func,
+        is_async=True,
+        container_getter=lambda args, _: args[0],
+    )
+
+
 # Define entrypoints
 # In real world this can be FastAPI routes, etc.
-@inject
+@_inject
 async def handler(
-    user_service: Injected[UserService],
-    config_service: Injected[ConfigService],
+    container: AsyncContainer,  # noqa: ARG001
+    user_service: FromDishka[UserService],
+    config_service: FromDishka[ConfigService],
 ) -> None:
     print(await user_service.great('World'))
     print(config_service.get('TEST=1'))
@@ -87,19 +113,15 @@ async def lifespan(_: WakuApplication) -> AsyncIterator[None]:
 
 # Create application via factory
 def bootstrap() -> WakuApplication:
-    return WakuFactory.create(
-        AppModule,
-        dependency_provider=AioinjectDependencyProvider(),
-        lifespan=[lifespan],
-    )
+    return WakuFactory(AppModule, lifespan=[lifespan]).create()
 
 
 # Run the application
 # In real world this would be run by a 3rd party framework like FastAPI
 async def main() -> None:
-    application = bootstrap()
-    async with application, application.container.context():
-        await handler()  # type: ignore[call-arg]
+    app = bootstrap()
+    async with app, app.container() as request_container:
+        await handler(request_container)  # type: ignore[call-arg]
 
 
 if __name__ == '__main__':

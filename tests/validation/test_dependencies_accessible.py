@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import NewType
+from typing import NewType, Protocol
 
 import pytest
 
-from tests.mock import DummyDI
-from waku import WakuFactory
-from waku.di import Scoped
+from waku import WakuApplication, WakuFactory
+from waku.di import provide
 from waku.ext.validation import ValidationExtension, ValidationRule
 from waku.ext.validation.rules import DependenciesAccessible
-from waku.modules import module
+from waku.modules import ModuleType, module
 
 
 @dataclass
@@ -41,6 +40,21 @@ def rule() -> ValidationRule:
     return DependenciesAccessible()
 
 
+class ApplicationFactoryFunc(Protocol):
+    def __call__(self, root_module: ModuleType) -> WakuApplication: ...
+
+
+@pytest.fixture
+def application_factory(rule: ValidationRule) -> ApplicationFactoryFunc:
+    def factory(root_module: ModuleType) -> WakuApplication:
+        return WakuFactory(
+            root_module,
+            extensions=[ValidationExtension([rule])],
+        ).create()
+
+    return factory
+
+
 @pytest.mark.parametrize(
     ('imports', 'exports'),
     [
@@ -53,14 +67,13 @@ async def test_inaccessible(
     imports: bool,
     exports: bool,
     rule: ValidationRule,
+    application_factory: ApplicationFactoryFunc,
 ) -> None:
-    b_provider = Scoped(B)
-
-    @module(providers=[Scoped(A)], exports=[A] if exports else [])
+    @module(providers=[provide(A)], exports=[A] if exports else [])
     class AModule:
         pass
 
-    @module(providers=[b_provider], imports=[AModule] if imports else [])
+    @module(providers=[provide(B)], imports=[AModule] if imports else [])
     class BModule:
         pass
 
@@ -68,35 +81,30 @@ async def test_inaccessible(
     class AppModule:
         pass
 
-    application = WakuFactory.create(
-        AppModule,
-        dependency_provider=DummyDI(),
-        extensions=[ValidationExtension([rule])],
-    )
+    application = application_factory(AppModule)
 
     with pytest.raises(ExceptionGroup) as exc_info:
         await application.initialize()
 
     error = exc_info.value.exceptions[0].exceptions[0]
-    b_module = application.container.get_module(BModule)
-    error_message = f'Provider "{b_provider!r}" from "{b_module!r}" depends on "{A!r}" but it\'s not accessible to it'
+    b_module = application.graph.get(BModule)
+    error_message = f'"{B!r}" from "{b_module!r}" depends on "{A!r}" but it\'s not accessible to it'
     assert str(error).startswith(error_message)
 
-    application = WakuFactory.create(
+    application = WakuFactory(
         AppModule,
-        dependency_provider=DummyDI(),
         extensions=[ValidationExtension([rule], strict=False)],
-    )
+    ).create()
     with pytest.warns(Warning, match=re.escape(error_message)):
         await application.initialize()
 
 
-async def test_ok(rule: ValidationRule) -> None:
-    @module(providers=[Scoped(A), Scoped(_impl, C)], exports=[A, C])
+async def test_ok(application_factory: ApplicationFactoryFunc) -> None:
+    @module(providers=[provide(A), provide(_impl, provided_type=C)], exports=[A, C])
     class AModule:
         pass
 
-    @module(providers=[Scoped(B), Scoped(D)], imports=[AModule])
+    @module(providers=[provide(B), provide(D)], imports=[AModule])
     class BModule:
         pass
 
@@ -104,20 +112,16 @@ async def test_ok(rule: ValidationRule) -> None:
     class AppModule:
         pass
 
-    application = WakuFactory.create(
-        AppModule,
-        dependency_provider=DummyDI(),
-        extensions=[ValidationExtension([rule])],
-    )
+    application = application_factory(AppModule)
     await application.initialize()
 
 
-async def test_ok_with_global_providers(rule: ValidationRule) -> None:
-    @module(providers=[Scoped(A)], is_global=True)
+async def test_ok_with_global_providers(application_factory: ApplicationFactoryFunc) -> None:
+    @module(providers=[provide(A)], is_global=True)
     class AModule:
         pass
 
-    @module(providers=[Scoped(B)], imports=[AModule])
+    @module(providers=[provide(B)], imports=[AModule])
     class BModule:
         pass
 
@@ -125,26 +129,18 @@ async def test_ok_with_global_providers(rule: ValidationRule) -> None:
     class AppModule:
         pass
 
-    application = WakuFactory.create(
-        AppModule,
-        dependency_provider=DummyDI(),
-        extensions=[ValidationExtension([rule])],
-    )
+    application = application_factory(AppModule)
     await application.initialize()
 
 
-async def test_ok_with_application_providers(rule: ValidationRule) -> None:
-    @module(providers=[Scoped(B)], exports=[B])
+async def test_ok_with_application_providers(application_factory: ApplicationFactoryFunc) -> None:
+    @module(providers=[provide(B)], exports=[B])
     class BModule:
         pass
 
-    @module(providers=[Scoped(A)], imports=[BModule])
+    @module(providers=[provide(A)], imports=[BModule])
     class AppModule:
         pass
 
-    application = WakuFactory.create(
-        AppModule,
-        dependency_provider=DummyDI(),
-        extensions=[ValidationExtension([rule])],
-    )
+    application = application_factory(AppModule)
     await application.initialize()
