@@ -39,18 +39,14 @@ adapting their best ideas to the Python ecosystem. Here's list of some `waku` ke
 
 * 🧩 [**Modularity**](https://waku-py.github.io/waku/usage/modules/): Build applications as a set of loosely coupled
   modules with clear boundaries, automatic dependency validation, and controlled visibility
-* 💉 [**Powerful Dependency Injection System**](https://waku-py.github.io/waku/usage/providers/): Manage
-  dependencies with built-in DI framework-agnostic IoC-container, multiple lifetime scopes, and automatic resolution
+* 💉 [**Dependency Injection with Dishka**](https://waku-py.github.io/waku/usage/providers/): Leverage [Dishka](https://github.com/reagento/dishka/)'s powerful IoC-container for dependency management
 * 🔧 [**Extensions**](https://waku-py.github.io/waku/usage/extensions/): Extend `waku` with custom plugins that can
   hook into application lifecycle, add new providers, and integrate with external systems
-* 📊 [**Lifespan**](https://waku-py.github.io/waku/usage/lifespan/): Automatic manage application and IoC-container
+* 📊 [**Lifespan**](https://waku-py.github.io/waku/usage/lifespan/): Automatically manage application and IoC-container
   lifecycle with built-in hooks and event system
 * ⚙️ [**Command/Query handling (CQRS)**](https://waku-py.github.io/waku/usage/mediator/): Use mediator abstraction
   heavily inspired by C# [MediatR](https://github.com/jbogard/MediatR) library to handle commands, queries, and events
-* 🤝 [**Integrations**](https://waku-py.github.io/waku/integrations/asgi/): `waku` comes with
-  built-in integrations for popular web frameworks like [**FastAPI**](https://fastapi.tiangolo.com/)
-  or [**Litestar**](https://litestar.dev/) and allows you to easily create your own integrations with any other
-  frameworks
+* 🤝 [**Integrations**](https://waku-py.github.io/waku/integrations/): Leverage [Dishka](https://github.com/reagento/dishka/)'s extensive integrations for [FastAPI](https://fastapi.tiangolo.com/), [Litestar](https://litestar.dev/), [FastStream](https://faststream.airt.ai/latest/), [Aiogram](https://docs.aiogram.dev/), and more
 
 ## Motivation
 
@@ -64,13 +60,23 @@ Break down complex applications into self-contained modules with clear boundarie
 
 ### 💉 Dependency Injection
 
-Manage dependencies explicitly through a powerful DI system that supports different lifetime scopes (singleton, scoped, transient). This enables:
+`waku` uses [Dishka](https://github.com/reagento/dishka/) as its Dependency Injection framework, providing:
 
 - 🔄 Loose coupling between components
 - 🧪 Easier testing through dependency substitution
 - 📊 Clear dependency graphs
 - ⚡ Automatic lifecycle management
-- 🛠️ Framework-agnostic dependency resolution
+- 🎯 Type-safe dependency resolution
+- 🔒 Thread-safe container operations
+- 🔑 Direct container access for advanced use cases
+- 🎨 Built-in integrations with popular frameworks (FastAPI, Litestar, Flask, etc.)
+
+The framework exposes the Dishka container through `application.container`, allowing you to:
+- Access dependencies directly via `container.get(DependencyType)`
+- Create nested containers for request/action scopes
+- Manage dependency lifecycle manually when needed
+- Integrate with custom frameworks and middleware
+- Leverage Dishka's extensive framework integrations out of the box
 
 By combining these concepts, `waku` provides a structured approach to building Python applications that scales from small services to large enterprise systems.
 
@@ -98,18 +104,7 @@ pip install waku
 poetry add waku
 ```
 
-You also need to install some additional dependencies for the DI system to work.
-
-You can explore all available providers in our [documentation](https://waku-py.github.io/waku/usage/dependency-injection/#included-dependency-providers).
-
 ### Basic Example
-
-For our example we stick with [aioinject](https://github.com/aiopylibs/aioinject) as DI provider.
-Install it directly using your preferred package manager or as extra dependency of `waku`:
-
-```shell
-uv add "waku[aioinject]"
-```
 
 ```python linenums="1"
 import asyncio
