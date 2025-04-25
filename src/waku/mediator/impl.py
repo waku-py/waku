@@ -1,8 +1,8 @@
 from typing import cast
 
-from dishka import AsyncContainer
 from typing_extensions import override
 
+from waku.di import AsyncContainer
 from waku.mediator._utils import get_request_response_type
 from waku.mediator.contracts.event import Event, EventT
 from waku.mediator.contracts.request import Request, ResponseT

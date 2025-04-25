@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING, Protocol
+
+import anyio
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -29,6 +30,6 @@ class SequentialEventPublisher(EventPublisher):
 
 class GroupEventPublisher(EventPublisher):
     async def __call__(self, handlers: Sequence[EventHandler[EventT]], event: EventT) -> None:
-        async with asyncio.TaskGroup() as tg:
+        async with anyio.create_task_group() as tg:
             for handler in handlers:
-                tg.create_task(handler.handle(event))
+                tg.start_soon(handler.handle, event)

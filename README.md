@@ -108,10 +108,9 @@ import asyncio
 from collections.abc import Callable
 from typing import ParamSpec, TypeVar
 
-from dishka import AsyncContainer, FromDishka
 from dishka.integrations.base import wrap_injection
 from waku import WakuFactory, module
-from waku.di import provider
+from waku.di import AsyncContainer, Injected, scoped
 
 P = ParamSpec('P')
 T = TypeVar('T')
@@ -124,7 +123,7 @@ class GreetingService:
 
 
 # Define a module with your providers
-@module(providers=[provider(GreetingService)])
+@module(providers=[scoped(GreetingService)])
 class GreetingModule:
     pass
 
@@ -148,7 +147,7 @@ def _inject(func: Callable[P, T]) -> Callable[P, T]:
 # Define entrypoints
 # In a real-world scenario, this could be FastAPI routes, etc.
 @_inject
-async def greet_user(container: AsyncContainer, greeting_service: FromDishka[GreetingService]) -> str:
+async def greet_user(container: AsyncContainer, greeting_service: Injected[GreetingService]) -> str:
     return greeting_service.greet('waku')
 
 

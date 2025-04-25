@@ -5,10 +5,9 @@ from dataclasses import dataclass
 from typing import NewType, Protocol
 
 import pytest
-from dishka import Provider, Scope, from_context, provide
 
 from waku import WakuApplication, WakuFactory
-from waku.di import provider
+from waku.di import Scope, contextual, scoped
 from waku.ext.validation import ValidationExtension, ValidationRule
 from waku.ext.validation.rules import DependenciesAccessible
 from waku.modules import ModuleType, module
@@ -70,11 +69,11 @@ async def test_inaccessible(
     rule: ValidationRule,
     application_factory: ApplicationFactoryFunc,
 ) -> None:
-    @module(providers=[provider(A)], exports=[A] if exports else [])
+    @module(providers=[scoped(A)], exports=[A] if exports else [])
     class AModule:
         pass
 
-    @module(providers=[provider(B)], imports=[AModule] if imports else [])
+    @module(providers=[scoped(B)], imports=[AModule] if imports else [])
     class BModule:
         pass
 
@@ -101,11 +100,11 @@ async def test_inaccessible(
 
 
 async def test_ok(application_factory: ApplicationFactoryFunc) -> None:
-    @module(providers=[provider(A), provider(_impl, provided_type=C)], exports=[A, C])
+    @module(providers=[scoped(A), scoped(_impl, provided_type=C)], exports=[A, C])
     class AModule:
         pass
 
-    @module(providers=[provider(B), provider(D)], imports=[AModule])
+    @module(providers=[scoped(B), scoped(D)], imports=[AModule])
     class BModule:
         pass
 
@@ -118,11 +117,11 @@ async def test_ok(application_factory: ApplicationFactoryFunc) -> None:
 
 
 async def test_ok_with_global_providers(application_factory: ApplicationFactoryFunc) -> None:
-    @module(providers=[provider(A)], is_global=True)
+    @module(providers=[scoped(A)], is_global=True)
     class AModule:
         pass
 
-    @module(providers=[provider(B)], imports=[AModule])
+    @module(providers=[scoped(B)], imports=[AModule])
     class BModule:
         pass
 
@@ -134,13 +133,15 @@ async def test_ok_with_global_providers(application_factory: ApplicationFactoryF
     await application.initialize()
 
 
-async def test_with_from_context_providers(rule: ValidationRule) -> None:
-    class TestProvider(Provider):
-        scope = Scope.REQUEST
-        b = provide(B)
-        a = from_context(A, scope=Scope.APP)
-
-    @module(providers=[TestProvider()], exports=[B])
+@pytest.mark.parametrize('scope', [Scope.APP, Scope.REQUEST])
+async def test_with_contextual_provider(rule: ValidationRule, scope: Scope) -> None:
+    @module(
+        providers=[
+            contextual(A, scope=scope),
+            scoped(B),
+        ],
+        exports=[B],
+    )
     class Module:
         pass
 
@@ -158,11 +159,11 @@ async def test_with_from_context_providers(rule: ValidationRule) -> None:
 
 
 async def test_ok_with_application_providers(application_factory: ApplicationFactoryFunc) -> None:
-    @module(providers=[provider(B)], exports=[B])
+    @module(providers=[scoped(B)], exports=[B])
     class BModule:
         pass
 
-    @module(providers=[provider(A)], imports=[BModule])
+    @module(providers=[scoped(A)], imports=[BModule])
     class AppModule:
         pass
 

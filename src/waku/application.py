@@ -1,20 +1,18 @@
 from __future__ import annotations
 
-import asyncio
-import contextlib
 from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, Self
 
-from dishka.override import override
+import anyio
 
 from waku.extensions import AfterApplicationInit, ApplicationExtension, OnApplicationInit, OnModuleInit
 from waku.lifespan import LifespanFunc, LifespanWrapper
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Sequence
     from types import TracebackType
 
-    from dishka import AsyncContainer, Provider
+    from dishka import AsyncContainer
 
     from waku.graph import ModuleGraph
     from waku.modules import Module
@@ -57,11 +55,6 @@ class WakuApplication:
     def graph(self) -> ModuleGraph:
         return self._graph
 
-    @contextlib.contextmanager
-    def override(self, *providers: Provider) -> Iterator[None]:
-        with override(self.container, *providers):
-            yield
-
     async def __aenter__(self) -> Self:
         await self.initialize()
         await self._exit_stack.__aenter__()
@@ -80,21 +73,21 @@ class WakuApplication:
         await self._container.close(exc_val)
 
     async def _call_on_init_extensions(self) -> None:
-        async with asyncio.TaskGroup() as tg:
+        async with anyio.create_task_group() as tg:
             for module in self._get_modules_for_triggering_extensions():
                 for extension in module.extensions:
                     if isinstance(extension, OnModuleInit):  # pyright: ignore[reportUnnecessaryIsInstance]
-                        tg.create_task(extension.on_module_init(module))
+                        tg.start_soon(extension.on_module_init, module)
 
             for app_extension in self._extensions:
                 if isinstance(app_extension, OnApplicationInit):
-                    tg.create_task(app_extension.on_app_init(self))
+                    tg.start_soon(app_extension.on_app_init, self)
 
     async def _call_after_init_extensions(self) -> None:
-        async with asyncio.TaskGroup() as tg:
+        async with anyio.create_task_group() as tg:
             for extension in self._extensions:
                 if isinstance(extension, AfterApplicationInit):
-                    tg.create_task(extension.after_app_init(self))
+                    tg.start_soon(extension.after_app_init, self)
 
     def _get_modules_for_triggering_extensions(self) -> list[Module]:
         return sorted(self.graph.traverse(), reverse=True)

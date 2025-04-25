@@ -3,10 +3,8 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
-from dishka import Scope
-
 from waku import WakuApplication, WakuFactory
-from waku.di import provider
+from waku.di import scoped, singleton
 from waku.modules import module
 
 if TYPE_CHECKING:
@@ -58,11 +56,11 @@ async def test_application_module_registration() -> None:
     class ServiceB:
         pass
 
-    @module(providers=[provider(ServiceA)], exports=[ServiceA])
+    @module(providers=[scoped(ServiceA)], exports=[ServiceA])
     class ModuleA:
         pass
 
-    @module(providers=[provider(ServiceB, scope=Scope.APP)], imports=[ModuleA])
+    @module(providers=[singleton(ServiceB)], imports=[ModuleA])
     class ModuleB:
         pass
 

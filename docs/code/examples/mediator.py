@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from typing import Any, ParamSpec, TypeVar
 from uuid import UUID, uuid4
 
-from dishka import AsyncContainer, FromDishka
 from dishka.integrations.base import wrap_injection
 
 from waku import WakuApplication, WakuFactory
+from waku.di import AsyncContainer, Injected
 from waku.mediator import (
     IMediator,
     MediatorConfig,
@@ -120,7 +120,7 @@ def _inject(func: Callable[P, T]) -> Callable[P, T]:
 @_inject
 async def handler(
     container: AsyncContainer,  # noqa: ARG001
-    mediator: FromDishka[IMediator],
+    mediator: Injected[IMediator],
 ) -> None:
     command = CreateMeetingCommand(user_id=uuid4())
     await mediator.send(command)

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, ParamSpec, Protocol, TypeAlias, TypeVar
 from waku.mediator.contracts.request import Request, Response
 
 if TYPE_CHECKING:
-    from dishka import AsyncContainer
+    from waku.di import AsyncContainer
 
 
 __all__ = [
