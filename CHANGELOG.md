@@ -2,6 +2,33 @@
 
 <!-- version list -->
 
+## v0.9.0 (2025-04-25)
+
+### Bug Fixes
+
+- Skip context providers when validation that deps accessible
+  ([`12d658e`](https://github.com/waku-py/waku/commit/12d658e855286e8aba7558777e15e78ab839993f))
+
+- Trigger release
+  ([`2d31df1`](https://github.com/waku-py/waku/commit/2d31df11db3ca161a24271efaa14de754b96fcca))
+
+### Documentation
+
+- Actualize readme file
+  ([`1001875`](https://github.com/waku-py/waku/commit/10018751c8b7a9640042301e27eff9251fd7c965))
+
+- Fix readme formatting
+  ([`116e424`](https://github.com/waku-py/waku/commit/116e424ea3709d434de0728a9d05037a4bb24aae))
+
+### Features
+
+- Add container override helper to application
+  ([`1e2f216`](https://github.com/waku-py/waku/commit/1e2f2162e185a74f28ef6b3986c52171b3b59412))
+
+- Add di helpers, add testing override helper
+  ([`66d7bb5`](https://github.com/waku-py/waku/commit/66d7bb5ea2ff4aa4fa57ad04666a96994a04c03f))
+
+
 ## v0.8.0 (2025-04-24)
 
 ### Documentation
