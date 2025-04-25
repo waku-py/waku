@@ -4,10 +4,10 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import ParamSpec, TypeVar
 
-from dishka import AsyncContainer, FromDishka, provide, Provider, Scope
 from dishka.integrations.base import wrap_injection
 
 from waku import WakuApplication
+from waku.di import AsyncContainer, Injected, scoped, singleton
 from waku.factory import WakuFactory
 from waku.modules import DynamicModule, module
 
@@ -24,11 +24,6 @@ class ConfigService:
         return option
 
 
-class ConfigServiceProvider(Provider):
-    scope = Scope.APP
-    config_service = provide(ConfigService)
-
-
 @module()
 class ConfigModule:
     @classmethod
@@ -37,7 +32,7 @@ class ConfigModule:
         logger.info('Loading config for env=%s', env)
         return DynamicModule(
             parent_module=cls,
-            providers=[ConfigServiceProvider()],
+            providers=[singleton(ConfigService)],
             exports=[ConfigService],
         )
 
@@ -47,13 +42,8 @@ class UserService:
         return f'Hello, {name}!'
 
 
-class UserServiceProvider(Provider):
-    scope = Scope.REQUEST
-    user_service = provide(UserService)
-
-
 @module(
-    providers=[UserServiceProvider()],
+    providers=[scoped(UserService)],
     exports=[UserService],
 )
 class UserModule:
@@ -97,8 +87,8 @@ def _inject(func: Callable[P, T]) -> Callable[P, T]:
 @_inject
 async def handler(
     container: AsyncContainer,  # noqa: ARG001
-    user_service: FromDishka[UserService],
-    config_service: FromDishka[ConfigService],
+    user_service: Injected[UserService],
+    config_service: Injected[ConfigService],
 ) -> None:
     print(await user_service.great('World'))
     print(config_service.get('TEST=1'))
