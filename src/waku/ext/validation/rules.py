@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import functools
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from dishka.entities.factory_type import FactoryType
 from typing_extensions import override
@@ -11,9 +11,6 @@ from waku.ext.validation._abc import ValidationRule
 from waku.ext.validation._errors import ValidationError
 
 if TYPE_CHECKING:
-    from dishka import DependencyKey
-    from dishka.provider import BaseProvider
-
     from waku.ext.validation._extension import ValidationContext
     from waku.modules import Module
 
@@ -33,43 +30,35 @@ class DependenciesAccessible(ValidationRule):
     @override
     def validate(self, context: ValidationContext) -> list[ValidationError]:
         graph = context.app.graph
+        modules: list[Module] = list(graph.traverse())  # Cache traversal results
 
-        # fmt: off
+        # Cache global providers
         global_providers: set[type[object]] = {AsyncContainer}
         global_providers |= {
             provided_type
-            for module in graph.traverse()
+            for module in modules
             for provided_type in _module_provided_types(module)
             if graph.is_global_module(module)
         }
-        # fmt: on
         global_context_providers = {
             dep.type_hint
             for dep, factory in context.app.container.registry.factories.items()
             if (factory.scope is Scope.APP and factory.type is FactoryType.CONTEXT)
         }
-
         global_providers |= global_context_providers
 
         errors: list[ValidationError] = []
-        for module in graph.traverse():
+        for module in modules:
+            imported_modules = list(graph.traverse(module))
             for provider in module.providers:
                 for factory in provider.factories:
+                    inaccessible_deps: set[type[object]] = set()
                     for dependency in factory.dependencies:
-                        # 1. Dep available globally or provided by current module
                         dep_type = dependency.type_hint
-                        if dep_type in global_providers or dep_type in _module_provided_types(module):
-                            continue
-                        # 2. Dep extracted from container context
-                        if dep_type in _module_provided_context_vars(module):
-                            continue
-                        # 3. Dep provided by any of imported modules
-                        if any(
-                            _is_exported_dependency(dependency, imported_module)
-                            for imported_module in graph.traverse(module)
-                        ):
-                            continue
-                        # 4. Dep is not accessible
+                        if not _can_access_dependency(dep_type, module, global_providers, imported_modules):
+                            inaccessible_deps.add(dep_type)
+
+                    for dep_type in inaccessible_deps:
                         err_msg = (
                             f'"{factory.source!r}" from "{module!r}" depends on "{dep_type!r}" but it\'s not accessible to it\n'
                             f'To resolve this issue:\n'
@@ -81,21 +70,34 @@ class DependenciesAccessible(ValidationRule):
         return errors
 
 
-def _is_exported_dependency(dependency: DependencyKey, module: Module) -> bool:
+def _can_access_dependency(
+    dep_type: Any,
+    module: Module,
+    global_providers: set[type[object]],
+    imported_modules: list[Module],
+) -> bool:
+    # 1. Dep available globally
+    if dep_type in global_providers:
+        return True
+    # 2. Dep exported by current module
+    if _is_type_exported_by_module(dep_type, module):
+        return True
+    # 3. Dep extracted from container context
+    if dep_type in _module_provided_context_vars(module):
+        return True
+    # 4. Dep provided by any of imported modules
     # fmt: off
-    type_ = dependency.type_hint
-    return (
-        type_ in _module_provided_types(module)
-        and type_ in module.exports
+    return any(
+        _is_type_exported_by_module(dep_type, imported_module)
+        for imported_module in imported_modules
     )
     # fmt: on
 
 
-def _is_context_var(dependency: DependencyKey, provider: BaseProvider) -> bool:
-    # fmt: off
-    type_ = dependency.type_hint
-    return any(type_ is context_var.provides.type_hint for context_var in provider.context_vars)
-    # fmt: on
+@functools.cache
+def _is_type_exported_by_module(type_: type[object], module: Module) -> bool:
+    """Check if a type is exported by a module."""
+    return type_ in _module_provided_types(module) and type_ in module.exports
 
 
 @functools.cache
