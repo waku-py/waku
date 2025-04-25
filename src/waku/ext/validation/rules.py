@@ -3,14 +3,16 @@ from __future__ import annotations
 import functools
 from typing import TYPE_CHECKING
 
-from dishka import AsyncContainer, Provider
+from dishka.entities.factory_type import FactoryType
 from typing_extensions import override
 
+from waku.di import AsyncContainer, Scope
 from waku.ext.validation._abc import ValidationRule
 from waku.ext.validation._errors import ValidationError
 
 if TYPE_CHECKING:
     from dishka import DependencyKey
+    from dishka.provider import BaseProvider
 
     from waku.ext.validation._extension import ValidationContext
     from waku.modules import Module
@@ -33,15 +35,21 @@ class DependenciesAccessible(ValidationRule):
         graph = context.app.graph
 
         # fmt: off
-        global_providers = {
-            provider_type
+        global_providers: set[type[object]] = {AsyncContainer}
+        global_providers |= {
+            provided_type
             for module in graph.traverse()
-            for provider_type in _module_provided_types(module)
+            for provided_type in _module_provided_types(module)
             if graph.is_global_module(module)
         }
         # fmt: on
+        global_context_providers = {
+            dep.type_hint
+            for dep, factory in context.app.container.registry.factories.items()
+            if (factory.scope is Scope.APP and factory.type is FactoryType.CONTEXT)
+        }
 
-        global_providers |= {AsyncContainer}
+        global_providers |= global_context_providers
 
         errors: list[ValidationError] = []
         for module in graph.traverse():
@@ -53,7 +61,7 @@ class DependenciesAccessible(ValidationRule):
                         if dep_type in global_providers or dep_type in _module_provided_types(module):
                             continue
                         # 2. Dep extracted from container context
-                        if _is_context_var(dependency, provider):
+                        if dep_type in _module_provided_context_vars(module):
                             continue
                         # 3. Dep provided by any of imported modules
                         if any(
@@ -83,7 +91,7 @@ def _is_exported_dependency(dependency: DependencyKey, module: Module) -> bool:
     # fmt: on
 
 
-def _is_context_var(dependency: DependencyKey, provider: Provider) -> bool:
+def _is_context_var(dependency: DependencyKey, provider: BaseProvider) -> bool:
     # fmt: off
     type_ = dependency.type_hint
     return any(type_ is context_var.provides.type_hint for context_var in provider.context_vars)
@@ -105,5 +113,17 @@ def _module_provided_types(module: Module) -> set[type[object]]:
         factory.provides.type_hint
         for provider in module.providers
         for factory in provider.factories
+    }
+    # fmt: on
+
+
+@functools.cache
+def _module_provided_context_vars(module: Module) -> set[type[object]]:
+    """Get all types provided by a provider's context variables."""
+    # fmt: off
+    return {
+        context_var.provides.type_hint
+        for provider in module.providers
+        for context_var in provider.context_vars
     }
     # fmt: on

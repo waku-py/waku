@@ -29,6 +29,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
+  "anyio",
   "dishka>=1.5.3",
   "typing-extensions>=4.12",
 ]
@@ -64,7 +65,6 @@ lint = [
   "ruff>=0.11.2",
 ]
 test = [
-  "anyio>=4.9.0",
   "pytest>=8.3.5",
   "pytest-archon>=0.0.6",
   "pytest-clarity>=1.0.1",
@@ -72,6 +72,8 @@ test = [
   "pytest-mock>=3.14.0",
   "pytest-randomly>=3.16.0",
   "pytest-timeout>=2.3.1",
+  "trio>=0.30.0",
+  "uvloop>=0.21.0",
 ]
 typecheck = [
   "basedpyright>=1.28.3",

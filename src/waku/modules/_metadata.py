@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, TypeVar, cast
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from dishka import Provider
+    from dishka.provider import BaseProvider
 
     from waku.extensions import ModuleExtension
 
@@ -30,7 +30,7 @@ MODULE_METADATA_KEY: Final = '__module_metadata__'
 
 @dataclass(kw_only=True, slots=True)
 class ModuleMetadata:
-    providers: list[Provider] = field(default_factory=list)
+    providers: list[BaseProvider] = field(default_factory=list)
     """List of providers for dependency injection."""
     imports: list[ModuleType | DynamicModule] = field(default_factory=list)
     """List of modules imported by this module."""
@@ -61,7 +61,7 @@ class DynamicModule(ModuleMetadata):
 
 def module(
     *,
-    providers: Sequence[Provider] = (),
+    providers: Sequence[BaseProvider] = (),
     imports: Sequence[ModuleType | DynamicModule] = (),
     exports: Sequence[object | ModuleType | DynamicModule] = (),
     extensions: Sequence[ModuleExtension] = (),

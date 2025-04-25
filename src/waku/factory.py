@@ -14,8 +14,9 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from uuid import UUID
 
-    from dishka import AsyncContainer, Provider
+    from dishka.provider import BaseProvider
 
+    from waku.di import AsyncContainer
     from waku.extensions import ApplicationExtension
     from waku.lifespan import LifespanFunc
     from waku.modules import DynamicModule, ModuleType
@@ -30,7 +31,7 @@ class WakuFactory:
         lifespan: Sequence[LifespanFunc] = (),
         extensions: Sequence[ApplicationExtension] = DEFAULT_EXTENSIONS,
     ) -> None:
-        self._providers: list[Provider] = []
+        self._providers: list[BaseProvider] = []
         self._context = context
         self._container: AsyncContainer | None = None
 
