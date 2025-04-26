@@ -46,7 +46,7 @@
 
 - 🧩 [Modular architecture](https://waku-py.github.io/waku/usage/modules/): Build applications as a set of loosely coupled modules with clear boundaries, automatic dependency validation, and controlled visibility.
 - 💉 [Dependency Injection (Dishka)](https://waku-py.github.io/waku/usage/providers/): Use Dishka's IoC container for type-safe, testable, and maintainable dependency management.
-- 📨 [CQRS/Mediator](https://waku-py.github.io/waku/usage/mediator/): Handle commands, queries, and events with a mediator abstraction inspired by C# [MediatR]((https://github.com/jbogard/MediatR).
+- 📨 [CQRS/Mediator](https://waku-py.github.io/waku/usage/mediator/): Handle commands, queries, and events with a mediator abstraction inspired by C# [MediatR](https://github.com/jbogard/MediatR).
 - 🧰 [Extensions & plugins](https://waku-py.github.io/waku/usage/extensions/): Extend `waku` with custom plugins that can hook into the application lifecycle, add providers, or integrate with external systems.
 - 🔄 [Lifespan management](https://waku-py.github.io/waku/usage/lifespan/): Automatically manage application and IoC container lifecycles with built-in hooks and an event system.
 - 🤝 [Integrations](https://waku-py.github.io/waku/integrations/): Out-of-the-box support for FastAPI, Litestar, FastStream, Aiogram, and more, leveraging Dishka's integrations.
