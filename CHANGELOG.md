@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.9.1 (2025-04-26)
+
+### Performance Improvements
+
+- Optimize DependenciesAccessible rule
+  ([`8eb1ae2`](https://github.com/waku-py/waku/commit/8eb1ae26a24982d4d9482b1117ad9ef7f6b2105d))
+
+
 ## v0.9.0 (2025-04-25)
 
 ### Bug Fixes
