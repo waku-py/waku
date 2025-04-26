@@ -31,7 +31,7 @@ class D:
     c: C
 
 
-def _impl() -> int:
+def _impl() -> int:  # pragma: no cover
     return 1
 
 

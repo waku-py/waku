@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import contextlib
 from collections.abc import Callable
-from contextlib import AbstractAsyncContextManager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import TYPE_CHECKING, TypeAlias, final
 
 if TYPE_CHECKING:
@@ -25,7 +24,7 @@ class LifespanWrapper:
     def __init__(self, lifespan_func: LifespanFunc) -> None:
         self._lifespan_func = lifespan_func
 
-    @contextlib.asynccontextmanager
+    @asynccontextmanager
     async def lifespan(self, app: WakuApplication) -> AsyncIterator[None]:
         ctx_manager = (
             self._lifespan_func

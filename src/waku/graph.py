@@ -9,6 +9,8 @@ if TYPE_CHECKING:
 
     from waku.modules import Module, ModuleCompiler, ModuleType
 
+__all__ = ['ModuleGraph']
+
 
 class ModuleGraph:
     def __init__(self, root_module: Module, compiler: ModuleCompiler) -> None:
@@ -17,6 +19,8 @@ class ModuleGraph:
 
         self._modules: dict[UUID, Module] = {}
         self._adjacency: dict[UUID, set[UUID]] = defaultdict(set)
+
+        self.add_node(root_module)
 
     def add_node(self, module: Module) -> None:
         self._modules.setdefault(module.id, module)

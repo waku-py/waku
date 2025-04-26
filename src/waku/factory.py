@@ -22,6 +22,9 @@ if TYPE_CHECKING:
     from waku.modules import DynamicModule, ModuleType
 
 
+__all__ = ['WakuFactory']
+
+
 class WakuFactory:
     def __init__(
         self,
@@ -33,7 +36,6 @@ class WakuFactory:
     ) -> None:
         self._providers: list[BaseProvider] = []
         self._context = context
-        self._container: AsyncContainer | None = None
 
         self._modules: dict[UUID, Module] = {}
         self._compiler = ModuleCompiler()
@@ -68,10 +70,10 @@ class WakuFactory:
 
         module = Module(type_, metadata)
 
-        self._modules[module.id] = module
-
         for provider in module.providers:
             self._providers.append(provider)
+
+        self._modules[module.id] = module
 
         return module, True
 
@@ -89,12 +91,11 @@ class WakuFactory:
         self,
         module_type: ModuleType | DynamicModule,
     ) -> None:
-        module, added = self._add_module(module_type)
-
-        if added:
-            self._graph.add_node(module)
+        module, _ = self._add_module(module_type)
 
         for imported_module_type in module.imports:
-            imported_module, _ = self._add_module(imported_module_type)
+            imported_module, imported_module_added = self._add_module(imported_module_type)
+            if imported_module_added:
+                self._graph.add_node(imported_module)
             self._graph.add_edge(module, imported_module)
             self._register_modules(imported_module_type)

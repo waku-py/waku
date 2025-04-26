@@ -4,6 +4,7 @@ from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, Self
 
 import anyio
+from dishka.async_container import AsyncContextWrapper
 
 from waku.extensions import AfterApplicationInit, ApplicationExtension, OnApplicationInit, OnModuleInit
 from waku.lifespan import LifespanFunc, LifespanWrapper
@@ -12,8 +13,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from types import TracebackType
 
-    from dishka import AsyncContainer
-
+    from waku.di import AsyncContainer
     from waku.graph import ModuleGraph
     from waku.modules import Module
 
@@ -60,6 +60,7 @@ class WakuApplication:
         await self._exit_stack.__aenter__()
         for lifespan_wrapper in self._lifespan:
             await self._exit_stack.enter_async_context(lifespan_wrapper.lifespan(self))
+        await self._exit_stack.enter_async_context(AsyncContextWrapper(self._container))
         return self
 
     async def __aexit__(
@@ -69,8 +70,6 @@ class WakuApplication:
         exc_tb: TracebackType | None,
     ) -> None:
         await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)
-        # Close APP scoped container
-        await self._container.close(exc_val)
 
     async def _call_on_init_extensions(self) -> None:
         async with anyio.create_task_group() as tg:

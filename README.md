@@ -72,6 +72,7 @@ Break down complex applications into self-contained modules with clear boundarie
 - 🎨 Built-in integrations with popular frameworks (FastAPI, Litestar, Flask, etc.)
 
 The framework exposes the Dishka container through `application.container`, allowing you to:
+
 - Access dependencies directly via `container.get(DependencyType)`
 - Create nested containers for request/action scopes
 - Manage dependency lifecycle manually when needed

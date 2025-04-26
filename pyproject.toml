@@ -29,7 +29,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "anyio",
+  "anyio>=4.7.0",
   "dishka>=1.5.3",
   "typing-extensions>=4.12",
 ]
@@ -45,30 +45,29 @@ only-include = ["src/waku", "tests"]
 
 [dependency-groups]
 dev = [
-  "pip-audit>=2.8.0",
-  "rich>=13.9.4",
-  "setuptools>=77.0.3",
+  "pip-audit>=2.9.0",
+  "rich>=14.0.0",
 ]
 docs = [
   "mkdocs>=1.6.1",
   "mkdocs-callouts>=1.16.0",
   "mkdocs-exclude>=1.0.2",
   "mkdocs-git-revision-date-localized-plugin>=1.4.5",
-  "mkdocs-material>=9.6.9",
+  "mkdocs-material>=9.6.12",
   "mkdocs-redirects>=1.2.2",
-  "mkdocstrings[python]>=0.29.0",
+  "mkdocstrings[python]>=0.29.1",
 ]
 lint = [
   "deptry>=0.23.0",
   "gitlint>=0.19.1",
   "pre-commit>=4.2.0",
-  "ruff>=0.11.2",
+  "ruff>=0.11.6",
 ]
 test = [
   "pytest>=8.3.5",
-  "pytest-archon>=0.0.6",
   "pytest-clarity>=1.0.1",
-  "pytest-cov>=6.0.0",
+  "pytest-cov>=6.1.0",
+  "pytest-deadfixtures>=2.2.1",
   "pytest-mock>=3.14.0",
   "pytest-randomly>=3.16.0",
   "pytest-timeout>=2.3.1",
@@ -76,20 +75,18 @@ test = [
   "uvloop>=0.21.0",
 ]
 typecheck = [
-  "basedpyright>=1.28.3",
+  "basedpyright>=1.29.1",
   "mypy>=1.15.0",
-  "types-setuptools>=76.0.0.20250313",
 ]
 
 # ----- UV settings -----
 [tool.uv]
 default-groups = "all"
-required-version = ">=0.6.11"
+required-version = ">=0.6.17"
 
 
 # ----- Pytest settings -----
 [tool.pytest.ini_options]
-testpaths = ["tests"]
 xfail_strict = true
 norecursedirs = ".* examples __pycache__"
 disable_test_id_escaping_and_forfeit_all_rights_to_community_support = true
@@ -98,15 +95,20 @@ addopts = [
   "--doctest-modules",
   "--strict-markers",
   "--strict-config",
-  #  "--cov-fail-under=90",
+  "--cov-fail-under=85",
 ]
-
+# pytest-timeout settings
+timeout = 5
+session_timeout = 100
 
 # ----- Coverage settings -----
 [tool.coverage.run]
 branch = true
+source = ["src", "tests"]
+omit = ["*__dishka_factory_*"]
 
 [tool.coverage.report]
+show_missing = true
 skip_covered = true
 exclude_also = [
   "def __repr__",
