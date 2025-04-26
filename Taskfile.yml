@@ -147,7 +147,7 @@ tasks:
     desc: Run tests with coverage
     deps: [ .uv ]
     vars:
-      PYTEST_ARGS: --cov --cov-report term
+      PYTEST_ARGS: --cov
     cmds:
       - task: test
         vars:

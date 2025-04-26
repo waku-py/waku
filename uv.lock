@@ -1035,18 +1035,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pytest-archon"
-version = "0.0.6"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pytest" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/55/82/ae6a09261ad465e43844b5ff201ecf2ab01a2cd64123fb60c2cd702057c5/pytest-archon-0.0.6.tar.gz", hash = "sha256:5af260a7617fc0a9e8bcd7a62adc42ed1ad466e20ae128b218589f49f73b1bcf", size = 47661, upload_time = "2023-12-18T14:55:01.667Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/8f/67/ac6b2f2e9a9f46f5d1da47fd02107f51d9dff39d80442adc2dc7abb8c35d/pytest_archon-0.0.6-py3-none-any.whl", hash = "sha256:f49b6b1f33a541dda1cab8a733b93b8a712594a002f03283294a624d0b394e83", size = 44665, upload_time = "2023-12-18T14:54:59.476Z" },
-]
-
-[[package]]
 name = "pytest-clarity"
 version = "1.0.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1068,6 +1056,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/25/69/5f1e57f6c5a39f81411b550027bf72842c4567ff5fd572bed1edc9e4b5d9/pytest_cov-6.1.1.tar.gz", hash = "sha256:46935f7aaefba760e716c2ebfbe1c216240b9592966e7da99ea8292d4d3e2a0a", size = 66857, upload_time = "2025-04-05T14:07:51.592Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/28/d0/def53b4a790cfb21483016430ed828f64830dd981ebe1089971cd10cab25/pytest_cov-6.1.1-py3-none-any.whl", hash = "sha256:bddf29ed2d0ab6f4df17b4c55b0a657287db8684af9c42ea546b21b1041b3dde", size = 23841, upload_time = "2025-04-05T14:07:49.641Z" },
+]
+
+[[package]]
+name = "pytest-deadfixtures"
+version = "2.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c5/d5/0472e7dd4c5794cd720f8add3ba59b35e45c1bb7482e04b6d6e60ff4eed0/pytest-deadfixtures-2.2.1.tar.gz", hash = "sha256:ca15938a4e8330993ccec9c6c847383d88b3cd574729530647dc6b492daa9c1e", size = 6616, upload_time = "2020-07-23T11:58:09.465Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4a/c7/d8c3fa6d2de6814c92161fcce984a7d38a63186590a66238e7b749f7fe37/pytest_deadfixtures-2.2.1-py2.py3-none-any.whl", hash = "sha256:db71533f2d9456227084e00a1231e732973e299ccb7c37ab92e95032ab6c083e", size = 5059, upload_time = "2020-07-23T11:58:11.538Z" },
 ]
 
 [[package]]
@@ -1440,7 +1440,6 @@ dependencies = [
 dev = [
     { name = "pip-audit" },
     { name = "rich" },
-    { name = "setuptools" },
 ]
 docs = [
     { name = "mkdocs" },
@@ -1459,9 +1458,9 @@ lint = [
 ]
 test = [
     { name = "pytest" },
-    { name = "pytest-archon" },
     { name = "pytest-clarity" },
     { name = "pytest-cov" },
+    { name = "pytest-deadfixtures" },
     { name = "pytest-mock" },
     { name = "pytest-randomly" },
     { name = "pytest-timeout" },
@@ -1471,42 +1470,40 @@ test = [
 typecheck = [
     { name = "basedpyright" },
     { name = "mypy" },
-    { name = "types-setuptools" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "anyio" },
+    { name = "anyio", specifier = ">=4.7.0" },
     { name = "dishka", specifier = ">=1.5.3" },
     { name = "typing-extensions", specifier = ">=4.12" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "pip-audit", specifier = ">=2.8.0" },
-    { name = "rich", specifier = ">=13.9.4" },
-    { name = "setuptools", specifier = ">=77.0.3" },
+    { name = "pip-audit", specifier = ">=2.9.0" },
+    { name = "rich", specifier = ">=14.0.0" },
 ]
 docs = [
     { name = "mkdocs", specifier = ">=1.6.1" },
     { name = "mkdocs-callouts", specifier = ">=1.16.0" },
     { name = "mkdocs-exclude", specifier = ">=1.0.2" },
     { name = "mkdocs-git-revision-date-localized-plugin", specifier = ">=1.4.5" },
-    { name = "mkdocs-material", specifier = ">=9.6.9" },
+    { name = "mkdocs-material", specifier = ">=9.6.12" },
     { name = "mkdocs-redirects", specifier = ">=1.2.2" },
-    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.29.0" },
+    { name = "mkdocstrings", extras = ["python"], specifier = ">=0.29.1" },
 ]
 lint = [
     { name = "deptry", specifier = ">=0.23.0" },
     { name = "gitlint", specifier = ">=0.19.1" },
     { name = "pre-commit", specifier = ">=4.2.0" },
-    { name = "ruff", specifier = ">=0.11.2" },
+    { name = "ruff", specifier = ">=0.11.6" },
 ]
 test = [
     { name = "pytest", specifier = ">=8.3.5" },
-    { name = "pytest-archon", specifier = ">=0.0.6" },
     { name = "pytest-clarity", specifier = ">=1.0.1" },
-    { name = "pytest-cov", specifier = ">=6.0.0" },
+    { name = "pytest-cov", specifier = ">=6.1.0" },
+    { name = "pytest-deadfixtures", specifier = ">=2.2.1" },
     { name = "pytest-mock", specifier = ">=3.14.0" },
     { name = "pytest-randomly", specifier = ">=3.16.0" },
     { name = "pytest-timeout", specifier = ">=2.3.1" },
@@ -1514,9 +1511,8 @@ test = [
     { name = "uvloop", specifier = ">=0.21.0" },
 ]
 typecheck = [
-    { name = "basedpyright", specifier = ">=1.28.3" },
+    { name = "basedpyright", specifier = ">=1.29.1" },
     { name = "mypy", specifier = ">=1.15.0" },
-    { name = "types-setuptools", specifier = ">=76.0.0.20250313" },
 ]
 
 [[package]]

@@ -3,7 +3,6 @@ from typing import cast
 from typing_extensions import override
 
 from waku.di import AsyncContainer
-from waku.mediator._utils import get_request_response_type
 from waku.mediator.contracts.event import Event, EventT
 from waku.mediator.contracts.request import Request, ResponseT
 from waku.mediator.events.handler import EventHandler
@@ -12,6 +11,7 @@ from waku.mediator.exceptions import EventHandlerNotFound, RequestHandlerNotFoun
 from waku.mediator.interfaces import IMediator
 from waku.mediator.middlewares import MiddlewareChain
 from waku.mediator.requests.handler import RequestHandler
+from waku.mediator.utils import get_request_response_type
 
 
 class Mediator(IMediator):

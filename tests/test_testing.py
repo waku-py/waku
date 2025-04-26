@@ -1,7 +1,7 @@
-from dishka import Scope
+from __future__ import annotations
 
 from waku import WakuFactory, module
-from waku.di import contextual, scoped
+from waku.di import Scope, contextual, scoped
 from waku.testing import override
 
 

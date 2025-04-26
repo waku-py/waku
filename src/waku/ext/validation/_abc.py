@@ -1,7 +1,10 @@
-from typing import Protocol
+from __future__ import annotations
 
-from waku.ext.validation._errors import ValidationError
-from waku.ext.validation._extension import ValidationContext
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from waku.ext.validation._errors import ValidationError
+    from waku.ext.validation._extension import ValidationContext
 
 __all__ = ['ValidationRule']
 

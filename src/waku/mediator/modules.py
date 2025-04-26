@@ -6,7 +6,6 @@ from typing import Any, Self, TypeAlias
 from waku.di import Provider, Scope, object_, scoped, transient
 from waku.extensions import OnModuleConfigure
 from waku.mediator import MiddlewareChain
-from waku.mediator._utils import get_request_response_type
 from waku.mediator.contracts.event import EventT
 from waku.mediator.contracts.request import RequestT, ResponseT
 from waku.mediator.events.handler import EventHandler, EventHandlerType
@@ -17,6 +16,7 @@ from waku.mediator.interfaces import IMediator, IPublisher, ISender
 from waku.mediator.middlewares import Middleware
 from waku.mediator.requests.handler import RequestHandler, RequestHandlerType
 from waku.mediator.requests.map import RequestMap
+from waku.mediator.utils import get_request_response_type
 from waku.modules import DynamicModule, ModuleMetadata, module
 
 __all__ = [

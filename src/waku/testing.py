@@ -1,10 +1,17 @@
+from __future__ import annotations
+
 import contextlib
-from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 from dishka import DEFAULT_COMPONENT, make_async_container
 from dishka.provider import BaseProvider
 
-from waku.di import AsyncContainer
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from waku.di import AsyncContainer
+
+__all__ = ['override']
 
 
 def _container_provider(container: AsyncContainer) -> BaseProvider:

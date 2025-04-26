@@ -13,6 +13,9 @@ if TYPE_CHECKING:
     from waku.modules._metadata import DynamicModule, ModuleMetadata, ModuleType
 
 
+__all__ = ['Module']
+
+
 class Module:
     def __init__(self, module_type: ModuleType, metadata: ModuleMetadata) -> None:
         self.id: Final[UUID] = metadata.id
@@ -39,7 +42,7 @@ class Module:
         return hash(self.id)
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Module):
+        if not isinstance(other, Module):  # pragma: no cover
             return False
         return self.id == other.id
 
