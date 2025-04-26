@@ -23,144 +23,74 @@
 
 </div>
 
------
+---
 
-## Overview
+> **waku** is a modular, type-safe Python framework for scalable, maintainable applications.
+> Inspired by NestJS, powered by [Dishka](https://github.com/reagento/dishka/) IoC.
 
-`waku` is a modern Python framework designed for building scalable, maintainable applications with a focus on clean architecture and developer experience. It's particularly well-suited for:
+## Why `waku`?
 
-- Enterprise applications requiring clear boundaries and maintainability
-- Microservices architectures needing consistent patterns
-- Teams looking for standardized approaches to common problems
-- Projects that value testability and loose coupling
+- **🧩 Modular by design:** Enforce clear boundaries and single responsibility.
+- **💉 First-class Dependency Injection:** Powered by [Dishka](https://github.com/reagento/dishka/).
+- **⚡ Event-driven & extensible:** Built-in hooks, CQRS, and plugin system.
+- **🔌 Framework-agnostic:** Integrates with FastAPI, Litestar, FastStream, Aiogram, and more.
+- **🛡️ Production-ready:** Type-safe, testable, and maintainable.
 
-The framework draws inspiration from [NestJS](https://github.com/nestjs/nest) and [Tramvai](https://tramvai.dev),
-adapting their best ideas to the Python ecosystem. Here's list of some `waku` key features:
+## Who is it for?
 
-* 🧩 [**Modularity**](https://waku-py.github.io/waku/usage/modules/): Build applications as a set of loosely coupled
-  modules with clear boundaries, automatic dependency validation, and controlled visibility
-* 💉 [**Dependency Injection with Dishka**](https://waku-py.github.io/waku/usage/providers/): Leverage [Dishka](https://github.com/reagento/dishka/)'s powerful IoC-container for dependency management
-* 🔧 [**Extensions**](https://waku-py.github.io/waku/usage/extensions/): Extend `waku` with custom plugins that can
-  hook into application lifecycle, add new providers, and integrate with external systems
-* 📊 [**Lifespan**](https://waku-py.github.io/waku/usage/lifespan/): Automatically manage application and IoC-container
-  lifecycle with built-in hooks and event system
-* ⚙️ [**Command/Query handling (CQRS)**](https://waku-py.github.io/waku/usage/mediator/): Use mediator abstraction
-  heavily inspired by C# [MediatR](https://github.com/jbogard/MediatR) library to handle commands, queries, and events
-* 🤝 [**Integrations**](https://waku-py.github.io/waku/integrations/): Leverage [Dishka](https://github.com/reagento/dishka/)'s extensive integrations for [FastAPI](https://fastapi.tiangolo.com/), [Litestar](https://litestar.dev/), [FastStream](https://faststream.airt.ai/latest/), [Aiogram](https://docs.aiogram.dev/), and more
+- Teams building enterprise or microservice Python apps
+- Developers seeking a clean, maintainable architecture
+- Projects requiring testability, loose coupling, and clear module boundaries
 
-## Motivation
+## Features
 
-While Python offers excellent web frameworks, they often lack robust architectural patterns for building complex applications. The challenge of managing dependencies and maintaining clean boundaries between components becomes increasingly difficult as applications grow.
-
-`waku` addresses these challenges through its core concepts:
-
-### 🧩 Modular Architecture
-
-Break down complex applications into self-contained modules with clear boundaries and responsibilities. Each module encapsulates its own providers, making the codebase more maintainable and easier to understand.
-
-### 💉 Dependency Injection
-
-`waku` uses [Dishka](https://github.com/reagento/dishka/) as its Dependency Injection framework, providing:
-
-- 🔄 Loose coupling between components
-- 🧪 Easier testing through dependency substitution
-- 📊 Clear dependency graphs
-- ⚡ Automatic lifecycle management
-- 🎯 Type-safe dependency resolution
-- 🔒 Thread-safe container operations
-- 🔑 Direct container access for advanced use cases
-- 🎨 Built-in integrations with popular frameworks (FastAPI, Litestar, Flask, etc.)
-
-The framework exposes the Dishka container through `application.container`, allowing you to:
-
-- Access dependencies directly via `container.get(DependencyType)`
-- Create nested containers for request/action scopes
-- Manage dependency lifecycle manually when needed
-- Integrate with custom frameworks and middleware
-- Leverage Dishka's extensive framework integrations out of the box
-
-By combining these concepts, `waku` provides a structured approach to building Python applications that scales from small services to large enterprise systems.
+- 🧩 [Modular architecture](https://waku-py.github.io/waku/usage/modules/): Build applications as a set of loosely coupled modules with clear boundaries, automatic dependency validation, and controlled visibility.
+- 💉 [Dependency Injection (Dishka)](https://waku-py.github.io/waku/usage/providers/): Use Dishka's IoC container for type-safe, testable, and maintainable dependency management.
+- 📨 [CQRS/Mediator](https://waku-py.github.io/waku/usage/mediator/): Handle commands, queries, and events with a mediator abstraction inspired by C# MediatR.
+- 🧰 [Extensions & plugins](https://waku-py.github.io/waku/usage/extensions/): Extend `waku` with custom plugins that can hook into the application lifecycle, add providers, or integrate with external systems.
+- 🔄 [Lifespan management](https://waku-py.github.io/waku/usage/lifespan/): Automatically manage application and IoC-container lifecycle with built-in hooks and event system.
+- 🤝 [Integrations](https://waku-py.github.io/waku/integrations/): Out-of-the-box support for FastAPI, Litestar, FastStream, Aiogram, and more, leveraging Dishka's integrations.
 
 ## Quick Start
 
-### Prerequisites
-
-- Python 3.11 or higher
-- Basic understanding of dependency injection and modular architecture
-- Familiarity with async/await syntax
-
 ### Installation
 
-Install the `waku` package using your preferred tool.
-We recommend [`uv`](https://github.com/astral-sh/uv) for managing project dependencies due to its speed and simplicity.
-
-```shell
-# Using UV
+```sh
 uv add waku
-
-# Using pip
+# or
 pip install waku
 ```
 
-### Basic Example
+### Minimal Example
 
-```python linenums="1"
+```python
 import asyncio
-from collections.abc import Callable
-from typing import ParamSpec, TypeVar
 
-from dishka.integrations.base import wrap_injection
 from waku import WakuFactory, module
-from waku.di import AsyncContainer, Injected, scoped
-
-P = ParamSpec('P')
-T = TypeVar('T')
+from waku.di import scoped
 
 
-# Define your providers
 class GreetingService:
     async def greet(self, name: str) -> str:
         return f'Hello, {name}!'
 
 
-# Define a module with your providers
 @module(providers=[scoped(GreetingService)])
 class GreetingModule:
     pass
 
 
-# Define the application composition root module
 @module(imports=[GreetingModule])
 class AppModule:
     pass
 
 
-# Simple inject decorator for example purposes
-# In real world you should import `@inject` decorator for your framework from `dishka.integrations.<framework>`
-def _inject(func: Callable[P, T]) -> Callable[P, T]:
-    return wrap_injection(
-        func=func,
-        is_async=True,
-        container_getter=lambda args, _: args[0],
-    )
-
-
-# Define entrypoints
-# In a real-world scenario, this could be FastAPI routes, etc.
-@_inject
-async def greet_user(container: AsyncContainer, greeting_service: Injected[GreetingService]) -> str:
-    return greeting_service.greet('waku')
-
-
 async def main() -> None:
-    # Create application via factory
-    application = WakuFactory(AppModule).create()
+    app = WakuFactory(AppModule).create()
 
-    # Run the application
-    # In a real-world scenario, this would be run by a framework like FastAPI
-    async with application, application.container() as request_container:
-        message = await greet_user(request_container)
-        print(message)  # Output: Hello, waku!
+    async with app, app.container() as c:
+        svc = await c.get(GreetingService)
+        print(await svc.greet('waku'))
 
 
 if __name__ == '__main__':
@@ -168,25 +98,30 @@ if __name__ == '__main__':
 
 ```
 
-For explanations of the code above and more realistic examples, see the [Getting Started](https://waku-py.github.io/waku/getting-started) guide.
+For more realistic examples, see the [Getting Started](https://waku-py.github.io/waku/getting-started) guide.
 
 ## Documentation
-
-Explore detailed documentation on our [official site](https://waku-py.github.io/waku/).
-
-**Key topics include:**
 
 - [Getting Started](https://waku-py.github.io/waku/getting-started/)
 - [Module System](https://waku-py.github.io/waku/usage/modules/)
 - [Providers](https://waku-py.github.io/waku/usage/providers/)
 - [Extensions](https://waku-py.github.io/waku/usage/extensions/)
 - [Mediator (CQRS)](https://waku-py.github.io/waku/usage/mediator/)
+- [API Reference](https://waku-py.github.io/waku/reference/)
+- [Dishka Documentation](https://dishka.readthedocs.io/en/stable/index.html/)
 
 ## Contributing
 
-We'd love your contributions!
-Check out our [Contributing Guide](https://waku-py.github.io/waku/contributing/) to get started.
+- [Contributing Guide](https://waku-py.github.io/waku/contributing/)
+- [Development Setup](https://waku-py.github.io/waku/contributing/#development-setup)
 
-### Development Setup
+## Roadmap
 
-Learn how to set up a development environment in the [Contributing Guide](https://waku-py.github.io/waku/development/contributing/#development-setup).
+- [ ] Improving inner architecture
+- [ ] Adding new and improving existing validation rules
+- [ ] Example projects for common architectures
+
+## Support
+
+- [GitHub Issues](https://github.com/waku-py/waku/issues)
+- [Discussions](https://github.com/waku-py/waku/discussions)
