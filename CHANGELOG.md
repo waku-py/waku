@@ -2,6 +2,16 @@
 
 <!-- version list -->
 
+## v0.10.0 (2025-04-26)
+
+### Features
+
+- Re-export di related object from dishka
+  ([`820ddc4`](https://github.com/waku-py/waku/commit/820ddc48512ac2a1ffde6b397980c61844d5e7b3))
+
+Also improve test suite and add docstrings to di helpers
+
+
 ## v0.9.1 (2025-04-26)
 
 ### Performance Improvements
