@@ -4,7 +4,7 @@ import functools
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ParamSpec, Protocol, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Any, ParamSpec, Protocol, TypeAlias
 
 from waku.mediator.contracts.request import Request, Response
 
@@ -20,9 +20,10 @@ __all__ = [
     'MiddlewareContext',
 ]
 
-P = ParamSpec('P')
-T = TypeVar('T')
+
 HandleType: TypeAlias = Callable[[Request[Any]], Awaitable[Response | None]]
+
+_P = ParamSpec('_P')
 
 
 @dataclass(kw_only=True, slots=True, frozen=True)
@@ -35,16 +36,16 @@ class BaseMiddleware(ABC):
     async def __call__(self, request: Request[Any], handle: HandleType) -> Response | None: ...
 
 
-class _MiddlewareFactory(Protocol[P]):
-    def __call__(self, ctx: MiddlewareContext, /, *args: P.args, **kwargs: P.kwargs) -> HandleType: ...
+class _MiddlewareFactory(Protocol[_P]):
+    def __call__(self, ctx: MiddlewareContext, /, *args: _P.args, **kwargs: _P.kwargs) -> HandleType: ...
 
 
 class Middleware:
     def __init__(
         self,
-        cls: _MiddlewareFactory[P],
-        *args: P.args,
-        **kwargs: P.kwargs,
+        cls: _MiddlewareFactory[_P],
+        *args: _P.args,
+        **kwargs: _P.kwargs,
     ) -> None:
         self.cls = cls
         self.args = args
