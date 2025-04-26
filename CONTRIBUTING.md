@@ -13,10 +13,11 @@ This guide will help you get started and ensure a smooth process.
   - [Making Changes](#making-changes)
   - [Testing](#testing)
   - [Code Style](#code-style)
-- [Submitting Changes](#submitting-changes)
-  - [Issues](#issues)
-  - [Pull Requests](#pull-requests)
-- [Development Commands](#development-commands)
+- [Getting Help](#getting-help)
+- [First-time Contributors](#first-time-contributors)
+- [Issues](#issues)
+- [Project Structure](#project-structure)
+- [Commit Message Guidelines](#commit-message-guidelines)
 
 ## Getting Started
 
@@ -25,9 +26,8 @@ This guide will help you get started and ensure a smooth process.
 Before you begin, ensure you have the following installed:
 
 - Python 3.11 or higher
-- [uv](https://docs.astral.sh/uv/getting-started/installation/) - A modern Python package manager
-- [Task](https://taskfile.dev/installation/) - A task runner for automating development workflows.
-  We recommend setting up [auto-completion](https://taskfile.dev/installation/#setup-completions) for Task.
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) – a modern Python package manager
+- [Task](https://taskfile.dev/installation/) – a task runner for automating development workflows (we recommend setting up [auto-completion](https://taskfile.dev/installation/#setup-completions) for Task)
 - Git
 
 ### Development Setup
@@ -48,7 +48,7 @@ Before you begin, ensure you have the following installed:
     # For other platforms, see:
     # https://docs.astral.sh/uv/getting-started/installation/
 
-    # If uv is already installed, ensure it’s up to date:
+    # If uv is already installed, ensure it's up to date:
     uv self update
     ```
 
@@ -62,28 +62,50 @@ Before you begin, ensure you have the following installed:
     # https://taskfile.dev/installation/
     ```
 
-4. Setup development environment:
+4. Set up the development environment:
 
     ```bash
     # Install dependencies and configure pre-commit hooks
     task install
     ```
 
-    > **Tip:** Run `task -l` after setup to verify everything is working and see available commands.
+    > **Tip:** Run `task -l` after setup to verify everything is working and to see available commands.
 
 ## Development Workflow
 
 ### Making Changes
 
-1. Create a new branch for your changes:
-
+1. Fork the repository to your own GitHub account.
+2. Clone your fork locally:
     ```bash
-    git checkout -b feature/your-feature-name
+    git clone git@github.com:<your-username>/waku.git
+    cd waku
     ```
+3. Create a new branch for your changes:
+    ```bash
+    git checkout -b feat/your-feature-name
+    ```
+4. Make your changes, following our [code style guidelines](#code-style).
+5. Write or update tests for your changes.
+6. Run all checks and ensure tests pass:
+    ```bash
+    task
+    ```
+7. Commit your changes with clear, descriptive messages.
+8. Push to your fork:
+    ```bash
+    git push origin feat/your-feature-name
+    ```
+9. Open a pull request on GitHub. Link related issues in your PR description (e.g., "Fixes #123").
+10. Participate in the review process and make any requested changes.
 
-2. Make your changes following our [code style guidelines](#code-style)
-
-3. Write tests for your changes
+#### Pull Request Checklist
+- [ ] Tests added or updated
+- [ ] Documentation updated (if needed)
+- [ ] Code is formatted and linted
+- [ ] All checks pass
+- [ ] Type hints added or refined
+- [ ] Commit messages include a detailed description for the changelog
 
 ### Testing
 
@@ -119,60 +141,45 @@ We use several tools to maintain code quality:
 - Follow [PEP 8](https://peps.python.org/pep-0008/) conventions
 - Write descriptive docstrings using the [Google style](https://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings)
 
-## Submitting Changes
+## Getting Help
 
-### Issues
+If you have questions or need help, you can:
+- Open a [discussion](https://github.com/waku-py/waku/discussions)
+- Open an [issue](https://github.com/waku-py/waku/issues) for bugs or feature requests
+
+## First-time Contributors
+
+- Look for issues labeled ["good first issue"](https://github.com/waku-py/waku/labels/good-first-issue) or ["help wanted"](https://github.com/waku-py/waku/labels/help-wanted).
+- Comment on the issue to let others know you're working on it.
+- Don't hesitate to ask questions if anything is unclear.
+
+## Issues
 
 Before creating an issue:
 
-1. Search existing issues to avoid duplicates.
-2. Use the appropriate issue template.
-3. Provide as much context as possible (e.g., steps to reproduce, environment details).
+- Search existing issues to avoid duplicates.
+- Use the appropriate issue template for bug reports or feature requests.
+- Provide as much context as possible (e.g., steps to reproduce, environment details).
+
+Please follow the [bug report](https://github.com/waku-py/waku/issues/new?template=bug_report.md) and [feature request](https://github.com/waku-py/waku/issues/new?template=feature_request.md) templates when submitting issues.
 
 We welcome:
-
 - Bug reports
 - Feature requests
 - Documentation improvements
 - General questions or ideas
 
-### Pull Requests
+## Project Structure
 
-1. Discuss significant changes by creating an issue first.
-2. Ensure all tests pass and code is formatted.
-3. Update documentation if your changes affect it.
-4. Follow the pull request template.
-5. Link related issues in your PR description (e.g., "Fixes #123").
+- `src/` – main source code
+- `tests/` – test suite
+- `docs/` – documentation
+- `Taskfile.yml` – development automation
+- `README.md` – project overview
 
-**Pull request checklist:**
+## Commit Message Guidelines
 
-- [ ] Tests added or updated
-- [ ] Documentation updated (if applicable)
-- [ ] Type hints added or refined
-- [ ] Commit messages include a detailed description for the changelog
-- [ ] All checks pass
-
-## Development Commands
-
-Use these common `task` commands during development:
-
-```bash
-task install     # Install dependencies and set up pre-commit hooks
-task format      # Format code using Ruff
-task lint        # Run all linters
-task typecheck   # Run type checkers (MyPy and basedpyright)
-task test        # Run tests
-task test:cov    # Run tests with coverage
-task clean       # Clean build artifacts
-task -l          # List all available commands
-```
-
-## Questions?
-
-Need help? Feel free to:
-
-- Open an [issue](https://github.com/waku-py/waku/issues)
-- Start a [discussion](https://github.com/waku-py/waku/discussions)
-- Contact the maintainers directly
+- Use clear, descriptive commit messages.
+- Example: `fix(core): handle edge case in dependency resolution`
 
 Thank you for contributing to `waku`! 🙏

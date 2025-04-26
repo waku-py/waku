@@ -30,9 +30,9 @@
 
 ## Why `waku`?
 
-- **🧩 Modular by design:** Enforce clear boundaries and single responsibility.
+- **🧩 Modular by design:** Enforces clear boundaries and single responsibility.
 - **💉 First-class Dependency Injection:** Powered by [Dishka](https://github.com/reagento/dishka/).
-- **⚡ Event-driven & extensible:** Built-in hooks, CQRS, and plugin system.
+- **⚡ Event-driven and extensible:** Built-in hooks, CQRS, and plugin system.
 - **🔌 Framework-agnostic:** Integrates with FastAPI, Litestar, FastStream, Aiogram, and more.
 - **🛡️ Production-ready:** Type-safe, testable, and maintainable.
 
@@ -40,15 +40,15 @@
 
 - Teams building enterprise or microservice Python apps
 - Developers seeking a clean, maintainable architecture
-- Projects requiring testability, loose coupling, and clear module boundaries
+- Projects that require testability, loose coupling, and clear module boundaries
 
 ## Features
 
 - 🧩 [Modular architecture](https://waku-py.github.io/waku/usage/modules/): Build applications as a set of loosely coupled modules with clear boundaries, automatic dependency validation, and controlled visibility.
 - 💉 [Dependency Injection (Dishka)](https://waku-py.github.io/waku/usage/providers/): Use Dishka's IoC container for type-safe, testable, and maintainable dependency management.
-- 📨 [CQRS/Mediator](https://waku-py.github.io/waku/usage/mediator/): Handle commands, queries, and events with a mediator abstraction inspired by C# MediatR.
+- 📨 [CQRS/Mediator](https://waku-py.github.io/waku/usage/mediator/): Handle commands, queries, and events with a mediator abstraction inspired by C# [MediatR]((https://github.com/jbogard/MediatR).
 - 🧰 [Extensions & plugins](https://waku-py.github.io/waku/usage/extensions/): Extend `waku` with custom plugins that can hook into the application lifecycle, add providers, or integrate with external systems.
-- 🔄 [Lifespan management](https://waku-py.github.io/waku/usage/lifespan/): Automatically manage application and IoC-container lifecycle with built-in hooks and event system.
+- 🔄 [Lifespan management](https://waku-py.github.io/waku/usage/lifespan/): Automatically manage application and IoC container lifecycles with built-in hooks and an event system.
 - 🤝 [Integrations](https://waku-py.github.io/waku/integrations/): Out-of-the-box support for FastAPI, Litestar, FastStream, Aiogram, and more, leveraging Dishka's integrations.
 
 ## Quick Start
@@ -117,11 +117,15 @@ For more realistic examples, see the [Getting Started](https://waku-py.github.io
 
 ## Roadmap
 
-- [ ] Improving inner architecture
-- [ ] Adding new and improving existing validation rules
-- [ ] Example projects for common architectures
+- [ ] Improve inner architecture
+- [ ] Add new and improve existing validation rules
+- [ ] Provide example projects for common architectures
 
 ## Support
 
 - [GitHub Issues](https://github.com/waku-py/waku/issues)
 - [Discussions](https://github.com/waku-py/waku/discussions)
+
+## License
+
+MIT
