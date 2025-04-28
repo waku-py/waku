@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.12.0 (2025-04-28)
+
+### Features
+
+- **core**: Make module traversal post-order dfs
+  ([`eb9a760`](https://github.com/waku-py/waku/commit/eb9a7606c682f8d2b6dbd9e78ba3a7ef21ad150f))
+
+
 ## v0.11.3 (2025-04-28)
 
 ### Bug Fixes
