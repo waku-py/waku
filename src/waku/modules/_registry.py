@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
     from waku.di import BaseProvider
     from waku.extensions import ModuleExtension
-    from waku.modules._metadata import ModuleCompiler, ModuleType
+    from waku.modules._metadata import DynamicModule, ModuleCompiler, ModuleType
     from waku.modules._module import Module
 
 __all__ = ['ModuleRegistry']
@@ -51,7 +51,7 @@ class ModuleRegistry:
     def compiler(self) -> ModuleCompiler:
         return self._compiler
 
-    def get(self, module_type: ModuleType) -> Module:
+    def get(self, module_type: ModuleType | DynamicModule) -> Module:
         module_id = self._compiler.extract_metadata(module_type)[1].id
         return self.get_by_id(module_id)
 
@@ -62,7 +62,7 @@ class ModuleRegistry:
             raise KeyError(msg)
         return module
 
-    def get_by_type(self, module_type: ModuleType) -> Module:
+    def get_by_type(self, module_type: ModuleType | DynamicModule) -> Module:
         _, metadata = self._compiler.extract_metadata(module_type)
         return self._modules[metadata.id]
 

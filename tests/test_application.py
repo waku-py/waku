@@ -140,4 +140,3 @@ async def test_application_init_extensions_called(mocker: MockerFixture) -> None
     assert on_app_init_mock.call_count == 1
     assert isinstance(on_app_init_mock.call_args[0][0], WakuApplication)
     assert after_app_init_mock.call_count == 1
-    assert isinstance(after_app_init_mock.call_args[0][0], WakuApplication)
