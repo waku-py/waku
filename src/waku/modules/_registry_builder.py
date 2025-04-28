@@ -37,6 +37,8 @@ class ModuleRegistryBuilder:
         while stack:
             module_type = stack.popleft()
             registered_module = self._register_module(module_type)
+            if registered_module.id in visited:
+                continue
             visited.add(registered_module.id)
             stack.extend(registered_module.imports)
 
@@ -44,8 +46,6 @@ class ModuleRegistryBuilder:
         type_, metadata = self._compiler.extract_metadata(module_type)
         if existing_module := self._modules.get(metadata.id):
             return existing_module
-
-        self._handle_extensions(metadata)
 
         module = Module(type_, metadata)
         self._modules[module.id] = module

@@ -6,6 +6,8 @@ from collections.abc import Hashable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, TypeVar, cast
 
+from waku.extensions import OnModuleConfigure
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
@@ -84,6 +86,10 @@ def module(
             extensions=list(extensions),
             is_global=is_global,
         )
+        for extension in metadata.extensions:
+            if isinstance(extension, OnModuleConfigure):
+                extension.on_module_configure(metadata)
+
         setattr(cls, _MODULE_METADATA_KEY, metadata)
         return cls
 
@@ -104,7 +110,7 @@ class ModuleCompiler:
         if isinstance(module_type, DynamicModule):
             parent_module = module_type.parent_module
             parent_metadata = cast(ModuleMetadata, getattr(parent_module, _MODULE_METADATA_KEY))
-            return parent_module, ModuleMetadata(
+            metadata = ModuleMetadata(
                 providers=[*parent_metadata.providers, *module_type.providers],
                 imports=[*parent_metadata.imports, *module_type.imports],
                 exports=[*parent_metadata.exports, *module_type.exports],
@@ -112,4 +118,9 @@ class ModuleCompiler:
                 is_global=module_type.is_global,
                 id=module_type.id,
             )
+            for extension in metadata.extensions:
+                if isinstance(extension, OnModuleConfigure):
+                    extension.on_module_configure(metadata)
+            return parent_module, metadata
+
         return module_type, cast(ModuleMetadata, getattr(module_type, _MODULE_METADATA_KEY))

@@ -95,7 +95,7 @@ addopts = [
   "--doctest-modules",
   "--strict-markers",
   "--strict-config",
-  "--cov-fail-under=85",
+  "--cov-fail-under=88",
 ]
 # pytest-timeout settings
 timeout = 5
