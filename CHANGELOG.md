@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v0.11.3 (2025-04-28)
+
+### Bug Fixes
+
+- **core**: Move `OnModuleConfigure` to module definition to prevent duplications on subsequent
+  calls
+  ([`0e6ed00`](https://github.com/waku-py/waku/commit/0e6ed004fef7357325bc7f8b5aab5765da763821))
+
+
 ## v0.11.2 (2025-04-28)
 
 ### Bug Fixes
