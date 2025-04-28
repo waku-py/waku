@@ -79,19 +79,14 @@ def _can_access_dependency(
     # 1. Dep available globally
     if dep_type in global_providers:
         return True
-    # 2. Dep exported by current module
-    if _is_type_exported_by_module(dep_type, module):
+    # 2. Dep provided by current module (regardless of export)
+    if dep_type in _module_provided_types(module):
         return True
     # 3. Dep extracted from container context
     if dep_type in _module_provided_context_vars(module):
         return True
-    # 4. Dep provided by any of imported modules
-    # fmt: off
-    return any(
-        _is_type_exported_by_module(dep_type, imported_module)
-        for imported_module in imported_modules
-    )
-    # fmt: on
+    # 4. Dep provided by any of imported modules (must be exported)
+    return any(_is_type_exported_by_module(dep_type, imported_module) for imported_module in imported_modules)
 
 
 @functools.cache

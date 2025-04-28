@@ -36,6 +36,7 @@ class ConventionalCommitTitle(LineRule):  # type: ignore[misc]
         'mediator',
         'release',
         'tests',
+        'validation',
     )
     default_types: ClassVar[tuple[str, ...]] = (
         'build',
