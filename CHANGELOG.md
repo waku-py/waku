@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.11.1 (2025-04-28)
+
+### Performance Improvements
+
+- Remove duplications in module registry builder logic
+  ([`8527c7d`](https://github.com/waku-py/waku/commit/8527c7deccdf985dad0ef9eb7cb9c3fe8fd43fa2))
+
+
 ## v0.11.0 (2025-04-28)
 
 ### Documentation
