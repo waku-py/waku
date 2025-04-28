@@ -2,6 +2,48 @@
 
 <!-- version list -->
 
+## v0.11.0 (2025-04-28)
+
+### Documentation
+
+- Enhance contributing guide and README
+  ([`6e4ddda`](https://github.com/waku-py/waku/commit/6e4dddabc98d694aadddda5141a8b698571f9868))
+
+- Fix issue with mediatr link in readme
+  ([`8435d2f`](https://github.com/waku-py/waku/commit/8435d2f16ccf01969063ee5fff4755171a79c859))
+
+- Improve api reference docs generation; document override helper
+  ([`48061d0`](https://github.com/waku-py/waku/commit/48061d0cb325c800492d434f815de272427badd2))
+
+- Improve feature descriptions in README
+  ([`2d18bee`](https://github.com/waku-py/waku/commit/2d18beeb3545e7ff910e645ce366d342cd0c565c))
+
+- Update README for clarity
+  ([`efaf3d5`](https://github.com/waku-py/waku/commit/efaf3d5a59c31b78d516a3df3a50e2f52542d567))
+
+### Features
+
+- **core**: Replace ModuleGraph with ModuleRegistry for module management
+  ([`f807f0a`](https://github.com/waku-py/waku/commit/f807f0a406cb208083c56780da9f2d768d2bb34c))
+
+- Refactored core architecture to use `ModuleRegistry` and `ModuleRegistryBuilder` instead of
+  `ModuleGraph` for module registration, traversal, and lookups. - Updated `WakuApplication` to
+  depend on `ModuleRegistry` and expose it via the `registry` property. - Refactored validation,
+  factory, and extension logic to use the new registry API. - Removed legacy `ModuleGraph`
+  implementation. - Ensured all module-related queries, traversals, and global checks use the new
+  registry. - Updated imports and type hints for consistency with new architecture. - Introduced
+  `WakuError` as a base exception for framework errors. - Minor code style and typing improvements
+  for clarity and maintainability.
+
+BREAKING CHANGE: All module graph operations now use `ModuleRegistry`; direct usage of `ModuleGraph`
+  is no longer supported. Update custom extensions and validation logic accordingly.
+
+### Breaking Changes
+
+- **core**: All module graph operations now use `ModuleRegistry`; direct usage of `ModuleGraph` is
+  no longer supported. Update custom extensions and validation logic accordingly.
+
+
 ## v0.10.0 (2025-04-26)
 
 ### Features
