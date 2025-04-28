@@ -14,8 +14,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from waku.di import AsyncContainer
-    from waku.graph import ModuleGraph
-    from waku.modules import Module
+    from waku.modules import Module, ModuleRegistry
 
 __all__ = ['WakuApplication']
 
@@ -25,12 +24,12 @@ class WakuApplication:
         self,
         *,
         container: AsyncContainer,
-        graph: ModuleGraph,
+        registry: ModuleRegistry,
         lifespan: Sequence[LifespanFunc | LifespanWrapper],
         extensions: Sequence[ApplicationExtension],
     ) -> None:
         self._container = container
-        self._graph = graph
+        self._registry = registry
         self._lifespan = tuple(
             LifespanWrapper(lifespan_func) if not isinstance(lifespan_func, LifespanWrapper) else lifespan_func
             for lifespan_func in lifespan
@@ -52,8 +51,8 @@ class WakuApplication:
         return self._container
 
     @property
-    def graph(self) -> ModuleGraph:
-        return self._graph
+    def registry(self) -> ModuleRegistry:
+        return self._registry
 
     async def __aenter__(self) -> Self:
         await self.initialize()
@@ -89,4 +88,4 @@ class WakuApplication:
                     tg.start_soon(extension.after_app_init, self)
 
     def _get_modules_for_triggering_extensions(self) -> list[Module]:
-        return sorted(self.graph.traverse(), reverse=True)
+        return sorted(self.registry.traverse(), reverse=True)

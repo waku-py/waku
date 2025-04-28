@@ -7,8 +7,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from uuid import UUID
 
-    from dishka.provider import BaseProvider
-
+    from waku.di import BaseProvider
     from waku.extensions import ModuleExtension
     from waku.modules._metadata import DynamicModule, ModuleMetadata, ModuleType
 

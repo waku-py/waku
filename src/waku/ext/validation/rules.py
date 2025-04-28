@@ -12,7 +12,7 @@ from waku.ext.validation._errors import ValidationError
 
 if TYPE_CHECKING:
     from waku.ext.validation._extension import ValidationContext
-    from waku.modules import Module
+    from waku.modules import Module, ModuleRegistry
 
 __all__ = ['DependenciesAccessible']
 
@@ -29,8 +29,8 @@ class DependenciesAccessible(ValidationRule):
 
     @override
     def validate(self, context: ValidationContext) -> list[ValidationError]:
-        graph = context.app.graph
-        modules: list[Module] = list(graph.traverse())  # Cache traversal results
+        registry: ModuleRegistry = context.app.registry
+        modules: list[Module] = list(registry.traverse())  # Cache traversal results
 
         # Cache global providers
         global_providers: set[type[object]] = {AsyncContainer}
@@ -38,7 +38,7 @@ class DependenciesAccessible(ValidationRule):
             provided_type
             for module in modules
             for provided_type in _module_provided_types(module)
-            if graph.is_global_module(module)
+            if registry.is_global_module(module)
         }
         global_context_providers = {
             dep.type_hint
@@ -49,7 +49,7 @@ class DependenciesAccessible(ValidationRule):
 
         errors: list[ValidationError] = []
         for module in modules:
-            imported_modules = list(graph.traverse(module))
+            imported_modules = list(registry.traverse(module))
             for provider in module.providers:
                 for factory in provider.factories:
                     inaccessible_deps: set[type[object]] = set()

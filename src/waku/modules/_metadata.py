@@ -9,8 +9,7 @@ from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, TypeVar, cast
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from dishka.provider import BaseProvider
-
+    from waku.di import BaseProvider
     from waku.extensions import ModuleExtension
 
 __all__ = [
@@ -25,7 +24,7 @@ _T = TypeVar('_T')
 
 ModuleType: TypeAlias = 'type[object | HasModuleMetadata]'
 
-MODULE_METADATA_KEY: Final = '__module_metadata__'
+_MODULE_METADATA_KEY: Final = '__module_metadata__'
 
 
 @dataclass(kw_only=True, slots=True)
@@ -85,7 +84,7 @@ def module(
             extensions=list(extensions),
             is_global=is_global,
         )
-        setattr(cls, MODULE_METADATA_KEY, metadata)
+        setattr(cls, _MODULE_METADATA_KEY, metadata)
         return cls
 
     return decorator
@@ -104,7 +103,7 @@ class ModuleCompiler:
     def _extract_metadata(module_type: ModuleType | DynamicModule) -> tuple[ModuleType, ModuleMetadata]:
         if isinstance(module_type, DynamicModule):
             parent_module = module_type.parent_module
-            parent_metadata = cast(ModuleMetadata, getattr(parent_module, MODULE_METADATA_KEY))
+            parent_metadata = cast(ModuleMetadata, getattr(parent_module, _MODULE_METADATA_KEY))
             return parent_module, ModuleMetadata(
                 providers=[*parent_metadata.providers, *module_type.providers],
                 imports=[*parent_metadata.imports, *module_type.imports],
@@ -113,4 +112,4 @@ class ModuleCompiler:
                 is_global=module_type.is_global,
                 id=module_type.id,
             )
-        return module_type, cast(ModuleMetadata, getattr(module_type, MODULE_METADATA_KEY))
+        return module_type, cast(ModuleMetadata, getattr(module_type, _MODULE_METADATA_KEY))

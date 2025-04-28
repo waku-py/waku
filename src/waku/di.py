@@ -13,10 +13,12 @@ from dishka import (
     provide,
     provide_all,
 )
+from dishka.provider import BaseProvider
 
 __all__ = [
     'AnyOf',
     'AsyncContainer',
+    'BaseProvider',
     'Injected',
     'Provider',
     'Scope',

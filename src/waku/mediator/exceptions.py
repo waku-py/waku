@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from waku.exceptions import WakuError
+
 if TYPE_CHECKING:
     from waku.mediator.contracts.event import Event
     from waku.mediator.contracts.request import Request
@@ -18,7 +20,7 @@ __all__ = [
 ]
 
 
-class MediatorError(Exception):
+class MediatorError(WakuError):
     """Base exception for all mediator-related errors."""
 
 
