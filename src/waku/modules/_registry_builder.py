@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import defaultdict, deque
+from collections import OrderedDict, defaultdict
 from typing import TYPE_CHECKING, Final
 
 from waku.extensions import ModuleExtension, OnModuleConfigure
@@ -24,34 +24,52 @@ class ModuleRegistryBuilder:
         self._modules: dict[UUID, Module] = {}
         self._providers: list[BaseProvider] = []
         self._extensions: list[ModuleExtension] = []
-        self._adjacency: dict[UUID, set[UUID]] = defaultdict(set)
+        self._adjacency: dict[UUID, OrderedDict[UUID, str]] = defaultdict(OrderedDict)
 
     def build(self) -> ModuleRegistry:
-        root_module = self._register_module(self._root_module_type)
-        self._register_modules(root_module)
+        modules = self._collect_modules()
+        root_module = self._register_modules(modules)
         return self._build_registry(root_module)
 
-    def _register_modules(self, root_module: Module) -> None:
-        stack: deque[ModuleType | DynamicModule] = deque(root_module.imports)
-        visited: set[UUID] = {root_module.id}
+    def _collect_modules(self) -> list[tuple[ModuleType, ModuleMetadata]]:
+        """Collect modules in post-order DFS."""
+        stack: list[tuple[ModuleType | DynamicModule, bool]] = [(self._root_module_type, False)]
+        post_order: list[tuple[ModuleType, ModuleMetadata]] = []
+        visited: set[UUID] = set()
         while stack:
-            module_type = stack.popleft()
-            registered_module = self._register_module(module_type)
-            if registered_module.id in visited:
+            current_type, processed = stack.pop()
+            type_, metadata = self._compiler.extract_metadata(current_type)
+
+            module_id = metadata.id
+            if module_id in visited:
                 continue
-            visited.add(registered_module.id)
-            stack.extend(registered_module.imports)
 
-    def _register_module(self, module_type: ModuleType | DynamicModule) -> Module:
-        type_, metadata = self._compiler.extract_metadata(module_type)
-        if existing_module := self._modules.get(metadata.id):
-            return existing_module
+            if processed:
+                post_order.append((type_, metadata))
+                visited.add(module_id)
+                continue
 
+            stack.append((current_type, True))
+            for imported in reversed(metadata.imports):
+                _, imported_metadata = self._compiler.extract_metadata(imported)
+                if imported_metadata.id not in visited:
+                    stack.append((imported, False))
+
+        return post_order
+
+    def _register_modules(self, modules: list[tuple[ModuleType, ModuleMetadata]]) -> Module:
+        for type_, metadata in modules:
+            if metadata.id in self._modules:
+                continue
+            self._register_module(type_, metadata)
+        _, root_metadata = self._compiler.extract_metadata(self._root_module_type)
+        return self._modules[root_metadata.id]
+
+    def _register_module(self, type_: ModuleType, metadata: ModuleMetadata) -> Module:
         module = Module(type_, metadata)
         self._modules[module.id] = module
         self._providers.extend(module.providers)
         self._update_adjacency(module)
-
         return module
 
     def _handle_extensions(self, metadata: ModuleMetadata) -> None:
@@ -61,10 +79,13 @@ class ModuleRegistryBuilder:
             self._extensions.append(extension)
 
     def _update_adjacency(self, module: Module) -> None:
-        self._adjacency[module.id].add(module.id)
+        if module.id not in self._adjacency:
+            self._adjacency[module.id][module.id] = str(module)
+
         for imported_module_type in module.imports:
             _, imported_metadata = self._compiler.extract_metadata(imported_module_type)
-            self._adjacency[module.id].add(imported_metadata.id)
+            if imported_metadata.id not in self._adjacency[module.id]:
+                self._adjacency[module.id][imported_metadata.id] = str(imported_metadata)
 
     def _build_registry(self, root_module: Module) -> ModuleRegistry:
         return ModuleRegistry(

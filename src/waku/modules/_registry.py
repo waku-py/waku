@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from collections import deque
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections import OrderedDict
+    from collections.abc import Iterator
     from uuid import UUID
 
     from waku.di import BaseProvider
@@ -26,7 +26,7 @@ class ModuleRegistry:
         modules: dict[UUID, Module],
         providers: list[BaseProvider],
         extensions: list[ModuleExtension],
-        adjacency: dict[UUID, set[UUID]],
+        adjacency: dict[UUID, OrderedDict[UUID, str]],
     ) -> None:
         self._compiler = compiler
         self._root_module = root_module
@@ -66,21 +66,41 @@ class ModuleRegistry:
         _, metadata = self._compiler.extract_metadata(module_type)
         return self._modules[metadata.id]
 
-    def traverse(self, from_: Module | None = None) -> Iterable[Module]:
+    def traverse(self, from_: Module | None = None) -> Iterator[Module]:
+        """Traverse the module graph in depth-first post-order (children before parent) using a stack.
+
+        Args:
+            from_: Start module (default: root)
+
+        Yields:
+            Module: Each traversed module (post-order)
+        """
         start_module = from_ or self._root_module
-        visited = {start_module.id}
-        queue = deque([start_module])
+        visited: set[UUID] = set()
+        stack: list[tuple[Module, bool]] = [(start_module, False)]
 
-        while queue:
-            vertex = queue.popleft()
-            yield vertex
+        while stack:
+            module, processed = stack.pop()
 
-            neighbors = self._adjacency[vertex.id]
-            unvisited = (n for n in neighbors if n not in visited)
+            if processed:
+                yield module
+                continue
 
-            for neighbor in unvisited:
-                visited.add(neighbor)
-                queue.append(self.get_by_id(neighbor))
+            if module.id in visited:
+                continue
+
+            visited.add(module.id)
+
+            # Push the current module to process after its children
+            stack.append((module, True))
+
+            # Push children to be processed first (in reverse order to maintain original order in DFS)
+            neighbor_ids = self._adjacency[module.id]
+            for neighbor_id in reversed(neighbor_ids.keys()):
+                if neighbor_id == module.id:
+                    continue
+                neighbor = self.get_by_id(neighbor_id)
+                stack.append((neighbor, False))
 
     def is_global_module(self, module: Module) -> bool:
         return module.is_global or module == self._root_module
