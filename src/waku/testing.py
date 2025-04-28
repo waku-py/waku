@@ -4,7 +4,8 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 from dishka import DEFAULT_COMPONENT, make_async_container
-from dishka.provider import BaseProvider
+
+from waku.di import BaseProvider
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

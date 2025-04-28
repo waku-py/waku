@@ -1,0 +1,2 @@
+class WakuError(Exception):
+    pass

@@ -87,7 +87,7 @@ async def test_inaccessible(
         await application.initialize()
 
     error = exc_info.value.exceptions[0].exceptions[0]
-    b_module = application.graph.get(BModule)
+    b_module = application.registry.get(BModule)
     error_message = f'"{B!r}" from "{b_module!r}" depends on "{A!r}" but it\'s not accessible to it'
     assert str(error).startswith(error_message)
 
