@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.11.2 (2025-04-28)
+
+### Bug Fixes
+
+- **validation**: Fix check for provided types in the current module without explicit export
+  ([`a771cbb`](https://github.com/waku-py/waku/commit/a771cbb6615ce4223ad947f7751f4a6a2faf286b))
+
+
 ## v0.11.1 (2025-04-28)
 
 ### Performance Improvements
