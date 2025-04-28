@@ -1,5 +1,7 @@
+from waku.exceptions import WakuError
+
 __all__ = ['ValidationError']
 
 
-class ValidationError(Exception):
+class ValidationError(WakuError):
     pass
