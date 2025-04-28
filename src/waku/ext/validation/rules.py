@@ -30,7 +30,7 @@ class DependenciesAccessible(ValidationRule):
     @override
     def validate(self, context: ValidationContext) -> list[ValidationError]:
         registry: ModuleRegistry = context.app.registry
-        modules: list[Module] = list(registry.traverse())  # Cache traversal results
+        modules: list[Module] = list(registry.traverse())  # Validate all registered modules
 
         # Cache global providers
         global_providers: set[type[object]] = {AsyncContainer}
@@ -49,7 +49,7 @@ class DependenciesAccessible(ValidationRule):
 
         errors: list[ValidationError] = []
         for module in modules:
-            imported_modules = list(registry.traverse(module))
+            imported_modules = [m for m in registry.traverse(module) if m != module]
             for provider in module.providers:
                 for factory in provider.factories:
                     inaccessible_deps: set[type[object]] = set()
