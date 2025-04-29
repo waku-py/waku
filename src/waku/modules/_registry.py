@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections import OrderedDict
     from collections.abc import Iterator
     from uuid import UUID
 
@@ -11,6 +10,8 @@ if TYPE_CHECKING:
     from waku.extensions import ModuleExtension
     from waku.modules._metadata import DynamicModule, ModuleCompiler, ModuleType
     from waku.modules._module import Module
+    from waku.modules._registry_builder import AdjacencyMatrix
+
 
 __all__ = ['ModuleRegistry']
 
@@ -26,7 +27,7 @@ class ModuleRegistry:
         modules: dict[UUID, Module],
         providers: list[BaseProvider],
         extensions: list[ModuleExtension],
-        adjacency: dict[UUID, OrderedDict[UUID, str]],
+        adjacency: AdjacencyMatrix,
     ) -> None:
         self._compiler = compiler
         self._root_module = root_module
@@ -67,7 +68,7 @@ class ModuleRegistry:
         return self._modules[metadata.id]
 
     def traverse(self, from_: Module | None = None) -> Iterator[Module]:
-        """Traverse the module graph in depth-first post-order (children before parent) using a stack.
+        """Traverse the module graph in depth-first post-order (children before parent) recursively.
 
         Args:
             from_: Start module (default: root)
@@ -77,30 +78,25 @@ class ModuleRegistry:
         """
         start_module = from_ or self._root_module
         visited: set[UUID] = set()
-        stack: list[tuple[Module, bool]] = [(start_module, False)]
 
-        while stack:
-            module, processed = stack.pop()
-
-            if processed:
-                yield module
-                continue
-
+        def _dfs(module: Module) -> Iterator[Module]:
             if module.id in visited:
-                continue
+                return
 
             visited.add(module.id)
 
-            # Push the current module to process after its children
-            stack.append((module, True))
-
-            # Push children to be processed first (in reverse order to maintain original order in DFS)
+            # Process children first (maintain original order)
             neighbor_ids = self._adjacency[module.id]
-            for neighbor_id in reversed(neighbor_ids.keys()):
+            for neighbor_id in neighbor_ids:
                 if neighbor_id == module.id:
                     continue
                 neighbor = self.get_by_id(neighbor_id)
-                stack.append((neighbor, False))
+                yield from _dfs(neighbor)
+
+            # Process current module after children (post-order)
+            yield module
+
+        yield from _dfs(start_module)
 
     def is_global_module(self, module: Module) -> bool:
         return module.is_global or module == self._root_module
