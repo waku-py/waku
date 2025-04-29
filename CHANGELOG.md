@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.12.1 (2025-04-29)
+
+### Performance Improvements
+
+- **core**: Collect module adjacency in one pass
+  ([`9ad711d`](https://github.com/waku-py/waku/commit/9ad711d4454c0963c806cacc682b5059f687a3e3))
+
+
 ## v0.12.0 (2025-04-28)
 
 ### Features
