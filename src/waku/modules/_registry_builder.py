@@ -1,20 +1,25 @@
 from __future__ import annotations
 
 from collections import OrderedDict, defaultdict
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, TypeAlias
+from uuid import UUID
 
-from waku.extensions import ModuleExtension, OnModuleConfigure
 from waku.modules import Module, ModuleCompiler, ModuleMetadata, ModuleRegistry, ModuleType
 
 if TYPE_CHECKING:
-    from uuid import UUID
-
     from dishka.provider import BaseProvider
 
     from waku import DynamicModule
+    from waku.extensions import ModuleExtension
 
 
-__all__ = ['ModuleRegistryBuilder']
+__all__ = [
+    'AdjacencyMatrix',
+    'ModuleRegistryBuilder',
+]
+
+
+AdjacencyMatrix: TypeAlias = dict[UUID, OrderedDict[UUID, str]]
 
 
 class ModuleRegistryBuilder:
@@ -24,75 +29,68 @@ class ModuleRegistryBuilder:
         self._modules: dict[UUID, Module] = {}
         self._providers: list[BaseProvider] = []
         self._extensions: list[ModuleExtension] = []
-        self._adjacency: dict[UUID, OrderedDict[UUID, str]] = defaultdict(OrderedDict)
+
+        self._metadata_cache: dict[ModuleType | DynamicModule, tuple[ModuleType, ModuleMetadata]] = {}
 
     def build(self) -> ModuleRegistry:
-        modules = self._collect_modules()
+        modules, adjacency = self._collect_modules()
         root_module = self._register_modules(modules)
-        return self._build_registry(root_module)
+        return self._build_registry(root_module, adjacency)
 
-    def _collect_modules(self) -> list[tuple[ModuleType, ModuleMetadata]]:
+    def _collect_modules(self) -> tuple[list[tuple[ModuleType, ModuleMetadata]], AdjacencyMatrix]:
         """Collect modules in post-order DFS."""
-        stack: list[tuple[ModuleType | DynamicModule, bool]] = [(self._root_module_type, False)]
-        post_order: list[tuple[ModuleType, ModuleMetadata]] = []
         visited: set[UUID] = set()
-        while stack:
-            current_type, processed = stack.pop()
-            type_, metadata = self._compiler.extract_metadata(current_type)
+        post_order: list[tuple[ModuleType, ModuleMetadata]] = []
+        adjacency: AdjacencyMatrix = defaultdict(OrderedDict)
+        self._collect_modules_recursive(self._root_module_type, visited, post_order, adjacency)
+        return post_order, adjacency
 
-            module_id = metadata.id
-            if module_id in visited:
-                continue
+    def _collect_modules_recursive(
+        self,
+        current_type: ModuleType | DynamicModule,
+        visited: set[UUID],
+        post_order: list[tuple[ModuleType, ModuleMetadata]],
+        adjacency: AdjacencyMatrix,
+    ) -> None:
+        type_, metadata = self._get_metadata(current_type)
+        if metadata.id in visited:
+            return
 
-            if processed:
-                post_order.append((type_, metadata))
-                visited.add(module_id)
-                continue
+        adjacency[metadata.id][metadata.id] = type_.__name__
 
-            stack.append((current_type, True))
-            for imported in reversed(metadata.imports):
-                _, imported_metadata = self._compiler.extract_metadata(imported)
-                if imported_metadata.id not in visited:
-                    stack.append((imported, False))
+        for imported in metadata.imports:
+            imported_type, imported_metadata = self._get_metadata(imported)
+            adjacency[metadata.id][imported_metadata.id] = imported_type.__name__
+            if imported_metadata.id not in visited:
+                self._collect_modules_recursive(imported, visited, post_order, adjacency)
 
-        return post_order
+        post_order.append((type_, metadata))
+        visited.add(metadata.id)
 
-    def _register_modules(self, modules: list[tuple[ModuleType, ModuleMetadata]]) -> Module:
-        for type_, metadata in modules:
+    def _register_modules(self, post_order: list[tuple[ModuleType, ModuleMetadata]]) -> Module:
+        for type_, metadata in post_order:
             if metadata.id in self._modules:
                 continue
-            self._register_module(type_, metadata)
-        _, root_metadata = self._compiler.extract_metadata(self._root_module_type)
+
+            module = Module(type_, metadata)
+            self._modules[module.id] = module
+            self._providers.extend(module.providers)
+
+        _, root_metadata = self._get_metadata(self._root_module_type)
         return self._modules[root_metadata.id]
 
-    def _register_module(self, type_: ModuleType, metadata: ModuleMetadata) -> Module:
-        module = Module(type_, metadata)
-        self._modules[module.id] = module
-        self._providers.extend(module.providers)
-        self._update_adjacency(module)
-        return module
+    def _get_metadata(self, module_type: ModuleType | DynamicModule) -> tuple[ModuleType, ModuleMetadata]:
+        """Get metadata with caching to avoid repeated extractions."""
+        if module_type not in self._metadata_cache:
+            self._metadata_cache[module_type] = self._compiler.extract_metadata(module_type)
+        return self._metadata_cache[module_type]
 
-    def _handle_extensions(self, metadata: ModuleMetadata) -> None:
-        for extension in metadata.extensions:
-            if isinstance(extension, OnModuleConfigure):
-                extension.on_module_configure(metadata)
-            self._extensions.append(extension)
-
-    def _update_adjacency(self, module: Module) -> None:
-        if module.id not in self._adjacency:
-            self._adjacency[module.id][module.id] = str(module)
-
-        for imported_module_type in module.imports:
-            _, imported_metadata = self._compiler.extract_metadata(imported_module_type)
-            if imported_metadata.id not in self._adjacency[module.id]:
-                self._adjacency[module.id][imported_metadata.id] = str(imported_metadata)
-
-    def _build_registry(self, root_module: Module) -> ModuleRegistry:
+    def _build_registry(self, root_module: Module, adjacency: AdjacencyMatrix) -> ModuleRegistry:
         return ModuleRegistry(
             compiler=self._compiler,
             modules=self._modules,
             providers=self._providers,
             extensions=self._extensions,
             root_module=root_module,
-            adjacency=self._adjacency,
+            adjacency=adjacency,
         )
