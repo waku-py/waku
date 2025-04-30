@@ -4,7 +4,7 @@ import functools
 import uuid
 from collections.abc import Hashable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, TypeVar, cast
+from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, TypeVar, cast, runtime_checkable
 
 from waku.extensions import OnModuleConfigure
 
@@ -24,7 +24,6 @@ __all__ = [
 
 _T = TypeVar('_T')
 
-ModuleType: TypeAlias = 'type[object | HasModuleMetadata]'
 
 _MODULE_METADATA_KEY: Final = '__module_metadata__'
 
@@ -35,7 +34,7 @@ class ModuleMetadata:
     """List of providers for dependency injection."""
     imports: list[ModuleType | DynamicModule] = field(default_factory=list)
     """List of modules imported by this module."""
-    exports: list[object | ModuleType | DynamicModule] = field(default_factory=list)
+    exports: list[type[object] | ModuleType | DynamicModule] = field(default_factory=list)
     """List of types or modules exported by this module."""
     extensions: list[ModuleExtension] = field(default_factory=list)
     """List of module extensions for lifecycle hooks."""
@@ -48,8 +47,12 @@ class ModuleMetadata:
         return hash(self.id)
 
 
+@runtime_checkable
 class HasModuleMetadata(Protocol):
     __module_metadata__: ModuleMetadata
+
+
+ModuleType: TypeAlias = type[object | HasModuleMetadata]
 
 
 @dataclass(kw_only=True, slots=True)
@@ -64,7 +67,7 @@ def module(
     *,
     providers: Sequence[BaseProvider] = (),
     imports: Sequence[ModuleType | DynamicModule] = (),
-    exports: Sequence[object | ModuleType | DynamicModule] = (),
+    exports: Sequence[type[object] | ModuleType | DynamicModule] = (),
     extensions: Sequence[ModuleExtension] = (),
     is_global: bool = False,
 ) -> Callable[[type[_T]], type[_T]]:

@@ -1,21 +1,23 @@
-from __future__ import annotations
-
 import re
 from dataclasses import dataclass
 from typing import NewType, Protocol, cast
 
 import pytest
+from dishka.exceptions import ImplicitOverrideDetectedError
 
 from waku import WakuApplication, WakuFactory
-from waku.di import Scope, contextual, scoped
-from waku.ext.validation import ValidationError, ValidationExtension, ValidationRule
-from waku.ext.validation.rules import DependenciesAccessible
+from waku.di import AnyOf, Provider, Scope, contextual, provide, scoped
+from waku.ext.validation import ValidationExtension, ValidationRule
+from waku.ext.validation.rules import DependenciesAccessibleRule, DependencyInaccessibleError
 from waku.modules import ModuleType, module
 
 
 @dataclass
 class A:
     pass
+
+
+AliasType = NewType('AliasType', A)
 
 
 @dataclass
@@ -37,7 +39,7 @@ def _impl() -> int:  # pragma: no cover
 
 @pytest.fixture
 def rule() -> ValidationRule:
-    return DependenciesAccessible()
+    return DependenciesAccessibleRule()
 
 
 class ApplicationFactoryFunc(Protocol):
@@ -101,9 +103,12 @@ async def test_accessibility_import_export_matrix(
         with pytest.raises(ExceptionGroup) as exc_info:
             await application.initialize()
         b_module = application.registry.get(BModule)
-        error_message = f'"{B!r}" from "{b_module!r}" depends on "{A!r}" but it\'s not accessible to it'
-        error = cast(ValidationError, exc_info.value.exceptions[0].exceptions[0])
-        assert str(error).startswith(error_message)
+
+        error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0].exceptions[0])
+
+        expected_error = DependencyInaccessibleError(A, B, b_module)
+        assert isinstance(error, type(expected_error))
+        assert str(error) == str(expected_error)
     else:
         await application.initialize()
 
@@ -129,7 +134,7 @@ async def test_accessible_with_exported_and_imported(application_factory: Applic
 async def test_accessible_with_global_provider(application_factory: ApplicationFactoryFunc) -> None:
     """Test that global providers are accessible everywhere."""
 
-    @module(providers=[scoped(A)], is_global=True)
+    @module(providers=[scoped(A)], exports=[A], is_global=True)
     class AModule:
         pass
 
@@ -180,7 +185,7 @@ async def test_accessible_with_application_providers(application_factory: Applic
     class BModule:
         pass
 
-    @module(providers=[scoped(A)], imports=[BModule])
+    @module(providers=[scoped(A)], imports=[BModule], exports=[A])
     class AppModule:
         pass
 
@@ -263,3 +268,198 @@ async def test_warning_mode(application_factory: ApplicationFactoryFunc) -> None
     error_message = f'"{B!r}" from "{b_module!r}" depends on "{A!r}" but it\'s not accessible to it'
     with pytest.warns(Warning, match=re.escape(error_message)):
         await application.initialize()
+
+
+async def test_any_of_provider(application_factory: ApplicationFactoryFunc) -> None:
+    """Test that AnyOf provider works."""
+
+    class AProvider(Provider):
+        @provide(scope=Scope.REQUEST)
+        def provide_a(self) -> AnyOf[A, AliasType]:  # noqa: PLR6301
+            return A()
+
+    @module(providers=[AProvider()], exports=[A, AliasType], is_global=True)
+    class AModule:
+        pass
+
+    @dataclass()
+    class DependsOnAlias:
+        a: AliasType
+
+    @module(providers=[scoped(DependsOnAlias)])
+    class BModule:
+        pass
+
+    @module(imports=[AModule, BModule])
+    class AppModule:
+        pass
+
+    application = application_factory(AppModule)
+    await application.initialize()
+
+
+async def test_reexported_dependencies(application_factory: ApplicationFactoryFunc) -> None:
+    """Test that re-exported dependencies from another module are accessible."""
+
+    @dataclass
+    class ServiceA:
+        pass
+
+    @dataclass
+    class ServiceB:
+        a: ServiceA
+
+    @module(providers=[scoped(ServiceA)], exports=[ServiceA])
+    class SharedModule:
+        pass
+
+    @module(imports=[SharedModule], exports=[ServiceA])  # Re-export ServiceA
+    class ReexportModule:
+        pass
+
+    @module(providers=[scoped(ServiceB)], imports=[ReexportModule])  # Import from re-exporter
+    class ConsumerModule:
+        pass
+
+    @module(imports=[ConsumerModule])
+    class AppModule:
+        pass
+
+    await application_factory(AppModule).initialize()
+
+
+async def test_hierarchical_dependencies(application_factory: ApplicationFactoryFunc) -> None:
+    """Test deep hierarchical dependencies between modules."""
+
+    @dataclass
+    class ServiceA:
+        pass
+
+    @dataclass
+    class ServiceB:
+        a: ServiceA
+
+    @dataclass
+    class ServiceC:
+        b: ServiceB
+
+    @dataclass
+    class ServiceD:
+        c: ServiceC
+
+    @module(providers=[scoped(ServiceA)], exports=[ServiceA])
+    class ModuleA:
+        pass
+
+    @module(providers=[scoped(ServiceB)], exports=[ServiceB], imports=[ModuleA])
+    class ModuleB:
+        pass
+
+    @module(providers=[scoped(ServiceC)], exports=[ServiceC], imports=[ModuleB])
+    class ModuleC:
+        pass
+
+    @module(providers=[scoped(ServiceD)], imports=[ModuleC])
+    class ModuleD:
+        pass
+
+    @module(imports=[ModuleD])
+    class AppModule:
+        pass
+
+    await application_factory(AppModule).initialize()
+
+
+async def test_transitive_dependencies_not_accessible(application_factory: ApplicationFactoryFunc) -> None:
+    """Test that transitive dependencies are not accessible unless re-exported."""
+
+    @dataclass
+    class ServiceA:
+        pass
+
+    @dataclass
+    class ServiceB:
+        a: ServiceA
+
+    @dataclass
+    class ServiceC:
+        # Depends on A which should not be accessible through transitive import
+        a: ServiceA
+
+    @module(providers=[scoped(ServiceA)], exports=[ServiceA])
+    class ModuleA:
+        pass
+
+    @module(providers=[scoped(ServiceB)], exports=[ServiceB], imports=[ModuleA])
+    class ModuleB:
+        # Has access to A but doesn't re-export it
+        pass
+
+    @module(providers=[scoped(ServiceC)], imports=[ModuleB])
+    class ModuleC:
+        # Should not have access to A through B
+        pass
+
+    @module(imports=[ModuleC])
+    class AppModule:
+        pass
+
+    with pytest.raises(ExceptionGroup) as exc_info:
+        await application_factory(AppModule).initialize()
+
+    # Fix the linter error with proper casting and error extraction
+    exception_group = exc_info.value
+    # Find the specific error related to ServiceA dependency
+    for nested_group in exception_group.exceptions:
+        for error in getattr(nested_group, 'exceptions', [nested_group]):
+            if isinstance(error, DependencyInaccessibleError) and error.required_type == ServiceA:
+                assert error.required_type == ServiceA
+                return
+
+    # If we didn't find it, fail the test
+    pytest.fail('Expected DependencyInaccessibleError for ServiceA not found')
+
+
+async def test_multiple_module_providers(application_factory: ApplicationFactoryFunc) -> None:
+    """Test when multiple modules provide the same type."""
+
+    @dataclass
+    class SharedInterface:
+        def get_name(self) -> str:  # noqa: PLR6301
+            return 'default'
+
+    @dataclass
+    class FirstImplementation(SharedInterface):
+        def get_name(self) -> str:  # noqa: PLR6301
+            return 'first'
+
+    @dataclass
+    class SecondImplementation(SharedInterface):
+        def get_name(self) -> str:  # noqa: PLR6301
+            return 'second'
+
+    @dataclass
+    class Consumer:
+        dependency: SharedInterface
+
+    # Two modules providing the same interface with different implementations
+    @module(
+        providers=[scoped(FirstImplementation, provided_type=SharedInterface)],
+        exports=[SharedInterface],
+    )
+    class FirstModule:
+        pass
+
+    @module(
+        providers=[scoped(SecondImplementation, provided_type=SharedInterface)],
+        exports=[SharedInterface],
+    )
+    class SecondModule:
+        pass
+
+    @module(providers=[scoped(Consumer)], imports=[FirstModule, SecondModule])
+    class ConsumerModule:
+        pass
+
+    with pytest.raises(ImplicitOverrideDetectedError):
+        await application_factory(ConsumerModule).initialize()

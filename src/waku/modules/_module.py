@@ -21,7 +21,7 @@ class Module:
 
         self.providers: Final[Sequence[BaseProvider]] = metadata.providers
         self.imports: Final[Sequence[ModuleType | DynamicModule]] = metadata.imports
-        self.exports: Final[Sequence[object | ModuleType]] = metadata.exports
+        self.exports: Final[Sequence[type[object] | ModuleType | DynamicModule]] = metadata.exports
         self.extensions: Final[Sequence[ModuleExtension]] = metadata.extensions
         self.is_global: Final[bool] = metadata.is_global
 
