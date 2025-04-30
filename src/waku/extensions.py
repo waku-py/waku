@@ -18,6 +18,7 @@ __all__ = [
     'ModuleExtension',
     'OnApplicationInit',
     'OnModuleConfigure',
+    'OnModuleDestroy',
     'OnModuleInit',
 ]
 
@@ -64,5 +65,16 @@ class OnModuleInit(Protocol):
         ...
 
 
+@runtime_checkable
+class OnModuleDestroy(Protocol):
+    """Extension for module destroying."""
+
+    __slots__ = ()
+
+    async def on_module_destroy(self, module: Module) -> None:
+        """Perform actions before application shutdown."""
+        ...
+
+
 ApplicationExtension: TypeAlias = OnApplicationInit | AfterApplicationInit
-ModuleExtension: TypeAlias = OnModuleConfigure | OnModuleInit
+ModuleExtension: TypeAlias = OnModuleConfigure | OnModuleInit | OnModuleDestroy

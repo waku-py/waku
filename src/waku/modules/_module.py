@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
@@ -19,7 +18,6 @@ class Module:
     def __init__(self, module_type: ModuleType, metadata: ModuleMetadata) -> None:
         self.id: Final[UUID] = metadata.id
         self.target: Final[ModuleType] = module_type
-        self.distance: Final[int] = sys.maxsize if metadata.is_global else 0
 
         self.providers: Final[Sequence[BaseProvider]] = metadata.providers
         self.imports: Final[Sequence[ModuleType | DynamicModule]] = metadata.imports
@@ -44,6 +42,3 @@ class Module:
         if not isinstance(other, Module):  # pragma: no cover
             return False
         return self.id == other.id
-
-    def __lt__(self, other: Module) -> bool:
-        return self.distance < other.distance

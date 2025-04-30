@@ -35,10 +35,7 @@ class DependenciesAccessible(ValidationRule):
         # Cache global providers
         global_providers: set[type[object]] = {AsyncContainer}
         global_providers |= {
-            provided_type
-            for module in modules
-            for provided_type in _module_provided_types(module)
-            if registry.is_global_module(module)
+            provided_type for module in modules for provided_type in _module_provided_types(module) if module.is_global
         }
         global_context_providers = {
             dep.type_hint

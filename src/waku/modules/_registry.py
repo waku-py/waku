@@ -63,10 +63,6 @@ class ModuleRegistry:
             raise KeyError(msg)
         return module
 
-    def get_by_type(self, module_type: ModuleType | DynamicModule) -> Module:
-        _, metadata = self._compiler.extract_metadata(module_type)
-        return self._modules[metadata.id]
-
     def traverse(self, from_: Module | None = None) -> Iterator[Module]:
         """Traverse the module graph in depth-first post-order (children before parent) recursively.
 
@@ -97,6 +93,3 @@ class ModuleRegistry:
             yield module
 
         yield from _dfs(start_module)
-
-    def is_global_module(self, module: Module) -> bool:
-        return module.is_global or module == self._root_module

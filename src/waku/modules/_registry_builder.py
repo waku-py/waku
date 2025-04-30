@@ -25,7 +25,7 @@ AdjacencyMatrix: TypeAlias = dict[UUID, OrderedDict[UUID, str]]
 class ModuleRegistryBuilder:
     def __init__(self, root_module_type: ModuleType, compiler: ModuleCompiler | None = None) -> None:
         self._compiler: Final = compiler or ModuleCompiler()
-        self._root_module_type: ModuleType = root_module_type
+        self._root_module_type: Final = root_module_type
         self._modules: dict[UUID, Module] = {}
         self._providers: list[BaseProvider] = []
         self._extensions: list[ModuleExtension] = []
@@ -72,7 +72,11 @@ class ModuleRegistryBuilder:
             if metadata.id in self._modules:
                 continue
 
+            if type_ is self._root_module_type:
+                metadata.is_global = True
+
             module = Module(type_, metadata)
+
             self._modules[module.id] = module
             self._providers.extend(module.providers)
 
@@ -86,6 +90,7 @@ class ModuleRegistryBuilder:
         return self._metadata_cache[module_type]
 
     def _build_registry(self, root_module: Module, adjacency: AdjacencyMatrix) -> ModuleRegistry:
+        # Store topological order (post_order DFS) for event triggering
         return ModuleRegistry(
             compiler=self._compiler,
             modules=self._modules,
