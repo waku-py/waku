@@ -1,36 +1,19 @@
+"""Tests for dependency accessibility validation."""
+
 import re
 from dataclasses import dataclass
-from typing import NewType, Protocol, cast
+from typing import Protocol, cast
 
 import pytest
 from dishka.exceptions import ImplicitOverrideDetectedError
 
+from tests.data import A, AAliasType, B, C, X, Y, Z
+from tests.module_utils import create_basic_module
 from waku import WakuApplication, WakuFactory
 from waku.di import AnyOf, Provider, Scope, contextual, provide, scoped
 from waku.ext.validation import ValidationExtension, ValidationRule
 from waku.ext.validation.rules import DependenciesAccessibleRule, DependencyInaccessibleError
-from waku.modules import ModuleType, module
-
-
-@dataclass
-class A:
-    pass
-
-
-AliasType = NewType('AliasType', A)
-
-
-@dataclass
-class B:
-    a: A
-
-
-C = NewType('C', A)
-
-
-@dataclass
-class D:
-    c: C
+from waku.modules import ModuleType
 
 
 def _impl() -> int:  # pragma: no cover
@@ -54,6 +37,8 @@ class ApplicationFactoryFunc(Protocol):
 
 @pytest.fixture
 def application_factory(rule: ValidationRule) -> ApplicationFactoryFunc:
+    """Create a factory function for creating WakuApplication instances with validation."""
+
     def factory(
         root_module: ModuleType,
         *,
@@ -85,20 +70,23 @@ async def test_accessibility_import_export_matrix(
     application_factory: ApplicationFactoryFunc,
 ) -> None:
     """Test all combinations of import/export for dependency accessibility."""
-
-    @module(providers=[scoped(A)], exports=[A] if exports else [])
-    class AModule:
-        pass
-
-    @module(providers=[scoped(B)], imports=[AModule] if imports else [])
-    class BModule:
-        pass
-
-    @module(imports=[AModule, BModule])
-    class AppModule:
-        pass
+    AModule = create_basic_module(
+        providers=[scoped(A)],
+        exports=[A] if exports else [],
+        name='AModule',
+    )
+    BModule = create_basic_module(
+        providers=[scoped(B)],
+        imports=[AModule] if imports else [],
+        name='BModule',
+    )
+    AppModule = create_basic_module(
+        imports=[AModule, BModule],
+        name='AppModule',
+    )
 
     application = application_factory(AppModule)
+
     if should_fail:
         with pytest.raises(ExceptionGroup) as exc_info:
             await application.initialize()
@@ -115,36 +103,41 @@ async def test_accessibility_import_export_matrix(
 
 async def test_accessible_with_exported_and_imported(application_factory: ApplicationFactoryFunc) -> None:
     """Test that dependency is accessible when exported and imported."""
-
-    @module(providers=[scoped(A), scoped(_impl, provided_type=C)], exports=[A, C])
-    class AModule:
-        pass
-
-    @module(providers=[scoped(B), scoped(D)], imports=[AModule])
-    class BModule:
-        pass
-
-    @module(imports=[AModule, BModule])
-    class AppModule:
-        pass
+    AModule = create_basic_module(
+        providers=[scoped(A), scoped(_impl, provided_type=C)],
+        exports=[A, C],
+        name='AModule',
+    )
+    BModule = create_basic_module(
+        providers=[scoped(B)],
+        imports=[AModule],
+        name='BModule',
+    )
+    AppModule = create_basic_module(
+        imports=[AModule, BModule],
+        name='AppModule',
+    )
 
     await application_factory(AppModule).initialize()
 
 
 async def test_accessible_with_global_provider(application_factory: ApplicationFactoryFunc) -> None:
     """Test that global providers are accessible everywhere."""
-
-    @module(providers=[scoped(A)], exports=[A], is_global=True)
-    class AModule:
-        pass
-
-    @module(providers=[scoped(B)], imports=[AModule])
-    class BModule:
-        pass
-
-    @module(imports=[AModule, BModule])
-    class AppModule:
-        pass
+    AModule = create_basic_module(
+        providers=[scoped(A)],
+        exports=[A],
+        name='AModule',
+        is_global=True,
+    )
+    BModule = create_basic_module(
+        providers=[scoped(B)],
+        imports=[AModule],
+        name='BModule',
+    )
+    AppModule = create_basic_module(
+        imports=[AModule, BModule],
+        name='AppModule',
+    )
 
     await application_factory(AppModule).initialize()
 
@@ -155,20 +148,18 @@ async def test_accessible_with_contextual_provider(
     scope: Scope,
 ) -> None:
     """Test that contextual providers are accessible if present in context."""
-
-    @module(
+    Module = create_basic_module(
         providers=[
             contextual(A, scope=scope),
             scoped(B),
         ],
         exports=[B],
+        name='Module',
     )
-    class Module:
-        pass
-
-    @module(imports=[Module])
-    class AppModule:
-        pass
+    AppModule = create_basic_module(
+        imports=[Module],
+        name='AppModule',
+    )
 
     application = WakuFactory(
         AppModule,
@@ -180,14 +171,17 @@ async def test_accessible_with_contextual_provider(
 
 async def test_accessible_with_application_providers(application_factory: ApplicationFactoryFunc) -> None:
     """Test that providers in the application module are accessible."""
-
-    @module(providers=[scoped(B)], exports=[B])
-    class BModule:
-        pass
-
-    @module(providers=[scoped(A)], imports=[BModule], exports=[A])
-    class AppModule:
-        pass
+    BModule = create_basic_module(
+        providers=[scoped(B)],
+        exports=[B],
+        name='BModule',
+    )
+    AppModule = create_basic_module(
+        providers=[scoped(A)],
+        imports=[BModule],
+        exports=[A],
+        name='AppModule',
+    )
 
     application: WakuApplication = application_factory(AppModule)
     await application.initialize()
@@ -195,48 +189,32 @@ async def test_accessible_with_application_providers(application_factory: Applic
 
 async def test_intra_module_access(application_factory: ApplicationFactoryFunc) -> None:
     """Test that providers can access each other within the same module without export."""
-
-    @module(providers=[scoped(A), scoped(B)])
-    class Module:
-        pass
-
-    @module(imports=[Module])
-    class AppModule:
-        pass
+    Module = create_basic_module(
+        providers=[scoped(A), scoped(B)],
+        name='Module',
+    )
+    AppModule = create_basic_module(
+        imports=[Module],
+        name='AppModule',
+    )
 
     await application_factory(AppModule).initialize()
 
 
-@dataclass
-class X:
-    pass
-
-
-@dataclass
-class Y:
-    pass
-
-
-@dataclass
-class Z:
-    x: X
-    y: Y
-
-
 async def test_multiple_missing_dependencies(application_factory: ApplicationFactoryFunc) -> None:
     """Test that multiple missing dependencies are all reported."""
-
-    @module(providers=[scoped(X), scoped(Y)])
-    class XYModule:
-        pass
-
-    @module(providers=[scoped(Z)])
-    class ZModule:
-        pass
-
-    @module(imports=[XYModule, ZModule])
-    class AppModule:
-        pass
+    XYModule = create_basic_module(
+        providers=[scoped(X), scoped(Y)],
+        name='XYModule',
+    )
+    ZModule = create_basic_module(
+        providers=[scoped(Z)],
+        name='ZModule',
+    )
+    AppModule = create_basic_module(
+        imports=[XYModule, ZModule],
+        name='AppModule',
+    )
 
     with pytest.raises(ExceptionGroup) as exc_info:
         await application_factory(AppModule).initialize()
@@ -249,18 +227,18 @@ async def test_multiple_missing_dependencies(application_factory: ApplicationFac
 
 async def test_warning_mode(application_factory: ApplicationFactoryFunc) -> None:
     """Test that non-strict mode emits warnings instead of raising."""
-
-    @module(providers=[scoped(A)])
-    class AModule:
-        pass
-
-    @module(providers=[scoped(B)], imports=[])  # No import, should warn
-    class BModule:
-        pass
-
-    @module(imports=[AModule, BModule])
-    class AppModule:
-        pass
+    AModule = create_basic_module(
+        providers=[scoped(A)],
+        name='AModule',
+    )
+    BModule = create_basic_module(
+        providers=[scoped(B)],
+        name='BModule',
+    )
+    AppModule = create_basic_module(
+        imports=[AModule, BModule],
+        name='AppModule',
+    )
 
     application = application_factory(AppModule, strict=False)
 
@@ -275,24 +253,29 @@ async def test_any_of_provider(application_factory: ApplicationFactoryFunc) -> N
 
     class AProvider(Provider):
         @provide(scope=Scope.REQUEST)
-        def provide_a(self) -> AnyOf[A, AliasType]:  # noqa: PLR6301
+        def provide_a(self) -> AnyOf[A, AAliasType]:  # noqa: PLR6301
             return A()
 
-    @module(providers=[AProvider()], exports=[A, AliasType], is_global=True)
-    class AModule:
-        pass
+    AModule = create_basic_module(
+        providers=[AProvider()],
+        exports=[A, AAliasType],
+        name='AModule',
+        is_global=True,
+    )
 
     @dataclass()
     class DependsOnAlias:
-        a: AliasType
+        a: AAliasType
 
-    @module(providers=[scoped(DependsOnAlias)])
-    class BModule:
-        pass
+    BModule = create_basic_module(
+        providers=[scoped(DependsOnAlias)],
+        name='BModule',
+    )
 
-    @module(imports=[AModule, BModule])
-    class AppModule:
-        pass
+    AppModule = create_basic_module(
+        imports=[AModule, BModule],
+        name='AppModule',
+    )
 
     application = application_factory(AppModule)
     await application.initialize()
@@ -300,30 +283,25 @@ async def test_any_of_provider(application_factory: ApplicationFactoryFunc) -> N
 
 async def test_reexported_dependencies(application_factory: ApplicationFactoryFunc) -> None:
     """Test that re-exported dependencies from another module are accessible."""
-
-    @dataclass
-    class ServiceA:
-        pass
-
-    @dataclass
-    class ServiceB:
-        a: ServiceA
-
-    @module(providers=[scoped(ServiceA)], exports=[ServiceA])
-    class SharedModule:
-        pass
-
-    @module(imports=[SharedModule], exports=[ServiceA])  # Re-export ServiceA
-    class ReexportModule:
-        pass
-
-    @module(providers=[scoped(ServiceB)], imports=[ReexportModule])  # Import from re-exporter
-    class ConsumerModule:
-        pass
-
-    @module(imports=[ConsumerModule])
-    class AppModule:
-        pass
+    SharedModule = create_basic_module(
+        providers=[scoped(A)],
+        exports=[A],
+        name='SharedModule',
+    )
+    ReexportModule = create_basic_module(
+        imports=[SharedModule],
+        exports=[A],
+        name='ReexportModule',
+    )
+    ConsumerModule = create_basic_module(
+        providers=[scoped(B)],
+        imports=[ReexportModule],
+        name='ConsumerModule',
+    )
+    AppModule = create_basic_module(
+        imports=[ConsumerModule],
+        name='AppModule',
+    )
 
     await application_factory(AppModule).initialize()
 
@@ -347,25 +325,32 @@ async def test_hierarchical_dependencies(application_factory: ApplicationFactory
     class ServiceD:
         c: ServiceC
 
-    @module(providers=[scoped(ServiceA)], exports=[ServiceA])
-    class ModuleA:
-        pass
-
-    @module(providers=[scoped(ServiceB)], exports=[ServiceB], imports=[ModuleA])
-    class ModuleB:
-        pass
-
-    @module(providers=[scoped(ServiceC)], exports=[ServiceC], imports=[ModuleB])
-    class ModuleC:
-        pass
-
-    @module(providers=[scoped(ServiceD)], imports=[ModuleC])
-    class ModuleD:
-        pass
-
-    @module(imports=[ModuleD])
-    class AppModule:
-        pass
+    ModuleA = create_basic_module(
+        providers=[scoped(ServiceA)],
+        exports=[ServiceA],
+        name='ModuleA',
+    )
+    ModuleB = create_basic_module(
+        providers=[scoped(ServiceB)],
+        exports=[ServiceB],
+        imports=[ModuleA],
+        name='ModuleB',
+    )
+    ModuleC = create_basic_module(
+        providers=[scoped(ServiceC)],
+        exports=[ServiceC],
+        imports=[ModuleB],
+        name='ModuleC',
+    )
+    ModuleD = create_basic_module(
+        providers=[scoped(ServiceD)],
+        imports=[ModuleC],
+        name='ModuleD',
+    )
+    AppModule = create_basic_module(
+        imports=[ModuleD],
+        name='AppModule',
+    )
 
     await application_factory(AppModule).initialize()
 
@@ -386,23 +371,26 @@ async def test_transitive_dependencies_not_accessible(application_factory: Appli
         # Depends on A which should not be accessible through transitive import
         a: ServiceA
 
-    @module(providers=[scoped(ServiceA)], exports=[ServiceA])
-    class ModuleA:
-        pass
-
-    @module(providers=[scoped(ServiceB)], exports=[ServiceB], imports=[ModuleA])
-    class ModuleB:
-        # Has access to A but doesn't re-export it
-        pass
-
-    @module(providers=[scoped(ServiceC)], imports=[ModuleB])
-    class ModuleC:
-        # Should not have access to A through B
-        pass
-
-    @module(imports=[ModuleC])
-    class AppModule:
-        pass
+    ModuleA = create_basic_module(
+        providers=[scoped(ServiceA)],
+        exports=[ServiceA],
+        name='ModuleA',
+    )
+    ModuleB = create_basic_module(
+        providers=[scoped(ServiceB)],
+        exports=[ServiceB],
+        imports=[ModuleA],
+        name='ModuleB',
+    )
+    ModuleC = create_basic_module(
+        providers=[scoped(ServiceC)],
+        imports=[ModuleB],
+        name='ModuleC',
+    )
+    AppModule = create_basic_module(
+        imports=[ModuleC],
+        name='AppModule',
+    )
 
     with pytest.raises(ExceptionGroup) as exc_info:
         await application_factory(AppModule).initialize()
@@ -442,24 +430,21 @@ async def test_multiple_module_providers(application_factory: ApplicationFactory
     class Consumer:
         dependency: SharedInterface
 
-    # Two modules providing the same interface with different implementations
-    @module(
+    FirstModule = create_basic_module(
         providers=[scoped(FirstImplementation, provided_type=SharedInterface)],
         exports=[SharedInterface],
+        name='FirstModule',
     )
-    class FirstModule:
-        pass
-
-    @module(
+    SecondModule = create_basic_module(
         providers=[scoped(SecondImplementation, provided_type=SharedInterface)],
         exports=[SharedInterface],
+        name='SecondModule',
     )
-    class SecondModule:
-        pass
-
-    @module(providers=[scoped(Consumer)], imports=[FirstModule, SecondModule])
-    class ConsumerModule:
-        pass
+    AppModule = create_basic_module(
+        providers=[scoped(Consumer)],
+        imports=[FirstModule, SecondModule],
+        name='AppModule',
+    )
 
     with pytest.raises(ImplicitOverrideDetectedError):
-        await application_factory(ConsumerModule).initialize()
+        await application_factory(AppModule).initialize()

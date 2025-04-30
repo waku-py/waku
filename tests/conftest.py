@@ -1,3 +1,5 @@
+"""Test configuration and shared fixtures."""
+
 from typing import Any, cast
 
 import pytest

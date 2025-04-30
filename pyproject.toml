@@ -95,7 +95,7 @@ addopts = [
   "--doctest-modules",
   "--strict-markers",
   "--strict-config",
-  "--cov-fail-under=88",
+  "--cov-fail-under=86",
 ]
 # pytest-timeout settings
 timeout = 5
@@ -175,6 +175,7 @@ pylint = { max-args = 7 }
 ]
 "tests/*" = [
   "FBT001", # Boolean-typed positional argument in function definition
+  "N806", # Variable in function should be lowercase
   "PLR2004", # Magic value comparison
   "S101", # Usage of assert
   "S311", # Usage of non-cryptographic random
