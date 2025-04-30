@@ -1,13 +1,14 @@
-from __future__ import annotations
+from dataclasses import dataclass
 
-from waku import WakuFactory, module
+from tests.module_utils import create_basic_module
+from waku import WakuFactory
 from waku.di import Scope, contextual, scoped
 from waku.testing import override
 
 
+@dataclass
 class Service:
-    def __init__(self, val: int) -> None:
-        self.val = val
+    val: int
 
     def method(self) -> int:
         return self.val
@@ -19,14 +20,13 @@ class ServiceOverride(Service):
 
 
 async def test_override_helper() -> None:
-    @module(
+    AppModule = create_basic_module(
         providers=[
             contextual(int, scope=Scope.APP),
             scoped(Service),
-        ]
+        ],
+        name='AppModule',
     )
-    class AppModule:
-        pass
 
     val = 1
     application = WakuFactory(AppModule, context={int: val}).create()
