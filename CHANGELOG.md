@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.14.0 (2025-04-30)
+
+### Features
+
+- **validation**: Make dependency accessible rule stricter and follow nestjs behaviour
+  ([`574c453`](https://github.com/waku-py/waku/commit/574c45380aaed20bad8ea44f0dfecf9863767790))
+
+
 ## v0.13.0 (2025-04-30)
 
 ### Features
