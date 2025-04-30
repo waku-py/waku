@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING, Self
 import anyio
 from dishka.async_container import AsyncContextWrapper
 
-from waku.extensions import AfterApplicationInit, ApplicationExtension, OnApplicationInit, OnModuleInit
+from waku.extensions import AfterApplicationInit, ApplicationExtension, OnApplicationInit, OnModuleDestroy, OnModuleInit
 from waku.lifespan import LifespanFunc, LifespanWrapper
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Sequence
     from types import TracebackType
 
     from waku.di import AsyncContainer
@@ -46,6 +46,12 @@ class WakuApplication:
         self._initialized = True
         await self._call_after_init_extensions()
 
+    async def close(self) -> None:
+        if not self._initialized:
+            return
+        await self._call_on_shutdown_extensions()
+        self._initialized = False
+
     @property
     def container(self) -> AsyncContainer:
         return self._container
@@ -68,15 +74,18 @@ class WakuApplication:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
+        await self.close()
         await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)
 
     async def _call_on_init_extensions(self) -> None:
-        async with anyio.create_task_group() as tg:
-            for module in self._get_modules_for_triggering_extensions():
-                for extension in module.extensions:
-                    if isinstance(extension, OnModuleInit):  # pyright: ignore[reportUnnecessaryIsInstance]
-                        tg.start_soon(extension.on_module_init, module)
+        # Call module OnModuleInit hooks sequentially in topological order (dependencies first)
+        for module in self._get_modules_for_triggering_extensions():
+            for extension in module.extensions:
+                if isinstance(extension, OnModuleInit):
+                    await extension.on_module_init(module)
 
+        # After all modules, call app-level OnApplicationInit hooks concurrently
+        async with anyio.create_task_group() as tg:
             for app_extension in self._extensions:
                 if isinstance(app_extension, OnApplicationInit):
                     tg.start_soon(app_extension.on_app_init, self)
@@ -87,5 +96,12 @@ class WakuApplication:
                 if isinstance(extension, AfterApplicationInit):
                     tg.start_soon(extension.after_app_init, self)
 
-    def _get_modules_for_triggering_extensions(self) -> list[Module]:
-        return sorted(self.registry.traverse(), reverse=True)
+    async def _call_on_shutdown_extensions(self) -> None:
+        # Call module OnModuleDestroy hooks sequentially in reverse topological order (dependents first)
+        for module in self._get_modules_for_triggering_extensions(reverse=True):
+            for extension in module.extensions:
+                if isinstance(extension, OnModuleDestroy):
+                    await extension.on_module_destroy(module)
+
+    def _get_modules_for_triggering_extensions(self, *, reverse: bool = False) -> Iterable[Module]:
+        return reversed(self.registry.modules) if reverse else self.registry.modules

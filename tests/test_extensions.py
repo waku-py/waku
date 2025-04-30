@@ -2,8 +2,8 @@ from dataclasses import dataclass
 
 from waku import DynamicModule, WakuFactory, module
 from waku.di import scoped
-from waku.extensions import OnModuleConfigure
-from waku.modules import ModuleMetadata
+from waku.extensions import ModuleExtension, OnModuleConfigure, OnModuleDestroy, OnModuleInit
+from waku.modules import Module, ModuleMetadata, ModuleType
 
 
 @dataclass
@@ -30,7 +30,7 @@ def test_on_module_configure_extension_changes_module_metadata_only_once() -> No
     WakuFactory(AppModule).create()
     application = WakuFactory(AppModule).create()
 
-    assert len(application.registry.get_by_type(SomeModule).providers) == 1
+    assert len(application.registry.get(SomeModule).providers) == 1
 
 
 def test_on_module_configure_extension_with_dynamic_module() -> None:
@@ -55,7 +55,7 @@ def test_on_module_configure_extension_with_dynamic_module() -> None:
 
     application = WakuFactory(AppModule).create()
 
-    assert len(application.registry.get_by_type(dynamic_module).providers) == 1
+    assert len(application.registry.get(dynamic_module).providers) == 1
 
 
 def test_module_imported_twice_only_once() -> None:
@@ -84,4 +84,74 @@ def test_module_imported_twice_only_once() -> None:
 
     application = WakuFactory(AppModule).create()
     # Ensure that configuration for SomeModule is applied only once despite multiple import paths.
-    assert len(application.registry.get_by_type(SomeModule).providers) == 1
+    assert len(application.registry.get(SomeModule).providers) == 1
+
+
+async def test_module_extensions_call_order() -> None:
+    calls: list[tuple[ModuleType, type[ModuleExtension]]] = []
+
+    class OnInitExt(OnModuleInit):
+        async def on_module_init(self, module: Module) -> None:  # noqa: PLR6301
+            calls.append((module.target, OnInitExt))
+
+    class OnDestroyExt(OnModuleDestroy):
+        async def on_module_destroy(self, module: Module) -> None:  # noqa: PLR6301
+            calls.append((module.target, OnDestroyExt))
+
+    @module(extensions=[OnInitExt(), OnDestroyExt()], is_global=True)
+    class GlobalModule:
+        pass
+
+    @module(extensions=[OnInitExt(), OnDestroyExt()])
+    class DatabaseModule:
+        pass
+
+    @module(
+        imports=[DatabaseModule],
+        extensions=[OnInitExt(), OnDestroyExt()],
+    )
+    class UsersModule:
+        pass
+
+    @module(
+        imports=[UsersModule],
+        extensions=[OnInitExt(), OnDestroyExt()],
+    )
+    class AuthModule:
+        pass
+
+    @module(
+        imports=[GlobalModule, DatabaseModule, UsersModule, AuthModule],
+        extensions=[OnInitExt(), OnDestroyExt()],
+    )
+    class AppModule:
+        pass
+
+    application = WakuFactory(AppModule).create()
+
+    async with application:
+        pass
+
+    assert calls == [
+        (GlobalModule, OnInitExt),
+        (DatabaseModule, OnInitExt),
+        (UsersModule, OnInitExt),
+        (AuthModule, OnInitExt),
+        (AppModule, OnInitExt),
+        (AppModule, OnDestroyExt),
+        (AuthModule, OnDestroyExt),
+        (UsersModule, OnDestroyExt),
+        (DatabaseModule, OnDestroyExt),
+        (GlobalModule, OnDestroyExt),
+    ]
+
+    excepted_modules_order = [
+        GlobalModule,
+        DatabaseModule,
+        UsersModule,
+        AuthModule,
+        AppModule,
+    ]
+
+    for mod, expected_type in zip(application.registry.modules, excepted_modules_order, strict=True):
+        assert mod.target is expected_type
