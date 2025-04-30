@@ -2,6 +2,16 @@
 
 <!-- version list -->
 
+## v0.13.0 (2025-04-30)
+
+### Features
+
+- Implement proper module hooks sorting
+  ([`2b2a9de`](https://github.com/waku-py/waku/commit/2b2a9de832b3890c21cf9dfcccfd3f30802f3761))
+
+Also remove module distance until good times when it maybe needed
+
+
 ## v0.12.1 (2025-04-29)
 
 ### Performance Improvements
