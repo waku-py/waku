@@ -3,11 +3,9 @@
 from collections.abc import Sequence
 from typing import Any
 
-from tests.data import DependentService, Service
 from waku import module
-from waku.di import scoped
 from waku.extensions import ModuleExtension
-from waku.modules import DynamicModule
+from waku.modules import DynamicModule, ModuleType
 
 
 def create_basic_module(
@@ -18,63 +16,17 @@ def create_basic_module(
     name: str | None = None,
     extensions: Sequence[ModuleExtension] | None = None,
     is_global: bool = False,
-) -> type:
+) -> ModuleType:
     """Create a basic module with given configuration."""
-
-    @module(
+    cls: ModuleType = module(
         providers=list(providers or []),
         exports=list(exports or []),
         imports=list(imports or []),
         extensions=list(extensions or []),
         is_global=is_global,
-    )
-    class BasicModule:
-        pass
+    )(type(name or 'BasicModule', (object,), {}))
 
-    if name:
-        BasicModule.__name__ = name
-
-    return BasicModule
-
-
-def create_service_module(
-    *,
-    exports: bool = False,
-    name: str | None = None,
-) -> type:
-    """Create a module with Service provider."""
-
-    @module(
-        providers=[scoped(Service)],
-        exports=[Service] if exports else [],
-    )
-    class ServiceModule:
-        pass
-
-    if name:
-        ServiceModule.__name__ = name
-
-    return ServiceModule
-
-
-def create_dependent_service_module(
-    *,
-    imports: Sequence[Any] | None = None,
-    name: str | None = None,
-) -> type:
-    """Create a module with DependentService provider."""
-
-    @module(
-        providers=[scoped(DependentService)],
-        imports=list(imports or []),
-    )
-    class DependentServiceModule:
-        pass
-
-    if name:
-        DependentServiceModule.__name__ = name
-
-    return DependentServiceModule
+    return cls
 
 
 def create_dynamic_module(
@@ -99,7 +51,7 @@ def create_dynamic_module(
                 extensions=list(extensions or []),
             )
 
-    if name:
+    if name:  # pragma: no cover
         DynamicModuleParent.__name__ = name
 
     return DynamicModuleParent.register()
