@@ -1,21 +1,22 @@
 from __future__ import annotations
 
+from functools import cached_property
 from itertools import chain
-from typing import TYPE_CHECKING, Any, ClassVar, Protocol, cast
+from typing import TYPE_CHECKING, Any
 
 from dishka.entities.factory_type import FactoryType
 from typing_extensions import override
 
 from waku.di import Scope
 from waku.ext.validation import ValidationError, ValidationRule
+from waku.ext.validation.rules._cache import LRUCache
+from waku.ext.validation.rules._types_extractor import ModuleTypesExtractor
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
-    from dishka import DependencyKey
+    from collections.abc import Iterable, Sequence
 
     from waku.ext.validation._extension import ValidationContext
-    from waku.modules import Module, ModuleRegistry
+    from waku.modules import Module
 
 
 __all__ = [
@@ -39,217 +40,128 @@ class DependencyInaccessibleError(ValidationError):
         super().__init__(str(self))
 
     def __str__(self) -> str:
-        return (
-            f'"{self.required_by!r}" from "{self.from_module!r}" depends on '
-            f'"{self.required_type!r}" but it\'s not accessible to it\n'
-            f'To resolve this issue:\n'
-            f'   1. Export "{self.required_type!r}" from some module\n'
-            f'   2. Add module which exports "{self.required_type!r}" to "{self.from_module!r}" imports'
-        )
-
-
-class _HasProvidesAttr(Protocol):
-    provides: DependencyKey
-
-
-class _ModuleTypesProvider:
-    """Handles extraction and caching of types provided by modules."""
-
-    _provided_types_cache: ClassVar[dict[Module, set[type[object]]]] = {}
-    _context_vars_cache: ClassVar[dict[Module, set[type[object]]]] = {}
-    _exported_type_cache: ClassVar[dict[tuple[type[object], Module], bool]] = {}
-
-    @classmethod
-    def get_provided_types(cls, module: Module) -> set[type[object]]:
-        """Get all types provided by a module's providers.
-
-        Args:
-            module: The module to extract provided types from
-
-        Returns:
-            A set of all type hints that the module's providers can provide
-        """
-        if module not in cls._provided_types_cache:
-            cls._provided_types_cache[module] = {
-                cast(_HasProvidesAttr, dep).provides.type_hint
-                for provider in module.providers
-                for dep in chain(provider.factories, provider.aliases, provider.decorators)
-            }
-        return cls._provided_types_cache[module]
-
-    @classmethod
-    def get_context_vars(cls, module: Module) -> set[type[object]]:
-        """Get all types provided by a provider's context variables.
-
-        Args:
-            module: The module to extract context variables from
-
-        Returns:
-            A set of all type hints from the module's context variables
-        """
-        if module not in cls._context_vars_cache:
-            # fmt: off
-            cls._context_vars_cache[module] = {
-                context_var.provides.type_hint
-                for provider in module.providers
-                for context_var in provider.context_vars
-            }
-            # fmt: on
-        return cls._context_vars_cache[module]
-
-    @classmethod
-    def is_type_exported(cls, type_: type[object], module: Module) -> bool:
-        """Check if a type is exported by a module.
-
-        Args:
-            type_: The type to check
-            module: The module to check exports from
-
-        Returns:
-            True if the type is provided by the module and exported, False otherwise
-        """
-        cache_key = (type_, module)
-        if cache_key not in cls._exported_type_cache:
-            cls._exported_type_cache[cache_key] = type_ in cls.get_provided_types(module) and type_ in module.exports
-        return cls._exported_type_cache[cache_key]
-
-    @classmethod
-    def clear_caches(cls) -> None:
-        """Clear all caches. Useful for testing or when modules are modified."""
-        cls._provided_types_cache.clear()
-        cls._context_vars_cache.clear()
-        cls._exported_type_cache.clear()
+        msg = [
+            f'Dependency Error: "{self.required_type!r}" is not accessible',
+            f'Required by: "{self.required_by!r}"',
+            f'In module: "{self.from_module!r}"',
+            '',
+            'To resolve this issue, either:',
+            f'1. Export "{self.required_type!r}" from a module that provides it and add that module to "{self.from_module!r}" imports',
+            f'2. Make the module that provides "{self.required_type!r}" global by setting is_global=True',
+            f'3. Move the dependency to a module that has access to "{self.required_type!r}"',
+            '',
+            'Note: Dependencies can only be accessed from:',
+            '- The same module that provides them',
+            '- Modules that import the module that provides and exports it',
+            '- Global modules',
+        ]
+        return '\n'.join(msg)
 
 
 class DependencyAccessChecker:
     """Handles dependency accessibility checks between modules."""
 
-    def __init__(self, modules: list[Module], context: ValidationContext) -> None:
-        self.modules = modules
-        self.context = context
-        self.global_providers = self._build_global_providers()
+    def __init__(
+        self,
+        modules: list[Module],
+        context: ValidationContext,
+        types_extractor: ModuleTypesExtractor,
+    ) -> None:
+        self._modules = modules
+        self._context = context
+        self._registry = context.app.registry
+        self._type_provider = types_extractor
+
+    def find_inaccessible_dependencies(self, dependencies: Sequence[Any], module: Module) -> Iterable[type[object]]:
+        """Find dependencies that are not accessible to a module."""
+        return (
+            dependency.type_hint for dependency in dependencies if not self._is_accessible(dependency.type_hint, module)
+        )
+
+    @cached_property
+    def _global_providers(self) -> set[type[object]]:
+        return self._build_global_providers()
 
     def _build_global_providers(self) -> set[type[object]]:
-        """Build a set of all globally accessible types.
-
-        This includes:
-        1. Types exported by global modules
-        2. Types provided by application-scoped context variables
-
-        Returns:
-            A set of globally accessible types
-        """
-        # Types exported by global modules
+        """Build a set of all globally accessible types."""
         global_module_types = {
             provided_type
-            for module in self.modules
-            for provided_type in _ModuleTypesProvider.get_provided_types(module)
-            if module.is_global and provided_type in module.exports
+            for module in self._modules
+            for provided_type in chain(
+                self._type_provider.get_provided_types(module),
+                self._type_provider.get_reexported_types(module, self._registry),
+            )
+            if module.is_global
         }
 
-        # Types from app-scoped context variables
         global_context_types = {
             dep.type_hint
-            for dep, factory in self.context.app.container.registry.factories.items()
+            for dep, factory in self._context.app.container.registry.factories.items()
             if (factory.scope is Scope.APP and factory.type is FactoryType.CONTEXT)
         }
 
         return global_module_types | global_context_types
 
-    def is_accessible(self, dep_type: type[object], module: Module, imported_modules: list[Module]) -> bool:
-        """Check if a dependency type is accessible from a module.
+    def _is_accessible(self, required_type: type[object], module: Module) -> bool:
+        """Check if a type is accessible to a module.
 
-        Args:
-            dep_type: The dependency type to check accessibility for
-            module: The module requiring the dependency
-            imported_modules: Modules imported by the requiring module
-
-        Returns:
-            True if the dependency is accessible, False otherwise
+        A type is accessible if:
+        1. It is provided by the module itself
+        2. It is provided by a global module
+        3. It is provided and exported by an imported module
+        4. It is provided by a module that is re-exported by an imported module
         """
-        # 1. Dep available globally
-        if dep_type in self.global_providers:
+        # Check if type is provided by a global module
+        if required_type in self._global_providers:
             return True
-        # 2. Dep provided by current module (regardless of export)
-        if dep_type in _ModuleTypesProvider.get_provided_types(module):
+        # Check if type is provided by the module itself
+        if required_type in self._type_provider.get_provided_types(module):
             return True
-        # 3. Dep extracted from container context
-        if dep_type in _ModuleTypesProvider.get_context_vars(module):
+        # Check if type is provided by application or request container context
+        if required_type in self._type_provider.get_context_vars(module):
             return True
-        # 4. Dep provided by any of imported modules (must be exported)
-        # fmt: off
-        if any(
-            _ModuleTypesProvider.is_type_exported(dep_type, imported_module)
-            for imported_module in imported_modules
-        ):
-            return True
-        # fmt: on
-        # 5. Check for re-exported types - when a module re-exports a type from another module
-        return any(dep_type in imported_module.exports for imported_module in imported_modules)
+        # Check imported modules
+        for imported in module.imports:
+            imported_module = self._registry.get(imported)
+            # Check if type is directly provided and exported by the imported module
+            if (
+                required_type in self._type_provider.get_provided_types(imported_module)
+                and required_type in imported_module.exports
+            ):
+                return True
+            # Check if type is provided by a module that is re-exported by an imported module
+            if self._type_provider.get_reexported_types(imported_module, self._registry):
+                return True
 
-    def find_inaccessible_dependencies(
-        self,
-        dependencies: Sequence[Any],
-        module: Module,
-        imported_modules: list[Module],
-    ) -> list[type[object]]:
-        """Find all inaccessible dependency types for a given module.
-
-        Args:
-            dependencies: The dependencies to check accessibility for
-            module: The module requiring the dependencies
-            imported_modules: Modules imported by the requiring module
-
-        Returns:
-            A list of types that are inaccessible to the module
-        """
-        inaccessible: list[type[object]] = []
-        for dependency in dependencies:
-            dep_type = dependency.type_hint
-            if not self.is_accessible(dep_type, module, imported_modules):
-                inaccessible.append(dep_type)
-        return inaccessible
+        return False
 
 
 class DependenciesAccessibleRule(ValidationRule):
-    """Check if all dependencies of providers are accessible.
+    """Validates that all dependencies required by providers are accessible."""
 
-    This validation rule ensures that all dependencies required by providers
-    are either:
-    1. Available globally
-    2. Provided by the current module
-    3. Provided by any of the imported modules
-    """
+    __slots__ = ('_cache', '_types_extractor')
+
+    def __init__(self, cache_size: int = 1000) -> None:
+        self._cache = LRUCache[set[type[object]]](cache_size)
+        self._types_extractor = ModuleTypesExtractor(self._cache)
 
     @override
     def validate(self, context: ValidationContext) -> list[ValidationError]:
-        # Clear caches before validation to ensure fresh data
-        _ModuleTypesProvider.clear_caches()
+        self._cache.clear()  # Clear cache before validation
 
-        registry: ModuleRegistry = context.app.registry
-        modules: list[Module] = list(registry.modules)
+        registry = context.app.registry
+        modules = list(registry.modules)
 
-        # Create a checker to handle accessibility logic
-        checker = DependencyAccessChecker(modules, context)
+        checker = DependencyAccessChecker(modules, context, self._types_extractor)
         errors: list[ValidationError] = []
 
-        # Check each module's dependencies
         for module in modules:
-            # Get only direct imports - this enforces proper module encapsulation
-            # like NestJS where transitive dependencies aren't accessible unless re-exported
-            imported_modules = [registry.get(import_type) for import_type in module.imports]
-
-            # Process each provider's factories
             for provider in module.providers:
                 for factory in provider.factories:
-                    # Find inaccessible dependencies and create error objects
                     inaccessible_deps = checker.find_inaccessible_dependencies(
                         dependencies=factory.dependencies,
                         module=module,
-                        imported_modules=imported_modules,
                     )
-
-                    # Create and add error objects for each inaccessible dependency
                     errors.extend(
                         DependencyInaccessibleError(
                             required_type=dep_type,
