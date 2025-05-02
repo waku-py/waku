@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.15.0 (2025-05-02)
+
+### Features
+
+- **validation**: Implement proper module re-export validation
+  ([`f5e608b`](https://github.com/waku-py/waku/commit/f5e608b8835b24124564231e1a45d57ac5961f4c))
+
+
 ## v0.14.0 (2025-04-30)
 
 ### Features
