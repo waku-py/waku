@@ -1,8 +1,4 @@
-"""Extension protocols for the waku framework.
-
-This module defines protocols for extending module behavior.
-These protocols allow for hooking into various lifecycle events.
-"""
+"""Extension protocols for application and module lifecycle hooks."""
 
 from __future__ import annotations
 
@@ -17,6 +13,7 @@ __all__ = [
     'ApplicationExtension',
     'ModuleExtension',
     'OnApplicationInit',
+    'OnApplicationShutdown',
     'OnModuleConfigure',
     'OnModuleDestroy',
     'OnModuleInit',
@@ -41,6 +38,16 @@ class AfterApplicationInit(Protocol):
 
     async def after_app_init(self, app: WakuApplication) -> None:
         """Perform actions after application initialization."""
+
+
+@runtime_checkable
+class OnApplicationShutdown(Protocol):
+    """Extension for application shutdown actions."""
+
+    __slots__ = ()
+
+    async def on_app_shutdown(self, app: WakuApplication) -> None:
+        """Perform actions before application shutdown."""
 
 
 @runtime_checkable
@@ -76,5 +83,5 @@ class OnModuleDestroy(Protocol):
         ...
 
 
-ApplicationExtension: TypeAlias = OnApplicationInit | AfterApplicationInit
+ApplicationExtension: TypeAlias = OnApplicationInit | AfterApplicationInit | OnApplicationShutdown
 ModuleExtension: TypeAlias = OnModuleConfigure | OnModuleInit | OnModuleDestroy

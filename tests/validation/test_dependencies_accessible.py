@@ -12,9 +12,9 @@ from tests.data import A, AAliasType, B, C, DependentService, Service, X, Y, Z
 from tests.module_utils import create_basic_module
 from waku import WakuApplication, WakuFactory
 from waku.di import AnyOf, Provider, Scope, contextual, provide, scoped, singleton
-from waku.ext.validation import ValidationExtension, ValidationRule
-from waku.ext.validation.rules import DependenciesAccessibleRule, DependencyInaccessibleError
 from waku.modules import ModuleType
+from waku.validation import ValidationExtension, ValidationRule
+from waku.validation.rules import DependenciesAccessibleRule, DependencyInaccessibleError
 
 _T_co = TypeVar('_T_co', covariant=True)
 
@@ -95,7 +95,7 @@ async def test_accessibility_import_export_matrix(
             await application.initialize()
         b_module = application.registry.get(BModule)
 
-        error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0].exceptions[0])
+        error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0])
 
         expected_error = DependencyInaccessibleError(A, B, b_module)
         assert isinstance(error, type(expected_error))
@@ -222,7 +222,7 @@ async def test_multiple_missing_dependencies(application_factory: ApplicationFac
     with pytest.raises(ExceptionGroup) as exc_info:
         await application_factory(AppModule).initialize()
 
-    errors = cast(list[DependencyInaccessibleError], exc_info.value.exceptions[0].exceptions)
+    errors = cast(list[DependencyInaccessibleError], exc_info.value.exceptions)
     assert errors[0].required_type is X
     assert errors[1].required_type is Y
 
@@ -321,7 +321,7 @@ async def test_module_cannot_reexport_imported_types(application_factory: Applic
     with pytest.raises(ExceptionGroup) as exc_info:
         await application.initialize()
 
-    error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0].exceptions[0])
+    error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0])
     expected_error = DependencyInaccessibleError(
         required_type=A,
         required_by=B,
@@ -446,7 +446,7 @@ async def test_transitive_dependencies_not_accessible(application_factory: Appli
     with pytest.raises(ExceptionGroup) as exc_info:
         await application_factory(AppModule).initialize()
 
-    error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0].exceptions[0])
+    error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0])
     assert error.required_type is ServiceA
 
 
@@ -535,7 +535,7 @@ async def test_dependencies_from_indirect_imports_are_not_accessible(
     with pytest.raises(ExceptionGroup) as exc_info:
         await application.initialize()
 
-    error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0].exceptions[0])
+    error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0])
     expected_error = DependencyInaccessibleError(
         required_type=Service,
         required_by=DependentService,

@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
     from dishka.entities.key import DependencyKey
 
-    from waku.ext.validation.rules._cache import LRUCache
+    from waku.validation.rules._cache import LRUCache
 
 
 class ModuleTypesExtractor:

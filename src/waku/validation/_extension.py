@@ -11,8 +11,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from waku.application import WakuApplication
-    from waku.ext.validation import ValidationRule
-    from waku.ext.validation._errors import ValidationError
+    from waku.validation import ValidationRule
+    from waku.validation._errors import ValidationError
 
 __all__ = [
     'ValidationContext',
@@ -39,7 +39,7 @@ class ValidationExtension(AfterApplicationInit):
         if errors := list(errors_chain):
             self._raise(errors)
 
-    def _raise(self, errors: Sequence[ValidationError]) -> None:
+    def _raise(self, errors: list[ValidationError]) -> None:
         if self.strict:
             msg = 'Validation error'
             raise ExceptionGroup(msg, errors)

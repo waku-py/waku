@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from asyncio import Lock
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, TypeAlias
@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 from dishka import STRICT_VALIDATION, make_async_container
 
 from waku.application import WakuApplication
-from waku.ext import DEFAULT_EXTENSIONS
+from waku.extensions import DEFAULT_EXTENSIONS, ExtensionRegistry
 from waku.modules import ModuleRegistryBuilder
 
 if TYPE_CHECKING:
@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
     from dishka.entities.validation_settigs import ValidationSettings
 
+    from waku import Module
     from waku.di import AsyncContainer, BaseProvider, Scope
     from waku.extensions import ApplicationExtension
     from waku.lifespan import LifespanFunc
@@ -55,17 +56,24 @@ class WakuFactory:
         self._extensions = extensions
         self._container_config = container_config or ContainerConfig()
 
-    def create(
-        self,
-    ) -> WakuApplication:
+    def create(self) -> WakuApplication:
         registry = ModuleRegistryBuilder(self._root_module_type).build()
         container = self._build_container(registry.providers)
         return WakuApplication(
             container=container,
             registry=registry,
             lifespan=self._lifespan,
-            extensions=self._extensions,
+            extension_registry=self._build_extension_registry(registry.modules),
         )
+
+    def _build_extension_registry(self, modules: Iterable[Module]) -> ExtensionRegistry:
+        extension_registry = ExtensionRegistry()
+        for app_extension in self._extensions:
+            extension_registry.register_application_extension(app_extension)
+        for module in modules:
+            for module_extension in module.extensions:
+                extension_registry.register_module_extension(module.target, module_extension)
+        return extension_registry
 
     def _build_container(self, providers: Sequence[BaseProvider]) -> AsyncContainer:
         return make_async_container(

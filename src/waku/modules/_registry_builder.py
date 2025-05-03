@@ -9,7 +9,6 @@ from waku.modules import Module, ModuleCompiler, ModuleMetadata, ModuleRegistry,
 if TYPE_CHECKING:
     from waku import DynamicModule
     from waku.di import BaseProvider
-    from waku.extensions import ModuleExtension
 
 
 __all__ = [
@@ -27,7 +26,6 @@ class ModuleRegistryBuilder:
         self._root_module_type: Final = root_module_type
         self._modules: dict[UUID, Module] = {}
         self._providers: list[BaseProvider] = []
-        self._extensions: list[ModuleExtension] = []
 
         self._metadata_cache: dict[ModuleType | DynamicModule, tuple[ModuleType, ModuleMetadata]] = {}
 
@@ -94,7 +92,6 @@ class ModuleRegistryBuilder:
             compiler=self._compiler,
             modules=self._modules,
             providers=self._providers,
-            extensions=self._extensions,
             root_module=root_module,
             adjacency=adjacency,
         )
