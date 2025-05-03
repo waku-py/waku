@@ -1,12 +1,19 @@
+# mypy: disable-error-code="type-abstract"
 from __future__ import annotations
 
 from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, Self
 
-import anyio
 from dishka.async_container import AsyncContextWrapper
 
-from waku.extensions import AfterApplicationInit, ApplicationExtension, OnApplicationInit, OnModuleDestroy, OnModuleInit
+from waku.extensions import (
+    AfterApplicationInit,
+    ExtensionRegistry,
+    OnApplicationInit,
+    OnApplicationShutdown,
+    OnModuleDestroy,
+    OnModuleInit,
+)
 from waku.lifespan import LifespanFunc, LifespanWrapper
 
 if TYPE_CHECKING:
@@ -20,13 +27,22 @@ __all__ = ['WakuApplication']
 
 
 class WakuApplication:
+    __slots__ = (
+        '_container',
+        '_exit_stack',
+        '_extension_registry',
+        '_initialized',
+        '_lifespan',
+        '_registry',
+    )
+
     def __init__(
         self,
         *,
         container: AsyncContainer,
         registry: ModuleRegistry,
         lifespan: Sequence[LifespanFunc | LifespanWrapper],
-        extensions: Sequence[ApplicationExtension],
+        extension_registry: ExtensionRegistry,
     ) -> None:
         self._container = container
         self._registry = registry
@@ -34,7 +50,7 @@ class WakuApplication:
             LifespanWrapper(lifespan_func) if not isinstance(lifespan_func, LifespanWrapper) else lifespan_func
             for lifespan_func in lifespan
         )
-        self._extensions = list(extensions)
+        self._extension_registry = extension_registry
 
         self._exit_stack = AsyncExitStack()
         self._initialized = False
@@ -80,28 +96,24 @@ class WakuApplication:
     async def _call_on_init_extensions(self) -> None:
         # Call module OnModuleInit hooks sequentially in topological order (dependencies first)
         for module in self._get_modules_for_triggering_extensions():
-            for extension in module.extensions:
-                if isinstance(extension, OnModuleInit):
-                    await extension.on_module_init(module)
+            for module_ext in self._extension_registry.get_module_extensions(module.target, OnModuleInit):
+                await module_ext.on_module_init(module)
 
-        # After all modules, call app-level OnApplicationInit hooks concurrently
-        async with anyio.create_task_group() as tg:
-            for app_extension in self._extensions:
-                if isinstance(app_extension, OnApplicationInit):
-                    tg.start_soon(app_extension.on_app_init, self)
+        for app_ext in self._extension_registry.get_application_extensions(OnApplicationInit):
+            await app_ext.on_app_init(self)
 
     async def _call_after_init_extensions(self) -> None:
-        async with anyio.create_task_group() as tg:
-            for extension in self._extensions:
-                if isinstance(extension, AfterApplicationInit):
-                    tg.start_soon(extension.after_app_init, self)
+        for extension in self._extension_registry.get_application_extensions(AfterApplicationInit):
+            await extension.after_app_init(self)
 
     async def _call_on_shutdown_extensions(self) -> None:
         # Call module OnModuleDestroy hooks sequentially in reverse topological order (dependents first)
         for module in self._get_modules_for_triggering_extensions(reverse=True):
-            for extension in module.extensions:
-                if isinstance(extension, OnModuleDestroy):
-                    await extension.on_module_destroy(module)
+            for module_ext in self._extension_registry.get_module_extensions(module.target, OnModuleDestroy):
+                await module_ext.on_module_destroy(module)
+
+        for app_ext in self._extension_registry.get_application_extensions(OnApplicationShutdown):
+            await app_ext.on_app_shutdown(self)
 
     def _get_modules_for_triggering_extensions(self, *, reverse: bool = False) -> Iterable[Module]:
         return reversed(self.registry.modules) if reverse else self.registry.modules

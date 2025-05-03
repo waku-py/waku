@@ -17,6 +17,18 @@ __all__ = ['Module']
 
 
 class Module:
+    __slots__ = (
+        '__dict__',
+        '_provider',
+        'exports',
+        'extensions',
+        'id',
+        'imports',
+        'is_global',
+        'providers',
+        'target',
+    )
+
     def __init__(self, module_type: ModuleType, metadata: ModuleMetadata) -> None:
         self.id: Final[UUID] = metadata.id
         self.target: Final[ModuleType] = module_type
@@ -26,6 +38,8 @@ class Module:
         self.exports: Final[Sequence[type[object] | ModuleType | DynamicModule]] = metadata.exports
         self.extensions: Final[Sequence[ModuleExtension]] = metadata.extensions
         self.is_global: Final[bool] = metadata.is_global
+
+        self._provider: BaseProvider | None = None
 
     @property
     def name(self) -> str:

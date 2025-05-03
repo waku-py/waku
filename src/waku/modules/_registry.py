@@ -7,7 +7,6 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from waku.di import BaseProvider
-    from waku.extensions import ModuleExtension
     from waku.modules._metadata import DynamicModule, ModuleCompiler, ModuleType
     from waku.modules._module import Module
     from waku.modules._registry_builder import AdjacencyMatrix
@@ -26,14 +25,12 @@ class ModuleRegistry:
         root_module: Module,
         modules: dict[UUID, Module],
         providers: list[BaseProvider],
-        extensions: list[ModuleExtension],
         adjacency: AdjacencyMatrix,
     ) -> None:
         self._compiler = compiler
         self._root_module = root_module
         self._modules = modules
         self._providers = tuple(providers)
-        self._extensions = tuple(extensions)
         self._adjacency = adjacency
 
     @property
@@ -53,7 +50,7 @@ class ModuleRegistry:
         return self._compiler
 
     def get(self, module_type: ModuleType | DynamicModule) -> Module:
-        module_id = self._compiler.extract_metadata(module_type)[1].id
+        module_id = self.compiler.extract_metadata(module_type)[1].id
         return self.get_by_id(module_id)
 
     def get_by_id(self, module_id: UUID) -> Module:
