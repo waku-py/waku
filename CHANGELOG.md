@@ -2,6 +2,16 @@
 
 <!-- version list -->
 
+## v0.16.0 (2025-05-04)
+
+### Features
+
+- **core**: Group all module providers within one dishka provider
+  ([`4fa6850`](https://github.com/waku-py/waku/commit/4fa685036b6b794a26564ac9f66ecbf1ea32c289))
+
+Resolves #147
+
+
 ## v0.15.0 (2025-05-02)
 
 ### Features
