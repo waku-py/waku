@@ -28,6 +28,12 @@
 > **waku** is a modular, type-safe Python framework for scalable, maintainable applications.
 > Inspired by NestJS, powered by [Dishka](https://github.com/reagento/dishka/) IoC.
 
+> [!WARNING]
+> `waku` is currently undergoing a near-complete rewrite, so the documentation is not fully up-to-date with recent changes.
+> Please refer to this README and the [**examples**](https://github.com/waku-py/waku/tree/master/docs/code/examples) until the documentation is updated.
+>
+> You can also consult the [`waku`](https://deepwiki.com/waku-py/waku/) **deepwiki** page as a reference.
+
 ## Why `waku`?
 
 - **🧩 Modular by design:** Enforces clear boundaries and single responsibility.
