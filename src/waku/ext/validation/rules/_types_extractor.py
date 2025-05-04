@@ -26,10 +26,10 @@ class ModuleTypesExtractor:
         if cached is not None:
             return cached
 
+        module_provider = module.provider
         result: set[type[object]] = {
             cast(_HasProvidesAttr, dep).provides.type_hint
-            for provider in module.providers
-            for dep in chain(provider.factories, provider.aliases, provider.decorators)
+            for dep in chain(module_provider.factories, module_provider.aliases, module_provider.decorators)
         }
         self._cache.put(cache_key, result)
         return result
@@ -40,9 +40,7 @@ class ModuleTypesExtractor:
         if cached is not None:
             return cached
 
-        result: set[type[object]] = {
-            context_var.provides.type_hint for provider in module.providers for context_var in provider.context_vars
-        }
+        result: set[type[object]] = {context_var.provides.type_hint for context_var in module.provider.context_vars}
         self._cache.put(cache_key, result)
         return result
 

@@ -4,6 +4,7 @@ from typing import Any
 from dishka import (
     AnyOf,
     AsyncContainer,
+    FromComponent,
     FromDishka as Injected,
     Provider,
     Scope,
@@ -19,6 +20,7 @@ __all__ = [
     'AnyOf',
     'AsyncContainer',
     'BaseProvider',
+    'FromComponent',
     'Injected',
     'Provider',
     'Scope',

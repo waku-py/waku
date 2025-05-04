@@ -7,9 +7,8 @@ from uuid import UUID
 from waku.modules import Module, ModuleCompiler, ModuleMetadata, ModuleRegistry, ModuleType
 
 if TYPE_CHECKING:
-    from dishka.provider import BaseProvider
-
     from waku import DynamicModule
+    from waku.di import BaseProvider
     from waku.extensions import ModuleExtension
 
 
@@ -78,7 +77,7 @@ class ModuleRegistryBuilder:
             module = Module(type_, metadata)
 
             self._modules[module.id] = module
-            self._providers.extend(module.providers)
+            self._providers.append(module.provider)
 
         _, root_metadata = self._get_metadata(self._root_module_type)
         return self._modules[root_metadata.id]

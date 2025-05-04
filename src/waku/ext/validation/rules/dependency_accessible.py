@@ -156,19 +156,19 @@ class DependenciesAccessibleRule(ValidationRule):
         errors: list[ValidationError] = []
 
         for module in modules:
-            for provider in module.providers:
-                for factory in provider.factories:
-                    inaccessible_deps = checker.find_inaccessible_dependencies(
-                        dependencies=factory.dependencies,
-                        module=module,
+            module_provider = module.provider
+            for factory in module_provider.factories:
+                inaccessible_deps = checker.find_inaccessible_dependencies(
+                    dependencies=factory.dependencies,
+                    module=module,
+                )
+                errors.extend(
+                    DependencyInaccessibleError(
+                        required_type=dep_type,
+                        required_by=factory.source,
+                        from_module=module,
                     )
-                    errors.extend(
-                        DependencyInaccessibleError(
-                            required_type=dep_type,
-                            required_by=factory.source,
-                            from_module=module,
-                        )
-                        for dep_type in inaccessible_deps
-                    )
+                    for dep_type in inaccessible_deps
+                )
 
         return errors

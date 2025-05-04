@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from functools import cached_property
 from typing import TYPE_CHECKING, Final
 
+from waku.di import Provider
+
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Sequence
     from uuid import UUID
 
     from waku.di import BaseProvider
@@ -29,6 +32,11 @@ class Module:
     def name(self) -> str:
         return self.target.__name__
 
+    @cached_property
+    def provider(self) -> Provider:
+        cls: type[_ModuleProvider] = type(f'{self.name}Provider', (_ModuleProvider,), {})
+        return cls(self.providers)
+
     def __str__(self) -> str:
         return self.__repr__()
 
@@ -42,3 +50,13 @@ class Module:
         if not isinstance(other, Module):  # pragma: no cover
             return False
         return self.id == other.id
+
+
+class _ModuleProvider(Provider):
+    def __init__(self, providers: Iterable[BaseProvider]) -> None:
+        super().__init__()
+        for provider in providers:
+            self.factories.extend(provider.factories)
+            self.aliases.extend(provider.aliases)
+            self.decorators.extend(provider.decorators)
+            self.context_vars.extend(provider.context_vars)
