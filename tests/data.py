@@ -3,9 +3,8 @@
 from dataclasses import dataclass
 from typing import NewType
 
-from dishka.provider import BaseProvider
-
 from waku import Module
+from waku.di import BaseProvider
 from waku.extensions import OnModuleConfigure, OnModuleDestroy, OnModuleInit
 from waku.modules import ModuleMetadata
 
