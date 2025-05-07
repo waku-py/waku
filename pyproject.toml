@@ -264,10 +264,9 @@ prerelease_token = "dev"
 [tool.semantic_release.changelog]
 mode = "update"
 insertion_flag = "<!-- version list -->"
-default_templates = { changelog_file = "CHANGELOG.md" }
-template_dir = "non-existing-dir"
+template_dir = "config/release-templates"
 exclude_commit_patterns = [
-  '''Merge? .*''',
+  '''Merged? .*''',
   '''build\((?!deps\): .+)''',
   '''chore(?:\([^)]*?\))?: .+''',
   '''ci(?:\([^)]*?\))?: .+''',
