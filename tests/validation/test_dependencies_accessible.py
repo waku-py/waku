@@ -3,7 +3,7 @@
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Protocol, cast
+from typing import Protocol, TypeVar, cast
 
 import pytest
 from dishka.exceptions import ImplicitOverrideDetectedError
@@ -15,6 +15,8 @@ from waku.di import AnyOf, Provider, Scope, contextual, provide, scoped, singlet
 from waku.ext.validation import ValidationExtension, ValidationRule
 from waku.ext.validation.rules import DependenciesAccessibleRule, DependencyInaccessibleError
 from waku.modules import ModuleType
+
+_T_co = TypeVar('_T_co', covariant=True)
 
 
 def _impl() -> int:  # pragma: no cover
@@ -594,4 +596,55 @@ async def test_with_realistic_graph(application_factory: ApplicationFactoryFunc)
     )
 
     application = application_factory(AppModule, context={Settings: Settings()})
+    await application.initialize()
+
+
+async def test_with_generic_provider(application_factory: ApplicationFactoryFunc) -> None:
+    @dataclass
+    class User:
+        pass
+
+    @dataclass
+    class AdminUser(User):
+        pass
+
+    class IUserFactory(Protocol[_T_co]):
+        def create(self) -> _T_co: ...
+
+    class UserFactory(IUserFactory[User]):
+        def create(self) -> User:  # noqa: PLR6301
+            return User()
+
+    class AdminUserFactory(IUserFactory[AdminUser]):
+        def create(self) -> AdminUser:  # noqa: PLR6301
+            return AdminUser()
+
+    UsersModule = create_basic_module(
+        providers=[
+            scoped(UserFactory, provided_type=AnyOf[IUserFactory[User], UserFactory]),
+            scoped(AdminUserFactory, provided_type=AnyOf[IUserFactory[AdminUser], AdminUserFactory]),
+        ],
+        name='UsersModule',
+        exports=[
+            IUserFactory[User],
+            IUserFactory[AdminUser],
+            UserFactory,
+            AdminUserFactory,
+        ],
+    )
+
+    @dataclass
+    class FactoryService:
+        user_factory: IUserFactory[User]
+        admin_user_factory: IUserFactory[AdminUser]
+        concrete_user_factory: UserFactory
+        concrete_admin_user_factory: AdminUserFactory
+
+    AppModule = create_basic_module(
+        providers=[scoped(FactoryService)],
+        imports=[UsersModule],
+        name='AppModule',
+    )
+
+    application = application_factory(AppModule)
     await application.initialize()
