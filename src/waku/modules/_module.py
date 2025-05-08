@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, cast
 
-from waku.di import Provider
+from waku.di import DEFAULT_COMPONENT, BaseProvider
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
     from uuid import UUID
 
-    from waku.di import BaseProvider
     from waku.extensions import ModuleExtension
     from waku.modules._metadata import DynamicModule, ModuleMetadata, ModuleType
 
@@ -33,8 +32,8 @@ class Module:
         return self.target.__name__
 
     @cached_property
-    def provider(self) -> Provider:
-        cls: type[_ModuleProvider] = type(f'{self.name}Provider', (_ModuleProvider,), {})
+    def provider(self) -> BaseProvider:
+        cls = cast(type[_ModuleProvider], type(f'{self.name}Provider', (_ModuleProvider,), {}))
         return cls(self.providers)
 
     def __str__(self) -> str:
@@ -52,9 +51,9 @@ class Module:
         return self.id == other.id
 
 
-class _ModuleProvider(Provider):
+class _ModuleProvider(BaseProvider):
     def __init__(self, providers: Iterable[BaseProvider]) -> None:
-        super().__init__()
+        super().__init__(DEFAULT_COMPONENT)
         for provider in providers:
             self.factories.extend(provider.factories)
             self.aliases.extend(provider.aliases)

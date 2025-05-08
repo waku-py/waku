@@ -7,8 +7,8 @@ import anyio
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from waku.mediator.contracts.event import EventT
-    from waku.mediator.events.handler import EventHandler
+    from waku.cqrs.contracts.event import EventT
+    from waku.cqrs.events.handler import EventHandler
 
 __all__ = [
     'EventPublisher',

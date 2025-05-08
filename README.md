@@ -13,6 +13,7 @@
 [![Downloads](https://static.pepy.tech/badge/waku/month)](https://pepy.tech/projects/waku)
 [![PyPI](https://img.shields.io/pypi/v/waku.svg?label=PyPI)](https://pypi.python.org/pypi/waku)
 [![Python version](https://img.shields.io/pypi/pyversions/waku.svg?label=Python)](https://www.python.org/downloads/)
+![GitHub commit activity](https://img.shields.io/github/commit-activity/m/waku-py/waku)
 [![License](https://img.shields.io/pypi/l/waku.svg)](https://github.com/waku-py/waku/blob/master/LICENSE)
 [![Docs](https://img.shields.io/badge/docs-mkdocs%20material-blue)](https://waku-py.github.io/waku/)
 
@@ -104,7 +105,7 @@ if __name__ == '__main__':
 
 ```
 
-For more realistic examples, see the [Getting Started](https://waku-py.github.io/waku/getting-started) guide.
+For more realistic examples, see the [Getting Started](https://waku-py.github.io/waku/getting-started) guide or check out the [examples](https://github.com/waku-py/waku/tree/master/examples) directory.
 
 ## Documentation
 
@@ -112,7 +113,7 @@ For more realistic examples, see the [Getting Started](https://waku-py.github.io
 - [Module System](https://waku-py.github.io/waku/usage/modules/)
 - [Providers](https://waku-py.github.io/waku/usage/providers/)
 - [Extensions](https://waku-py.github.io/waku/usage/extensions/)
-- [Mediator (CQRS)](https://waku-py.github.io/waku/usage/mediator/)
+- [Mediator (CQRS)](https://waku-py.github.io/waku/usage/cqrs/)
 - [API Reference](https://waku-py.github.io/waku/reference/)
 - [Dishka Documentation](https://dishka.readthedocs.io/en/stable/index.html/)
 

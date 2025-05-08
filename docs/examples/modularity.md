@@ -9,7 +9,3 @@ Example of how to use modules, dynamic modules and linking them together to buil
 For full documentation on modules, visit the [Modules](../usage/modules.md) section.
 
 ## Code
-
-```python linenums="1"
---8<-- "docs/code/examples/modularity.py"
-```

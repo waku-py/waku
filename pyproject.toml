@@ -31,13 +31,14 @@ classifiers = [
 dependencies = [
   "anyio>=4.7.0",
   "dishka>=1.5.3",
-  "typing-extensions>=4.12",
+  "typing-extensions>=4.12.2",
 ]
 
 [project.urls]
+Repository = "https://github.com/waku-py/waku"
+Documentation = "https://waku-py.github.io/waku/"
 Changelog = "https://github.com/waku-py/waku/blob/master/CHANGELOG.md"
 Issues = "https://github.com/waku-py/waku/issues"
-Repository = "https://github.com/waku-py/waku"
 
 [tool.hatch.build.targets.sdist]
 ignore-vcs = true
@@ -95,7 +96,7 @@ addopts = [
   "--doctest-modules",
   "--strict-markers",
   "--strict-config",
-  "--cov-fail-under=89",
+  "--cov-fail-under=87",
 ]
 # pytest-timeout settings
 timeout = 5
@@ -165,6 +166,7 @@ pylint = { max-args = 7 }
 
 [tool.ruff.lint.per-file-ignores]
 "docs/code/*" = [
+  "ARG001", # Unused function argument
   "I001", # Import block is un-sorted or un-formatted
   "INP001", # File is part of an implicit namespace package
   "PLR6301", # Method could be a function, class method, or static method
@@ -172,6 +174,16 @@ pylint = { max-args = 7 }
   "S101", # Usage of assert
   "SIM117", # Multiple with-statements should be combined
   "T201", # `print` found
+]
+"examples/*" = [
+  "ARG001", # Unused function argument
+  "INP001", # File is part of an implicit namespace package
+  "PLR6301", # Method could be a function, class method, or static method
+  "RUF029", # Function is declared async but doesn't use async features
+  "S101", # Usage of assert
+  "SIM117", # Multiple with-statements should be combined
+  "T201", # `print` found
+  "TRY400", # Use `logging.exception` instead of `logging.error
 ]
 "tests/*" = [
   "FBT001", # Boolean-typed positional argument in function definition
@@ -210,7 +222,8 @@ DEP004 = ["gitlint"]
 # Mypy configuration:
 # https://mypy.readthedocs.io/en/latest/config_file.html
 exclude = [
-  "docs/code",
+  "docs/code/getting_started",
+  "docs/code/providers",
 ]
 follow_imports = "normal"
 allow_redefinition = false

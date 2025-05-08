@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import Any
 
 from dishka import (
+    DEFAULT_COMPONENT,
     AnyOf,
     AsyncContainer,
     FromComponent,
@@ -17,6 +18,7 @@ from dishka import (
 from dishka.provider import BaseProvider
 
 __all__ = [
+    'DEFAULT_COMPONENT',
     'AnyOf',
     'AsyncContainer',
     'BaseProvider',
