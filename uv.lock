@@ -1476,7 +1476,7 @@ typecheck = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.7.0" },
     { name = "dishka", specifier = ">=1.5.3" },
-    { name = "typing-extensions", specifier = ">=4.12" },
+    { name = "typing-extensions", specifier = ">=4.12.2" },
 ]
 
 [package.metadata.requires-dev]

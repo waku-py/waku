@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import MutableMapping
 from typing import Any, Self, TypeAlias
 
-from waku.mediator.contracts.request import RequestT, ResponseT
-from waku.mediator.exceptions import RequestHandlerAlreadyRegistered
-from waku.mediator.requests.handler import RequestHandlerType
+from waku.cqrs.contracts.request import RequestT, ResponseT
+from waku.cqrs.exceptions import RequestHandlerAlreadyRegistered
+from waku.cqrs.requests.handler import RequestHandlerType
 
 __all__ = [
     'RequestMap',
@@ -21,8 +21,7 @@ class RequestMap:
 
     def bind(self, request_type: type[RequestT], handler_type: RequestHandlerType[RequestT, ResponseT]) -> Self:
         if request_type in self._registry:
-            msg = f'{request_type.__name__} already exists in registry'
-            raise RequestHandlerAlreadyRegistered(msg, request_type, handler_type)
+            raise RequestHandlerAlreadyRegistered(request_type, handler_type)
         self._registry[request_type] = handler_type
         return self
 

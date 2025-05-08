@@ -36,7 +36,7 @@ extra:
 
 
 # Configuration
-watch: [ mkdocs.yml, README.md, CONTRIBUTING.md, CHANGELOG.md, src/waku ]
+watch: [ mkdocs.yml, README.md, CONTRIBUTING.md, CHANGELOG.md, src/waku, examples ]
 
 # https://www.mkdocs.org/user-guide/configuration/#validation
 validation:
@@ -184,7 +184,7 @@ nav:
       - usage/providers.md
       - usage/modules.md
       - usage/lifespan.md
-      - usage/mediator.md
+      - usage/cqrs.md
       - Extensions:
           - usage/extensions/index.md
           - Validation: usage/extensions/validation.md
@@ -193,7 +193,7 @@ nav:
       - Litestar: integrations/litestar.md
   - Examples:
       - Modularity: examples/modularity.md
-      - Mediator (CQRS): examples/mediator.md
+      - Mediator (CQRS): examples/cqrs.md
   - API Reference: reference.md
   - Contributing:
       - contributing/index.md

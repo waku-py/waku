@@ -63,5 +63,5 @@ task
 site/
 
 # LLM
-.continuerules
-.goose*
+.continue*
+.cursor*

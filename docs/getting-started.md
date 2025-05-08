@@ -299,7 +299,7 @@ Available languages: ['en', 'es', 'fr']
 
 Now that you have a basic understanding of `waku`, you can:
 
-1. Explore more advanced features like [Mediator (CQRS)](usage/mediator.md)
+1. Explore more advanced features like [Mediator (CQRS)](usage/cqrs.md)
 2. Learn about [Extensions](usage/extensions/index.md) for adding functionality to your application
 3. Integrate with web frameworks like [FastAPI](integrations/asgi.md)
 4. Understand [Module System](usage/modules.md) in depth

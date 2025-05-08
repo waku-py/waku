@@ -33,7 +33,7 @@ class ConventionalCommitTitle(LineRule):  # type: ignore[misc]
         'ext',
         'infra',
         'linters',
-        'mediator',
+        'cqrs',
         'release',
         'tests',
         'validation',

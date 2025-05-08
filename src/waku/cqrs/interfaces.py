@@ -1,7 +1,11 @@
-import abc
+from __future__ import annotations
 
-from waku.mediator.contracts.event import Event
-from waku.mediator.contracts.request import Request, ResponseT
+import abc
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from waku.cqrs.contracts.event import Event
+    from waku.cqrs.contracts.request import Request, ResponseT
 
 __all__ = [
     'IMediator',
@@ -11,7 +15,7 @@ __all__ = [
 
 
 class ISender(abc.ABC):
-    """Send a request through the mediator middleware chain to be handled by a single handler."""
+    """Send a request through the cqrs middleware chain to be handled by a single handler."""
 
     @abc.abstractmethod
     async def send(self, request: Request[ResponseT]) -> ResponseT:
@@ -19,7 +23,7 @@ class ISender(abc.ABC):
 
 
 class IPublisher(abc.ABC):
-    """Publish event through the mediator to be handled by multiple handlers."""
+    """Publish event through the cqrs to be handled by multiple handlers."""
 
     @abc.abstractmethod
     async def publish(self, event: Event) -> None:
@@ -27,4 +31,4 @@ class IPublisher(abc.ABC):
 
 
 class IMediator(ISender, IPublisher, abc.ABC):
-    """Defines a mediator to encapsulate request/response and publishing interaction patterns."""
+    """Defines a cqrs to encapsulate request/response and publishing interaction patterns."""

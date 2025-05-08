@@ -8,8 +8,8 @@ from waku.modules import Module, ModuleMetadata
 
 async def test_module_init_extension_lifecycle(mocker: MockerFixture) -> None:
     """Module extensions should be called in correct order during module initialization."""
-    on_module_configure_mock = mocker.MagicMock()
-    on_module_init_mock = mocker.AsyncMock()
+    on_module_configure_mock = mocker.stub()
+    on_module_init_mock = mocker.async_stub()
 
     class ModuleOnConfigureExt(OnModuleConfigure):
         def on_module_configure(self, metadata: ModuleMetadata) -> None:  # noqa: PLR6301
@@ -38,8 +38,8 @@ async def test_module_init_extension_lifecycle(mocker: MockerFixture) -> None:
 
 async def test_application_init_extensions_single_call(mocker: MockerFixture) -> None:
     """Application init extensions should be called exactly once even with multiple initializations."""
-    on_app_init_mock = mocker.AsyncMock()
-    after_app_init_mock = mocker.AsyncMock()
+    on_app_init_mock = mocker.async_stub()
+    after_app_init_mock = mocker.async_stub()
 
     class AppOnInitExt(OnApplicationInit):
         async def on_app_init(self, app: WakuApplication) -> None:  # noqa: PLR6301
