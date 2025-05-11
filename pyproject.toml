@@ -47,7 +47,6 @@ only-include = ["src/waku", "tests"]
 [dependency-groups]
 dev = [
   "pip-audit>=2.9.0",
-  "rich>=14.0.0",
 ]
 docs = [
   "mkdocs>=1.6.1",
@@ -73,11 +72,12 @@ test = [
   "pytest-randomly>=3.16.0",
   "pytest-timeout>=2.3.1",
   "trio>=0.30.0",
-  "uvloop>=0.21.0",
+  "uvloop>=0.21.0; sys_platform != 'win32'",
 ]
 typecheck = [
   "basedpyright>=1.29.1",
   "mypy>=1.15.0",
+  "ty>=0.0.0a8",
 ]
 
 # ----- UV settings -----
@@ -243,6 +243,12 @@ warn_no_return = true
 [[tool.mypy.overrides]]
 module = "gitlint.*"
 ignore_missing_imports = true
+
+
+# ----- ty settings -----
+[tool.ty.environment]
+python = "./.venv"
+python-version = "3.11"
 
 
 # ----- Semantic release settings -----

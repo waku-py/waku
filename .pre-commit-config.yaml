@@ -73,14 +73,23 @@ repos:
         fail_fast: true
         stages: [ pre-commit, pre-push, manual ]
 
-      - id: typecheck
-        name: Run type checking
+      - id: typecheck-mypy
+        name: Run type checking with MyPy
         entry: env MYPY_PRETTY=0 task typecheck
         types: [ python ]
         language: system
         pass_filenames: false
         fail_fast: true
         stages: [ pre-push, manual ]  # Run on push only to speed up commits
+
+      - id: typecheck-ty
+        name: Run type checking with Ty
+        entry: task ty
+        types: [ python ]
+        language: system
+        pass_filenames: false
+        fail_fast: true
+        stages: [ pre-commit, pre-push, manual ]
 
       - id: deptry
         name: Check dependency usage
