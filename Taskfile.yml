@@ -101,9 +101,15 @@ tasks:
 
   basedpyright:
     desc: Type check code with basedpyright
-    deps: [ .uv ]
+    deps: [ .uv-locked ]
     cmds:
       - uv run basedpyright
+
+  ty:
+    desc: Type check code with ty
+    deps: [ .uv-locked ]
+    cmds:
+      - uv run ty check src tests
 
   check:
     aliases: [ ci ]
