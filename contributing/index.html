@@ -1313,23 +1313,37 @@
 <h3 id="making-changes">Making Changes<a class="headerlink" href="#making-changes" title="Permanent link">&para;</a></h3>
 <ol>
 <li>Fork the repository to your own GitHub account.</li>
-<li>Clone your fork locally:
-    <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>git<span class="w"> </span>clone<span class="w"> </span>git@github.com:&lt;your-username&gt;/waku.git
+<li>
+<p>Clone your fork locally:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>git<span class="w"> </span>clone<span class="w"> </span>git@github.com:&lt;your-username&gt;/waku.git
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nb">cd</span><span class="w"> </span>waku
-</span></code></pre></div></li>
-<li>Create a new branch for your changes:
-    <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>git<span class="w"> </span>checkout<span class="w"> </span>-b<span class="w"> </span>feat/your-feature-name
-</span></code></pre></div></li>
-<li>Make your changes, following our <a href="#code-style">code style guidelines</a>.</li>
+</span></code></pre></div>
+</li>
+<li>
+<p>Create a new branch for your changes:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>git<span class="w"> </span>checkout<span class="w"> </span>-b<span class="w"> </span>feat/your-feature-name
+</span></code></pre></div>
+</li>
+<li>
+<p>Make your changes, following our <a href="#code-style">code style guidelines</a>.</p>
+</li>
 <li>Write or update tests for your changes.</li>
-<li>Run all checks and ensure tests pass:
-    <div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>task
-</span></code></pre></div></li>
-<li>Commit your changes with clear, descriptive messages.</li>
-<li>Push to your fork:
-    <div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span>feat/your-feature-name
-</span></code></pre></div></li>
-<li>Open a pull request on GitHub. Link related issues in your PR description (e.g., "Fixes #123").</li>
+<li>
+<p>Run all checks and ensure tests pass:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>task
+</span></code></pre></div>
+</li>
+<li>
+<p>Commit your changes with clear, descriptive messages.</p>
+</li>
+<li>
+<p>Push to your fork:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span>feat/your-feature-name
+</span></code></pre></div>
+</li>
+<li>
+<p>Open a pull request on GitHub. Link related issues in your PR description (e.g., "Fixes #123").</p>
+</li>
 <li>Participate in the review process and make any requested changes.</li>
 </ol>
 <h4 id="pull-request-checklist">Pull Request Checklist<a class="headerlink" href="#pull-request-checklist" title="Permanent link">&para;</a></h4>
@@ -1371,9 +1385,11 @@
 <li>Write descriptive docstrings using the <a href="https://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings">Google style</a></li>
 </ul>
 <h2 id="getting-help">Getting Help<a class="headerlink" href="#getting-help" title="Permanent link">&para;</a></h2>
-<p>If you have questions or need help, you can:
-- Open a <a href="https://github.com/waku-py/waku/discussions">discussion</a>
-- Open an <a href="https://github.com/waku-py/waku/issues">issue</a> for bugs or feature requests</p>
+<p>If you have questions or need help, you can:</p>
+<ul>
+<li>Open a <a href="https://github.com/waku-py/waku/discussions">discussion</a></li>
+<li>Open an <a href="https://github.com/waku-py/waku/issues">issue</a> for bugs or feature requests</li>
+</ul>
 <h2 id="first-time-contributors">First-time Contributors<a class="headerlink" href="#first-time-contributors" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Look for issues labeled <a href="https://github.com/waku-py/waku/labels/good-first-issue">"good first issue"</a> or <a href="https://github.com/waku-py/waku/labels/help-wanted">"help wanted"</a>.</li>
@@ -1388,11 +1404,13 @@
 <li>Provide as much context as possible (e.g., steps to reproduce, environment details).</li>
 </ul>
 <p>Please follow the <a href="https://github.com/waku-py/waku/issues/new?template=bug_report.md">bug report</a> and <a href="https://github.com/waku-py/waku/issues/new?template=feature_request.md">feature request</a> templates when submitting issues.</p>
-<p>We welcome:
-- Bug reports
-- Feature requests
-- Documentation improvements
-- General questions or ideas</p>
+<p>We welcome:</p>
+<ul>
+<li>Bug reports</li>
+<li>Feature requests</li>
+<li>Documentation improvements</li>
+<li>General questions or ideas</li>
+</ul>
 <h2 id="project-structure">Project Structure<a class="headerlink" href="#project-structure" title="Permanent link">&para;</a></h2>
 <ul>
 <li><code>src/</code> – main source code</li>
