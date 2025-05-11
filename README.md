@@ -24,10 +24,12 @@
 
 </div>
 
----
+-----
 
 > **waku** is a modular, type-safe Python framework for scalable, maintainable applications.
 > Inspired by NestJS, powered by [Dishka](https://github.com/reagento/dishka/) IoC.
+
+<!-- Separate quote blocks -->
 
 > [!WARNING]
 > `waku` is currently undergoing a near-complete rewrite, so the documentation is not fully up-to-date with recent changes.

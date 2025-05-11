@@ -77,29 +77,38 @@ Before you begin, ensure you have the following installed:
 
 1. Fork the repository to your own GitHub account.
 2. Clone your fork locally:
+
     ```bash
     git clone git@github.com:<your-username>/waku.git
     cd waku
     ```
+
 3. Create a new branch for your changes:
+
     ```bash
     git checkout -b feat/your-feature-name
     ```
+
 4. Make your changes, following our [code style guidelines](#code-style).
 5. Write or update tests for your changes.
 6. Run all checks and ensure tests pass:
+
     ```bash
     task
     ```
+
 7. Commit your changes with clear, descriptive messages.
 8. Push to your fork:
+
     ```bash
     git push origin feat/your-feature-name
     ```
+
 9. Open a pull request on GitHub. Link related issues in your PR description (e.g., "Fixes #123").
 10. Participate in the review process and make any requested changes.
 
 #### Pull Request Checklist
+
 - [ ] Tests added or updated
 - [ ] Documentation updated (if needed)
 - [ ] Code is formatted and linted
@@ -144,6 +153,7 @@ We use several tools to maintain code quality:
 ## Getting Help
 
 If you have questions or need help, you can:
+
 - Open a [discussion](https://github.com/waku-py/waku/discussions)
 - Open an [issue](https://github.com/waku-py/waku/issues) for bugs or feature requests
 
@@ -164,6 +174,7 @@ Before creating an issue:
 Please follow the [bug report](https://github.com/waku-py/waku/issues/new?template=bug_report.md) and [feature request](https://github.com/waku-py/waku/issues/new?template=feature_request.md) templates when submitting issues.
 
 We welcome:
+
 - Bug reports
 - Feature requests
 - Documentation improvements

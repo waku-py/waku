@@ -1,29 +1,9 @@
 ---
-title: Getting Started
 hide:
   - navigation
 ---
 
 # Getting Started
-
-!!! note
-    For our examples we stick with [aioinject](https://github.com/aiopylibs/aioinject) as DI provider.
-    Install it directly using your preferred package manager or as extra dependency of `waku`:
-    === "uv"
-
-        ```shell
-        uv add "waku[aioinject]"
-        # or
-        uv add aioinject
-        ```
-
-    === "pip"
-
-        ```shell
-        pip install "waku[aioinject]"
-        # or
-        pip install aioinject
-        ```
 
 ## Creating Your First `waku` Application
 
@@ -150,7 +130,6 @@ In this example:
 !!! info
     For more information on providers and scopes, see [Providers](usage/providers.md#scopes).
 
-
 ### Application Bootstrap
 
 The application is created using an `ApplicationFactory`:
@@ -194,7 +173,6 @@ async with application, application.container.context():
 
 In real applications, you would typically use this context managers in `lifespan` of your framework.
 
-
 ## Creating a More Realistic Application
 
 Let's extend our example to demonstrate a more realistic scenario with multiple modules and configuration.
@@ -223,7 +201,6 @@ app/
 └── settings.py
 ```
 
-
 ### Step 2: Add Configuration Module
 
 Define an application settings class and configuration module for providing settings object to your application:
@@ -232,7 +209,7 @@ Define an application settings class and configuration module for providing sett
 --8<-- "docs/code/getting_started/settings.py"
 ```
 
-### Step 3: Create Modules
+### Step 3: Creating Modules
 
 #### Greeting Module
 
