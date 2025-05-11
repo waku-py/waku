@@ -15,6 +15,6 @@ _This release is published under the MIT License._            # Release Notes On
 %}{{    "\n_This release is published under the %s License._\n" | format(license_name)
 }}{%  endif
 %}{#
-#}{%  set commit_objects = release["elements"]
+#}{%  set commit_objects = release["elements"] | dictsort
 %}{%  include "changes.md.j2"
 -%}
