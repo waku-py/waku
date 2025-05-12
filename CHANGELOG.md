@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v0.18.0 (2025-05-12)
+
+### ⚙️ Build System
+
+- Introduce astral-sh `ty` as additional typechecker
+  ([`4eb9758`](https://github.com/waku-py/waku/commit/4eb97581cb4394f6f466df379d30969bc467ce30))
+
+### 📖 Documentation
+
+- Fix `markdownlint` issues in README and CONTRIBUTING files
+  ([`cd3821e`](https://github.com/waku-py/waku/commit/cd3821e79cf08d6728c9297d03366f9e4b55fa2a))
+
+### ✨ Features
+
+- **ext**: Implement extension registry
+  ([`6e88840`](https://github.com/waku-py/waku/commit/6e88840338ea53d31e3fd7565df1869993bc2c00))
+
+
 ## v0.17.0 (2025-05-11)
 
 ### ✨ Features
@@ -317,7 +335,7 @@
 
 ### ⚙️ Build System
 
-- Make patch release only for `fix` & `perf` tags
+- Make patch release only for `fix` &amp; `perf` tags
   ([`b9cf6bf`](https://github.com/waku-py/waku/commit/b9cf6bf77047e21959f4e1bbe2a1bb1566cccd1c))
 
 ### 📖 Documentation
