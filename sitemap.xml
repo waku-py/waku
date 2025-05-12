@@ -2,66 +2,66 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://waku-py.github.io/waku/</loc>
-         <lastmod>2025-05-11</lastmod>
+         <lastmod>2025-05-12</lastmod>
     </url>
     <url>
          <loc>https://waku-py.github.io/waku/changelog/</loc>
-         <lastmod>2025-05-11</lastmod>
+         <lastmod>2025-05-12</lastmod>
     </url>
     <url>
          <loc>https://waku-py.github.io/waku/getting-started/</loc>
-         <lastmod>2025-05-11</lastmod>
+         <lastmod>2025-05-12</lastmod>
     </url>
     <url>
          <loc>https://waku-py.github.io/waku/reference/</loc>
-         <lastmod>2025-05-11</lastmod>
+         <lastmod>2025-05-12</lastmod>
     </url>
     <url>
          <loc>https://waku-py.github.io/waku/contributing/</loc>
-         <lastmod>2025-05-11</lastmod>
+         <lastmod>2025-05-12</lastmod>
     </url>
     <url>
          <loc>https://waku-py.github.io/waku/contributing/docs/</loc>
-         <lastmod>2025-05-11</lastmod>
+         <lastmod>2025-05-12</lastmod>
     </url>
     <url>
          <loc>https://waku-py.github.io/waku/examples/cqrs/</loc>
-         <lastmod>2025-05-11</lastmod>
+         <lastmod>2025-05-12</lastmod>
     </url>
     <url>
          <loc>https://waku-py.github.io/waku/examples/modularity/</loc>
-         <lastmod>2025-05-11</lastmod>
+         <lastmod>2025-05-12</lastmod>
     </url>
     <url>
          <loc>https://waku-py.github.io/waku/integrations/asgi/</loc>
-         <lastmod>2025-05-11</lastmod>
+         <lastmod>2025-05-12</lastmod>
     </url>
     <url>
          <loc>https://waku-py.github.io/waku/integrations/litestar/</loc>
-         <lastmod>2025-05-11</lastmod>
+         <lastmod>2025-05-12</lastmod>
     </url>
     <url>
          <loc>https://waku-py.github.io/waku/usage/cqrs/</loc>
-         <lastmod>2025-05-11</lastmod>
+         <lastmod>2025-05-12</lastmod>
     </url>
     <url>
          <loc>https://waku-py.github.io/waku/usage/lifespan/</loc>
-         <lastmod>2025-05-11</lastmod>
+         <lastmod>2025-05-12</lastmod>
     </url>
     <url>
          <loc>https://waku-py.github.io/waku/usage/modules/</loc>
-         <lastmod>2025-05-11</lastmod>
+         <lastmod>2025-05-12</lastmod>
     </url>
     <url>
          <loc>https://waku-py.github.io/waku/usage/providers/</loc>
-         <lastmod>2025-05-11</lastmod>
+         <lastmod>2025-05-12</lastmod>
     </url>
     <url>
          <loc>https://waku-py.github.io/waku/usage/extensions/</loc>
-         <lastmod>2025-05-11</lastmod>
+         <lastmod>2025-05-12</lastmod>
     </url>
     <url>
          <loc>https://waku-py.github.io/waku/usage/extensions/validation/</loc>
-         <lastmod>2025-05-11</lastmod>
+         <lastmod>2025-05-12</lastmod>
     </url>
 </urlset>
