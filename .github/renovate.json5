@@ -21,12 +21,6 @@
       ],
       "matchCurrentVersion": "!/^0/",
       "automerge": true
-    },
-    {
-      "matchDepTypes": [
-        "devDependencies"
-      ],
-      "prPriority": -1
     }
   ],
   "prConcurrentLimit": 0,
@@ -40,6 +34,8 @@
   "rangeStrategy": "auto",
   "lockFileMaintenance": {
     "enabled": true,
+    "automerge": true,
+    "automergeType": "pr",
     "schedule": [
       "before 5am on monday"
     ]

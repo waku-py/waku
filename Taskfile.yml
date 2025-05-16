@@ -132,6 +132,8 @@ tasks:
     deps: [ .uv-locked ]
     silent: true
     cmd: uv export --no-emit-project --no-header --no-annotate | uv run pip-audit --require-hashes --disable-pip -r /dev/stdin
+    env:
+      PIP_AUDIT_PROGRESS_SPINNER: "off"
 
   deptry:
     desc: Find unused, missing and transitive dependencies in project
