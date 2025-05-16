@@ -220,11 +220,61 @@ jobs:
 
       - name: Test | Run pytest on ${{ matrix.python-version }}
         id: tests
-        run: task test:ci -- --timeout=${{ env.PYTEST_TIMEOUT }} --junit-xml=tests/reports/pytest-results.xml
+        run: |
+          task test:ci -- \
+            --timeout=${{ env.PYTEST_TIMEOUT }} \
+            --cov-append \
+            --junit-xml=tests/reports/pytest-results-${{ matrix.python-version }}.xml \
+            --cov-report=xml:tests/reports/coverage-${{ matrix.python-version }}.xml
 
-      - name: Report | Upload Test Results
-        uses: mikepenz/action-junit-report@cf701569b05ccdd861a76b8607a66d76f6fd4857 # v5.5.1
-        if: ${{ always() && steps.tests.outcome != 'skipped' }}
+      - name: Test | Archive JUnit XML test results
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          report_paths: ./tests/reports/*.xml
+          name: junit-report-${{ matrix.python-version }}
+          path: tests/reports/pytest-results-${{ matrix.python-version }}.xml
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Test | Archive coverage results
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-report-${{ matrix.python-version }}
+          path: tests/reports/coverage-${{ matrix.python-version }}.xml
+          if-no-files-found: error
+          retention-days: 2
+
+  upload-test-results:
+    name: Upload Test Results
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Report | Download test results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: junit-report-*
+          path: ./tests/reports/
+          merge-multiple: true
+
+      - name: Report | Upload test results
+        uses: mikepenz/action-junit-report@cf701569b05ccdd861a76b8607a66d76f6fd4857 # v5.5.1
+        with:
+          report_paths: ./tests/reports/pytest-results-*.xml
           annotate_only: true
+
+      - name: Report | Download coverage reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          path: ./tests/reports/
+          merge-multiple: true
+
+      - name: Report | Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          disable_search: true
+          directory: ./tests/reports/
+          fail_ci_if_error: true
+          files: ./tests/reports/coverage-${{ env.COMMON_PYTHON_VERSION }}.xml
+          slug: waku-py/waku
+          token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: true

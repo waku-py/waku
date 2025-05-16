@@ -64,4 +64,5 @@ jobs:
       doc-files-changed: ${{ needs.eval-changes.outputs.doc-changes }}
       src-files-changed: ${{ needs.eval-changes.outputs.src-changes }}
       test-files-changed: ${{ needs.eval-changes.outputs.test-changes }}
+    secrets: inherit
     permissions: { }
