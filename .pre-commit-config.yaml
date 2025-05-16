@@ -31,7 +31,8 @@ repos:
       - id: check-github-workflows
         files: '^\.github/workflows/.*\.ya?ml$'
       - id: check-renovate
-        files: '^\.github/renovate\.json$'
+        files: '^\.github/renovate\.json5$'
+        additional_dependencies: [ pyjson5 ]
       - id: check-taskfile
         files: '^Taskfile\.yml$'
 
