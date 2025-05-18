@@ -9,57 +9,67 @@
 
 <div align="center" markdown="1">
 
+<!-- Project Status -->
 [![CI/CD](https://img.shields.io/github/actions/workflow/status/waku-py/waku/release.yml?branch=master&logo=github&label=CI/CD)](https://github.com/waku-py/waku/actions?query=event%3Apush+branch%3Amaster+workflow%3ACI/CD)
 [![codecov](https://codecov.io/gh/waku-py/waku/graph/badge.svg?token=3M64SAF38A)](https://codecov.io/gh/waku-py/waku)
-[![Downloads](https://static.pepy.tech/badge/waku/month)](https://pepy.tech/projects/waku)
+[![GitHub issues](https://img.shields.io/github/issues/waku-py/waku)](https://github.com/waku-py/waku/issues)
+[![GitHub contributors](https://img.shields.io/github/contributors/waku-py/waku)](https://github.com/waku-py/waku/graphs/contributors)
+[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/waku-py/waku)](https://github.com/waku-py/waku/graphs/commit-activity)
+[![GitHub license](https://img.shields.io/github/license/waku-py/waku)](https://github.com/waku-py/waku/blob/master/LICENSE)
+
+<!-- Package Info -->
 [![PyPI](https://img.shields.io/pypi/v/waku.svg?label=PyPI)](https://pypi.python.org/pypi/waku)
 [![Python version](https://img.shields.io/pypi/pyversions/waku.svg?label=Python)](https://www.python.org/downloads/)
-![GitHub commit activity](https://img.shields.io/github/commit-activity/m/waku-py/waku)
-[![License](https://img.shields.io/pypi/l/waku.svg)](https://github.com/waku-py/waku/blob/master/LICENSE)
-[![Docs](https://img.shields.io/badge/docs-mkdocs%20material-blue)](https://waku-py.github.io/waku/)
+[![Downloads](https://static.pepy.tech/badge/waku/month)](https://pepy.tech/projects/waku)
 
+<!-- Tools -->
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff/)
-[![mypy - checked](http://www.mypy-lang.org/static/mypy_badge.svg)](http://mypy-lang.org/)
+[![mypy - checked](https://www.mypy-lang.org/static/mypy_badge.svg)](https://mypy-lang.org/)
 [![basedpyright - checked](https://img.shields.io/badge/basedpyright-checked-42b983?color=ffc105)](https://docs.basedpyright.com)
+
+<!-- Docs -->
+[![Docs](https://img.shields.io/badge/docs-mkdocs%20material-blue)](https://waku-py.github.io/waku/)
 
 </div>
 
 -----
 
 > **waku** is a modular, type-safe Python framework for scalable, maintainable applications.
-> Inspired by NestJS, powered by [Dishka](https://github.com/reagento/dishka/) IoC.
+> Inspired by [NestJS](https://nestjs.com/), powered by [Dishka](https://github.com/reagento/dishka/) IoC.
 
 <!-- Separate quote blocks -->
 
 > [!WARNING]
-> `waku` is currently undergoing a near-complete rewrite, so the documentation is not fully up-to-date with recent changes.
-> Please refer to this README and the [**examples**](https://github.com/waku-py/waku/tree/master/docs/code/examples) until the documentation is updated.
+> `waku` is going through a major rewrite, so docs aren't fully up-to-date yet.
+> Stick to this **README** and our [**examples**](https://github.com/waku-py/waku/tree/master/examples) for now.
 >
-> You can also consult the [`waku`](https://deepwiki.com/waku-py/waku/) **deepwiki** page as a reference.
+> For more details, check out our [`waku` deepwiki](https://deepwiki.com/waku-py/waku/) page.
 
 ## Why `waku`?
 
-- **🧩 Modular by design:** Enforces clear boundaries and single responsibility.
-- **💉 First-class Dependency Injection:** Powered by [Dishka](https://github.com/reagento/dishka/).
-- **⚡ Event-driven and extensible:** Built-in hooks, CQRS, and plugin system.
-- **🔌 Framework-agnostic:** Integrates with FastAPI, Litestar, FastStream, Aiogram, and more.
-- **🛡️ Production-ready:** Type-safe, testable, and maintainable.
+- **🧩 Modular by design:** Clean boundaries with explicit imports/exports. Keeps your code organized with clear responsibilities.
+- **💉 First-class DI:** Built on [Dishka](https://github.com/reagento/dishka/) with flexible provider patterns (singleton, scoped, transient).
+- **⚡ Event-driven:** Packed with CQRS, lifecycle hooks, and a smart extension system.
+- **🔌 Framework-agnostic:** Works with FastAPI, Litestar, FastStream, Aiogram—no vendor lock-in.
+- **🛡️ Production-ready:** Type-safe APIs with proper validation and testing support that scales with your team.
 
 ## Who is it for?
 
-- Teams building enterprise or microservice Python apps
-- Developers seeking a clean, maintainable architecture
-- Projects that require testability, loose coupling, and clear module boundaries
+- **Enterprise development teams** building modular, maintainable backend services or microservices
+- **Architects and tech leads** seeking a structured framework with clear dependency boundaries and testability
+- **Python developers** frustrated with monolithic codebases and looking for better separation of concerns
+- **Engineers from other ecosystems** (Java Spring, C# ASP.NET, TypeScript NestJS) wanting familiar patterns in Python
+- **Projects requiring scalability** both in codebase organization and team collaboration
 
 ## Features
 
-- 🧩 [**Modular architecture**](https://waku-py.github.io/waku/usage/modules/): Build applications as a set of loosely coupled modules with clear boundaries, automatic dependency validation, and controlled visibility.
-- 💉 [**Dependency Injection**](https://waku-py.github.io/waku/usage/providers/): Use [Dishka](https://github.com/reagento/dishka/)'s IoC container for type-safe, testable, and maintainable dependency management.
-- 📨 [**CQRS/Mediator**](https://waku-py.github.io/waku/usage/mediator/): Handle commands, queries, and events with a mediator abstraction inspired by C# [MediatR](https://github.com/jbogard/MediatR).
-- 🧰 [**Extensions & plugins**](https://waku-py.github.io/waku/usage/extensions/): Extend `waku` with custom plugins that can hook into the application lifecycle, add providers, or integrate with external systems.
-- 🔄 [**Lifespan management**](https://waku-py.github.io/waku/usage/lifespan/): Automatically manage application and IoC container lifecycles with built-in hooks and an event system.
-- 🤝 [**Integrations**](https://waku-py.github.io/waku/integrations/): Out-of-the-box support for FastAPI, Litestar, FastStream, Aiogram, and more, leveraging Dishka's integrations.
+- 🧩 [**Modular architecture**](https://waku-py.github.io/waku/usage/modules/): Group related code with clear boundaries. Imports/exports keep things tidy.
+- 💉 [**Dependency Injection**](https://waku-py.github.io/waku/usage/providers/): Wire up services with [Dishka](https://github.com/reagento/dishka/)'s IoC container. Swap implementations without breaking everything.
+- 📨 [**CQRS**](https://waku-py.github.io/waku/usage/cqrs/): Handle commands, queries, and events with a comprehensive CQRS implementation including middleware chains and centralized request/event processing inspired by C# [MediatR](https://github.com/jbogard/MediatR).
+- 🧰 [**Extensions**](https://waku-py.github.io/waku/usage/extensions/): Hook into the app lifecycle for logging, validation, or whatever else you need.
+- 🔄 [**Lifespan management**](https://waku-py.github.io/waku/usage/lifespan/): Control startup and shutdown with precise hooks. Resources get cleaned up right.
+- 🤝 [**Integrations**](https://waku-py.github.io/waku/integrations/): Bring `waku`'s architecture to your favorite frameworks.
 
 ## Quick Start
 
@@ -71,7 +81,21 @@ uv add waku
 pip install waku
 ```
 
-### Minimal Example
+### Understanding the Basics
+
+Waku is built around a few core concepts:
+
+- **Modules**: Classes decorated with `@module()` that define boundaries for application components and establish dependency relationships
+- **Providers**: Services or values registered with modules that can be injected into other components
+- **Dependency Injection**: System for resolving and providing dependencies using Dishka's IoC container
+- **WakuFactory**: Entry point that creates a `WakuApplication` instance from your root module
+- **Application Lifecycle**: Sequence of initialization and shutdown phases with extension hooks
+
+This structure keeps your code clean and dependencies explicit.
+
+### Basic Example
+
+Here's a minimal example showing the core concepts:
 
 ```python
 import asyncio
@@ -80,25 +104,31 @@ from waku import WakuFactory, module
 from waku.di import scoped
 
 
+# 1. Define a provider (service)
 class GreetingService:
     async def greet(self, name: str) -> str:
         return f'Hello, {name}!'
 
 
+# 2. Create a module and register the provider
 @module(providers=[scoped(GreetingService)])
 class GreetingModule:
     pass
 
 
+# 3. Create a root module that imports other modules
 @module(imports=[GreetingModule])
 class AppModule:
     pass
 
 
 async def main() -> None:
+    # 4. Bootstrap the application with WakuFactory
     app = WakuFactory(AppModule).create()
 
+    # 5. Use the application with a properly scoped container
     async with app, app.container() as c:
+        # 6. Resolve and use dependencies
         svc = await c.get(GreetingService)
         print(await svc.greet('waku'))
 
@@ -108,7 +138,89 @@ if __name__ == '__main__':
 
 ```
 
-For more realistic examples, see the [Getting Started](https://waku-py.github.io/waku/getting-started) guide or check out the [examples](https://github.com/waku-py/waku/tree/master/examples) directory.
+### More Realistic Example
+
+Let's add protocols and module exports:
+
+```python
+import asyncio
+from typing import Protocol
+
+from waku import WakuFactory, module
+from waku.di import scoped, singleton
+
+
+# Define a protocol for loose coupling
+class Logger(Protocol):
+    async def log(self, message: str) -> None: ...
+
+
+# Implementation of the logger
+class ConsoleLogger:
+    async def log(self, message: str) -> None:
+        print(f'[LOG] {message}')
+
+
+# Service that depends on the logger
+class UserService:
+    def __init__(self, logger: Logger) -> None:
+        self.logger = logger
+
+    async def create_user(self, username: str) -> str:
+        user_id = f'user_{username}'
+        await self.logger.log(f'Created user: {username}')
+        return user_id
+
+
+# Infrastructure module provides core services
+@module(
+    providers=[singleton(ConsoleLogger, provided_type=Logger)],
+    exports=[Logger],  # Export to make available to other modules
+)
+class InfrastructureModule:
+    pass
+
+
+# Feature module for user management
+@module(
+    imports=[InfrastructureModule],  # Import dependencies from other modules
+    providers=[scoped(UserService)],
+)
+class UserModule:
+    pass
+
+
+# Application root module
+@module(imports=[UserModule])
+class AppModule:
+    pass
+
+
+async def main() -> None:
+    app = WakuFactory(AppModule).create()
+
+    async with app, app.container() as c:
+        user_service = await c.get(UserService)
+        user_id = await user_service.create_user('alice')
+        print(f'Created user with ID: {user_id}')
+
+
+if __name__ == '__main__':
+    asyncio.run(main())
+
+```
+
+### Next Steps
+
+Want to learn more? Here's where to go next:
+
+- Get familiar with [module exports and imports](https://waku-py.github.io/waku/usage/modules/)
+- Try different [provider scopes](https://waku-py.github.io/waku/usage/providers/)
+- Add [CQRS](https://waku-py.github.io/waku/usage/cqrs/) for clean command handling
+- Use [extension hooks](https://waku-py.github.io/waku/usage/extensions/) to customize your app
+- Connect with your [favorite framework](https://waku-py.github.io/waku/integrations/)
+
+Check our [Getting Started](https://waku-py.github.io/waku/getting-started) guide and browse the [examples directory](https://github.com/waku-py/waku/tree/master/examples) for inspiration.
 
 ## Documentation
 
@@ -116,7 +228,7 @@ For more realistic examples, see the [Getting Started](https://waku-py.github.io
 - [Module System](https://waku-py.github.io/waku/usage/modules/)
 - [Providers](https://waku-py.github.io/waku/usage/providers/)
 - [Extensions](https://waku-py.github.io/waku/usage/extensions/)
-- [Mediator (CQRS)](https://waku-py.github.io/waku/usage/cqrs/)
+- [CQRS](https://waku-py.github.io/waku/usage/cqrs/)
 - [API Reference](https://waku-py.github.io/waku/reference/)
 - [Dishka Documentation](https://dishka.readthedocs.io/en/stable/index.html/)
 
@@ -124,6 +236,12 @@ For more realistic examples, see the [Getting Started](https://waku-py.github.io
 
 - [Contributing Guide](https://waku-py.github.io/waku/contributing/)
 - [Development Setup](https://waku-py.github.io/waku/contributing/#development-setup)
+
+### Top contributors
+
+<a href="https://github.com/waku-py/waku/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=waku-py/waku" alt="contrib.rocks image" />
+</a>
 
 ## Roadmap
 
@@ -139,4 +257,10 @@ For more realistic examples, see the [Getting Started](https://waku-py.github.io
 
 ## License
 
-MIT
+This project is licensed under the terms of the [MIT License](https://github.com/waku-py/waku/blob/master/LICENSE).
+
+## Acknowledgements
+
+- [Dishka](https://github.com/reagento/dishka/) – Dependency Injection framework powering `waku`'s IoC container.
+- [NestJS](https://nestjs.com/) – Primary inspiration for modular architecture, design patterns and some implementation details.
+- [MediatR (C#)](https://github.com/jbogard/MediatR) – Inspiration and implementation details for the CQRS subsystem.

@@ -189,11 +189,12 @@ nav:
           - usage/extensions/index.md
           - Validation: usage/extensions/validation.md
   - Integrations:
+      - integrations/index.md
       - ASGI: integrations/asgi.md
       - Litestar: integrations/litestar.md
   - Examples:
       - Modularity: examples/modularity.md
-      - Mediator (CQRS): examples/cqrs.md
+      - CQRS: examples/cqrs.md
   - API Reference: reference.md
   - Contributing:
       - contributing/index.md
