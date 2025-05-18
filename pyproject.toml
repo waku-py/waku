@@ -83,16 +83,15 @@ typecheck = [
 # ----- UV settings -----
 [tool.uv]
 default-groups = "all"
-required-version = ">=0.7.1"
+required-version = ">=0.7.5"
 
 
 # ----- Pytest settings -----
 [tool.pytest.ini_options]
 xfail_strict = true
-norecursedirs = ".* examples __pycache__"
+norecursedirs = ".* docs examples __pycache__"
 disable_test_id_escaping_and_forfeit_all_rights_to_community_support = true
 addopts = [
-  "--ignore=docs",
   "--doctest-modules",
   "--strict-markers",
   "--strict-config",
@@ -111,6 +110,7 @@ omit = ["*__dishka_factory_*"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
+omit = ["*__dishka_factory_*"]
 exclude_also = [
   "def __repr__",
   "raise AssertionError",

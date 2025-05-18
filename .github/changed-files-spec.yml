@@ -8,6 +8,7 @@ ci:
   - '.github/workflows/**'
   - '.pre-commit-config.yaml'
   - 'Taskfile.yml'
+  - 'gitlint_plugins.py'
 docs:
   - 'docs/**'
   - '**/*.md'

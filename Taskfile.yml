@@ -147,13 +147,13 @@ tasks:
 
   test:
     desc: Run tests
-    deps: [ .uv ]
+    deps: [ .uv-locked ]
     cmd: uv run pytest {{.PYTEST_ARGS}} {{.CLI_ARGS}}
 
   test:cov:
     aliases: [ 'test:ci', 'test:all' ]
     desc: Run tests with coverage
-    deps: [ .uv ]
+    deps: [ .uv-locked ]
     vars:
       PYTEST_ARGS: --cov
     cmds:
