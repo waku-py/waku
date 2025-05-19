@@ -531,15 +531,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#features" class="md-nav__link">
-    <span class="md-ellipsis">
-      Features
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#quick-start" class="md-nav__link">
     <span class="md-ellipsis">
       Quick Start
@@ -1333,15 +1324,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#features" class="md-nav__link">
-    <span class="md-ellipsis">
-      Features
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#quick-start" class="md-nav__link">
     <span class="md-ellipsis">
       Quick Start
@@ -1532,28 +1514,20 @@ Stick to this <strong>README</strong> and our <a href="https://github.com/waku-p
 </blockquote>
 <h2 id="why-waku">Why <code>waku</code>?<a class="headerlink" href="#why-waku" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>🧩 Modular by design:</strong> Clean boundaries with explicit imports/exports. Keeps your code organized with clear responsibilities.</li>
-<li><strong>💉 First-class <abbr title="Dependency Injection">DI</abbr>:</strong> Built on <a href="https://github.com/reagento/dishka/">Dishka</a> with flexible provider patterns (singleton, scoped, transient).</li>
-<li><strong>⚡ Event-driven:</strong> Packed with <abbr title="Command and Query Responsibility Segregation">CQRS</abbr>, lifecycle hooks, and a smart extension system.</li>
-<li><strong>🔌 Framework-agnostic:</strong> Works with FastAPI, Litestar, FastStream, Aiogram—no vendor lock-in.</li>
-<li><strong>🛡️ Production-ready:</strong> Type-safe APIs with proper validation and testing support that scales with your team.</li>
+<li>🧩 <a href="https://waku-py.github.io/waku/usage/modules/">Modular architecture</a>: Group related code with explicit imports/exports for clear boundaries and responsibilities.</li>
+<li>💉 <a href="https://waku-py.github.io/waku/usage/providers/">First-class Dependency Injection</a>: Built on <a href="https://github.com/reagento/dishka/">Dishka</a> with flexible provider patterns (singleton, scoped, transient); swap implementations easily.</li>
+<li>📨 <a href="https://waku-py.github.io/waku/usage/cqrs/">Event-driven &amp; <abbr title="Command and Query Responsibility Segregation">CQRS</abbr></a>: Handle commands, queries, and events with a comprehensive <abbr title="Command and Query Responsibility Segregation">CQRS</abbr> implementation, pipeline chains, and centralized processing inspired by <a href="https://github.com/jbogard/MediatR">MediatR (C#)</a>.</li>
+<li>🔌 <a href="https://waku-py.github.io/waku/integrations/">Framework-agnostic &amp; Integrations</a>: Works with FastAPI, Litestar, FastStream, Aiogram, and more—no vendor lock-in.</li>
+<li>🧰 <a href="https://waku-py.github.io/waku/usage/extensions/">Extensions &amp; Lifecycle Hooks</a>: Hook into the app lifecycle for logging, validation, and custom logic; <a href="https://waku-py.github.io/waku/usage/lifespan/">precise startup/shutdown management</a>.</li>
+<li>🛡️ Production-ready: Type-safe APIs, robust validation, and scalable testing support.</li>
 </ul>
 <h2 id="who-is-it-for">Who is it for?<a class="headerlink" href="#who-is-it-for" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Enterprise development teams</strong> building modular, maintainable backend services or microservices</li>
-<li><strong>Architects and tech leads</strong> seeking a structured framework with clear dependency boundaries and testability</li>
-<li><strong>Python developers</strong> frustrated with monolithic codebases and looking for better separation of concerns</li>
-<li><strong>Engineers from other ecosystems</strong> (Java Spring, C# ASP.NET, TypeScript NestJS) wanting familiar patterns in Python</li>
-<li><strong>Projects requiring scalability</strong> both in codebase organization and team collaboration</li>
-</ul>
-<h2 id="features">Features<a class="headerlink" href="#features" title="Permanent link">&para;</a></h2>
-<ul>
-<li>🧩 <a href="https://waku-py.github.io/waku/usage/modules/"><strong>Modular architecture</strong></a>: Group related code with clear boundaries. Imports/exports keep things tidy.</li>
-<li>💉 <a href="https://waku-py.github.io/waku/usage/providers/"><strong>Dependency Injection</strong></a>: Wire up services with <a href="https://github.com/reagento/dishka/">Dishka</a>'s <abbr title="Inversion of Control">IoC</abbr> container. Swap implementations without breaking everything.</li>
-<li>📨 <a href="https://waku-py.github.io/waku/usage/cqrs/"><strong><abbr title="Command and Query Responsibility Segregation">CQRS</abbr></strong></a>: Handle commands, queries, and events with a comprehensive <abbr title="Command and Query Responsibility Segregation">CQRS</abbr> implementation including middleware chains and centralized request/event processing inspired by C# <a href="https://github.com/jbogard/MediatR">MediatR</a>.</li>
-<li>🧰 <a href="https://waku-py.github.io/waku/usage/extensions/"><strong>Extensions</strong></a>: Hook into the app lifecycle for logging, validation, or whatever else you need.</li>
-<li>🔄 <a href="https://waku-py.github.io/waku/usage/lifespan/"><strong>Lifespan management</strong></a>: Control startup and shutdown with precise hooks. Resources get cleaned up right.</li>
-<li>🤝 <a href="https://waku-py.github.io/waku/integrations/"><strong>Integrations</strong></a>: Bring <code>waku</code>'s architecture to your favorite frameworks.</li>
+<li>👥 <strong>Enterprise development teams</strong> building modular, maintainable backend services or microservices</li>
+<li>🏗️ <strong>Architects and tech leads</strong> seeking a structured framework with clear dependency boundaries and testability</li>
+<li>🐍 <strong>Python developers</strong> frustrated with monolithic codebases and looking for better separation of concerns</li>
+<li>🌏 <strong>Engineers from other ecosystems</strong> (Java Spring, C# ASP.NET, TypeScript NestJS) wanting familiar patterns in Python</li>
+<li>📈 <strong>Projects requiring scalability</strong> both in codebase organization and team collaboration</li>
 </ul>
 <h2 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
 <h3 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h3>
@@ -1564,13 +1538,16 @@ Stick to this <strong>README</strong> and our <a href="https://github.com/waku-p
 <h3 id="understanding-the-basics">Understanding the Basics<a class="headerlink" href="#understanding-the-basics" title="Permanent link">&para;</a></h3>
 <p>Waku is built around a few core concepts:</p>
 <ul>
-<li><strong>Modules</strong>: Classes decorated with <code>@module()</code> that define boundaries for application components and establish dependency relationships</li>
-<li><strong>Providers</strong>: Services or values registered with modules that can be injected into other components</li>
-<li><strong>Dependency Injection</strong>: System for resolving and providing dependencies using Dishka's <abbr title="Inversion of Control">IoC</abbr> container</li>
-<li><strong>WakuFactory</strong>: Entry point that creates a <code>WakuApplication</code> instance from your root module</li>
-<li><strong>Application Lifecycle</strong>: Sequence of initialization and shutdown phases with extension hooks</li>
+<li>🧩 <strong>Modules:</strong> Classes decorated with <code>@module()</code> that define boundaries for application components and establish clear dependency relationships.</li>
+<li>🧑‍🔧 <strong>Providers:</strong> Injectable services and logic registered within modules.</li>
+<li>💉 <strong>Dependency Injection:</strong> Type-safe, flexible wiring powered by <a href="https://github.com/reagento/dishka/">Dishka</a> <abbr title="Inversion of Control">IoC</abbr> container.</li>
+<li>🏭 <strong>WakuFactory:</strong> The entry point that creates a <code>WakuApplication</code> instance from your root module.</li>
+<li>🔄 <strong>Application Lifecycle:</strong> Initialization and shutdown phases, enhanced with extension hooks.</li>
 </ul>
-<p>This structure keeps your code clean and dependencies explicit.</p>
+<p>This structure keeps your code clean and your dependencies explicit.</p>
+<blockquote>
+<p><code>waku</code> is <strong>framework-agnostic</strong> — entrypoints (such as HTTP handlers) are provided by integrations, not the core.</p>
+</blockquote>
 <h3 id="basic-example">Basic Example<a class="headerlink" href="#basic-example" title="Permanent link">&para;</a></h3>
 <p>Here's a minimal example showing the core concepts:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
