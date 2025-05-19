@@ -48,28 +48,20 @@
 
 ## Why `waku`?
 
-- **🧩 Modular by design:** Clean boundaries with explicit imports/exports. Keeps your code organized with clear responsibilities.
-- **💉 First-class DI:** Built on [Dishka](https://github.com/reagento/dishka/) with flexible provider patterns (singleton, scoped, transient).
-- **⚡ Event-driven:** Packed with CQRS, lifecycle hooks, and a smart extension system.
-- **🔌 Framework-agnostic:** Works with FastAPI, Litestar, FastStream, Aiogram—no vendor lock-in.
-- **🛡️ Production-ready:** Type-safe APIs with proper validation and testing support that scales with your team.
+- 🧩 [Modular architecture](https://waku-py.github.io/waku/usage/modules/): Group related code with explicit imports/exports for clear boundaries and responsibilities.
+- 💉 [First-class Dependency Injection](https://waku-py.github.io/waku/usage/providers/): Built on [Dishka](https://github.com/reagento/dishka/) with flexible provider patterns (singleton, scoped, transient); swap implementations easily.
+- 📨 [Event-driven & CQRS](https://waku-py.github.io/waku/usage/cqrs/): Handle commands, queries, and events with a comprehensive CQRS implementation, pipeline chains, and centralized processing inspired by [MediatR (C#)](https://github.com/jbogard/MediatR).
+- 🔌 [Framework-agnostic & Integrations](https://waku-py.github.io/waku/integrations/): Works with FastAPI, Litestar, FastStream, Aiogram, and more—no vendor lock-in.
+- 🧰 [Extensions & Lifecycle Hooks](https://waku-py.github.io/waku/usage/extensions/): Hook into the app lifecycle for logging, validation, and custom logic; [precise startup/shutdown management](https://waku-py.github.io/waku/usage/lifespan/).
+- 🛡️ Production-ready: Type-safe APIs, robust validation, and scalable testing support.
 
 ## Who is it for?
 
-- **Enterprise development teams** building modular, maintainable backend services or microservices
-- **Architects and tech leads** seeking a structured framework with clear dependency boundaries and testability
-- **Python developers** frustrated with monolithic codebases and looking for better separation of concerns
-- **Engineers from other ecosystems** (Java Spring, C# ASP.NET, TypeScript NestJS) wanting familiar patterns in Python
-- **Projects requiring scalability** both in codebase organization and team collaboration
-
-## Features
-
-- 🧩 [**Modular architecture**](https://waku-py.github.io/waku/usage/modules/): Group related code with clear boundaries. Imports/exports keep things tidy.
-- 💉 [**Dependency Injection**](https://waku-py.github.io/waku/usage/providers/): Wire up services with [Dishka](https://github.com/reagento/dishka/)'s IoC container. Swap implementations without breaking everything.
-- 📨 [**CQRS**](https://waku-py.github.io/waku/usage/cqrs/): Handle commands, queries, and events with a comprehensive CQRS implementation including middleware chains and centralized request/event processing inspired by C# [MediatR](https://github.com/jbogard/MediatR).
-- 🧰 [**Extensions**](https://waku-py.github.io/waku/usage/extensions/): Hook into the app lifecycle for logging, validation, or whatever else you need.
-- 🔄 [**Lifespan management**](https://waku-py.github.io/waku/usage/lifespan/): Control startup and shutdown with precise hooks. Resources get cleaned up right.
-- 🤝 [**Integrations**](https://waku-py.github.io/waku/integrations/): Bring `waku`'s architecture to your favorite frameworks.
+- 👥 **Enterprise development teams** building modular, maintainable backend services or microservices
+- 🏗️ **Architects and tech leads** seeking a structured framework with clear dependency boundaries and testability
+- 🐍 **Python developers** frustrated with monolithic codebases and looking for better separation of concerns
+- 🌏 **Engineers from other ecosystems** (Java Spring, C# ASP.NET, TypeScript NestJS) wanting familiar patterns in Python
+- 📈 **Projects requiring scalability** both in codebase organization and team collaboration
 
 ## Quick Start
 
@@ -85,13 +77,15 @@ pip install waku
 
 Waku is built around a few core concepts:
 
-- **Modules**: Classes decorated with `@module()` that define boundaries for application components and establish dependency relationships
-- **Providers**: Services or values registered with modules that can be injected into other components
-- **Dependency Injection**: System for resolving and providing dependencies using Dishka's IoC container
-- **WakuFactory**: Entry point that creates a `WakuApplication` instance from your root module
-- **Application Lifecycle**: Sequence of initialization and shutdown phases with extension hooks
+- 🧩 **Modules:** Classes decorated with `@module()` that define boundaries for application components and establish clear dependency relationships.
+- 🧑‍🔧 **Providers:** Injectable services and logic registered within modules.
+- 💉 **Dependency Injection:** Type-safe, flexible wiring powered by [Dishka](https://github.com/reagento/dishka/) IoC container.
+- 🏭 **WakuFactory:** The entry point that creates a `WakuApplication` instance from your root module.
+- 🔄 **Application Lifecycle:** Initialization and shutdown phases, enhanced with extension hooks.
 
-This structure keeps your code clean and dependencies explicit.
+This structure keeps your code clean and your dependencies explicit.
+
+> `waku` is **framework-agnostic** — entrypoints (such as HTTP handlers) are provided by integrations, not the core.
 
 ### Basic Example
 
