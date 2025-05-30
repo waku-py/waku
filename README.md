@@ -51,7 +51,7 @@
 - 🧩 [Modular architecture](https://waku-py.github.io/waku/usage/modules/): Group related code with explicit imports/exports for clear boundaries and responsibilities.
 - 💉 [First-class Dependency Injection](https://waku-py.github.io/waku/usage/providers/): Built on [Dishka](https://github.com/reagento/dishka/) with flexible provider patterns (singleton, scoped, transient); swap implementations easily.
 - 📨 [Event-driven & CQRS](https://waku-py.github.io/waku/usage/cqrs/): Handle commands, queries, and events with a comprehensive CQRS implementation, pipeline chains, and centralized processing inspired by [MediatR (C#)](https://github.com/jbogard/MediatR).
-- 🔌 [Framework-agnostic & Integrations](https://waku-py.github.io/waku/integrations/): Works with FastAPI, Litestar, FastStream, Aiogram, and more—no vendor lock-in.
+- 🔌 [Framework-agnostic & Integrations](https://waku-py.github.io/waku/integrations/): Works with FastAPI, Litestar, FastStream, Aiogram, and more — no vendor lock-in.
 - 🧰 [Extensions & Lifecycle Hooks](https://waku-py.github.io/waku/usage/extensions/): Hook into the app lifecycle for logging, validation, and custom logic; [precise startup/shutdown management](https://waku-py.github.io/waku/usage/lifespan/).
 - 🛡️ Production-ready: Type-safe APIs, robust validation, and scalable testing support.
 
