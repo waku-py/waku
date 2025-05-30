@@ -52,7 +52,7 @@ docs = [
   "mkdocs>=1.6.1",
   "mkdocs-callouts>=1.16.0",
   "mkdocs-exclude>=1.0.2",
-  "mkdocs-git-revision-date-localized-plugin>=1.4.5",
+  "mkdocs-git-revision-date-localized-plugin>=1.4.7",
   "mkdocs-material>=9.6.14",
   "mkdocs-redirects>=1.2.2",
   "mkdocstrings[python]>=0.29.1",
@@ -61,29 +61,29 @@ lint = [
   "deptry>=0.23.0",
   "gitlint>=0.19.1",
   "pre-commit>=4.2.0",
-  "ruff>=0.11.10",
+  "ruff>=0.11.12",
 ]
 test = [
   "pytest>=8.3.5",
   "pytest-clarity>=1.0.1",
   "pytest-cov>=6.1.1",
   "pytest-deadfixtures>=2.2.1",
-  "pytest-mock>=3.14.0",
+  "pytest-mock>=3.14.1",
   "pytest-randomly>=3.16.0",
   "pytest-timeout>=2.4.0",
   "trio>=0.30.0",
   "uvloop>=0.21.0; sys_platform != 'win32'",
 ]
 typecheck = [
-  "basedpyright>=1.29.1",
-  "mypy>=1.15.0",
-  "ty>=0.0.1a5",
+  "basedpyright>=1.29.2",
+  "mypy>=1.16.0",
+  "ty>=0.0.1a7",
 ]
 
 # ----- UV settings -----
 [tool.uv]
 default-groups = "all"
-required-version = ">=0.7.5"
+required-version = ">=0.7.8"
 
 
 # ----- Pytest settings -----
@@ -225,8 +225,10 @@ exclude = [
   "docs/code/getting_started",
   "docs/code/providers",
 ]
+exclude_gitignore = true
 follow_imports = "normal"
 allow_redefinition = false
+allow_redefinition_new = true
 # Any is 'ok' as long as it is a wildcard
 disallow_any_explicit = false
 ignore_errors = false
