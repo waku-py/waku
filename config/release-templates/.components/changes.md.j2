@@ -1,9 +1,10 @@
-{%    from 'macros.md.j2' import apply_alphabetical_ordering_by_brk_descriptions
-%}{%  from 'macros.md.j2' import apply_alphabetical_ordering_by_descriptions
-%}{%  from 'macros.md.j2' import apply_alphabetical_ordering_by_release_notices
-%}{%  from 'macros.md.j2' import emoji_map, format_breaking_changes_description
-%}{%  from 'macros.md.j2' import format_commit_summary_line, format_release_notice
-%}{%  from 'macros.md.j2' import section_heading_order, section_heading_translations
+{%    from 'macros.common.j2' import apply_alphabetical_ordering_by_brk_descriptions
+%}{%  from 'macros.common.j2' import apply_alphabetical_ordering_by_descriptions
+%}{%  from 'macros.common.j2' import apply_alphabetical_ordering_by_release_notices
+%}{%  from 'macros.common.j2' import emoji_map, format_breaking_changes_description
+%}{%  from 'macros.common.j2' import format_release_notice, section_heading_order
+%}{%  from 'macros.common.j2' import section_heading_translations
+%}{%  from 'macros.md.j2' import format_commit_summary_line
 %}{#
 EXAMPLE:
 
@@ -47,18 +48,20 @@ EXAMPLE:
 #}{%    set commit_descriptions = []
 %}{#
 #}{%    for commit in ns.commits
-%}{#      # Generate the commit summary line and format it for Markdown
+%}{#      # Add reference links to the commit summary line
 #}{%      set description = "- %s" | format(format_commit_summary_line(commit))
 %}{%      set description = description | autofit_text_width(max_line_width, hanging_indent)
 %}{%      set _ = commit_descriptions.append(description)
 %}{%    endfor
 %}{#
    #    # PRINT SECTION (header & commits)
-#}{{    "\n"
-}}{{    "### %s %s\n" | format(emoji_map[type_], type_ | title)
-}}{{    "\n"
-}}{{    "%s\n" | format(commit_descriptions | unique | join("\n\n"))
-}}{%  endfor
+#}{%    if commit_descriptions | length > 0
+%}{{      "\n"
+}}{{      "### %s %s\n" | format(emoji_map[type_], type_ | title)
+}}{{      "\n"
+}}{{      "%s\n" | format(commit_descriptions | unique | join("\n\n"))
+}}{%    endif
+%}{%  endfor
 %}{#
       # Determine if there are any breaking change commits by filtering the list by breaking descriptions
       # commit_objects is a list of tuples [("Features", [ParsedCommit(), ...]), ("Bug Fixes", [ParsedCommit(), ...])]
