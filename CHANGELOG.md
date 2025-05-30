@@ -208,23 +208,23 @@
 
 ### 📖 Documentation
 
-- Rename development section to contributing ([#19](https://github.com/waku-py/waku/pull/19),
+- Rename development section to contributing ([PR#19](https://github.com/waku-py/waku/pull/19),
   [`08ec5f5`](https://github.com/waku-py/waku/commit/08ec5f508e696a52a25aca1051a3868421441d18))
 
 - Rename di section to providers, improve its contents
-  ([#111](https://github.com/waku-py/waku/pull/111),
+  ([PR#111](https://github.com/waku-py/waku/pull/111),
   [`f63c936`](https://github.com/waku-py/waku/commit/f63c9364750668fd4d6563a276555d1b791f71cd))
 
-- Slightly reorganize documentation ([#19](https://github.com/waku-py/waku/pull/19),
+- Slightly reorganize documentation ([PR#19](https://github.com/waku-py/waku/pull/19),
   [`fe8220a`](https://github.com/waku-py/waku/commit/fe8220a4aed9a82f4ee28977a90ad2e6312781ad))
 
-- **di**: Expand di documentation ([#111](https://github.com/waku-py/waku/pull/111),
+- **di**: Expand di documentation ([PR#111](https://github.com/waku-py/waku/pull/111),
   [`887e76f`](https://github.com/waku-py/waku/commit/887e76f84206cefa168a2852701f3adb38c1bc29))
 
 ### ✨ Features
 
 - Add more info to provider validation error messages
-  ([#113](https://github.com/waku-py/waku/pull/113),
+  ([PR#113](https://github.com/waku-py/waku/pull/113),
   [`9dced06`](https://github.com/waku-py/waku/commit/9dced064b9892cdd4fa98a892b7108f3753bc9dd))
 
 
@@ -241,7 +241,7 @@
 ### ✨ Features
 
 - **mediator**: Simplify cqrs handlers registration (#105)
-  ([#107](https://github.com/waku-py/waku/pull/107),
+  ([PR#107](https://github.com/waku-py/waku/pull/107),
   [`65fa07d`](https://github.com/waku-py/waku/commit/65fa07d9fcbb685ad9fb7ec8a37e878aa06b5c84))
 
 
