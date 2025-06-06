@@ -1,5 +1,4 @@
 from waku import WakuApplication, WakuFactory, module
-from waku.di.contrib.aioinject import AioinjectDependencyProvider
 
 from app.settings import ConfigModule
 from app.greetings.module import GreetingModule
@@ -19,7 +18,4 @@ class AppModule:
 
 
 def bootstrap_application() -> WakuApplication:
-    return WakuFactory.create(
-        AppModule,
-        dependency_provider=AioinjectDependencyProvider(),
-    )
+    return WakuFactory(AppModule).create()

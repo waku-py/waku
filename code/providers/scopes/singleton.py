@@ -1,29 +1,20 @@
 from waku import WakuFactory, module
-from waku.di import inject, Injected, Singleton
-from waku.di.contrib.aioinject import AioinjectDependencyProvider
+from waku.di import singleton
 
 
-@module(providers=[Singleton(list)])
+@module(providers=[singleton(list)])
 class AppModule:
     pass
 
 
-@inject
-async def handler(obj: Injected[list]) -> list:
-    return obj
-
-
 async def main() -> None:
-    application = WakuFactory.create(
-        AppModule,
-        dependency_provider=AioinjectDependencyProvider(),
-    )
+    application = WakuFactory(AppModule).create()
     async with application:
-        async with application.container.context():
-            obj_1 = await handler()
+        async with application.container() as request_container:
+            obj_1 = await request_container.get(list)
 
-        async with application.container.context():
-            obj_2 = await handler()
+        async with application.container():
+            obj_2 = await request_container.get(list)
 
         assert obj_1 is obj_2
 

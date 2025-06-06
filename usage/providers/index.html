@@ -711,6 +711,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#contextual" class="md-nav__link">
+    <span class="md-ellipsis">
+      Contextual
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -726,68 +735,11 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#included-dependency-providers" class="md-nav__link">
+  <a href="#next-steps" class="md-nav__link">
     <span class="md-ellipsis">
-      Included Dependency Providers
+      Next steps
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Included Dependency Providers">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#aioinject" class="md-nav__link">
-    <span class="md-ellipsis">
-      Aioinject
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Aioinject">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#basic-usage" class="md-nav__link">
-    <span class="md-ellipsis">
-      Basic Usage
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#custom-container-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      Custom Container Configuration
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#dishka" class="md-nav__link">
-    <span class="md-ellipsis">
-      Dishka
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#writing-custom-dependency-provider" class="md-nav__link">
-    <span class="md-ellipsis">
-      Writing Custom Dependency Provider
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1435,6 +1387,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#contextual" class="md-nav__link">
+    <span class="md-ellipsis">
+      Contextual
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1450,68 +1411,11 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#included-dependency-providers" class="md-nav__link">
+  <a href="#next-steps" class="md-nav__link">
     <span class="md-ellipsis">
-      Included Dependency Providers
+      Next steps
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Included Dependency Providers">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#aioinject" class="md-nav__link">
-    <span class="md-ellipsis">
-      Aioinject
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Aioinject">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#basic-usage" class="md-nav__link">
-    <span class="md-ellipsis">
-      Basic Usage
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#custom-container-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      Custom Container Configuration
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#dishka" class="md-nav__link">
-    <span class="md-ellipsis">
-      Dishka
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#writing-custom-dependency-provider" class="md-nav__link">
-    <span class="md-ellipsis">
-      Writing Custom Dependency Provider
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1537,20 +1441,19 @@
 <h1 id="providers">Providers<a class="headerlink" href="#providers" title="Permanent link">&para;</a></h1>
 <h2 id="introduction">Introduction<a class="headerlink" href="#introduction" title="Permanent link">&para;</a></h2>
 <p>Providers are the core of <code>waku</code> dependency injection system.
-Idea behind a provider is that it can be injected as a dependency into other provider constructors,
+The idea behind a provider is that it can be injected as a dependency into other provider constructors,
 allowing objects to form various relationships with each other.</p>
-<p><code>waku</code> responsibility is to "wire up" all the providers using <abbr title="Dependency Injection">DI</abbr> framework and manage the lifecycle its lifecycle.
+<p><code>waku</code> responsibility is to "wire up" all the providers using the <abbr title="Dependency Injection">DI</abbr> framework and manage their lifecycle.
 This way you can focus on writing your application logic.</p>
 <h2 id="dependency-injection">Dependency Injection<a class="headerlink" href="#dependency-injection" title="Permanent link">&para;</a></h2>
 <p><code>waku</code> is designed to be modular and extensible.
 To support this principle, it provides a flexible dependency injection (<abbr title="Dependency Injection">DI</abbr>) system that integrates seamlessly
-with various <abbr title="Dependency Injection">DI</abbr> frameworks. <code>waku</code> itself acts like an <abbr title="Inversion of Control">IoC</abbr>-container,
-allowing you to register and resolve dependencies using <a href="../modules/">modules system</a>.</p>
+with various <abbr title="Dependency Injection">DI</abbr> frameworks. <code>waku</code> itself acts as an <abbr title="Inversion of Control">IoC</abbr> container,
+allowing you to register and resolve dependencies using the <a href="../modules/">modules system</a>.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Instead of relying on a specific <abbr title="Dependency Injection">DI</abbr> framework, <code>waku</code> uses an interface called <code>DependencyProvider</code>.
-This allows you to choose any <abbr title="Dependency Injection">DI</abbr> framework you prefer (see <a href="#included-dependency-providers">Included Dependency Providers</a>)
-or even <a href="#writing-custom-dependency-provider">create your own provider</a>.</p>
+<p><code>waku</code> uses the <a href="https://github.com/reagento/dishka/">Dishka</a> <abbr title="Inversion of Control">IoC</abbr> container under the hood.
+All provider lifecycles and dependency resolution are handled by Dishka.</p>
 </div>
 <h3 id="what-is-dependency-injection">What is Dependency Injection?<a class="headerlink" href="#what-is-dependency-injection" title="Permanent link">&para;</a></h3>
 <p>Dependency Injection (<abbr title="Dependency Injection">DI</abbr>) is a design pattern that addresses the issue of tightly coupled code by decoupling the
@@ -1663,32 +1566,28 @@ on a real client implementation.</p>
 Control (<abbr title="Inversion of Control">IoC</abbr>) principle. It centralizes the configuration and instantiation of components, reducing tight coupling and
 simplifying code maintenance. By handling dependency resolution, an <abbr title="Inversion of Control">IoC</abbr> container promotes modular, testable, and
 scalable application design.</p>
-<p>With power of <abbr title="Inversion of Control">IoC</abbr>-container you can leverage all the benefits of <abbr title="Dependency Injection">DI</abbr> without manually managing dependencies.</p>
+<p>With the power of an <abbr title="Inversion of Control">IoC</abbr> container, you can leverage all the benefits of <abbr title="Dependency Injection">DI</abbr> without manually managing dependencies.</p>
 <h2 id="providers_1">Providers<a class="headerlink" href="#providers_1" title="Permanent link">&para;</a></h2>
 <p><code>Provider</code> is an object that holds dependency metadata, such as its type, lifetime <a href="#scopes">scope</a> and factory.</p>
-<p>In <code>waku</code> there are four types of providers, for one for each <a href="#scopes">scope</a>:</p>
+<p>In <code>waku</code>, there are five types of providers, one for each <a href="#scopes">scope</a>:</p>
 <ul>
 <li><a href="#transient"><code>Transient</code></a></li>
 <li><a href="#scoped"><code>Scoped</code></a></li>
 <li><a href="#singleton"><code>Singleton</code></a></li>
 <li><a href="#object"><code>Object</code></a></li>
+<li><a href="#contextual"><code>Contextual</code></a></li>
 </ul>
-<p>Each provider take two arguments:</p>
+<p>Each provider (except <a href="#contextual"><code>Contextual</code></a>) takes two arguments:</p>
 <ul>
-<li><code>factory</code>: type or callable that returns or yields an instance of the dependency.</li>
-<li><code>type_</code>: type of the dependency. If not provided, it will be inferred from the factory function's return type.</li>
+<li><code>source</code>: type or callable that returns or yields an instance of the dependency.</li>
+<li><code>provided_type</code>: type of the dependency. If not provided, it will be inferred from the factory function's return type.</li>
 </ul>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p><code>Object</code> provider is a special case, it first argument named <code>object</code> instead of a <code>factory</code> because you should
-pass already instantiated object directly, not a factory function.</p>
-</div>
 <h2 id="scopes">Scopes<a class="headerlink" href="#scopes" title="Permanent link">&para;</a></h2>
 <p><code>waku</code> supports four different lifetime scopes for providers, inspired by
 the <a href="https://learn.microsoft.com/en-us/dotnet/core/extensions/dependency-injection#service-lifetimes">service lifetimes</a>
-in .NET Core’s <abbr title="Dependency Injection">DI</abbr> system.</p>
+from .NET Core's <abbr title="Dependency Injection">DI</abbr> system.</p>
 <h3 id="transient">Transient<a class="headerlink" href="#transient" title="Permanent link">&para;</a></h3>
-<p>Dependency defined with the <code>Transient</code> provider are created each time they’re requested.</p>
+<p>Dependencies defined with the <code>Transient</code> provider are created each time they're requested.</p>
 <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1"> 1</a></span>
 <span class="normal"><a href="#__codelineno-1-2"> 2</a></span>
 <span class="normal"><a href="#__codelineno-1-3"> 3</a></span>
@@ -1706,41 +1605,27 @@ in .NET Core’s <abbr title="Dependency Injection">DI</abbr> system.</p>
 <span class="normal"><a href="#__codelineno-1-15">15</a></span>
 <span class="normal"><a href="#__codelineno-1-16">16</a></span>
 <span class="normal"><a href="#__codelineno-1-17">17</a></span>
-<span class="normal"><a href="#__codelineno-1-18">18</a></span>
-<span class="normal"><a href="#__codelineno-1-19">19</a></span>
-<span class="normal"><a href="#__codelineno-1-20">20</a></span>
-<span class="normal"><a href="#__codelineno-1-21">21</a></span>
-<span class="normal"><a href="#__codelineno-1-22">22</a></span>
-<span class="normal"><a href="#__codelineno-1-23">23</a></span>
-<span class="normal"><a href="#__codelineno-1-24">24</a></span>
-<span class="normal"><a href="#__codelineno-1-25">25</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku</span><span class="w"> </span><span class="kn">import</span> <span class="n">WakuFactory</span><span class="p">,</span> <span class="n">module</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di</span><span class="w"> </span><span class="kn">import</span> <span class="n">inject</span><span class="p">,</span> <span class="n">Injected</span><span class="p">,</span> <span class="n">Transient</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di.contrib.aioinject</span><span class="w"> </span><span class="kn">import</span> <span class="n">AioinjectDependencyProvider</span>
+<span class="normal"><a href="#__codelineno-1-18">18</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku</span><span class="w"> </span><span class="kn">import</span> <span class="n">WakuFactory</span><span class="p">,</span> <span class="n">module</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di</span><span class="w"> </span><span class="kn">import</span> <span class="n">transient</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3"></a>
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4"></a>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5"></a>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6"></a><span class="hll"><span class="nd">@module</span><span class="p">(</span><span class="n">providers</span><span class="o">=</span><span class="p">[</span><span class="n">Transient</span><span class="p">(</span><span class="nb">list</span><span class="p">)])</span>
-</span></span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7"></a><span class="k">class</span><span class="w"> </span><span class="nc">AppModule</span><span class="p">:</span>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8"></a>    <span class="k">pass</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5"></a><span class="hll"><span class="nd">@module</span><span class="p">(</span><span class="n">providers</span><span class="o">=</span><span class="p">[</span><span class="n">transient</span><span class="p">(</span><span class="nb">list</span><span class="p">)])</span>
+</span></span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6"></a><span class="k">class</span><span class="w"> </span><span class="nc">AppModule</span><span class="p">:</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7"></a>    <span class="k">pass</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8"></a>
 </span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9"></a>
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10"></a>
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11"></a><span class="nd">@inject</span>
-</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handler</span><span class="p">(</span><span class="n">obj_1</span><span class="p">:</span> <span class="n">Injected</span><span class="p">[</span><span class="nb">list</span><span class="p">],</span> <span class="n">obj_2</span><span class="p">:</span> <span class="n">Injected</span><span class="p">[</span><span class="nb">list</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13"></a>    <span class="k">assert</span> <span class="n">obj_1</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">obj_2</span>
-</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14"></a>
-</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15"></a>
-</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17"></a>    <span class="n">application</span> <span class="o">=</span> <span class="n">WakuFactory</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
-</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18"></a>        <span class="n">AppModule</span><span class="p">,</span>
-</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19"></a>        <span class="n">dependency_provider</span><span class="o">=</span><span class="n">AioinjectDependencyProvider</span><span class="p">(),</span>
-</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20"></a>    <span class="p">)</span>
-</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">application</span><span class="p">:</span>
-</span><span id="__span-1-22"><a id="__codelineno-1-22" name="__codelineno-1-22"></a>        <span class="k">async</span> <span class="k">with</span> <span class="n">application</span><span class="o">.</span><span class="n">container</span><span class="o">.</span><span class="n">context</span><span class="p">():</span>
-</span><span id="__span-1-23"><a id="__codelineno-1-23" name="__codelineno-1-23"></a>            <span class="k">await</span> <span class="n">handler</span><span class="p">()</span>
-</span><span id="__span-1-24"><a id="__codelineno-1-24" name="__codelineno-1-24"></a>
-</span><span id="__span-1-25"><a id="__codelineno-1-25" name="__codelineno-1-25"></a>        <span class="c1"># Providers are disposed at this point</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11"></a>    <span class="n">application</span> <span class="o">=</span> <span class="n">WakuFactory</span><span class="p">(</span><span class="n">AppModule</span><span class="p">)</span><span class="o">.</span><span class="n">create</span><span class="p">()</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">application</span><span class="p">:</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13"></a>        <span class="k">async</span> <span class="k">with</span> <span class="n">application</span><span class="o">.</span><span class="n">container</span><span class="p">()</span> <span class="k">as</span> <span class="n">request_container</span><span class="p">:</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14"></a>            <span class="n">obj_1</span> <span class="o">=</span> <span class="k">await</span> <span class="n">request_container</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15"></a>            <span class="n">obj_2</span> <span class="o">=</span> <span class="k">await</span> <span class="n">request_container</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16"></a>            <span class="k">assert</span> <span class="n">obj_1</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">obj_2</span>
+</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17"></a>
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18"></a>        <span class="c1"># Providers are disposed at this point</span>
 </span></code></pre></div></td></tr></table></div>
 <h3 id="scoped">Scoped<a class="headerlink" href="#scoped" title="Permanent link">&para;</a></h3>
-<p>Dependency defined with the <code>Scoped</code> provider are created once per dependency provider context entrance and disposed
+<p>Dependencies defined with the <code>Scoped</code> provider are created once per dependency provider context entry and disposed
 when the context exits.</p>
 <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1"> 1</a></span>
 <span class="normal"><a href="#__codelineno-2-2"> 2</a></span>
@@ -1759,41 +1644,27 @@ when the context exits.</p>
 <span class="normal"><a href="#__codelineno-2-15">15</a></span>
 <span class="normal"><a href="#__codelineno-2-16">16</a></span>
 <span class="normal"><a href="#__codelineno-2-17">17</a></span>
-<span class="normal"><a href="#__codelineno-2-18">18</a></span>
-<span class="normal"><a href="#__codelineno-2-19">19</a></span>
-<span class="normal"><a href="#__codelineno-2-20">20</a></span>
-<span class="normal"><a href="#__codelineno-2-21">21</a></span>
-<span class="normal"><a href="#__codelineno-2-22">22</a></span>
-<span class="normal"><a href="#__codelineno-2-23">23</a></span>
-<span class="normal"><a href="#__codelineno-2-24">24</a></span>
-<span class="normal"><a href="#__codelineno-2-25">25</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku</span><span class="w"> </span><span class="kn">import</span> <span class="n">WakuFactory</span><span class="p">,</span> <span class="n">module</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di</span><span class="w"> </span><span class="kn">import</span> <span class="n">inject</span><span class="p">,</span> <span class="n">Injected</span><span class="p">,</span> <span class="n">Scoped</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di.contrib.aioinject</span><span class="w"> </span><span class="kn">import</span> <span class="n">AioinjectDependencyProvider</span>
+<span class="normal"><a href="#__codelineno-2-18">18</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku</span><span class="w"> </span><span class="kn">import</span> <span class="n">WakuFactory</span><span class="p">,</span> <span class="n">module</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di</span><span class="w"> </span><span class="kn">import</span> <span class="n">scoped</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3"></a>
 </span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4"></a>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5"></a>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6"></a><span class="hll"><span class="nd">@module</span><span class="p">(</span><span class="n">providers</span><span class="o">=</span><span class="p">[</span><span class="n">Scoped</span><span class="p">(</span><span class="nb">list</span><span class="p">)])</span>
-</span></span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7"></a><span class="k">class</span><span class="w"> </span><span class="nc">AppModule</span><span class="p">:</span>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8"></a>    <span class="k">pass</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5"></a><span class="hll"><span class="nd">@module</span><span class="p">(</span><span class="n">providers</span><span class="o">=</span><span class="p">[</span><span class="n">scoped</span><span class="p">(</span><span class="nb">list</span><span class="p">)])</span>
+</span></span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6"></a><span class="k">class</span><span class="w"> </span><span class="nc">AppModule</span><span class="p">:</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7"></a>    <span class="k">pass</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8"></a>
 </span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9"></a>
-</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10"></a>
-</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11"></a><span class="nd">@inject</span>
-</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handler</span><span class="p">(</span><span class="n">obj_1</span><span class="p">:</span> <span class="n">Injected</span><span class="p">[</span><span class="nb">list</span><span class="p">],</span> <span class="n">obj_2</span><span class="p">:</span> <span class="n">Injected</span><span class="p">[</span><span class="nb">list</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13"></a>    <span class="k">assert</span> <span class="n">obj_1</span> <span class="ow">is</span> <span class="n">obj_2</span>
-</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14"></a>
-</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15"></a>
-</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17"></a>    <span class="n">application</span> <span class="o">=</span> <span class="n">WakuFactory</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
-</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18"></a>        <span class="n">AppModule</span><span class="p">,</span>
-</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19"></a>        <span class="n">dependency_provider</span><span class="o">=</span><span class="n">AioinjectDependencyProvider</span><span class="p">(),</span>
-</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20"></a>    <span class="p">)</span>
-</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">application</span><span class="p">:</span>
-</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22"></a>        <span class="k">async</span> <span class="k">with</span> <span class="n">application</span><span class="o">.</span><span class="n">container</span><span class="o">.</span><span class="n">context</span><span class="p">():</span>
-</span><span id="__span-2-23"><a id="__codelineno-2-23" name="__codelineno-2-23"></a>            <span class="k">await</span> <span class="n">handler</span><span class="p">()</span>
-</span><span id="__span-2-24"><a id="__codelineno-2-24" name="__codelineno-2-24"></a>
-</span><span id="__span-2-25"><a id="__codelineno-2-25" name="__codelineno-2-25"></a>        <span class="c1"># Providers are disposed at this point</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11"></a>    <span class="n">application</span> <span class="o">=</span> <span class="n">WakuFactory</span><span class="p">(</span><span class="n">AppModule</span><span class="p">)</span><span class="o">.</span><span class="n">create</span><span class="p">()</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">application</span><span class="p">:</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13"></a>        <span class="k">async</span> <span class="k">with</span> <span class="n">application</span><span class="o">.</span><span class="n">container</span><span class="p">()</span> <span class="k">as</span> <span class="n">request_container</span><span class="p">:</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14"></a>            <span class="n">obj_1</span> <span class="o">=</span> <span class="k">await</span> <span class="n">request_container</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15"></a>            <span class="n">obj_2</span> <span class="o">=</span> <span class="k">await</span> <span class="n">request_container</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16"></a>            <span class="k">assert</span> <span class="n">obj_1</span> <span class="ow">is</span> <span class="n">obj_2</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17"></a>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18"></a>        <span class="c1"># Providers are disposed at this point</span>
 </span></code></pre></div></td></tr></table></div>
 <h3 id="singleton">Singleton<a class="headerlink" href="#singleton" title="Permanent link">&para;</a></h3>
-<p>Dependency defined with the <code>Singleton</code> provider are created the first time they’re requested and disposed when the
+<p>Dependencies defined with the <code>Singleton</code> provider are created the first time they're requested and disposed when the
 application lifecycle ends.</p>
 <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1"> 1</a></span>
 <span class="normal"><a href="#__codelineno-3-2"> 2</a></span>
@@ -1815,49 +1686,31 @@ application lifecycle ends.</p>
 <span class="normal"><a href="#__codelineno-3-18">18</a></span>
 <span class="normal"><a href="#__codelineno-3-19">19</a></span>
 <span class="normal"><a href="#__codelineno-3-20">20</a></span>
-<span class="normal"><a href="#__codelineno-3-21">21</a></span>
-<span class="normal"><a href="#__codelineno-3-22">22</a></span>
-<span class="normal"><a href="#__codelineno-3-23">23</a></span>
-<span class="normal"><a href="#__codelineno-3-24">24</a></span>
-<span class="normal"><a href="#__codelineno-3-25">25</a></span>
-<span class="normal"><a href="#__codelineno-3-26">26</a></span>
-<span class="normal"><a href="#__codelineno-3-27">27</a></span>
-<span class="normal"><a href="#__codelineno-3-28">28</a></span>
-<span class="normal"><a href="#__codelineno-3-29">29</a></span>
-<span class="normal"><a href="#__codelineno-3-30">30</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku</span><span class="w"> </span><span class="kn">import</span> <span class="n">WakuFactory</span><span class="p">,</span> <span class="n">module</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di</span><span class="w"> </span><span class="kn">import</span> <span class="n">inject</span><span class="p">,</span> <span class="n">Injected</span><span class="p">,</span> <span class="n">Singleton</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di.contrib.aioinject</span><span class="w"> </span><span class="kn">import</span> <span class="n">AioinjectDependencyProvider</span>
+<span class="normal"><a href="#__codelineno-3-21">21</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku</span><span class="w"> </span><span class="kn">import</span> <span class="n">WakuFactory</span><span class="p">,</span> <span class="n">module</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di</span><span class="w"> </span><span class="kn">import</span> <span class="n">singleton</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3"></a>
 </span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4"></a>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5"></a>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6"></a><span class="hll"><span class="nd">@module</span><span class="p">(</span><span class="n">providers</span><span class="o">=</span><span class="p">[</span><span class="n">Singleton</span><span class="p">(</span><span class="nb">list</span><span class="p">)])</span>
-</span></span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7"></a><span class="k">class</span><span class="w"> </span><span class="nc">AppModule</span><span class="p">:</span>
-</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8"></a>    <span class="k">pass</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5"></a><span class="hll"><span class="nd">@module</span><span class="p">(</span><span class="n">providers</span><span class="o">=</span><span class="p">[</span><span class="n">singleton</span><span class="p">(</span><span class="nb">list</span><span class="p">)])</span>
+</span></span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6"></a><span class="k">class</span><span class="w"> </span><span class="nc">AppModule</span><span class="p">:</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7"></a>    <span class="k">pass</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8"></a>
 </span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9"></a>
-</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10"></a>
-</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11"></a><span class="nd">@inject</span>
-</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handler</span><span class="p">(</span><span class="n">obj</span><span class="p">:</span> <span class="n">Injected</span><span class="p">[</span><span class="nb">list</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
-</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13"></a>    <span class="k">return</span> <span class="n">obj</span>
-</span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14"></a>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11"></a>    <span class="n">application</span> <span class="o">=</span> <span class="n">WakuFactory</span><span class="p">(</span><span class="n">AppModule</span><span class="p">)</span><span class="o">.</span><span class="n">create</span><span class="p">()</span>
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">application</span><span class="p">:</span>
+</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13"></a>        <span class="k">async</span> <span class="k">with</span> <span class="n">application</span><span class="o">.</span><span class="n">container</span><span class="p">()</span> <span class="k">as</span> <span class="n">request_container</span><span class="p">:</span>
+</span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14"></a>            <span class="n">obj_1</span> <span class="o">=</span> <span class="k">await</span> <span class="n">request_container</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
 </span><span id="__span-3-15"><a id="__codelineno-3-15" name="__codelineno-3-15"></a>
-</span><span id="__span-3-16"><a id="__codelineno-3-16" name="__codelineno-3-16"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-3-17"><a id="__codelineno-3-17" name="__codelineno-3-17"></a>    <span class="n">application</span> <span class="o">=</span> <span class="n">WakuFactory</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
-</span><span id="__span-3-18"><a id="__codelineno-3-18" name="__codelineno-3-18"></a>        <span class="n">AppModule</span><span class="p">,</span>
-</span><span id="__span-3-19"><a id="__codelineno-3-19" name="__codelineno-3-19"></a>        <span class="n">dependency_provider</span><span class="o">=</span><span class="n">AioinjectDependencyProvider</span><span class="p">(),</span>
-</span><span id="__span-3-20"><a id="__codelineno-3-20" name="__codelineno-3-20"></a>    <span class="p">)</span>
-</span><span id="__span-3-21"><a id="__codelineno-3-21" name="__codelineno-3-21"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">application</span><span class="p">:</span>
-</span><span id="__span-3-22"><a id="__codelineno-3-22" name="__codelineno-3-22"></a>        <span class="k">async</span> <span class="k">with</span> <span class="n">application</span><span class="o">.</span><span class="n">container</span><span class="o">.</span><span class="n">context</span><span class="p">():</span>
-</span><span id="__span-3-23"><a id="__codelineno-3-23" name="__codelineno-3-23"></a>            <span class="n">obj_1</span> <span class="o">=</span> <span class="k">await</span> <span class="n">handler</span><span class="p">()</span>
-</span><span id="__span-3-24"><a id="__codelineno-3-24" name="__codelineno-3-24"></a>
-</span><span id="__span-3-25"><a id="__codelineno-3-25" name="__codelineno-3-25"></a>        <span class="k">async</span> <span class="k">with</span> <span class="n">application</span><span class="o">.</span><span class="n">container</span><span class="o">.</span><span class="n">context</span><span class="p">():</span>
-</span><span id="__span-3-26"><a id="__codelineno-3-26" name="__codelineno-3-26"></a>            <span class="n">obj_2</span> <span class="o">=</span> <span class="k">await</span> <span class="n">handler</span><span class="p">()</span>
-</span><span id="__span-3-27"><a id="__codelineno-3-27" name="__codelineno-3-27"></a>
-</span><span id="__span-3-28"><a id="__codelineno-3-28" name="__codelineno-3-28"></a>        <span class="k">assert</span> <span class="n">obj_1</span> <span class="ow">is</span> <span class="n">obj_2</span>
-</span><span id="__span-3-29"><a id="__codelineno-3-29" name="__codelineno-3-29"></a>
-</span><span id="__span-3-30"><a id="__codelineno-3-30" name="__codelineno-3-30"></a>    <span class="c1"># Providers are disposed at this point</span>
+</span><span id="__span-3-16"><a id="__codelineno-3-16" name="__codelineno-3-16"></a>        <span class="k">async</span> <span class="k">with</span> <span class="n">application</span><span class="o">.</span><span class="n">container</span><span class="p">():</span>
+</span><span id="__span-3-17"><a id="__codelineno-3-17" name="__codelineno-3-17"></a>            <span class="n">obj_2</span> <span class="o">=</span> <span class="k">await</span> <span class="n">request_container</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="__span-3-18"><a id="__codelineno-3-18" name="__codelineno-3-18"></a>
+</span><span id="__span-3-19"><a id="__codelineno-3-19" name="__codelineno-3-19"></a>        <span class="k">assert</span> <span class="n">obj_1</span> <span class="ow">is</span> <span class="n">obj_2</span>
+</span><span id="__span-3-20"><a id="__codelineno-3-20" name="__codelineno-3-20"></a>
+</span><span id="__span-3-21"><a id="__codelineno-3-21" name="__codelineno-3-21"></a>    <span class="c1"># Providers are disposed at this point</span>
 </span></code></pre></div></td></tr></table></div>
 <h3 id="object">Object<a class="headerlink" href="#object" title="Permanent link">&para;</a></h3>
-<p>Dependency defined with the <code>Object</code> provider behave like <code>Singleton</code>, but you must provide the implementation instance
-directly to the provide and manage its lifecycle manually, outside the <abbr title="Inversion of Control">IoC</abbr>-container.</p>
+<p>Dependencies defined with the <code>Object</code> provider behave like <code>Singleton</code>, but you must provide the implementation instance
+directly to the provider and manage its lifecycle manually, outside the <abbr title="Inversion of Control">IoC</abbr> container.</p>
 <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1"> 1</a></span>
 <span class="normal"><a href="#__codelineno-4-2"> 2</a></span>
 <span class="normal"><a href="#__codelineno-4-3"> 3</a></span>
@@ -1880,45 +1733,52 @@ directly to the provide and manage its lifecycle manually, outside the <abbr tit
 <span class="normal"><a href="#__codelineno-4-20">20</a></span>
 <span class="normal"><a href="#__codelineno-4-21">21</a></span>
 <span class="normal"><a href="#__codelineno-4-22">22</a></span>
-<span class="normal"><a href="#__codelineno-4-23">23</a></span>
-<span class="normal"><a href="#__codelineno-4-24">24</a></span>
-<span class="normal"><a href="#__codelineno-4-25">25</a></span>
-<span class="normal"><a href="#__codelineno-4-26">26</a></span>
-<span class="normal"><a href="#__codelineno-4-27">27</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku</span><span class="w"> </span><span class="kn">import</span> <span class="n">WakuFactory</span><span class="p">,</span> <span class="n">module</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di</span><span class="w"> </span><span class="kn">import</span> <span class="n">inject</span><span class="p">,</span> <span class="n">Injected</span><span class="p">,</span> <span class="n">Object</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di.contrib.aioinject</span><span class="w"> </span><span class="kn">import</span> <span class="n">AioinjectDependencyProvider</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4"></a>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5"></a><span class="n">some_object</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-4-23">23</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku</span><span class="w"> </span><span class="kn">import</span> <span class="n">WakuFactory</span><span class="p">,</span> <span class="n">module</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di</span><span class="w"> </span><span class="kn">import</span> <span class="n">object_</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3"></a>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4"></a><span class="n">some_object</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5"></a>
 </span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6"></a>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7"></a>
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8"></a><span class="hll"><span class="nd">@module</span><span class="p">(</span><span class="n">providers</span><span class="o">=</span><span class="p">[</span><span class="n">Object</span><span class="p">(</span><span class="n">some_object</span><span class="p">,</span> <span class="n">type_</span><span class="o">=</span><span class="nb">tuple</span><span class="p">)])</span>
-</span></span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9"></a><span class="k">class</span><span class="w"> </span><span class="nc">AppModule</span><span class="p">:</span>
-</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10"></a>    <span class="k">pass</span>
-</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11"></a>
-</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12"></a>
-</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13"></a><span class="nd">@inject</span>
-</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handler</span><span class="p">(</span><span class="n">obj</span><span class="p">:</span> <span class="n">Injected</span><span class="p">[</span><span class="nb">tuple</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15"></a>    <span class="k">assert</span> <span class="n">obj</span> <span class="ow">is</span> <span class="n">some_object</span>
-</span><span id="__span-4-16"><a id="__codelineno-4-16" name="__codelineno-4-16"></a>
-</span><span id="__span-4-17"><a id="__codelineno-4-17" name="__codelineno-4-17"></a>
-</span><span id="__span-4-18"><a id="__codelineno-4-18" name="__codelineno-4-18"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-4-19"><a id="__codelineno-4-19" name="__codelineno-4-19"></a>    <span class="n">application</span> <span class="o">=</span> <span class="n">WakuFactory</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
-</span><span id="__span-4-20"><a id="__codelineno-4-20" name="__codelineno-4-20"></a>        <span class="n">AppModule</span><span class="p">,</span>
-</span><span id="__span-4-21"><a id="__codelineno-4-21" name="__codelineno-4-21"></a>        <span class="n">dependency_provider</span><span class="o">=</span><span class="n">AioinjectDependencyProvider</span><span class="p">(),</span>
-</span><span id="__span-4-22"><a id="__codelineno-4-22" name="__codelineno-4-22"></a>    <span class="p">)</span>
-</span><span id="__span-4-23"><a id="__codelineno-4-23" name="__codelineno-4-23"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">application</span><span class="p">:</span>
-</span><span id="__span-4-24"><a id="__codelineno-4-24" name="__codelineno-4-24"></a>        <span class="k">async</span> <span class="k">with</span> <span class="n">application</span><span class="o">.</span><span class="n">container</span><span class="o">.</span><span class="n">context</span><span class="p">():</span>
-</span><span id="__span-4-25"><a id="__codelineno-4-25" name="__codelineno-4-25"></a>            <span class="k">await</span> <span class="n">handler</span><span class="p">()</span>
-</span><span id="__span-4-26"><a id="__codelineno-4-26" name="__codelineno-4-26"></a>
-</span><span id="__span-4-27"><a id="__codelineno-4-27" name="__codelineno-4-27"></a>    <span class="c1"># Providers are not disposed at this point automatically</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7"></a><span class="nd">@module</span><span class="p">(</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8"></a>    <span class="n">providers</span><span class="o">=</span><span class="p">[</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9"></a><span class="hll">        <span class="n">object_</span><span class="p">(</span><span class="n">some_object</span><span class="p">,</span> <span class="n">provided_type</span><span class="o">=</span><span class="nb">tuple</span><span class="p">),</span>
+</span></span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10"></a>    <span class="p">],</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11"></a><span class="p">)</span>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12"></a><span class="k">class</span><span class="w"> </span><span class="nc">AppModule</span><span class="p">:</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13"></a>    <span class="k">pass</span>
+</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14"></a>
+</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15"></a>
+</span><span id="__span-4-16"><a id="__codelineno-4-16" name="__codelineno-4-16"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-4-17"><a id="__codelineno-4-17" name="__codelineno-4-17"></a>    <span class="n">application</span> <span class="o">=</span> <span class="n">WakuFactory</span><span class="p">(</span><span class="n">AppModule</span><span class="p">)</span><span class="o">.</span><span class="n">create</span><span class="p">()</span>
+</span><span id="__span-4-18"><a id="__codelineno-4-18" name="__codelineno-4-18"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">application</span><span class="p">,</span> <span class="n">application</span><span class="o">.</span><span class="n">container</span><span class="p">()</span> <span class="k">as</span> <span class="n">request_container</span><span class="p">:</span>
+</span><span id="__span-4-19"><a id="__codelineno-4-19" name="__codelineno-4-19"></a>        <span class="n">obj</span> <span class="o">=</span> <span class="k">await</span> <span class="n">request_container</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">tuple</span><span class="p">)</span>
+</span><span id="__span-4-20"><a id="__codelineno-4-20" name="__codelineno-4-20"></a>        <span class="k">assert</span> <span class="n">obj</span> <span class="ow">is</span> <span class="n">some_object</span>
+</span><span id="__span-4-21"><a id="__codelineno-4-21" name="__codelineno-4-21"></a>
+</span><span id="__span-4-22"><a id="__codelineno-4-22" name="__codelineno-4-22"></a>    <span class="c1"># Providers are not disposed at this point automatically</span>
+</span><span id="__span-4-23"><a id="__codelineno-4-23" name="__codelineno-4-23"></a>    <span class="c1"># because they are not part of the application container lifecycle</span>
 </span></code></pre></div></td></tr></table></div>
-<h2 id="where-and-how-to-inject-dependencies">Where and how to inject dependencies?<a class="headerlink" href="#where-and-how-to-inject-dependencies" title="Permanent link">&para;</a></h2>
-<p>To inject dependencies with <code>waku</code> you need:</p>
+<h3 id="contextual">Contextual<a class="headerlink" href="#contextual" title="Permanent link">&para;</a></h3>
+<p>The <code>Contextual</code> provider enables you to inject external objects that originate outside the <abbr title="Dependency Injection">DI</abbr> container directly into your
+dependency graph. This is particularly valuable for framework-specific objects like HTTP requests, database transactions,
+or event data that have their own lifecycle managed externally.</p>
+<p><strong>When to use Contextual providers:</strong></p>
+<ul>
+<li><strong>Framework integration</strong>: Inject HTTP request objects, user sessions, or authentication contexts</li>
+<li><strong>Event-driven scenarios</strong>: Process queue messages, webhooks, or callback data</li>
+<li><strong>External resources</strong>: Integrate database transactions, file handles, or network connections managed by external systems</li>
+<li><strong>Per-request data</strong>: Handle any data that varies per request/operation and originates from outside your application</li>
+</ul>
+<p><strong>How it works:</strong></p>
 <ol>
-<li>Register them to <code>providers</code> with desired <a href="#scopes">scope</a> in <a href="../modules/">modules</a>.</li>
-<li>Identify your application entrypoints and decorate them with <code>@inject</code>.</li>
-<li>Add dependencies as arguments to your entrypoint signature using <code>Injected</code> type hint.</li>
+<li><strong>Declare the contextual dependency</strong> using the <code>contextual</code> provider in your module</li>
+<li><strong>Use the dependency</strong> in other providers just like any regular dependency</li>
+<li><strong>Provide the actual value</strong> when entering the container scope using the <code>context=</code> parameter</li>
 </ol>
+<p>The <code>contextual</code> provider accepts two arguments:</p>
+<ul>
+<li><code>provided_type</code>: The type of the dependency to be injected</li>
+<li><code>scope</code>: The scope where the context is available (defaults to <code>Scope.REQUEST</code>)</li>
+</ul>
 <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1"> 1</a></span>
 <span class="normal"><a href="#__codelineno-5-2"> 2</a></span>
 <span class="normal"><a href="#__codelineno-5-3"> 3</a></span>
@@ -1937,110 +1797,168 @@ directly to the provide and manage its lifecycle manually, outside the <abbr tit
 <span class="normal"><a href="#__codelineno-5-16">16</a></span>
 <span class="normal"><a href="#__codelineno-5-17">17</a></span>
 <span class="normal"><a href="#__codelineno-5-18">18</a></span>
-<span class="normal"><a href="#__codelineno-5-19">19</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku</span><span class="w"> </span><span class="kn">import</span> <span class="n">module</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di</span><span class="w"> </span><span class="kn">import</span> <span class="n">Injected</span><span class="p">,</span> <span class="n">inject</span><span class="p">,</span> <span class="n">Scoped</span>
+<span class="normal"><a href="#__codelineno-5-19">19</a></span>
+<span class="normal"><a href="#__codelineno-5-20">20</a></span>
+<span class="normal"><a href="#__codelineno-5-21">21</a></span>
+<span class="normal"><a href="#__codelineno-5-22">22</a></span>
+<span class="normal"><a href="#__codelineno-5-23">23</a></span>
+<span class="normal"><a href="#__codelineno-5-24">24</a></span>
+<span class="normal"><a href="#__codelineno-5-25">25</a></span>
+<span class="normal"><a href="#__codelineno-5-26">26</a></span>
+<span class="normal"><a href="#__codelineno-5-27">27</a></span>
+<span class="normal"><a href="#__codelineno-5-28">28</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku</span><span class="w"> </span><span class="kn">import</span> <span class="n">WakuFactory</span><span class="p">,</span> <span class="n">module</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di</span><span class="w"> </span><span class="kn">import</span> <span class="n">contextual</span><span class="p">,</span> <span class="n">Scope</span>
 </span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3"></a>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4"></a>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5"></a><span class="k">class</span><span class="w"> </span><span class="nc">Service</span><span class="p">:</span>
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">great</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7"></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Hello, </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s1">!&#39;</span><span class="p">)</span>
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8"></a>
-</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9"></a>
-</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10"></a><span class="nd">@module</span><span class="p">(</span>
-</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11"></a>    <span class="n">providers</span><span class="o">=</span><span class="p">[</span><span class="n">Scoped</span><span class="p">(</span><span class="n">Service</span><span class="p">)],</span>
-</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12"></a><span class="p">)</span>
-</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13"></a><span class="k">class</span><span class="w"> </span><span class="nc">SomeModule</span><span class="p">:</span>
-</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14"></a>    <span class="k">pass</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4"></a><span class="n">some_object</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5"></a>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6"></a>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7"></a><span class="nd">@module</span><span class="p">(</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8"></a>    <span class="n">providers</span><span class="o">=</span><span class="p">[</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9"></a><span class="hll">        <span class="n">contextual</span><span class="p">(</span><span class="n">provided_type</span><span class="o">=</span><span class="nb">tuple</span><span class="p">,</span> <span class="n">scope</span><span class="o">=</span><span class="n">Scope</span><span class="o">.</span><span class="n">REQUEST</span><span class="p">),</span>
+</span></span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10"></a>    <span class="p">],</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11"></a><span class="p">)</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12"></a><span class="k">class</span><span class="w"> </span><span class="nc">AppModule</span><span class="p">:</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13"></a>    <span class="k">pass</span>
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14"></a>
 </span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15"></a>
-</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16"></a>
-</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17"></a><span class="nd">@inject</span>
-</span><span id="__span-5-18"><a id="__codelineno-5-18" name="__codelineno-5-18"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">some_handler</span><span class="p">(</span><span class="n">service</span><span class="p">:</span> <span class="n">Injected</span><span class="p">[</span><span class="n">Service</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-5-19"><a id="__codelineno-5-19" name="__codelineno-5-19"></a>    <span class="n">service</span><span class="o">.</span><span class="n">great</span><span class="p">(</span><span class="s1">&#39;waku&#39;</span><span class="p">)</span>
+</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17"></a>    <span class="n">application</span> <span class="o">=</span> <span class="n">WakuFactory</span><span class="p">(</span><span class="n">AppModule</span><span class="p">)</span><span class="o">.</span><span class="n">create</span><span class="p">()</span>
+</span><span id="__span-5-18"><a id="__codelineno-5-18" name="__codelineno-5-18"></a>    <span class="k">async</span> <span class="k">with</span> <span class="p">(</span>
+</span><span id="__span-5-19"><a id="__codelineno-5-19" name="__codelineno-5-19"></a>        <span class="n">application</span><span class="p">,</span>
+</span><span id="__span-5-20"><a id="__codelineno-5-20" name="__codelineno-5-20"></a>        <span class="n">application</span><span class="o">.</span><span class="n">container</span><span class="p">(</span>
+</span><span id="__span-5-21"><a id="__codelineno-5-21" name="__codelineno-5-21"></a><span class="hll">            <span class="n">context</span><span class="o">=</span><span class="p">{</span><span class="nb">tuple</span><span class="p">:</span> <span class="n">some_object</span><span class="p">},</span>
+</span></span><span id="__span-5-22"><a id="__codelineno-5-22" name="__codelineno-5-22"></a>        <span class="p">)</span> <span class="k">as</span> <span class="n">request_container</span><span class="p">,</span>
+</span><span id="__span-5-23"><a id="__codelineno-5-23" name="__codelineno-5-23"></a>    <span class="p">):</span>
+</span><span id="__span-5-24"><a id="__codelineno-5-24" name="__codelineno-5-24"></a>        <span class="n">obj</span> <span class="o">=</span> <span class="k">await</span> <span class="n">request_container</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">tuple</span><span class="p">)</span>
+</span><span id="__span-5-25"><a id="__codelineno-5-25" name="__codelineno-5-25"></a>        <span class="k">assert</span> <span class="n">obj</span> <span class="ow">is</span> <span class="n">some_object</span>
+</span><span id="__span-5-26"><a id="__codelineno-5-26" name="__codelineno-5-26"></a>
+</span><span id="__span-5-27"><a id="__codelineno-5-27" name="__codelineno-5-27"></a>    <span class="c1"># Providers are not disposed at this point automatically</span>
+</span><span id="__span-5-28"><a id="__codelineno-5-28" name="__codelineno-5-28"></a>    <span class="c1"># because they are not part of the application container lifecycle</span>
 </span></code></pre></div></td></tr></table></div>
-<h2 id="included-dependency-providers">Included Dependency Providers<a class="headerlink" href="#included-dependency-providers" title="Permanent link">&para;</a></h2>
-<p><code>waku</code> includes out-of-the-box support for several popular <abbr title="Dependency Injection">DI</abbr> frameworks through its dependency provider system.</p>
-<h3 id="aioinject"><a href="https://github.com/ThirVondukr/aioinject/">Aioinject</a><a class="headerlink" href="#aioinject" title="Permanent link">&para;</a></h3>
-<p><code>waku</code> dependency provider interface is heavily inspired by <a href="https://github.com/ThirVondukr/aioinject">Aioinject</a>,
-making it our recommended default choice.
-Aioinject integrates seamlessly with <code>waku</code> and offers all the necessary features:</p>
-<ul>
-<li>Support for all providers scopes (transient, singleton, scoped, object)</li>
-<li>Container lifecycle management</li>
-<li>Providers overriding</li>
-<li>Custom context passing</li>
-</ul>
-<p>Available by installing <code>waku</code> with <code>aioinject</code> extra or by directly installing <code>aioinject</code>:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="uv" name="__tabbed_1" type="radio" /><input id="pip" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="uv">uv</label><label for="pip">pip</label></div>
-<div class="tabbed-content">
-<div class="tabbed-block">
-<div class="language-shell highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>uv<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;waku[aioinject]&quot;</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="c1"># or</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>uv<span class="w"> </span>add<span class="w"> </span>aioinject
-</span></code></pre></div>
-</div>
-<div class="tabbed-block">
-<div class="language-shell highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;waku[aioinject]&quot;</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="c1"># or</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>pip<span class="w"> </span>install<span class="w"> </span>aioinject
-</span></code></pre></div>
-</div>
-</div>
-</div>
-<h4 id="basic-usage">Basic Usage<a class="headerlink" href="#basic-usage" title="Permanent link">&para;</a></h4>
-<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-8-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-8-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-8-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-8-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-8-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-8-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-8-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-8-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-8-10">10</a></span>
-<span class="normal"><a href="#__codelineno-8-11">11</a></span>
-<span class="normal"><a href="#__codelineno-8-12">12</a></span>
-<span class="normal"><a href="#__codelineno-8-13">13</a></span>
-<span class="normal"><a href="#__codelineno-8-14">14</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku</span><span class="w"> </span><span class="kn">import</span> <span class="n">WakuFactory</span><span class="p">,</span> <span class="n">module</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di.contrib.aioinject</span><span class="w"> </span><span class="kn">import</span> <span class="n">AioinjectDependencyProvider</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3"></a>
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4"></a>
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5"></a><span class="nd">@module</span><span class="p">()</span>
-</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6"></a><span class="k">class</span><span class="w"> </span><span class="nc">AppModule</span><span class="p">:</span>
-</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7"></a>    <span class="k">pass</span>
-</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8"></a>
-</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9"></a>
-</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10"></a><span class="c1"># Create application with AioinjectDependencyProvider</span>
-</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11"></a><span class="n">application</span> <span class="o">=</span> <span class="n">WakuFactory</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
-</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12"></a>    <span class="n">AppModule</span><span class="p">,</span>
-</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13"></a>    <span class="n">dependency_provider</span><span class="o">=</span><span class="n">AioinjectDependencyProvider</span><span class="p">(),</span>
-</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14"></a><span class="p">)</span>
+<p><strong>Slightly more realistic example:</strong></p>
+<p>Consider building a web application with FastAPI where you need to inject the current request into your service layer.
+Here's how you can accomplish this:</p>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-6-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-6-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-6-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-6-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-6-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-6-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-6-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-6-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-6-10">10</a></span>
+<span class="normal"><a href="#__codelineno-6-11">11</a></span>
+<span class="normal"><a href="#__codelineno-6-12">12</a></span>
+<span class="normal"><a href="#__codelineno-6-13">13</a></span>
+<span class="normal"><a href="#__codelineno-6-14">14</a></span>
+<span class="normal"><a href="#__codelineno-6-15">15</a></span>
+<span class="normal"><a href="#__codelineno-6-16">16</a></span>
+<span class="normal"><a href="#__codelineno-6-17">17</a></span>
+<span class="normal"><a href="#__codelineno-6-18">18</a></span>
+<span class="normal"><a href="#__codelineno-6-19">19</a></span>
+<span class="normal"><a href="#__codelineno-6-20">20</a></span>
+<span class="normal"><a href="#__codelineno-6-21">21</a></span>
+<span class="normal"><a href="#__codelineno-6-22">22</a></span>
+<span class="normal"><a href="#__codelineno-6-23">23</a></span>
+<span class="normal"><a href="#__codelineno-6-24">24</a></span>
+<span class="normal"><a href="#__codelineno-6-25">25</a></span>
+<span class="normal"><a href="#__codelineno-6-26">26</a></span>
+<span class="normal"><a href="#__codelineno-6-27">27</a></span>
+<span class="normal"><a href="#__codelineno-6-28">28</a></span>
+<span class="normal"><a href="#__codelineno-6-29">29</a></span>
+<span class="normal"><a href="#__codelineno-6-30">30</a></span>
+<span class="normal"><a href="#__codelineno-6-31">31</a></span>
+<span class="normal"><a href="#__codelineno-6-32">32</a></span>
+<span class="normal"><a href="#__codelineno-6-33">33</a></span>
+<span class="normal"><a href="#__codelineno-6-34">34</a></span>
+<span class="normal"><a href="#__codelineno-6-35">35</a></span>
+<span class="normal"><a href="#__codelineno-6-36">36</a></span>
+<span class="normal"><a href="#__codelineno-6-37">37</a></span>
+<span class="normal"><a href="#__codelineno-6-38">38</a></span>
+<span class="normal"><a href="#__codelineno-6-39">39</a></span>
+<span class="normal"><a href="#__codelineno-6-40">40</a></span>
+<span class="normal"><a href="#__codelineno-6-41">41</a></span>
+<span class="normal"><a href="#__codelineno-6-42">42</a></span>
+<span class="normal"><a href="#__codelineno-6-43">43</a></span>
+<span class="normal"><a href="#__codelineno-6-44">44</a></span>
+<span class="normal"><a href="#__codelineno-6-45">45</a></span>
+<span class="normal"><a href="#__codelineno-6-46">46</a></span>
+<span class="normal"><a href="#__codelineno-6-47">47</a></span>
+<span class="normal"><a href="#__codelineno-6-48">48</a></span>
+<span class="normal"><a href="#__codelineno-6-49">49</a></span>
+<span class="normal"><a href="#__codelineno-6-50">50</a></span>
+<span class="normal"><a href="#__codelineno-6-51">51</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fastapi</span><span class="w"> </span><span class="kn">import</span> <span class="n">FastAPI</span><span class="p">,</span> <span class="n">Request</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku</span><span class="w"> </span><span class="kn">import</span> <span class="n">WakuFactory</span><span class="p">,</span> <span class="n">module</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di</span><span class="w"> </span><span class="kn">import</span> <span class="n">contextual</span><span class="p">,</span> <span class="n">scoped</span><span class="p">,</span> <span class="n">Scope</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4"></a>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5"></a>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6"></a><span class="k">class</span><span class="w"> </span><span class="nc">UserService</span><span class="p">:</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Service that uses the current HTTP request for user-specific operations.&quot;&quot;&quot;</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8"></a>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">:</span> <span class="n">Request</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">request</span> <span class="o">=</span> <span class="n">request</span>
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11"></a>
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">get_user_info</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Extract user information from the request headers.&quot;&quot;&quot;</span>
+</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14"></a>        <span class="k">return</span> <span class="p">{</span>
+</span><span id="__span-6-15"><a id="__codelineno-6-15" name="__codelineno-6-15"></a>            <span class="s1">&#39;user_id&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;user-id&#39;</span><span class="p">,</span> <span class="s1">&#39;anonymous&#39;</span><span class="p">),</span>
+</span><span id="__span-6-16"><a id="__codelineno-6-16" name="__codelineno-6-16"></a>            <span class="s1">&#39;session_id&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;session-id&#39;</span><span class="p">,</span> <span class="s1">&#39;none&#39;</span><span class="p">),</span>
+</span><span id="__span-6-17"><a id="__codelineno-6-17" name="__codelineno-6-17"></a>            <span class="s1">&#39;user_agent&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;user-agent&#39;</span><span class="p">,</span> <span class="s1">&#39;unknown&#39;</span><span class="p">),</span>
+</span><span id="__span-6-18"><a id="__codelineno-6-18" name="__codelineno-6-18"></a>        <span class="p">}</span>
+</span><span id="__span-6-19"><a id="__codelineno-6-19" name="__codelineno-6-19"></a>
+</span><span id="__span-6-20"><a id="__codelineno-6-20" name="__codelineno-6-20"></a>
+</span><span id="__span-6-21"><a id="__codelineno-6-21" name="__codelineno-6-21"></a><span class="nd">@module</span><span class="p">(</span>
+</span><span id="__span-6-22"><a id="__codelineno-6-22" name="__codelineno-6-22"></a>    <span class="n">providers</span><span class="o">=</span><span class="p">[</span>
+</span><span id="__span-6-23"><a id="__codelineno-6-23" name="__codelineno-6-23"></a>        <span class="n">contextual</span><span class="p">(</span><span class="n">provided_type</span><span class="o">=</span><span class="n">Request</span><span class="p">,</span> <span class="n">scope</span><span class="o">=</span><span class="n">Scope</span><span class="o">.</span><span class="n">REQUEST</span><span class="p">),</span>
+</span><span id="__span-6-24"><a id="__codelineno-6-24" name="__codelineno-6-24"></a>        <span class="n">scoped</span><span class="p">(</span><span class="n">UserService</span><span class="p">),</span>
+</span><span id="__span-6-25"><a id="__codelineno-6-25" name="__codelineno-6-25"></a>    <span class="p">],</span>
+</span><span id="__span-6-26"><a id="__codelineno-6-26" name="__codelineno-6-26"></a><span class="p">)</span>
+</span><span id="__span-6-27"><a id="__codelineno-6-27" name="__codelineno-6-27"></a><span class="k">class</span><span class="w"> </span><span class="nc">WebModule</span><span class="p">:</span>
+</span><span id="__span-6-28"><a id="__codelineno-6-28" name="__codelineno-6-28"></a>    <span class="k">pass</span>
+</span><span id="__span-6-29"><a id="__codelineno-6-29" name="__codelineno-6-29"></a>
+</span><span id="__span-6-30"><a id="__codelineno-6-30" name="__codelineno-6-30"></a>
+</span><span id="__span-6-31"><a id="__codelineno-6-31" name="__codelineno-6-31"></a><span class="c1"># FastAPI application setup</span>
+</span><span id="__span-6-32"><a id="__codelineno-6-32" name="__codelineno-6-32"></a><span class="n">app</span> <span class="o">=</span> <span class="n">FastAPI</span><span class="p">()</span>
+</span><span id="__span-6-33"><a id="__codelineno-6-33" name="__codelineno-6-33"></a><span class="n">application</span> <span class="o">=</span> <span class="n">WakuFactory</span><span class="p">(</span><span class="n">WebModule</span><span class="p">)</span><span class="o">.</span><span class="n">create</span><span class="p">()</span>
+</span><span id="__span-6-34"><a id="__codelineno-6-34" name="__codelineno-6-34"></a>
+</span><span id="__span-6-35"><a id="__codelineno-6-35" name="__codelineno-6-35"></a>
+</span><span id="__span-6-36"><a id="__codelineno-6-36" name="__codelineno-6-36"></a><span class="nd">@app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;/user-info&#39;</span><span class="p">)</span>
+</span><span id="__span-6-37"><a id="__codelineno-6-37" name="__codelineno-6-37"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_user_info</span><span class="p">(</span><span class="n">request</span><span class="p">:</span> <span class="n">Request</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+</span><span id="__span-6-38"><a id="__codelineno-6-38" name="__codelineno-6-38"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Endpoint that uses contextual dependency injection.&quot;&quot;&quot;</span>
+</span><span id="__span-6-39"><a id="__codelineno-6-39" name="__codelineno-6-39"></a>    <span class="k">async</span> <span class="k">with</span> <span class="p">(</span>
+</span><span id="__span-6-40"><a id="__codelineno-6-40" name="__codelineno-6-40"></a>        <span class="n">application</span><span class="p">,</span>
+</span><span id="__span-6-41"><a id="__codelineno-6-41" name="__codelineno-6-41"></a>        <span class="n">application</span><span class="o">.</span><span class="n">container</span><span class="p">(</span>
+</span><span id="__span-6-42"><a id="__codelineno-6-42" name="__codelineno-6-42"></a>            <span class="n">context</span><span class="o">=</span><span class="p">{</span><span class="n">Request</span><span class="p">:</span> <span class="n">request</span><span class="p">},</span>
+</span><span id="__span-6-43"><a id="__codelineno-6-43" name="__codelineno-6-43"></a>        <span class="p">)</span> <span class="k">as</span> <span class="n">request_container</span><span class="p">,</span>
+</span><span id="__span-6-44"><a id="__codelineno-6-44" name="__codelineno-6-44"></a>    <span class="p">):</span>
+</span><span id="__span-6-45"><a id="__codelineno-6-45" name="__codelineno-6-45"></a>        <span class="c1"># UserService automatically receives the current HTTP request</span>
+</span><span id="__span-6-46"><a id="__codelineno-6-46" name="__codelineno-6-46"></a>        <span class="n">user_service</span> <span class="o">=</span> <span class="k">await</span> <span class="n">request_container</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">UserService</span><span class="p">)</span>
+</span><span id="__span-6-47"><a id="__codelineno-6-47" name="__codelineno-6-47"></a>        <span class="k">return</span> <span class="n">user_service</span><span class="o">.</span><span class="n">get_user_info</span><span class="p">()</span>
+</span><span id="__span-6-48"><a id="__codelineno-6-48" name="__codelineno-6-48"></a>
+</span><span id="__span-6-49"><a id="__codelineno-6-49" name="__codelineno-6-49"></a>
+</span><span id="__span-6-50"><a id="__codelineno-6-50" name="__codelineno-6-50"></a><span class="c1"># Example usage:</span>
+</span><span id="__span-6-51"><a id="__codelineno-6-51" name="__codelineno-6-51"></a><span class="c1"># curl -H &quot;user-id: john123&quot; -H &quot;session-id: abc456&quot; http://localhost:8000/user-info</span>
 </span></code></pre></div></td></tr></table></div>
-<h4 id="custom-container-configuration">Custom Container Configuration<a class="headerlink" href="#custom-container-configuration" title="Permanent link">&para;</a></h4>
-<p>You can provide your own pre-configured <code>aioinject</code> container:</p>
-<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-9-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-9-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-9-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-9-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-9-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-9-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-9-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-9-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-9-10">10</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">aioinject</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">waku.di.contrib.aioinject</span><span class="w"> </span><span class="kn">import</span> <span class="n">AioinjectDependencyProvider</span>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3"></a>
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4"></a><span class="c1"># Create and configure a custom aioinject container</span>
-</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5"></a><span class="n">custom_container</span> <span class="o">=</span> <span class="n">aioinject</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span><span class="n">extensions</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
-</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6"></a><span class="n">custom_container</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">aioinject</span><span class="o">.</span><span class="n">Scoped</span><span class="p">(</span><span class="n">MyService</span><span class="p">))</span>  <span class="c1"># Example registration</span>
-</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7"></a><span class="c1"># ... configure container</span>
-</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8"></a>
-</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9"></a><span class="c1"># Use the custom container with waku</span>
-</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10"></a><span class="n">dp</span> <span class="o">=</span> <span class="n">AioinjectDependencyProvider</span><span class="p">(</span><span class="n">container</span><span class="o">=</span><span class="n">custom_container</span><span class="p">)</span>
-</span></code></pre></div></td></tr></table></div>
-<h3 id="dishka"><a href="https://github.com/ThirVondukr/dishka">Dishka</a><a class="headerlink" href="#dishka" title="Permanent link">&para;</a></h3>
-<p>Currently not supported but planned.</p>
-<h3 id="writing-custom-dependency-provider">Writing Custom Dependency Provider<a class="headerlink" href="#writing-custom-dependency-provider" title="Permanent link">&para;</a></h3>
-<p>To create custom dependency provider you need to implement <code>DependencyProvider</code> interface.</p>
+<div class="admonition warning">
+<p class="admonition-title">Important</p>
+<p>In this example, the <code>contextual</code> provider and <code>waku</code> itself are used to manually inject the current request into the <code>UserService</code>.
+However, in real-world applications, you should use the <a href="https://dishka.readthedocs.io/en/stable/integrations/fastapi.html">Dishka FastAPI integration</a> to inject the request automatically.</p>
+</div>
+<p>This pattern is essential for integrating with web frameworks, message brokers, and other external systems where objects
+have lifecycles managed outside your application.</p>
+<h2 id="where-and-how-to-inject-dependencies">Where and how to inject dependencies?<a class="headerlink" href="#where-and-how-to-inject-dependencies" title="Permanent link">&para;</a></h2>
+<p>To inject dependencies with <code>waku</code>, you need to:</p>
+<ol>
+<li>Register them as <code>providers</code> with the desired <a href="#scopes">scope</a> in <a href="../modules/">modules</a>.</li>
+<li>Identify your application entrypoints and decorate them with the <code>@inject</code> decorator for your framework. Consult the
+   <a href="https://dishka.readthedocs.io/en/stable/integrations/index.html">Dishka integrations</a> section for your framework to
+   find out how to do this.</li>
+<li>Add dependencies as arguments to your entrypoint signature using the <code>Injected</code> type hint.</li>
+</ol>
+<h2 id="next-steps">Next steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
+<p>For advanced features and customization options, refer to
+the <a href="https://dishka.readthedocs.io/en/stable/index.html">Dishka documentation</a>.</p>
 
 
 
@@ -2063,7 +1981,7 @@ Aioinject integrates seamlessly with <code>waku</code> and offers all the necess
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="April 13, 2025 11:47:50 UTC"><span class="timeago" datetime="2025-04-13T11:47:50+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="April 13, 2025 11:47:50 UTC">2025-04-13</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="June 6, 2025 05:11:29 UTC"><span class="timeago" datetime="2025-06-06T05:11:29+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="June 6, 2025 05:11:29 UTC">2025-06-06</span>
   </span>
 
     
