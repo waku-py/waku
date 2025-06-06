@@ -1,25 +1,18 @@
 from waku import WakuFactory, module
-from waku.di import inject, Injected, Transient
-from waku.di.contrib.aioinject import AioinjectDependencyProvider
+from waku.di import transient
 
 
-@module(providers=[Transient(list)])
+@module(providers=[transient(list)])
 class AppModule:
     pass
 
 
-@inject
-async def handler(obj_1: Injected[list], obj_2: Injected[list]) -> None:
-    assert obj_1 is not obj_2
-
-
 async def main() -> None:
-    application = WakuFactory.create(
-        AppModule,
-        dependency_provider=AioinjectDependencyProvider(),
-    )
+    application = WakuFactory(AppModule).create()
     async with application:
-        async with application.container.context():
-            await handler()
+        async with application.container() as request_container:
+            obj_1 = await request_container.get(list)
+            obj_2 = await request_container.get(list)
+            assert obj_1 is not obj_2
 
         # Providers are disposed at this point

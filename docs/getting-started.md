@@ -38,15 +38,14 @@ In `app.py`, let's define our modules and application setup:
 import asyncio
 
 from waku import WakuApplication, WakuFactory, module
-from waku.di import Scoped, Injected, inject
-from waku.di.contrib.aioinject import AioinjectDependencyProvider
+from waku.di import Injected, inject, scoped
 
 from project.services import GreetingService
 
 
 # Define a feature module
 @module(
-    providers=[Scoped(GreetingService)],
+    providers=[scoped(GreetingService)],
     exports=[GreetingService],
 )
 class GreetingModule:
@@ -67,10 +66,7 @@ async def greet_user(greeting_service: Injected[GreetingService]) -> str:
 
 # Bootstrap the application
 def bootstrap() -> WakuApplication:
-    return WakuFactory.create(
-        AppModule,
-        dependency_provider=AioinjectDependencyProvider(),
-    )
+    return WakuFactory(AppModule).create()
 
 
 # Run the application
@@ -78,7 +74,7 @@ async def main() -> None:
     application = bootstrap()
 
     # Create a context for our application
-    async with application, application.container.context():
+    async with application, application.container() as container:
         # Use our service
         message = await greet_user()  # type: ignore[call-arg]
         print(message)
@@ -113,7 +109,7 @@ Modules are the building blocks of a `waku` application. Each module encapsulate
 
 ```python hl_lines="2-3" linenums="1"
 @module(
-    providers=[Scoped(GreetingService)],
+    providers=[scoped(GreetingService)],
     exports=[GreetingService],
 )
 class GreetingModule:
@@ -125,28 +121,22 @@ In this example:
 
 - `providers` defines which providers this module creates and manages
 - `exports` makes these providers (or imported modules) available to other modules that import this one
-- `Scoped` indicates this provider should be created once for every container context entrance.
+- `scoped` indicates this provider should be created once for every container context entrance.
 
 !!! info
     For more information on providers and scopes, see [Providers](usage/providers.md#scopes).
 
 ### Application Bootstrap
 
-The application is created using an `ApplicationFactory`:
+The application is created using a `WakuFactory`:
 
 ```python linenums="1"
-def bootstrap() -> Application:
-    return ApplicationFactory.create(
-        AppModule,
-        dependency_provider=AioinjectDependencyProvider(),
-    )
+def bootstrap() -> WakuApplication:
+    return WakuFactory(AppModule).create()
 
 ```
 
-This creates an application instance with:
-
-- `AppModule` as the root module
-- `AioinjectDependencyProvider` as the dependency injection provider
+This creates an application instance with `AppModule` as the root module.
 
 ### Dependency Injection
 
@@ -166,7 +156,7 @@ The `#!python Injected[GreetingService]` type annotation tells `waku` which prov
 `waku` uses context managers to manage the lifecycle of your application and its providers:
 
 ```python linenums="1"
-async with application, application.container.context():
+async with application, application.container() as container:
     message = await greet_user()
 
 ```

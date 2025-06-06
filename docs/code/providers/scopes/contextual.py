@@ -1,12 +1,12 @@
 from waku import WakuFactory, module
-from waku.di import object_
+from waku.di import contextual, Scope
 
 some_object = (1, 2, 3)
 
 
 @module(
     providers=[
-        object_(some_object, provided_type=tuple),
+        contextual(provided_type=tuple, scope=Scope.REQUEST),
     ],
 )
 class AppModule:
@@ -15,7 +15,12 @@ class AppModule:
 
 async def main() -> None:
     application = WakuFactory(AppModule).create()
-    async with application, application.container() as request_container:
+    async with (
+        application,
+        application.container(
+            context={tuple: some_object},
+        ) as request_container,
+    ):
         obj = await request_container.get(tuple)
         assert obj is some_object
 

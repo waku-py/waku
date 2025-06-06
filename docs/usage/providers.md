@@ -7,23 +7,22 @@ title: Providers
 ## Introduction
 
 Providers are the core of `waku` dependency injection system.
-Idea behind a provider is that it can be injected as a dependency into other provider constructors,
+The idea behind a provider is that it can be injected as a dependency into other provider constructors,
 allowing objects to form various relationships with each other.
 
-`waku` responsibility is to "wire up" all the providers using DI framework and manage the lifecycle its lifecycle.
+`waku` responsibility is to "wire up" all the providers using the DI framework and manage their lifecycle.
 This way you can focus on writing your application logic.
 
 ## Dependency Injection
 
 `waku` is designed to be modular and extensible.
 To support this principle, it provides a flexible dependency injection (DI) system that integrates seamlessly
-with various DI frameworks. `waku` itself acts like an IoC-container,
-allowing you to register and resolve dependencies using [modules system](modules.md).
+with various DI frameworks. `waku` itself acts as an IoC container,
+allowing you to register and resolve dependencies using the [modules system](modules.md).
 
 !!! note
-    Instead of relying on a specific DI framework, `waku` uses an interface called `DependencyProvider`.
-    This allows you to choose any DI framework you prefer (see [Included Dependency Providers](#included-dependency-providers))
-    or even [create your own provider](#writing-custom-dependency-provider).
+    `waku` uses the [Dishka](https://github.com/reagento/dishka/) IoC container under the hood.
+    All provider lifecycles and dependency resolution are handled by Dishka.
 
 ### What is Dependency Injection?
 
@@ -52,156 +51,122 @@ Control (IoC) principle. It centralizes the configuration and instantiation of c
 simplifying code maintenance. By handling dependency resolution, an IoC container promotes modular, testable, and
 scalable application design.
 
-With power of IoC-container you can leverage all the benefits of DI without manually managing dependencies.
+With the power of an IoC container, you can leverage all the benefits of DI without manually managing dependencies.
 
 ## Providers
 
 `Provider` is an object that holds dependency metadata, such as its type, lifetime [scope](#scopes) and factory.
 
-In `waku` there are four types of providers, for one for each [scope](#scopes):
+In `waku`, there are five types of providers, one for each [scope](#scopes):
 
 - [`Transient`](#transient)
 - [`Scoped`](#scoped)
 - [`Singleton`](#singleton)
 - [`Object`](#object)
+- [`Contextual`](#contextual)
 
-Each provider take two arguments:
+Each provider (except [`Contextual`](#contextual)) takes two arguments:
 
-- `factory`: type or callable that returns or yields an instance of the dependency.
-- `type_`: type of the dependency. If not provided, it will be inferred from the factory function's return type.
-
-!!! note
-    `Object` provider is a special case, it first argument named `object` instead of a `factory` because you should
-    pass already instantiated object directly, not a factory function.
+- `source`: type or callable that returns or yields an instance of the dependency.
+- `provided_type`: type of the dependency. If not provided, it will be inferred from the factory function's return type.
 
 ## Scopes
 
 `waku` supports four different lifetime scopes for providers, inspired by
 the [service lifetimes](https://learn.microsoft.com/en-us/dotnet/core/extensions/dependency-injection#service-lifetimes)
-in .NET Core’s DI system.
+from .NET Core's DI system.
 
 ### Transient
 
-Dependency defined with the `Transient` provider are created each time they’re requested.
+Dependencies defined with the `Transient` provider are created each time they're requested.
 
-```python hl_lines="6" linenums="1"
+```python hl_lines="5" linenums="1"
 --8<-- "docs/code/providers/scopes/transient.py"
 ```
 
 ### Scoped
 
-Dependency defined with the `Scoped` provider are created once per dependency provider context entrance and disposed
+Dependencies defined with the `Scoped` provider are created once per dependency provider context entry and disposed
 when the context exits.
 
-```python hl_lines="6" linenums="1"
+```python hl_lines="5" linenums="1"
 --8<-- "docs/code/providers/scopes/scoped.py"
 ```
 
 ### Singleton
 
-Dependency defined with the `Singleton` provider are created the first time they’re requested and disposed when the
+Dependencies defined with the `Singleton` provider are created the first time they're requested and disposed when the
 application lifecycle ends.
 
-```python hl_lines="6" linenums="1"
+```python hl_lines="5" linenums="1"
 --8<-- "docs/code/providers/scopes/singleton.py"
 ```
 
 ### Object
 
-Dependency defined with the `Object` provider behave like `Singleton`, but you must provide the implementation instance
-directly to the provide and manage its lifecycle manually, outside the IoC-container.
+Dependencies defined with the `Object` provider behave like `Singleton`, but you must provide the implementation instance
+directly to the provider and manage its lifecycle manually, outside the IoC container.
 
-```python hl_lines="8" linenums="1"
+```python hl_lines="9" linenums="1"
 --8<-- "docs/code/providers/scopes/object.py"
 ```
 
+### Contextual
+
+The `Contextual` provider enables you to inject external objects that originate outside the DI container directly into your
+dependency graph. This is particularly valuable for framework-specific objects like HTTP requests, database transactions,
+or event data that have their own lifecycle managed externally.
+
+**When to use Contextual providers:**
+
+- **Framework integration**: Inject HTTP request objects, user sessions, or authentication contexts
+- **Event-driven scenarios**: Process queue messages, webhooks, or callback data
+- **External resources**: Integrate database transactions, file handles, or network connections managed by external systems
+- **Per-request data**: Handle any data that varies per request/operation and originates from outside your application
+
+**How it works:**
+
+1. **Declare the contextual dependency** using the `contextual` provider in your module
+2. **Use the dependency** in other providers just like any regular dependency
+3. **Provide the actual value** when entering the container scope using the `context=` parameter
+
+The `contextual` provider accepts two arguments:
+
+- `provided_type`: The type of the dependency to be injected
+- `scope`: The scope where the context is available (defaults to `Scope.REQUEST`)
+
+```python hl_lines="9 21" linenums="1"
+--8<-- "docs/code/providers/scopes/contextual.py"
+```
+
+**Slightly more realistic example:**
+
+Consider building a web application with FastAPI where you need to inject the current request into your service layer.
+Here's how you can accomplish this:
+
+```python linenums="1"
+--8<-- "docs/code/providers/scopes/contextual_real.py"
+```
+
+!!! warning "Important"
+
+    In this example, the `contextual` provider and `waku` itself are used to manually inject the current request into the `UserService`.
+    However, in real-world applications, you should use the [Dishka FastAPI integration](https://dishka.readthedocs.io/en/stable/integrations/fastapi.html) to inject the request automatically.
+
+This pattern is essential for integrating with web frameworks, message brokers, and other external systems where objects
+have lifecycles managed outside your application.
+
 ## Where and how to inject dependencies?
 
-To inject dependencies with `waku` you need:
+To inject dependencies with `waku`, you need to:
 
-1. Register them to `providers` with desired [scope](#scopes) in [modules](modules.md).
-2. Identify your application entrypoints and decorate them with `@inject`.
-3. Add dependencies as arguments to your entrypoint signature using `Injected` type hint.
+1. Register them as `providers` with the desired [scope](#scopes) in [modules](modules.md).
+2. Identify your application entrypoints and decorate them with the `@inject` decorator for your framework. Consult the
+   [Dishka integrations](https://dishka.readthedocs.io/en/stable/integrations/index.html) section for your framework to
+   find out how to do this.
+3. Add dependencies as arguments to your entrypoint signature using the `Injected` type hint.
 
-```python linenums="1"
---8<-- "docs/code/providers/injecting.py"
-```
+## Next steps
 
-## Included Dependency Providers
-
-`waku` includes out-of-the-box support for several popular DI frameworks through its dependency provider system.
-
-### [Aioinject](https://github.com/ThirVondukr/aioinject/)
-
-`waku` dependency provider interface is heavily inspired by [Aioinject](https://github.com/ThirVondukr/aioinject),
-making it our recommended default choice.
-Aioinject integrates seamlessly with `waku` and offers all the necessary features:
-
-- Support for all providers scopes (transient, singleton, scoped, object)
-- Container lifecycle management
-- Providers overriding
-- Custom context passing
-
-Available by installing `waku` with `aioinject` extra or by directly installing `aioinject`:
-
-=== "uv"
-
-    ```shell
-    uv add "waku[aioinject]"
-    # or
-    uv add aioinject
-    ```
-
-=== "pip"
-
-    ```shell
-    pip install "waku[aioinject]"
-    # or
-    pip install aioinject
-    ```
-
-#### Basic Usage
-
-```python linenums="1"
-from waku import WakuFactory, module
-from waku.di.contrib.aioinject import AioinjectDependencyProvider
-
-
-@module()
-class AppModule:
-    pass
-
-
-# Create application with AioinjectDependencyProvider
-application = WakuFactory.create(
-    AppModule,
-    dependency_provider=AioinjectDependencyProvider(),
-)
-
-```
-
-#### Custom Container Configuration
-
-You can provide your own pre-configured `aioinject` container:
-
-```python linenums="1"
-import aioinject
-from waku.di.contrib.aioinject import AioinjectDependencyProvider
-
-# Create and configure a custom aioinject container
-custom_container = aioinject.Container(extensions=[...])
-custom_container.register(aioinject.Scoped(MyService))  # Example registration
-# ... configure container
-
-# Use the custom container with waku
-dp = AioinjectDependencyProvider(container=custom_container)
-
-```
-
-### [Dishka](https://github.com/ThirVondukr/dishka)
-
-Currently not supported but planned.
-
-### Writing Custom Dependency Provider
-
-To create custom dependency provider you need to implement `DependencyProvider` interface.
+For advanced features and customization options, refer to
+the [Dishka documentation](https://dishka.readthedocs.io/en/stable/index.html).

@@ -15,7 +15,7 @@ from waku.modules import ModuleRegistryBuilder
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from dishka.entities.validation_settigs import ValidationSettings
+    from dishka import ValidationSettings
 
     from waku import Module
     from waku.di import AsyncContainer, BaseProvider, Scope
