@@ -23,14 +23,14 @@ async def greet_user_by_id(
 async def main() -> None:
     application = bootstrap_application()
 
-    async with application, application.container.context():
+    async with application, application.container() as container:
         # Greet different users
         for user_id in ['1', '2', '3', '4']:  # '4' doesn't exist
             greeting = await greet_user_by_id(user_id)  # type: ignore[call-arg]
             print(greeting)
 
         # Get service directly for demonstration
-        greeting_service = application.container.get(GreetingService)
+        greeting_service = await container.get(GreetingService)
         print(f'Available languages: {greeting_service.available_languages()}')
 
 
