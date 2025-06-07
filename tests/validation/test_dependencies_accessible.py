@@ -8,13 +8,14 @@ from typing import Protocol, TypeVar, cast
 import pytest
 from dishka.exceptions import ImplicitOverrideDetectedError
 
-from tests.data import A, AAliasType, B, C, DependentService, Service, X, Y, Z
-from tests.module_utils import create_basic_module
 from waku import WakuApplication, WakuFactory
 from waku.di import AnyOf, Provider, Scope, contextual, provide, scoped, singleton
 from waku.modules import ModuleType
 from waku.validation import ValidationExtension, ValidationRule
 from waku.validation.rules import DependenciesAccessibleRule, DependencyInaccessibleError
+
+from tests.data import A, AAliasType, B, C, DependentService, Service, X, Y, Z
+from tests.module_utils import create_basic_module
 
 _T_co = TypeVar('_T_co', covariant=True)
 

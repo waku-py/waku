@@ -3,9 +3,9 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
-from dishka import DEFAULT_COMPONENT, make_async_container
+from dishka import make_async_container
 
-from waku.di import BaseProvider
+from waku.di import DEFAULT_COMPONENT, BaseProvider
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -48,6 +48,7 @@ def override(container: AsyncContainer, *providers: BaseProvider) -> Iterator[No
         _container_provider(container),
         *providers,
         context=container._context,  # noqa: SLF001
+        start_scope=container.scope,
     )
     _swap(container, new_container)
     yield

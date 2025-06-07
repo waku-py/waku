@@ -7,6 +7,7 @@ import pytest
 
 
 @pytest.fixture(
+    scope='session',
     params=[
         pytest.param(
             ('asyncio', {'use_uvloop': True}),

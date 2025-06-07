@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tests.module_utils import create_basic_module
 from waku.extensions import (
     AfterApplicationInit,
     OnApplicationInit,
@@ -13,6 +12,8 @@ from waku.extensions import (
     OnModuleInit,
 )
 from waku.extensions.registry import ExtensionRegistry
+
+from tests.module_utils import create_basic_module
 
 if TYPE_CHECKING:
     from waku import WakuApplication

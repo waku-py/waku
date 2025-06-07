@@ -1,7 +1,8 @@
-from tests.data import A, C
-from tests.module_utils import create_basic_module
 from waku import WakuFactory
 from waku.di import scoped, singleton
+
+from tests.data import A, C
+from tests.module_utils import create_basic_module
 
 
 async def test_module_registration_with_dependencies() -> None:
