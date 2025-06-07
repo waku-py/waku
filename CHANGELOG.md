@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v0.19.0 (2025-06-07)
+
+### 📖 Documentation
+
+- Further improve README
+  ([`f4272c6`](https://github.com/waku-py/waku/commit/f4272c69abaa97e1b4d31cab1983ac7ff0a9b0fa))
+
+- Improve readme
+  ([`4e19320`](https://github.com/waku-py/waku/commit/4e19320c25eac2efe712e5ada0c71a21fcfd3f86))
+
+- Update examples and documentation to reflect dishka migration
+  ([`3ce62e0`](https://github.com/waku-py/waku/commit/3ce62e04a24f164816370d6920ba26a1f80939e2))
+
+### ✨ Features
+
+- **tests**: Allow to override not only application container
+  ([`0d1f61e`](https://github.com/waku-py/waku/commit/0d1f61ec612e6f8f5f455d1337a973be89c57a22))
+
+
 ## v0.18.0 (2025-05-12)
 
 ### ⚙️ Build System
@@ -335,7 +354,7 @@
 
 ### ⚙️ Build System
 
-- Make patch release only for `fix` &amp; `perf` tags
+- Make patch release only for `fix` &amp;amp; `perf` tags
   ([`b9cf6bf`](https://github.com/waku-py/waku/commit/b9cf6bf77047e21959f4e1bbe2a1bb1566cccd1c))
 
 ### 📖 Documentation
