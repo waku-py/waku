@@ -28,8 +28,8 @@
 [![mypy - checked](https://www.mypy-lang.org/static/mypy_badge.svg)](https://mypy-lang.org/)
 [![basedpyright - checked](https://img.shields.io/badge/basedpyright-checked-42b983?color=ffc105)](https://docs.basedpyright.com)
 
-<!-- Docs -->
-[![Docs](https://img.shields.io/badge/docs-mkdocs%20material-blue)](https://waku-py.github.io/waku/)
+<!-- Social -->
+[![Telegram](https://img.shields.io/badge/-telegram-black?color=blue&logo=telegram&label=RU)](https://t.me/wakupy)
 
 </div>
 
@@ -51,7 +51,7 @@
 - 🧩 [Modular architecture](https://waku-py.github.io/waku/usage/modules/): Group related code with explicit imports/exports for clear boundaries and responsibilities.
 - 💉 [First-class Dependency Injection](https://waku-py.github.io/waku/usage/providers/): Built on [Dishka](https://github.com/reagento/dishka/) with flexible provider patterns (singleton, scoped, transient); swap implementations easily.
 - 📨 [Event-driven & CQRS](https://waku-py.github.io/waku/usage/cqrs/): Handle commands, queries, and events with a comprehensive CQRS implementation, pipeline chains, and centralized processing inspired by [MediatR (C#)](https://github.com/jbogard/MediatR).
-- 🔌 [Framework-agnostic & Integrations](https://waku-py.github.io/waku/integrations/): Works with FastAPI, Litestar, FastStream, Aiogram, and more — no vendor lock-in.
+- 🔌 [Framework-agnostic & Integrations](https://waku-py.github.io/waku/integrations/): Works with FastAPI, Litestar, FastStream, Aiogram, and more - no vendor lock-in.
 - 🧰 [Extensions & Lifecycle Hooks](https://waku-py.github.io/waku/usage/extensions/): Hook into the app lifecycle for logging, validation, and custom logic; [precise startup/shutdown management](https://waku-py.github.io/waku/usage/lifespan/).
 - 🛡️ Production-ready: Type-safe APIs, robust validation, and scalable testing support.
 
@@ -85,7 +85,7 @@ Waku is built around a few core concepts:
 
 This structure keeps your code clean and your dependencies explicit.
 
-> `waku` is **framework-agnostic** — entrypoints (such as HTTP handlers) are provided by integrations, not the core.
+> `waku` is **framework-agnostic** - entrypoints (such as HTTP handlers) are provided by integrations, not the core.
 
 ### Basic Example
 
@@ -239,6 +239,7 @@ Check our [Getting Started](https://waku-py.github.io/waku/getting-started) guid
 
 ## Roadmap
 
+- [ ] Create logo
 - [ ] Improve inner architecture
 - [ ] Improve documentation
 - [ ] Add new and improve existing validation rules
@@ -246,6 +247,7 @@ Check our [Getting Started](https://waku-py.github.io/waku/getting-started) guid
 
 ## Support
 
+- [RU Telegram group](https://t.me/wakupy)
 - [GitHub Issues](https://github.com/waku-py/waku/issues)
 - [Discussions](https://github.com/waku-py/waku/discussions)
 
@@ -255,6 +257,6 @@ This project is licensed under the terms of the [MIT License](https://github.com
 
 ## Acknowledgements
 
-- [Dishka](https://github.com/reagento/dishka/) – Dependency Injection framework powering `waku`'s IoC container.
+- [Dishka](https://github.com/reagento/dishka/) – Dependency Injection framework powering `waku` IoC container.
 - [NestJS](https://nestjs.com/) – Primary inspiration for modular architecture, design patterns and some implementation details.
 - [MediatR (C#)](https://github.com/jbogard/MediatR) – Inspiration and implementation details for the CQRS subsystem.
