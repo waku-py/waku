@@ -1,9 +1,10 @@
 """Tests for dynamic module functionality."""
 
-from tests.data import A, AddDepOnConfigure
-from tests.module_utils import create_basic_module, create_dynamic_module
 from waku import WakuFactory
 from waku.di import scoped
+
+from tests.data import A, AddDepOnConfigure
+from tests.module_utils import create_basic_module, create_dynamic_module
 
 
 def test_dynamic_module_configuration() -> None:

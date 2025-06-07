@@ -2,8 +2,9 @@
 
 from dataclasses import dataclass
 
-from tests.module_utils import create_basic_module
 from waku import WakuFactory
+
+from tests.module_utils import create_basic_module
 
 
 @dataclass

@@ -1,9 +1,10 @@
 """Tests for module extensions."""
 
-from tests.data import A, AddDepOnConfigure, OnDestroyExt, OnInitExt
-from tests.module_utils import create_basic_module
 from waku import WakuFactory
 from waku.di import scoped
+
+from tests.data import A, AddDepOnConfigure, OnDestroyExt, OnInitExt
+from tests.module_utils import create_basic_module
 
 
 async def test_module_extensions_initialization_and_destruction_order() -> None:

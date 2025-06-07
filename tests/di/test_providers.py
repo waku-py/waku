@@ -1,9 +1,10 @@
 from typing import Protocol
 
-from tests.data import UserService
-from tests.module_utils import create_basic_module
 from waku import WakuFactory
 from waku.di import object_, scoped
+
+from tests.data import UserService
+from tests.module_utils import create_basic_module
 
 
 async def test_object_provider_instance_identity() -> None:

@@ -1,9 +1,10 @@
 """Tests for dependency injection scopes."""
 
-from tests.data import DependentService, RequestContext, Service, UserService
-from tests.module_utils import create_basic_module
 from waku import WakuFactory
 from waku.di import contextual, scoped, singleton, transient
+
+from tests.data import DependentService, RequestContext, Service, UserService
+from tests.module_utils import create_basic_module
 
 
 async def test_provider_scope_behavior() -> None:

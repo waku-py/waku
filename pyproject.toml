@@ -201,6 +201,17 @@ ban-relative-imports = "all"
 [tool.ruff.lint.isort]
 force-wrap-aliases = true
 combine-as-imports = true
+section-order = [
+  "future",
+  "standard-library",
+  "third-party",
+  "first-party",
+  "tests",
+  "local-folder",
+]
+
+[tool.ruff.lint.isort.sections]
+tests = ["tests"]
 
 [tool.ruff.format]
 preview = true

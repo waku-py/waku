@@ -1,9 +1,10 @@
 from pytest_mock import MockerFixture
 
-from tests.module_utils import create_basic_module
 from waku import WakuApplication, WakuFactory
 from waku.extensions import AfterApplicationInit, OnApplicationInit, OnModuleConfigure, OnModuleInit
 from waku.modules import Module, ModuleMetadata
+
+from tests.module_utils import create_basic_module
 
 
 async def test_module_init_extension_lifecycle(mocker: MockerFixture) -> None:
