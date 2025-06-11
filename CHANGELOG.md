@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.20.0 (2025-06-11)
+
+### ✨ Features
+
+- **tests**: Make overrode container use strict validation
+  ([`4089e58`](https://github.com/waku-py/waku/commit/4089e58e37ad5ccf86bd834e4040fe0b9057d763))
+
+
 ## v0.19.0 (2025-06-07)
 
 ### 📖 Documentation
@@ -354,7 +362,7 @@
 
 ### ⚙️ Build System
 
-- Make patch release only for `fix` &amp;amp; `perf` tags
+- Make patch release only for `fix` &amp;amp;amp; `perf` tags
   ([`b9cf6bf`](https://github.com/waku-py/waku/commit/b9cf6bf77047e21959f4e1bbe2a1bb1566cccd1c))
 
 ### 📖 Documentation
