@@ -1,18 +1,25 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from itertools import chain
+from typing import TYPE_CHECKING, Protocol, cast
 
-from dishka import make_async_container
+from dishka import STRICT_VALIDATION, make_async_container
 
-from waku.di import DEFAULT_COMPONENT, BaseProvider
+from waku.di import DEFAULT_COMPONENT, AsyncContainer, BaseProvider
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from waku.di import AsyncContainer
+    from dishka.dependency_source import Factory
+    from dishka.registry import Registry
+
 
 __all__ = ['override']
+
+
+class _Overrideable(Protocol):
+    override: bool
 
 
 @contextmanager
@@ -44,12 +51,18 @@ def override(container: AsyncContainer, *providers: BaseProvider) -> Iterator[No
             assert isinstance(service, ServiceOverride)
         ```
     """
+    for provider in providers:
+        for factory in chain(provider.factories, provider.aliases):
+            cast(_Overrideable, factory).override = True
+
     new_container = make_async_container(
         _container_provider(container),
         *providers,
         context=container._context,  # noqa: SLF001
         start_scope=container.scope,
+        validation_settings=STRICT_VALIDATION,
     )
+
     _swap(container, new_container)
     yield
     _swap(new_container, container)
@@ -57,10 +70,14 @@ def override(container: AsyncContainer, *providers: BaseProvider) -> Iterator[No
 
 def _container_provider(container: AsyncContainer) -> BaseProvider:
     container_provider = BaseProvider(component=DEFAULT_COMPONENT)
-    container_provider.factories.extend(container.registry.factories.values())
+    container_provider.factories.extend(_extract_factories(container.registry))
     for registry in container.child_registries:
-        container_provider.factories.extend(registry.factories.values())
+        container_provider.factories.extend(_extract_factories(registry))
     return container_provider
+
+
+def _extract_factories(registry: Registry) -> list[Factory]:
+    return [factory for dep_key, factory in registry.factories.items() if dep_key.type_hint is not AsyncContainer]
 
 
 def _swap(c1: AsyncContainer, c2: AsyncContainer) -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from asyncio import Lock
 from collections.abc import Callable, Iterable
 from contextlib import AbstractAsyncContextManager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 from dishka import STRICT_VALIDATION, make_async_container
@@ -14,8 +14,6 @@ from waku.modules import ModuleRegistryBuilder
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-
-    from dishka import ValidationSettings
 
     from waku import Module
     from waku.di import AsyncContainer, BaseProvider, Scope
@@ -36,7 +34,6 @@ class ContainerConfig:
     lock_factory: _LockFactory = Lock
     start_scope: Scope | None = None
     skip_validation: bool = False
-    validation_settings: ValidationSettings = field(default_factory=lambda: STRICT_VALIDATION)
 
 
 class WakuFactory:
@@ -82,5 +79,5 @@ class WakuFactory:
             lock_factory=self._container_config.lock_factory,
             start_scope=self._container_config.start_scope,
             skip_validation=self._container_config.skip_validation,
-            validation_settings=self._container_config.validation_settings,
+            validation_settings=STRICT_VALIDATION,
         )

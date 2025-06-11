@@ -46,6 +46,11 @@ class FakeOtherService(OtherService):
     pass
 
 
+@dataclass
+class ServiceDependsOnContainer:
+    container: AsyncContainer
+
+
 # Test fixtures
 @pytest.fixture(scope='session')
 async def application() -> AsyncIterator[WakuApplication]:
@@ -146,3 +151,41 @@ async def test_override_request_container_from_fixture(
     with override(request_container, provider_type(FakeSomeService, provided_type=ISomeService)):
         overrode_service = await request_container.get(ISomeService)
         assert isinstance(overrode_service, FakeSomeService)
+
+
+async def test_override_with_service_depends_on_app_container() -> None:
+    """Test that override work for services that depends on application container."""
+    AppModule = create_basic_module(
+        providers=[
+            singleton(ServiceDependsOnContainer),
+        ],
+        name='AppModule',
+    )
+
+    application = WakuFactory(AppModule).create()
+
+    async with application:
+        app_container = application.container
+        with override(app_container, singleton(ServiceDependsOnContainer)):
+            overrode_service = await app_container.get(ServiceDependsOnContainer)
+            assert isinstance(overrode_service, ServiceDependsOnContainer)
+            assert overrode_service.container is app_container
+
+
+@pytest.mark.parametrize('provider_type', [transient, scoped])
+async def test_override_with_service_depends_on_request_container(provider_type: Callable[..., Provider]) -> None:
+    """Test that override work for services that depends on request container."""
+    AppModule = create_basic_module(
+        providers=[
+            provider_type(ServiceDependsOnContainer),
+        ],
+        name='AppModule',
+    )
+
+    application = WakuFactory(AppModule).create()
+
+    async with application, application.container() as request_container:
+        with override(request_container, provider_type(ServiceDependsOnContainer)):
+            overrode_service = await request_container.get(ServiceDependsOnContainer)
+            assert isinstance(overrode_service, ServiceDependsOnContainer)
+            assert overrode_service.container is request_container
