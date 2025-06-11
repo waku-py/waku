@@ -96,7 +96,7 @@ async def test_accessibility_import_export_matrix(
             await application.initialize()
         b_module = application.registry.get(BModule)
 
-        error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0])
+        error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0])  # ty: ignore[unresolved-attribute]
 
         expected_error = DependencyInaccessibleError(A, B, b_module)
         assert isinstance(error, type(expected_error))
@@ -223,7 +223,7 @@ async def test_multiple_missing_dependencies(application_factory: ApplicationFac
     with pytest.raises(ExceptionGroup) as exc_info:
         await application_factory(AppModule).initialize()
 
-    errors = cast(list[DependencyInaccessibleError], exc_info.value.exceptions)
+    errors = cast(list[DependencyInaccessibleError], exc_info.value.exceptions)  # ty: ignore[unresolved-attribute]
     assert errors[0].required_type is X
     assert errors[1].required_type is Y
 
@@ -322,7 +322,7 @@ async def test_module_cannot_reexport_imported_types(application_factory: Applic
     with pytest.raises(ExceptionGroup) as exc_info:
         await application.initialize()
 
-    error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0])
+    error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0])  # ty: ignore[unresolved-attribute]
     expected_error = DependencyInaccessibleError(
         required_type=A,
         required_by=B,
@@ -447,7 +447,7 @@ async def test_transitive_dependencies_not_accessible(application_factory: Appli
     with pytest.raises(ExceptionGroup) as exc_info:
         await application_factory(AppModule).initialize()
 
-    error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0])
+    error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0])  # ty: ignore[unresolved-attribute]
     assert error.required_type is ServiceA
 
 
@@ -536,7 +536,7 @@ async def test_dependencies_from_indirect_imports_are_not_accessible(
     with pytest.raises(ExceptionGroup) as exc_info:
         await application.initialize()
 
-    error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0])
+    error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0])  # ty: ignore[unresolved-attribute]
     expected_error = DependencyInaccessibleError(
         required_type=Service,
         required_by=DependentService,
