@@ -83,7 +83,7 @@ typecheck = [
 # ----- UV settings -----
 [tool.uv]
 default-groups = "all"
-required-version = ">=0.7.12"
+required-version = ">=0.7.13"
 
 
 # ----- Pytest settings -----
@@ -266,11 +266,9 @@ python-version = "3.11"
 
 # ----- Semantic release settings -----
 [tool.semantic_release]
-# TODO: Use two step release when landed
-#   https://github.com/python-semantic-release/python-semantic-release/pull/1214
 build_command = """
-    command -v uv 2>/dev/null || pip install uv
-    uv lock
+    command -v uv 2>/dev/null || pip install uv==0.7.13
+    uv lock --offline
     git add uv.lock
     uv build
 """
