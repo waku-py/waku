@@ -60,7 +60,7 @@ on:
 permissions: { }
 
 env:
-  COMMON_PYTHON_VERSION: '3.11'
+  COMMON_PYTHON_VERSION: '3.12'
   PYTEST_TIMEOUT: 60
 
 jobs:
@@ -93,7 +93,7 @@ jobs:
 
       - name: Build | Build next version artifacts
         id: version
-        uses: python-semantic-release/python-semantic-release@1a324000f2251a9e722e77b128bf72712653813f # v10.0.2
+        uses: python-semantic-release/python-semantic-release@f9e152fb36cd2e590fe8c2bf85bbff08f7fc1c52 # v10.1.0
         with:
           github_token: ""
           build: true
