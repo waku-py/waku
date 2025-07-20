@@ -1,5 +1,5 @@
 [build-system]
-requires = ["uv_build>=0.7.21,<0.8.0"]
+requires = ["uv_build>=0.8.0,<0.9.0"]
 build-backend = "uv_build"
 
 [project]
@@ -49,7 +49,7 @@ docs = [
   "mkdocs-callouts>=1.16.0",
   "mkdocs-exclude>=1.0.2",
   "mkdocs-git-revision-date-localized-plugin>=1.4.7",
-  "mkdocs-material>=9.6.14",
+  "mkdocs-material>=9.6.15",
   "mkdocs-redirects>=1.2.2",
   "mkdocstrings[python]>=0.29.1",
 ]
@@ -57,12 +57,12 @@ lint = [
   "deptry>=0.23.0",
   "gitlint>=0.19.1",
   "pre-commit>=4.2.0",
-  "ruff>=0.12.0",
+  "ruff>=0.12.4",
 ]
 test = [
-  "pytest>=8.4.0",
+  "pytest>=8.4.1",
   "pytest-clarity>=1.0.1",
-  "pytest-cov>=6.1.1",
+  "pytest-cov>=6.2.1",
   "pytest-deadfixtures>=2.2.1",
   "pytest-mock>=3.14.1",
   "pytest-randomly>=3.16.0",
@@ -71,15 +71,15 @@ test = [
   "uvloop>=0.21.0; sys_platform != 'win32'",
 ]
 typecheck = [
-  "basedpyright>=1.29.2",
-  "mypy>=1.16.1",
-  "ty>=0.0.1a11",
+  "basedpyright>=1.31.0",
+  "mypy>=1.17.0",
+  "ty>=0.0.1a15",
 ]
 
 # ----- UV settings -----
 [tool.uv]
 default-groups = "all"
-required-version = ">=0.7.13"
+required-version = ">=0.8.0"
 
 
 # ----- Pytest settings -----
@@ -269,8 +269,8 @@ exclude = [
 # ----- Semantic release settings -----
 [tool.semantic_release]
 build_command = """
-    command -v uv 2>/dev/null || pip install uv==0.7.13
-    uv lock --offline
+    command -v uv 2>/dev/null || pip install uv==0.8.0
+    uv lock --upgrade-package "$PACKAGE_NAME"
     git add uv.lock
     uv build
 """
