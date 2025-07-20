@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.21.0 (2025-07-20)
+
+### ✨ Features
+
+- Improve providers registration interfaces
+  ([`c43f2b8`](https://github.com/waku-py/waku/commit/c43f2b8892d48a10f199b64da0ff005050e5cd64))
+
+
 ## v0.20.0 (2025-06-11)
 
 ### ✨ Features
@@ -362,7 +370,7 @@
 
 ### ⚙️ Build System
 
-- Make patch release only for `fix` &amp;amp;amp; `perf` tags
+- Make patch release only for `fix` &amp;amp;amp;amp; `perf` tags
   ([`b9cf6bf`](https://github.com/waku-py/waku/commit/b9cf6bf77047e21959f4e1bbe2a1bb1566cccd1c))
 
 ### 📖 Documentation
