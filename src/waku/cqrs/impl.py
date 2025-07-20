@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Any, cast
 
 from dishka.exceptions import NoFactoryError
@@ -84,9 +85,9 @@ class Mediator(IMediator):
 
         return cast(ResponseT, result)
 
-    async def _resolve_behaviors(self, request_type: type[Request[Any]]) -> list[IPipelineBehavior[Any, Any]]:
+    async def _resolve_behaviors(self, request_type: type[Request[Any]]) -> Sequence[IPipelineBehavior[Any, Any]]:
         try:
-            global_behaviors = await self._container.get(list[IPipelineBehavior[Any, Any]])
+            global_behaviors = await self._container.get(Sequence[IPipelineBehavior[Any, Any]])
         except NoFactoryError:
             global_behaviors = []
 
@@ -94,7 +95,7 @@ class Mediator(IMediator):
         request_specific_behavior_type = IPipelineBehavior[request_type, response_type]  # type: ignore[valid-type]
 
         try:
-            request_specific_behaviors = await self._container.get(list[request_specific_behavior_type])
+            request_specific_behaviors = await self._container.get(Sequence[request_specific_behavior_type])
         except NoFactoryError:
             request_specific_behaviors = []
 
@@ -103,12 +104,12 @@ class Mediator(IMediator):
     async def _resolve_event_handlers(
         self,
         event_type: type[EventT],
-    ) -> list[EventHandler[EventT]]:
+    ) -> Sequence[EventHandler[EventT]]:
         handler_type = self._get_event_handler_type(event_type)
 
         try:
-            handlers = await self._container.get(list[handler_type])  # type: ignore[valid-type]
-            return cast(list[EventHandler[EventT]], handlers)
+            handlers = await self._container.get(Sequence[handler_type])  # type: ignore[valid-type]
+            return cast(Sequence[EventHandler[EventT]], handlers)
         except NoFactoryError as err:
             raise EventHandlerNotFound(event_type) from err
 

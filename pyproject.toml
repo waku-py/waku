@@ -1,6 +1,6 @@
 [build-system]
-build-backend = "hatchling.build"
-requires = ["hatchling"]
+requires = ["uv_build>=0.7.21,<0.8.0"]
+build-backend = "uv_build"
 
 [project]
 name = "waku"
@@ -40,10 +40,6 @@ Documentation = "https://waku-py.github.io/waku/"
 Changelog = "https://github.com/waku-py/waku/blob/master/CHANGELOG.md"
 Issues = "https://github.com/waku-py/waku/issues"
 
-[tool.hatch.build.targets.sdist]
-ignore-vcs = true
-only-include = ["src/waku", "tests"]
-
 [dependency-groups]
 dev = [
   "pip-audit>=2.9.0",
@@ -61,7 +57,7 @@ lint = [
   "deptry>=0.23.0",
   "gitlint>=0.19.1",
   "pre-commit>=4.2.0",
-  "ruff>=0.11.12",
+  "ruff>=0.12.0",
 ]
 test = [
   "pytest>=8.4.0",
@@ -76,8 +72,8 @@ test = [
 ]
 typecheck = [
   "basedpyright>=1.29.2",
-  "mypy>=1.16.0",
-  "ty>=0.0.1a8",
+  "mypy>=1.16.1",
+  "ty>=0.0.1a11",
 ]
 
 # ----- UV settings -----
@@ -95,7 +91,7 @@ addopts = [
   "--doctest-modules",
   "--strict-markers",
   "--strict-config",
-  "--cov-fail-under=87",
+  "--cov-fail-under=88",
 ]
 # pytest-timeout settings
 timeout = 5
@@ -262,6 +258,12 @@ ignore_missing_imports = true
 [tool.ty.environment]
 python = "./.venv"
 python-version = "3.11"
+
+[tool.ty.src]
+exclude = [
+  "docs/code/getting_started",
+  "docs/code/providers",
+]
 
 
 # ----- Semantic release settings -----

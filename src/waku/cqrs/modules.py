@@ -10,12 +10,12 @@ from waku.cqrs.events.handler import EventHandler, EventHandlerType
 from waku.cqrs.events.map import EventMap
 from waku.cqrs.events.publish import EventPublisher, SequentialEventPublisher
 from waku.cqrs.impl import Mediator
-from waku.cqrs.interfaces import IMediator, IPublisher, ISender
+from waku.cqrs.interfaces import IMediator
 from waku.cqrs.pipeline.map import PipelineBehaviourMap
 from waku.cqrs.requests.handler import RequestHandler, RequestHandlerType
 from waku.cqrs.requests.map import RequestMap
 from waku.cqrs.utils import get_request_response_type
-from waku.di import AnyOf, Provider, Scope, scoped, transient
+from waku.di import Provider, WithParents, many, scoped, transient
 from waku.extensions import OnModuleConfigure
 from waku.modules import DynamicModule, ModuleMetadata, module
 
@@ -83,13 +83,15 @@ class MediatorModule:
     @staticmethod
     def _create_mediator_providers(config: MediatorConfig) -> _HandlerProviders:
         return (
-            scoped(config.mediator_implementation_type, provided_type=AnyOf[ISender, IPublisher, IMediator]),
-            scoped(config.event_publisher, provided_type=EventPublisher),
+            scoped(WithParents[IMediator], config.mediator_implementation_type),
+            scoped(EventPublisher, config.event_publisher),
         )
 
     @staticmethod
     def _create_pipeline_behavior_providers(config: MediatorConfig) -> _HandlerProviders:
-        return (_reg_list(config.pipeline_behaviors, base=IPipelineBehavior[Any, Any]),)
+        if not config.pipeline_behaviors:
+            return ()
+        return (many(IPipelineBehavior[Any, Any], *config.pipeline_behaviors),)
 
 
 class MediatorExtension(OnModuleConfigure):
@@ -130,37 +132,23 @@ class MediatorExtension(OnModuleConfigure):
     def _create_request_handler_providers(self) -> _HandlerProviders:
         return tuple(
             transient(
+                RequestHandler[request_type, get_request_response_type(request_type)],  # type: ignore[arg-type, valid-type, misc]
                 handler_type,
-                provided_type=RequestHandler[request_type, get_request_response_type(request_type)],  # type: ignore[arg-type, valid-type, misc]
             )
             for request_type, handler_type in self._request_map.registry.items()
         )
 
     def _create_event_handler_providers(self) -> _HandlerProviders:
         return tuple(
-            _reg_list(handler_types, base=EventHandler[event_type])  # type: ignore[valid-type]
+            many(EventHandler[event_type], *handler_types)  # type: ignore[valid-type]
             for event_type, handler_types in self._event_map.registry.items()
         )
 
     def _create_pipeline_behavior_providers(self) -> _HandlerProviders:
         return tuple(
-            _reg_list(
-                behavior_types,
-                base=IPipelineBehavior[request_type, get_request_response_type(request_type)],  # type: ignore[arg-type, valid-type, misc]
+            many(
+                IPipelineBehavior[request_type, get_request_response_type(request_type)],  # type: ignore[arg-type, valid-type, misc]
+                *behavior_types,
             )
             for request_type, behavior_types in self._behavior_map.registry.items()
         )
-
-
-def _reg_list(classes: Sequence[type[Any]], base: type[Any]) -> Provider:
-    provider = Provider(scope=Scope.REQUEST)
-    provider.provide_all(*classes, cache=False)
-    provider.provide(lambda: [], provides=list[base], cache=False)  # type: ignore[valid-type]  # noqa: PIE807
-
-    for cls in classes:
-
-        @provider.decorate
-        def foo(many: list[base], one: cls) -> list[base]:  # type: ignore[valid-type]
-            return [*many, one]
-
-    return provider

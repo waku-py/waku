@@ -1,4 +1,4 @@
-version: '3'
+version: "3"
 
 set: [ nounset ]
 
@@ -18,7 +18,7 @@ tasks:
       task: all
 
   .uv:
-    desc: Check UV installation and lockfile status
+    desc: Check UV installation
     internal: true
     silent: true
     preconditions:
@@ -26,13 +26,13 @@ tasks:
         msg: "⚠️ UV not found. Install from: https://docs.astral.sh/uv/getting-started/installation/"
 
   .uv-locked:
-    desc: Check UV installation and lockfile status
+    desc: Check UV lockfile status
     deps: [ .uv ]
     internal: true
     silent: true
     preconditions:
       - sh: uv lock --locked
-        msg: "⚠️ Lockfile outdated. Run: task deps:sync"
+        msg: "⚠️ Project lockfile is out of sync. Run: task deps:sync"
 
   deps:install:
     aliases: [ install ]
@@ -59,7 +59,9 @@ tasks:
     deps: [ .uv-locked ]
     silent: true
     cmds:
-      - uv sync --all-extras --all-groups --upgrade
+      - task: deps:sync
+        vars:
+          CLI_ARGS: --upgrade
       - uv run pre-commit autoupdate
       - echo "✅ Dependencies upgraded"
 
@@ -69,11 +71,6 @@ tasks:
     cmds:
       - uv run ruff check {{.SOURCES}} {{.CLI_ARGS}}
       - uv run ruff format --check {{.SOURCES}}
-    sources:
-      - "**/*.py"
-      - "pyproject.toml"
-    generates:
-      - ".ruff_cache/**/*"
 
   format:
     aliases: [ fmt ]
@@ -82,22 +79,12 @@ tasks:
     cmds:
       - uv run ruff check --fix {{.SOURCES}}
       - uv run ruff format {{.SOURCES}}
-    sources:
-      - "**/*.py"
-      - "pyproject.toml"
-    generates:
-      - ".ruff_cache/**/*"
 
   typecheck:
     aliases: [ mypy ]
     desc: Type check code
     deps: [ .uv-locked ]
-    cmds:
-      - uv run mypy{{ if ne (env "MYPY_PRETTY") "0" }} --pretty{{end}} {{.SOURCES}}
-    sources:
-      - "**/*.py"
-    generates:
-      - ".mypy_cache/**/*"
+    cmd: uv run mypy{{ if ne (env "MYPY_PRETTY") "0" }} --pretty{{end}} {{.SOURCES}}
 
   basedpyright:
     desc: Type check code with basedpyright
@@ -109,7 +96,7 @@ tasks:
     desc: Type check code with ty
     deps: [ .uv-locked ]
     cmds:
-      - uv run ty check src tests
+      - uv run ty check {{.SOURCES}}
 
   check:
     aliases: [ ci ]
@@ -153,7 +140,6 @@ tasks:
   test:cov:
     aliases: [ 'test:ci', 'test:all' ]
     desc: Run tests with coverage
-    deps: [ .uv-locked ]
     vars:
       PYTEST_ARGS: --cov
     cmds:
