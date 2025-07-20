@@ -57,7 +57,7 @@ async def application() -> AsyncIterator[WakuApplication]:
     AppModule = create_basic_module(
         providers=[
             singleton(OtherService),  # app scoped
-            scoped(SomeService, provided_type=ISomeService),  # request scoped
+            scoped(ISomeService, SomeService),  # request scoped
         ],
         name='AppModule',
     )
@@ -79,14 +79,14 @@ async def request_container(application: WakuApplication) -> AsyncIterator[Async
 async def test_override_with_factory_providers(provider_type: Callable[..., Provider]) -> None:
     """Test overriding services using factory providers with different scopes."""
     AppModule = create_basic_module(
-        providers=[provider_type(SomeService, provided_type=ISomeService)],
+        providers=[provider_type(ISomeService, SomeService)],
         name='AppModule',
     )
 
     application = WakuFactory(AppModule).create()
 
     async with application:
-        with override(application.container, provider_type(FakeSomeService, provided_type=ISomeService)):
+        with override(application.container, provider_type(ISomeService, FakeSomeService)):
             async with application.container() as request_container:
                 overrode_service = await request_container.get(ISomeService)
                 assert isinstance(overrode_service, FakeSomeService)
@@ -96,7 +96,7 @@ async def test_override_with_factory_providers(provider_type: Callable[..., Prov
 async def test_override_with_object_provider(provider_type: Callable[..., Provider]) -> None:
     """Test overriding services using object providers with different scopes."""
     AppModule = create_basic_module(
-        providers=[provider_type(SomeService, provided_type=ISomeService)],
+        providers=[provider_type(ISomeService, SomeService)],
         name='AppModule',
     )
 
@@ -128,7 +128,7 @@ async def test_override_with_contextual_provider() -> None:
             assert isinstance(original_service, Service)
             assert original_service.method() == initial_val
 
-        with override(application.container, scoped(ServiceOverride, provided_type=Service)):
+        with override(application.container, scoped(Service, ServiceOverride)):
             async with application.container() as request_container:
                 overrode_service = await request_container.get(Service)
                 assert isinstance(overrode_service, ServiceOverride)
@@ -137,7 +137,7 @@ async def test_override_with_contextual_provider() -> None:
 
 async def test_override_app_container_from_fixture(application: WakuApplication) -> None:
     """Test overriding app-scoped services using fixture-provided application."""
-    with override(application.container, singleton(FakeOtherService, provided_type=OtherService)):
+    with override(application.container, singleton(OtherService, FakeOtherService)):
         overrode_service = await application.container.get(OtherService)
         assert isinstance(overrode_service, FakeOtherService)
 
@@ -148,7 +148,7 @@ async def test_override_request_container_from_fixture(
     provider_type: Callable[..., Provider],
 ) -> None:
     """Test overriding request-scoped services using fixture-provided container."""
-    with override(request_container, provider_type(FakeSomeService, provided_type=ISomeService)):
+    with override(request_container, provider_type(ISomeService, FakeSomeService)):
         overrode_service = await request_container.get(ISomeService)
         assert isinstance(overrode_service, FakeSomeService)
 

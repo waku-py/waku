@@ -12,7 +12,7 @@ async def test_provider_scope_behavior() -> None:
     AppModule = create_basic_module(
         providers=[
             scoped(Service),
-            transient(lambda: UserService(user_id=2), provided_type=UserService),
+            transient(UserService, lambda: UserService(user_id=2)),
         ],
         name='AppModule',
     )
@@ -60,7 +60,7 @@ async def test_request_context_provider_isolation() -> None:
     AppModule = create_basic_module(
         providers=[
             contextual(RequestContext),
-            scoped(_create_user_service, provided_type=UserService),
+            scoped(UserService, _create_user_service),
         ],
         name='AppModule',
     )
@@ -85,7 +85,7 @@ async def test_injected_dependency_instance_sharing() -> None:
     """Injected dependencies should share the same instance within a scope."""
     AppModule = create_basic_module(
         providers=[
-            singleton(lambda: 1, provided_type=int),
+            singleton(int, lambda: 1),
             scoped(Service),
             scoped(DependentService),
         ],

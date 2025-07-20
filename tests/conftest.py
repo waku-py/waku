@@ -1,9 +1,14 @@
 """Test configuration and shared fixtures."""
 
+from __future__ import annotations
+
 import sys
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
+
+if TYPE_CHECKING:
+    from _pytest.fixtures import SubRequest
 
 
 @pytest.fixture(
@@ -22,5 +27,5 @@ import pytest
     ],
     autouse=True,
 )
-def anyio_backend(request: pytest.FixtureRequest) -> tuple[str, dict[str, object]]:
-    return cast(tuple[str, dict[str, object]], request.param)
+def anyio_backend(request: SubRequest) -> tuple[str, dict[str, object]]:
+    return cast(tuple[str, dict[str, object]], request.param)  # ty: ignore[possibly-unbound-attribute]

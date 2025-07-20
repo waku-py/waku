@@ -39,8 +39,6 @@ class Module:
         self.extensions: Final[Sequence[ModuleExtension]] = metadata.extensions
         self.is_global: Final[bool] = metadata.is_global
 
-        self._provider: BaseProvider | None = None
-
     @property
     def name(self) -> str:
         return self.target.__name__
@@ -60,9 +58,7 @@ class Module:
         return hash(self.id)
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Module):  # pragma: no cover
-            return False
-        return self.id == other.id
+        return self.id == other.id if isinstance(other, Module) else False
 
 
 class _ModuleProvider(BaseProvider):

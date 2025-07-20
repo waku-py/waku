@@ -108,7 +108,7 @@ async def test_accessibility_import_export_matrix(
 async def test_accessible_with_exported_and_imported(application_factory: ApplicationFactoryFunc) -> None:
     """Test that dependency is accessible when exported and imported."""
     AModule = create_basic_module(
-        providers=[scoped(A), scoped(_impl, provided_type=C)],
+        providers=[scoped(A), scoped(C, _impl)],
         exports=[A, C],
         name='AModule',
     )
@@ -474,12 +474,12 @@ async def test_multiple_module_providers(application_factory: ApplicationFactory
         dependency: SharedInterface
 
     FirstModule = create_basic_module(
-        providers=[scoped(FirstImplementation, provided_type=SharedInterface)],
+        providers=[scoped(SharedInterface, FirstImplementation)],
         exports=[SharedInterface],
         name='FirstModule',
     )
     SecondModule = create_basic_module(
-        providers=[scoped(SecondImplementation, provided_type=SharedInterface)],
+        providers=[scoped(SharedInterface, SecondImplementation)],
         exports=[SharedInterface],
         name='SecondModule',
     )
@@ -622,8 +622,8 @@ async def test_with_generic_provider(application_factory: ApplicationFactoryFunc
 
     UsersModule = create_basic_module(
         providers=[
-            scoped(UserFactory, provided_type=AnyOf[IUserFactory[User], UserFactory]),
-            scoped(AdminUserFactory, provided_type=AnyOf[IUserFactory[AdminUser], AdminUserFactory]),
+            scoped(AnyOf[IUserFactory[User], UserFactory], UserFactory),
+            scoped(AnyOf[IUserFactory[AdminUser], AdminUserFactory], AdminUserFactory),
         ],
         name='UsersModule',
         exports=[
