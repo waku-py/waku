@@ -8,7 +8,7 @@ version = "0.21.0"
 description = "Framework for building modular and loosely coupled applications"
 readme = "README.md"
 license = "MIT"
-keywords = ["architecture", "modular", "decoupled", "framework", "dishka"]
+keywords = ["architecture", "modular", "decoupled", "framework", "dishka", "ioc", "di"]
 authors = [
   { name = "Daniil Kharkov", email = "fadeddexofan@gmail.com" },
   { name = "Doctor", email = "thirvondukr@gmail.com" },
@@ -51,15 +51,16 @@ docs = [
   "mkdocs-git-revision-date-localized-plugin>=1.4.7",
   "mkdocs-material>=9.6.15",
   "mkdocs-redirects>=1.2.2",
-  "mkdocstrings[python]>=0.29.1",
+  "mkdocstrings[python]>=0.30.0",
 ]
 lint = [
   "deptry>=0.23.0",
   "gitlint>=0.19.1",
   "pre-commit>=4.2.0",
-  "ruff>=0.12.4",
+  "ruff>=0.12.5",
 ]
 test = [
+  "coverage>=7.10.0",
   "pytest>=8.4.1",
   "pytest-clarity>=1.0.1",
   "pytest-cov>=6.2.1",
@@ -73,7 +74,7 @@ test = [
 typecheck = [
   "basedpyright>=1.31.0",
   "mypy>=1.17.0",
-  "ty>=0.0.1a15",
+  "ty>=0.0.1a16",
 ]
 
 # ----- UV settings -----
@@ -269,7 +270,7 @@ exclude = [
 # ----- Semantic release settings -----
 [tool.semantic_release]
 build_command = """
-    command -v uv 2>/dev/null || pip install uv==0.8.0
+    command -v uv 2>/dev/null || pip install uv==0.8.3
     uv lock --upgrade-package "$PACKAGE_NAME"
     git add uv.lock
     uv build
