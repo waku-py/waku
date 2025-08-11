@@ -123,7 +123,7 @@ jobs:
 
       - name: Release | Python Semantic Release
         id: release
-        uses: python-semantic-release/python-semantic-release@2896129e02bb7809d2cf0c1b8e9e795ee27acbcf # v10.2.0
+        uses: python-semantic-release/python-semantic-release@5b9d941d5b29da138b933660ce1a9df75b54ce25 # v10.3.1
         with:
           github_token: ${{ steps.app-token.outputs.token }}
           git_committer_name: ${{ env.GITHUB_ACTIONS_AUTHOR_NAME }}
