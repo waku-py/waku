@@ -50,18 +50,18 @@ docs = [
   "mkdocs-callouts>=1.16.0",
   "mkdocs-exclude>=1.0.2",
   "mkdocs-git-revision-date-localized-plugin>=1.4.7",
-  "mkdocs-material>=9.6.15",
+  "mkdocs-material>=9.6.16",
   "mkdocs-redirects>=1.2.2",
   "mkdocstrings[python]>=0.30.0",
 ]
 lint = [
-  "deptry>=0.23.0",
+  "deptry>=0.23.1",
   "gitlint>=0.19.1",
-  "pre-commit>=4.2.0",
-  "ruff>=0.12.5",
+  "pre-commit>=4.3.0",
+  "ruff>=0.12.8",
 ]
 test = [
-  "coverage>=7.10.0",
+  "coverage>=7.10.3",
   "pytest>=8.4.1",
   "pytest-clarity>=1.0.1",
   "pytest-cov>=6.2.1",
@@ -73,9 +73,9 @@ test = [
   "uvloop>=0.21.0; sys_platform != 'win32' and python_version < '3.14'",
 ]
 typecheck = [
-  "basedpyright>=1.31.0",
-  "mypy>=1.17.0",
-  "ty>=0.0.1a16",
+  "basedpyright>=1.31.1",
+  "mypy>=1.17.1",
+  "ty>=0.0.1a17",
 ]
 
 # ----- UV settings -----

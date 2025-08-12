@@ -85,7 +85,7 @@ repos:
 
       - id: typecheck-ty
         name: Run type checking with Ty
-        entry: task ty
+        entry: task ty -- --output-format=concise
         types: [ python ]
         language: system
         pass_filenames: false
