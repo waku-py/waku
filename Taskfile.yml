@@ -69,7 +69,7 @@ tasks:
     desc: Lint code
     deps: [ .uv-locked ]
     cmds:
-      - uv run ruff check {{.SOURCES}} {{.CLI_ARGS}}
+      - uv run ruff check {{.CLI_ARGS}} {{.SOURCES}}
       - uv run ruff format --check {{.SOURCES}}
 
   format:
@@ -96,7 +96,7 @@ tasks:
     desc: Type check code with ty
     deps: [ .uv-locked ]
     cmds:
-      - uv run ty check {{.SOURCES}}
+      - uv run ty check {{.CLI_ARGS}} {{.SOURCES}}
 
   check:
     aliases: [ ci ]
