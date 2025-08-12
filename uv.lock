@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 
 [[package]]
@@ -1494,7 +1494,7 @@ test = [
     { name = "pytest-randomly" },
     { name = "pytest-timeout" },
     { name = "trio" },
-    { name = "uvloop", marker = "sys_platform != 'win32'" },
+    { name = "uvloop", marker = "python_full_version < '3.14' and sys_platform != 'win32'" },
 ]
 typecheck = [
     { name = "basedpyright" },
@@ -1536,7 +1536,7 @@ test = [
     { name = "pytest-randomly", specifier = ">=3.16.0" },
     { name = "pytest-timeout", specifier = ">=2.4.0" },
     { name = "trio", specifier = ">=0.30.0" },
-    { name = "uvloop", marker = "sys_platform != 'win32'", specifier = ">=0.21.0" },
+    { name = "uvloop", marker = "python_full_version < '3.14' and sys_platform != 'win32'", specifier = ">=0.21.0" },
 ]
 typecheck = [
     { name = "basedpyright", specifier = ">=1.31.0" },

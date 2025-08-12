@@ -17,10 +17,16 @@ if TYPE_CHECKING:
         pytest.param(
             ('asyncio', {'use_uvloop': True}),
             id='asyncio+uvloop',
-            marks=pytest.mark.skipif(
-                sys.platform.startswith('win'),
-                reason='uvloop does not support Windows',
-            ),
+            marks=[
+                pytest.mark.skipif(
+                    sys.platform.startswith('win'),
+                    reason='uvloop does not support Windows',
+                ),
+                pytest.mark.skipif(
+                    sys.version_info >= (3, 14),
+                    reason='uvloop does not support Python 3.14+',
+                ),
+            ],
         ),
         pytest.param(('asyncio', {'use_uvloop': False}), id='asyncio'),
         pytest.param(('trio', {'restrict_keyboard_interrupt_to_checkpoints': True}), id='trio'),
