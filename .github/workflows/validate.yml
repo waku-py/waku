@@ -268,7 +268,7 @@ jobs:
           enable-cache: true
 
       - name: Report | Download test results
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           pattern: junit-report-*
           path: ./tests/reports/
@@ -289,7 +289,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Report | Download coverage reports
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           pattern: coverage-report-*
           path: ./tests/reports/
