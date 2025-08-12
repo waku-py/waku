@@ -55,7 +55,7 @@ jobs:
       group: ${{ github.workflow }}-validate-${{ github.ref_name }}
       cancel-in-progress: true
     with:
-      python-versions: '[ "3.11", "3.12", "3.13" ]'
+      python-versions: '[ "3.11", "3.12", "3.13", "3.14.0-rc.1"]'
       files-changed: ${{ needs.eval-changes.outputs.any-file-changes }}
       build-files-changed: ${{ needs.eval-changes.outputs.build-changes }}
       ci-files-changed: ${{ needs.eval-changes.outputs.ci-changes }}
