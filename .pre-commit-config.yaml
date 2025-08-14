@@ -100,9 +100,9 @@ repos:
         fail_fast: true
         stages: [ pre-push, manual ]  # Run on push only to speed up commits
 
-      - id: security-check
-        name: Run security checks
-        entry: task security-audit
+      - id: security-audit
+        name: Run security audit checks
+        entry: task deps:audit
         language: system
         pass_filenames: false
         fail_fast: true
