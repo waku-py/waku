@@ -65,6 +65,13 @@ tasks:
       - uv run pre-commit autoupdate
       - echo "✅ Dependencies upgraded"
 
+  deps:audit:
+    aliases: [ security-audit ]
+    desc: Audit dependencies for vulnerabilities
+    deps: [ .uv-locked ]
+    silent: true
+    cmd: uv run pysentry-rs --all-extras {{.CLI_ARGS}}
+
   lint:
     desc: Lint code
     deps: [ .uv-locked ]
@@ -113,14 +120,6 @@ tasks:
     deps: [ .uv-locked ]
     silent: true
     cmd: uv run pre-commit run --verbose --all-files --hook-stage manual
-
-  security-audit:
-    desc: Audit dependencies for vulnerabilities
-    deps: [ .uv-locked ]
-    silent: true
-    cmd: uv export --no-emit-project --no-header --no-annotate | uv run pip-audit --require-hashes --disable-pip -r /dev/stdin
-    env:
-      PIP_AUDIT_PROGRESS_SPINNER: "off"
 
   deptry:
     desc: Find unused, missing and transitive dependencies in project
