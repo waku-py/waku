@@ -66,7 +66,7 @@ Before you begin, ensure you have the following installed:
 
     ```bash
     # Install dependencies and configure pre-commit hooks
-    task install
+    task deps:install
     ```
 
     > **Tip:** Run `task -l` after setup to verify everything is working and to see available commands.

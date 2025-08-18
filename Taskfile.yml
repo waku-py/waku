@@ -41,7 +41,7 @@ tasks:
     silent: true
     cmds:
       - task: deps:sync
-      - uv run pre-commit install
+      - uv run prek install
       - echo "✅ Development environment setup complete"
 
   deps:sync:
@@ -62,7 +62,7 @@ tasks:
       - task: deps:sync
         vars:
           CLI_ARGS: --upgrade
-      - uv run pre-commit autoupdate
+      - uv run prek auto-update || true
       - echo "✅ Dependencies upgraded"
 
   deps:audit:
@@ -116,10 +116,11 @@ tasks:
     cmd: uv run pre-commit run codespell --all-files
 
   pre-commit-all:
+    aliases: [ prek ]
     desc: Run all pre-commit hooks against all files
     deps: [ .uv-locked ]
     silent: true
-    cmd: uv run pre-commit run --verbose --all-files --hook-stage manual
+    cmd: uv run prek run --verbose --all-files --hook-stage manual
 
   deptry:
     desc: Find unused, missing and transitive dependencies in project
