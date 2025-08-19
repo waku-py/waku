@@ -24,7 +24,7 @@ if TYPE_CHECKING:
                 ),
                 pytest.mark.skipif(
                     sys.version_info >= (3, 14),
-                    reason='uvloop does not support Python 3.14+',
+                    reason='uvloop does not yet support Python 3.14+',
                 ),
             ],
         ),
