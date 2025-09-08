@@ -25,4 +25,4 @@ class EventHandler(abc.ABC, Generic[EventT]):
         raise NotImplementedError
 
 
-EventHandlerType: TypeAlias = type[EventHandler[EventT]]
+EventHandlerType: TypeAlias = type[EventHandler[EventT]]  # ty: ignore[invalid-argument-type]

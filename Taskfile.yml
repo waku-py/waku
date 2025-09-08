@@ -115,8 +115,8 @@ tasks:
     deps: [ .uv-locked ]
     cmd: uv run pre-commit run codespell --all-files
 
-  pre-commit-all:
-    aliases: [ prek ]
+  pre-commit:
+    aliases: [ prek, pre-commit-all ]
     desc: Run all pre-commit hooks against all files
     deps: [ .uv-locked ]
     silent: true
