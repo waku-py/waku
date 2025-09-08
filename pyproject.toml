@@ -1,5 +1,5 @@
 [build-system]
-requires = ["uv_build>=0.8.9,<0.9.0"]
+requires = ["uv_build>=0.8.15,<0.9.0"]
 build-backend = "uv_build"
 
 [project]
@@ -43,45 +43,45 @@ Issues = "https://github.com/waku-py/waku/issues"
 
 [dependency-groups]
 dev = [
-  "pysentry-rs>=0.3.3",
+  "pysentry-rs==0.3.7",
 ]
 docs = [
-  "mkdocs>=1.6.1",
-  "mkdocs-callouts>=1.16.0",
-  "mkdocs-exclude>=1.0.2",
-  "mkdocs-git-revision-date-localized-plugin>=1.4.7",
-  "mkdocs-material>=9.6.16",
-  "mkdocs-redirects>=1.2.2",
-  "mkdocstrings[python]>=0.30.0",
+  "mkdocs==1.6.1",
+  "mkdocs-callouts==1.16.0",
+  "mkdocs-exclude==1.0.2",
+  "mkdocs-git-revision-date-localized-plugin==1.4.7",
+  "mkdocs-material==9.6.19",
+  "mkdocs-redirects==1.2.2",
+  "mkdocstrings[python]==0.30.0",
 ]
 lint = [
-  "deptry>=0.23.1",
-  "gitlint>=0.19.1",
-  "prek>=0.0.29",
-  "ruff>=0.12.8",
+  "deptry==0.23.1",
+  "gitlint==0.19.1",
+  "prek==0.2.0a2",
+  "ruff==0.12.12",
 ]
 test = [
-  "coverage>=7.10.3",
-  "pytest>=8.4.1",
-  "pytest-clarity>=1.0.1",
-  "pytest-cov>=6.2.1",
-  "pytest-deadfixtures>=2.2.1",
-  "pytest-mock>=3.14.1",
-  "pytest-randomly>=3.16.0",
-  "pytest-timeout>=2.4.0",
-  "trio>=0.30.0",
-  "uvloop>=0.21.0; sys_platform != 'win32' and python_version < '3.14'",
+  "coverage==7.10.6",
+  "pytest==8.4.2",
+  "pytest-clarity==1.0.1",
+  "pytest-cov==6.3.0",
+  "pytest-deadfixtures==2.2.1",
+  "pytest-mock==3.15.0",
+  "pytest-randomly==3.16.0",
+  "pytest-timeout==2.4.0",
+  "trio==0.30.0",
+  "uvloop==0.21.0; sys_platform != 'win32' and python_version < '3.14'",
 ]
 typecheck = [
-  "basedpyright>=1.31.1",
-  "mypy>=1.17.1",
-  "ty>=0.0.1a17",
+  "basedpyright==1.31.4",
+  "mypy==1.17.1",
+  "ty==0.0.1a20",
 ]
 
 # ----- UV settings -----
 [tool.uv]
 default-groups = "all"
-required-version = ">=0.8.9"
+required-version = ">=0.8.15"
 
 
 # ----- Pytest settings -----

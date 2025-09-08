@@ -42,4 +42,4 @@ class RequestHandler(abc.ABC, Generic[RequestT, ResponseT]):
         raise NotImplementedError
 
 
-RequestHandlerType: TypeAlias = type[RequestHandler[RequestT, ResponseT]]
+RequestHandlerType: TypeAlias = type[RequestHandler[RequestT, ResponseT]]  # ty: ignore[invalid-argument-type]

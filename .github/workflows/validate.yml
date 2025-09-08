@@ -166,7 +166,7 @@ jobs:
 
       - name: Lint | Run all pre-commit hooks
         id: lint
-        run: task pre-commit-all
+        run: task pre-commit
 
       - name: Lint | Commit Checks
         run: |
