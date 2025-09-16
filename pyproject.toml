@@ -1,5 +1,5 @@
 [build-system]
-requires = ["uv_build>=0.8.15,<0.9.0"]
+requires = ["uv_build>=0.8.17,<0.9.0"]
 build-backend = "uv_build"
 
 [project]
@@ -81,7 +81,7 @@ typecheck = [
 # ----- UV settings -----
 [tool.uv]
 default-groups = "all"
-required-version = ">=0.8.15"
+required-version = ">=0.8.17"
 
 
 # ----- Pytest settings -----
@@ -271,7 +271,7 @@ exclude = [
 # ----- Semantic release settings -----
 [tool.semantic_release]
 build_command = """
-    command -v uv 2>/dev/null || pip install uv==0.8.9
+    command -v uv 2>/dev/null || pip install uv==0.8.17
     uv lock --upgrade-package "$PACKAGE_NAME"
     git add uv.lock
     uv build
