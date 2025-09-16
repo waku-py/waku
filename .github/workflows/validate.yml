@@ -151,7 +151,7 @@ jobs:
           python-version: ${{ env.COMMON_PYTHON_VERSION }}
 
       - name: Setup | Install Task
-        uses: arduino/setup-task@v2
+        uses: go-task/setup-task@v1
         with:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -202,7 +202,7 @@ jobs:
           check-latest: true
 
       - name: Setup | Install Task
-        uses: arduino/setup-task@v2
+        uses: go-task/setup-task@v1
         with:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
