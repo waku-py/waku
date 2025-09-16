@@ -3,6 +3,7 @@
   "extends": [
     "config:best-practices",
     "schedule:daily",
+    "schedule:automergeDaily",
     ":enablePreCommit",
     ":maintainLockFilesWeekly",
     ":prHourlyLimitNone",
@@ -12,16 +13,6 @@
   "labels": [
     "dependencies",
     "renovate"
-  ],
-  "packageRules": [
-    {
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
-      "matchCurrentVersion": "!/^0/",
-      "automerge": true
-    }
   ],
   "prConcurrentLimit": 0,
   "assignees": [
