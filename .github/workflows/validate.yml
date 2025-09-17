@@ -151,7 +151,7 @@ jobs:
           python-version: ${{ env.COMMON_PYTHON_VERSION }}
 
       - name: Setup | Install Task
-        uses: go-task/setup-task@v1
+        uses: go-task/setup-task@0ab1b2a65bc55236a3bc64cde78f80e20e8885c2 # v1
         with:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -202,7 +202,7 @@ jobs:
           check-latest: true
 
       - name: Setup | Install Task
-        uses: go-task/setup-task@v1
+        uses: go-task/setup-task@0ab1b2a65bc55236a3bc64cde78f80e20e8885c2 # v1
         with:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
