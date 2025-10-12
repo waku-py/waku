@@ -75,7 +75,7 @@ test = [
 typecheck = [
   "basedpyright==1.31.4",
   "mypy==1.18.2",
-  "ty==0.0.1a21",
+  "ty==0.0.1a22",
 ]
 
 # ----- UV settings -----
