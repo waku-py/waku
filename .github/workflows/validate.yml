@@ -119,7 +119,7 @@ jobs:
           printf '%s\n' "artifacts_name=dist" >> "$GITHUB_OUTPUT"
 
       - name: Upload | Distribution Artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: ${{ steps.build.outputs.artifacts_name }}
           path: ${{ steps.build.outputs.dist_dir }}
@@ -226,7 +226,7 @@ jobs:
             --junit-xml=tests/reports/pytest-results-${{ matrix.python-version }}.xml \
 
       - name: Test | Archive JUnit XML test results
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: junit-report-${{ matrix.python-version }}
           path: tests/reports/pytest-results-${{ matrix.python-version }}.xml
@@ -237,7 +237,7 @@ jobs:
         run: mv .coverage .coverage.${{ matrix.python-version }}
 
       - name: Test | Archive coverage results
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: coverage-report-${{ matrix.python-version }}
           path: .coverage.${{ matrix.python-version }}
@@ -268,7 +268,7 @@ jobs:
           enable-cache: true
 
       - name: Report | Download test results
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           pattern: junit-report-*
           path: ./tests/reports/
@@ -289,7 +289,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Report | Download coverage reports
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           pattern: coverage-report-*
           path: ./tests/reports/
