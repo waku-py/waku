@@ -62,7 +62,7 @@ lint = [
 ]
 test = [
   "coverage==7.10.7",
-  "pytest==8.4.2",
+  "pytest==9.0.1",
   "pytest-clarity==1.0.1",
   "pytest-cov==7.0.0",
   "pytest-deadfixtures==2.2.1",
