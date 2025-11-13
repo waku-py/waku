@@ -1,114 +1,114 @@
 {
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:best-practices",
-    "schedule:daily",
-    ":enablePreCommit",
-    ":prHourlyLimitNone",
-    ":semanticCommits"
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'config:best-practices',
+    'schedule:daily',
+    ':enablePreCommit',
+    ':prHourlyLimitNone',
+    ':semanticCommits',
   ],
-  "labels": [
-    "dependencies",
-    "renovate"
+  labels: [
+    'dependencies',
+    'renovate',
   ],
-  "prConcurrentLimit": 0,
-  "timezone": "UTC",
-  "rangeStrategy": "auto",
-  "platformAutomerge": true,
-  "packageRules": [
+  prConcurrentLimit: 0,
+  timezone: 'UTC',
+  rangeStrategy: 'auto',
+  platformAutomerge: true,
+  packageRules: [
     {
-      "description": "Branch automerge devDependencies (silent updates)",
-      "matchDepTypes": [
-        "devDependencies"
+      description: 'Branch automerge devDependencies (silent updates)',
+      matchDepTypes: [
+        'devDependencies',
       ],
-      "automerge": true,
-      "automergeType": "branch"
+      automerge: true,
+      automergeType: 'branch',
     },
     {
-      "description": "Branch automerge patch updates for devDependencies",
-      "matchUpdateTypes": [
-        "patch"
+      description: 'Branch automerge patch updates for devDependencies',
+      matchUpdateTypes: [
+        'patch',
       ],
-      "matchDepTypes": [
-        "devDependencies"
+      matchDepTypes: [
+        'devDependencies',
       ],
-      "matchCurrentVersion": "!/^0/",
-      "minimumReleaseAge": "3 days",
-      "automerge": true,
-      "automergeType": "branch"
+      matchCurrentVersion: '!/^0/',
+      minimumReleaseAge: '3 days',
+      automerge: true,
+      automergeType: 'branch',
     },
     {
-      "description": "Branch automerge patch updates for production (stable packages)",
-      "matchUpdateTypes": [
-        "patch"
+      description: 'Branch automerge patch updates for production (stable packages)',
+      matchUpdateTypes: [
+        'patch',
       ],
-      "matchDepTypes": [
-        "dependencies"
+      matchDepTypes: [
+        'dependencies',
       ],
-      "matchCurrentVersion": "!/^0/",
-      "minimumReleaseAge": "3 days",
-      "automerge": true,
-      "automergeType": "branch"
+      matchCurrentVersion: '!/^0/',
+      minimumReleaseAge: '3 days',
+      automerge: true,
+      automergeType: 'branch',
     },
     {
-      "description": "Minor/major production updates require manual review",
-      "matchUpdateTypes": [
-        "minor",
-        "major"
+      description: 'Minor/major production updates require manual review',
+      matchUpdateTypes: [
+        'minor',
+        'major',
       ],
-      "matchDepTypes": [
-        "dependencies"
+      matchDepTypes: [
+        'dependencies',
       ],
-      "automerge": false,
-      "assignees": [
-        "fadedDexofan"
+      automerge: false,
+      assignees: [
+        'fadedDexofan',
       ],
-      "reviewers": [
-        "fadedDexofan"
-      ]
+      reviewers: [
+        'fadedDexofan',
+      ],
     },
     {
-      "description": "Group and branch automerge GitHub Actions",
-      "matchManagers": [
-        "github-actions"
+      description: 'Group and branch automerge GitHub Actions',
+      matchManagers: [
+        'github-actions',
       ],
-      "groupName": "GitHub Actions",
-      "automerge": true,
-      "automergeType": "branch"
+      groupName: 'GitHub Actions',
+      automerge: true,
+      automergeType: 'branch',
     },
     {
-      "description": "Group and branch automerge pytest ecosystem",
-      "matchPackagePatterns": [
-        "pytest"
+      description: 'Group and branch automerge pytest ecosystem',
+      groupName: 'pytest ecosystem',
+      automerge: true,
+      automergeType: 'branch',
+      matchPackageNames: [
+        '/pytest/',
       ],
-      "groupName": "pytest ecosystem",
-      "automerge": true,
-      "automergeType": "branch"
     },
     {
-      "description": "Group python-semantic-release packages",
-      "matchPackagePatterns": [
-        "python-semantic-release"
+      description: 'Group python-semantic-release packages',
+      groupName: 'semantic-release',
+      automerge: true,
+      automergeType: 'branch',
+      matchPackageNames: [
+        '/python-semantic-release/',
       ],
-      "groupName": "semantic-release",
-      "automerge": true,
-      "automergeType": "branch"
-    }
+    },
   ],
-  "lockFileMaintenance": {
-    "enabled": true,
-    "automerge": true,
-    "automergeType": "pr",
-    "schedule": [
-      "before 5am on monday"
-    ]
-  },
-  "vulnerabilityAlerts": {
-    "labels": [
-      "security"
+  lockFileMaintenance: {
+    enabled: true,
+    automerge: true,
+    automergeType: 'pr',
+    schedule: [
+      'before 5am on monday',
     ],
-    "assignees": [
-      "fadedDexofan"
-    ]
-  }
+  },
+  vulnerabilityAlerts: {
+    labels: [
+      'security',
+    ],
+    assignees: [
+      'fadedDexofan',
+    ],
+  },
 }
