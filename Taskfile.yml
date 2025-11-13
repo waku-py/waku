@@ -41,7 +41,7 @@ tasks:
     silent: true
     cmds:
       - task: deps:sync
-      - uv run prek install
+      - uv run prek install --install-hooks
       - echo "✅ Development environment setup complete"
 
   deps:sync:
@@ -50,19 +50,17 @@ tasks:
     deps: [ .uv ]
     silent: true
     cmds:
-      - uv sync --all-extras --all-groups {{.CLI_ARGS}}
+      - uv sync --all-extras --all-groups
       - echo "✅ Dependencies synced"
 
   deps:upgrade:
     aliases: [ upgrade ]
     desc: Upgrade all project dependencies and pre-commit hooks
-    deps: [ .uv-locked ]
+    deps: [ .uv ]
     silent: true
     cmds:
-      - task: deps:sync
-        vars:
-          CLI_ARGS: --upgrade
-      - uv run prek auto-update || true
+      - uv run uv-bump
+      - uv run prek auto-update
       - echo "✅ Dependencies upgraded"
 
   deps:audit:
