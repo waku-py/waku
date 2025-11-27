@@ -17,34 +17,17 @@
   platformAutomerge: true,
   packageRules: [
     {
-      description: 'Automerge devDependencies',
-      matchDepTypes: [
-        'devDependencies',
-      ],
-      automerge: true,
-      automergeType: 'pr',
-    },
-    {
-      description: 'Automerge patch updates for devDependencies',
-      matchUpdateTypes: [
-        'patch',
-      ],
-      matchDepTypes: [
-        'devDependencies',
-      ],
-      matchCurrentVersion: '!/^0/',
-      minimumReleaseAge: '3 days',
+      description: 'Automerge dependency-groups (dev, docs, etc.)',
+      matchManagers: ['pep621'],
+      matchDepTypes: ['dependency-groups'],
       automerge: true,
       automergeType: 'pr',
     },
     {
       description: 'Automerge patch updates for production (stable packages)',
-      matchUpdateTypes: [
-        'patch',
-      ],
-      matchDepTypes: [
-        'dependencies',
-      ],
+      matchManagers: ['pep621'],
+      matchUpdateTypes: ['patch'],
+      matchDepTypes: ['project.dependencies'],
       matchCurrentVersion: '!/^0/',
       minimumReleaseAge: '3 days',
       automerge: true,
@@ -52,20 +35,12 @@
     },
     {
       description: 'Minor/major production updates require manual review',
-      matchUpdateTypes: [
-        'minor',
-        'major',
-      ],
-      matchDepTypes: [
-        'dependencies',
-      ],
+      matchManagers: ['pep621'],
+      matchUpdateTypes: ['minor', 'major'],
+      matchDepTypes: ['project.dependencies'],
       automerge: false,
-      assignees: [
-        'fadedDexofan',
-      ],
-      reviewers: [
-        'fadedDexofan',
-      ],
+      assignees: ['fadedDexofan'],
+      reviewers: ['fadedDexofan'],
     },
     {
       description: 'Group and automerge GitHub Actions',
