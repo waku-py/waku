@@ -17,15 +17,15 @@
   platformAutomerge: true,
   packageRules: [
     {
-      description: 'Branch automerge devDependencies (silent updates)',
+      description: 'Automerge devDependencies',
       matchDepTypes: [
         'devDependencies',
       ],
       automerge: true,
-      automergeType: 'branch',
+      automergeType: 'pr',
     },
     {
-      description: 'Branch automerge patch updates for devDependencies',
+      description: 'Automerge patch updates for devDependencies',
       matchUpdateTypes: [
         'patch',
       ],
@@ -35,10 +35,10 @@
       matchCurrentVersion: '!/^0/',
       minimumReleaseAge: '3 days',
       automerge: true,
-      automergeType: 'branch',
+      automergeType: 'pr',
     },
     {
-      description: 'Branch automerge patch updates for production (stable packages)',
+      description: 'Automerge patch updates for production (stable packages)',
       matchUpdateTypes: [
         'patch',
       ],
@@ -48,7 +48,7 @@
       matchCurrentVersion: '!/^0/',
       minimumReleaseAge: '3 days',
       automerge: true,
-      automergeType: 'branch',
+      automergeType: 'pr',
     },
     {
       description: 'Minor/major production updates require manual review',
@@ -68,19 +68,19 @@
       ],
     },
     {
-      description: 'Group and branch automerge GitHub Actions',
+      description: 'Group and automerge GitHub Actions',
       matchManagers: [
         'github-actions',
       ],
       groupName: 'GitHub Actions',
       automerge: true,
-      automergeType: 'branch',
+      automergeType: 'pr',
     },
     {
-      description: 'Group and branch automerge pytest ecosystem',
+      description: 'Group and automerge pytest ecosystem',
       groupName: 'pytest ecosystem',
       automerge: true,
-      automergeType: 'branch',
+      automergeType: 'pr',
       matchPackageNames: [
         '/pytest/',
       ],
@@ -89,7 +89,7 @@
       description: 'Group python-semantic-release packages',
       groupName: 'semantic-release',
       automerge: true,
-      automergeType: 'branch',
+      automergeType: 'pr',
       matchPackageNames: [
         '/python-semantic-release/',
       ],
