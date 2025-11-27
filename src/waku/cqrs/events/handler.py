@@ -15,13 +15,13 @@ class EventHandler(abc.ABC, Generic[EventT]):
           def __init__(self, meetings_api: MeetingAPIProtocol) -> None:
               self._meetings_api = meetings_api
 
-          async def handle(self, event: UserJoinedEvent) -> None:
+          async def handle(self, event: UserJoinedEvent, /) -> None:
               await self._meetings_api.notify_room(event.meeting_id, "New user joined!")
 
     """
 
     @abc.abstractmethod
-    async def handle(self, event: EventT) -> None:
+    async def handle(self, event: EventT, /) -> None:
         raise NotImplementedError
 
 

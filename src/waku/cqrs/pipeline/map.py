@@ -8,10 +8,10 @@ from waku.cqrs.contracts.pipeline import IPipelineBehavior
 from waku.cqrs.contracts.request import RequestT, ResponseT
 from waku.cqrs.exceptions import PipelineBehaviorAlreadyRegistered
 
-PipelineBehaviorMapRegistry = MutableMapping[type[RequestT], list[type[IPipelineBehavior[RequestT, ResponseT]]]]
+PipelineBehaviorMapRegistry = MutableMapping[type[RequestT], list[type[IPipelineBehavior[RequestT, ResponseT]]]]  # ty: ignore[invalid-argument-type]
 
 
-class PipelineBehaviourMap:
+class PipelineBehaviorMap:
     def __init__(self) -> None:
         self._registry: PipelineBehaviorMapRegistry[Any, Any] = defaultdict(list)
 
@@ -26,7 +26,7 @@ class PipelineBehaviourMap:
             self._registry[request_type].append(behavior_type)
         return self
 
-    def merge(self, other: PipelineBehaviourMap) -> Self:
+    def merge(self, other: PipelineBehaviorMap) -> Self:
         for event_type, handlers in other.registry.items():
             self.bind(event_type, handlers)
         return self

@@ -18,7 +18,7 @@ class ISender(abc.ABC):
     """Send a request through the cqrs middleware chain to be handled by a single handler."""
 
     @abc.abstractmethod
-    async def send(self, request: Request[ResponseT]) -> ResponseT:
+    async def send(self, request: Request[ResponseT], /) -> ResponseT:
         """Asynchronously send a request to a single handler."""
 
 
@@ -26,7 +26,7 @@ class IPublisher(abc.ABC):
     """Publish event through the cqrs to be handled by multiple handlers."""
 
     @abc.abstractmethod
-    async def publish(self, event: Event) -> None:
+    async def publish(self, event: Event, /) -> None:
         """Asynchronously send event to multiple handlers."""
 
 

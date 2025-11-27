@@ -38,7 +38,7 @@ class RequestHandlerAlreadyRegistered(MediatorError, KeyError):  # noqa: N818
         handler_type: The type of handler that was already registered.
     """
 
-    def __init__(self, request_type: type[Request[Any]], handler_type: RequestHandlerType[Any, Any]) -> None:
+    def __init__(self, request_type: type[Request[Any]], handler_type: RequestHandlerType[Any, Any]) -> None:  # ty: ignore[invalid-type-form]
         self.request_type = request_type
         self.handler_type = handler_type
 
@@ -68,7 +68,7 @@ class EventHandlerAlreadyRegistered(MediatorError, KeyError):  # noqa: N818
         handler_type: The type of handler that was already registered.
     """
 
-    def __init__(self, event_type: type[EventT], handler_type: EventHandlerType[EventT]) -> None:
+    def __init__(self, event_type: type[EventT], handler_type: EventHandlerType[EventT]) -> None:  # ty: ignore[invalid-type-form]
         self.event_type = event_type
         self.handler_type = handler_type
 

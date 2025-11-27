@@ -18,18 +18,18 @@ __all__ = [
 
 
 class EventPublisher(Protocol):
-    async def __call__(self, handlers: Sequence[EventHandler[EventT]], event: EventT) -> None:
+    async def __call__(self, handlers: Sequence[EventHandler[EventT]], event: EventT, /) -> None:
         pass
 
 
 class SequentialEventPublisher(EventPublisher):
-    async def __call__(self, handlers: Sequence[EventHandler[EventT]], event: EventT) -> None:
+    async def __call__(self, handlers: Sequence[EventHandler[EventT]], event: EventT, /) -> None:
         for handler in handlers:
             await handler.handle(event)
 
 
 class GroupEventPublisher(EventPublisher):
-    async def __call__(self, handlers: Sequence[EventHandler[EventT]], event: EventT) -> None:
+    async def __call__(self, handlers: Sequence[EventHandler[EventT]], event: EventT, /) -> None:
         async with anyio.create_task_group() as tg:
             for handler in handlers:
                 tg.start_soon(handler.handle, event)
