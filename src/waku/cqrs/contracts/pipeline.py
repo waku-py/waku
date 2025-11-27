@@ -18,7 +18,7 @@ class IPipelineBehavior(ABC, Generic[RequestT, ResponseT]):
     """Interface for pipeline behaviors that wrap request handling."""
 
     @abstractmethod
-    async def handle(self, request: RequestT, next_handler: NextHandlerType[RequestT, ResponseT]) -> ResponseT:
+    async def handle(self, request: RequestT, /, next_handler: NextHandlerType[RequestT, ResponseT]) -> ResponseT:
         """Handle the request and call the next handler in the pipeline.
 
         Args:

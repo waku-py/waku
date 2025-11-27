@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from functools import cache
 from typing import Any, cast
 
 from dishka.exceptions import NoFactoryError
@@ -20,6 +21,8 @@ from waku.di import AsyncContainer
 class Mediator(IMediator):
     """Default CQRS implementation."""
 
+    __slots__ = ('_container', '_event_publisher')
+
     def __init__(self, container: AsyncContainer, event_publisher: EventPublisher) -> None:
         """Initialize the mediator.
 
@@ -31,7 +34,7 @@ class Mediator(IMediator):
         self._event_publisher = event_publisher
 
     @override
-    async def send(self, request: Request[ResponseT]) -> ResponseT:
+    async def send(self, request: Request[ResponseT], /) -> ResponseT:
         """Send a request through the CQRS pipeline chain.
 
         Args:
@@ -44,11 +47,11 @@ class Mediator(IMediator):
             RequestHandlerNotFound: If no handler is registered for the request type
         """
         request_type = type(request)
-        handler = await self._resolve_request_handler(request_type)
-        return await self._handle_request(handler, request)
+        handler = await self._resolve_request_handler(request_type)  # ty: ignore[invalid-argument-type]
+        return await self._handle_request(handler, request)  # ty: ignore[invalid-argument-type,invalid-return-type]
 
     @override
-    async def publish(self, event: Event) -> None:
+    async def publish(self, event: Event, /) -> None:
         """Publish an event to all registered handlers.
 
         Args:
@@ -65,7 +68,7 @@ class Mediator(IMediator):
         self,
         request_type: type[Request[ResponseT]],
     ) -> RequestHandler[Request[ResponseT], ResponseT]:
-        handler_type = self._get_request_handler_type(request_type)
+        handler_type = self._get_request_handler_type(request_type)  # type: ignore[arg-type]
 
         try:
             return await self._container.get(handler_type)
@@ -105,7 +108,7 @@ class Mediator(IMediator):
         self,
         event_type: type[EventT],
     ) -> Sequence[EventHandler[EventT]]:
-        handler_type = self._get_event_handler_type(event_type)
+        handler_type = self._get_event_handler_type(event_type)  # type: ignore[arg-type]
 
         try:
             handlers = await self._container.get(Sequence[handler_type])  # type: ignore[valid-type]
@@ -114,10 +117,12 @@ class Mediator(IMediator):
             raise EventHandlerNotFound(event_type) from err
 
     @staticmethod
+    @cache
     def _get_request_handler_type(request_type: type[RequestT]) -> type:
         response_type = get_request_response_type(request_type)  # type: ignore[arg-type]
         return RequestHandler[request_type, response_type]  # type: ignore[valid-type]
 
     @staticmethod
+    @cache
     def _get_event_handler_type(event_type: type[EventT]) -> type:
         return EventHandler[event_type]  # type: ignore[valid-type]

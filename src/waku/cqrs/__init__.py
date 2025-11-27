@@ -6,7 +6,6 @@ from waku.cqrs.impl import Mediator
 from waku.cqrs.interfaces import IMediator, IPublisher, ISender
 from waku.cqrs.modules import MediatorConfig, MediatorExtension, MediatorModule
 from waku.cqrs.requests.handler import RequestHandler
-from waku.cqrs.requests.map import RequestMap
 
 __all__ = [
     'Event',
@@ -22,6 +21,5 @@ __all__ = [
     'NextHandlerType',
     'Request',
     'RequestHandler',
-    'RequestMap',
     'Response',
 ]

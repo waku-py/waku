@@ -12,14 +12,14 @@ __all__ = [
     'RequestMapRegistry',
 ]
 
-RequestMapRegistry: TypeAlias = MutableMapping[type[RequestT], RequestHandlerType[RequestT, ResponseT]]
+RequestMapRegistry: TypeAlias = MutableMapping[type[RequestT], RequestHandlerType[RequestT, ResponseT]]  # ty: ignore[invalid-type-form]
 
 
 class RequestMap:
     def __init__(self) -> None:
         self._registry: RequestMapRegistry[Any, Any] = {}
 
-    def bind(self, request_type: type[RequestT], handler_type: RequestHandlerType[RequestT, ResponseT]) -> Self:
+    def bind(self, request_type: type[RequestT], handler_type: RequestHandlerType[RequestT, ResponseT]) -> Self:  # ty: ignore[invalid-type-form]
         if request_type in self._registry:
             raise RequestHandlerAlreadyRegistered(request_type, handler_type)
         self._registry[request_type] = handler_type

@@ -37,7 +37,7 @@ class LoggingBehavior(IPipelineBehavior[RequestT, ResponseT]):
         self._logger = logging.getLogger('cqrs.logger')
         self._log_level = logging.INFO
 
-    async def handle(self, request: RequestT, next_handler: NextHandlerType[RequestT, ResponseT]) -> ResponseT:
+    async def handle(self, request: RequestT, /, next_handler: NextHandlerType[RequestT, ResponseT]) -> ResponseT:
         """Log request, process it through the pipeline, and log the response.
 
         Args:
@@ -85,7 +85,7 @@ class ValidationBehavior(IPipelineBehavior[RequestT, ResponseT]):
             errors = '; '.join(f'{key}: {value}' for key, value in self.errors.items())
             return f'Validation failed: {errors}'
 
-    async def handle(self, request: RequestT, next_handler: NextHandlerType[RequestT, ResponseT]) -> ResponseT:
+    async def handle(self, request: RequestT, /, next_handler: NextHandlerType[RequestT, ResponseT]) -> ResponseT:
         """Validate the request before passing it to the next handler.
 
         Args:
@@ -136,7 +136,7 @@ class GetUserQuery(Request[UserResponse]):
 class GetUserQueryHandler(RequestHandler[GetUserQuery, UserResponse]):
     """Handler for the GetUserQuery."""
 
-    async def handle(self, request: GetUserQuery) -> UserResponse:
+    async def handle(self, request: GetUserQuery, /) -> UserResponse:
         """Process the query and return a user response.
 
         Args:
@@ -180,7 +180,7 @@ class UserQueryValidationBehavior(ValidationBehavior[GetUserQuery, UserResponse]
             MediatorExtension().bind_request(
                 GetUserQuery,
                 GetUserQueryHandler,
-                behaviors=[UserQueryValidationBehavior],
+                behaviors=[UserQueryValidationBehavior],  # ty: ignore[invalid-argument-type]
             )
         ),
     ],
