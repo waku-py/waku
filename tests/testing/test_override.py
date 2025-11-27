@@ -14,7 +14,7 @@ _EXPECTED_VAL: Final[int] = 42
 
 
 class ISomeService:
-    """Interface for some service implementations."""
+    pass
 
 
 class SomeService(ISomeService):
@@ -51,13 +51,12 @@ class ServiceDependsOnContainer:
     container: AsyncContainer
 
 
-# Test fixtures
 @pytest.fixture(scope='session')
 async def application() -> AsyncIterator[WakuApplication]:
     AppModule = create_basic_module(
         providers=[
-            singleton(OtherService),  # app scoped
-            scoped(ISomeService, SomeService),  # request scoped
+            singleton(OtherService),
+            scoped(ISomeService, SomeService),
         ],
         name='AppModule',
     )
@@ -74,10 +73,8 @@ async def request_container(application: WakuApplication) -> AsyncIterator[Async
         yield request_container
 
 
-# Test cases
 @pytest.mark.parametrize('provider_type', [transient, scoped, singleton])
-async def test_override_with_factory_providers(provider_type: Callable[..., Provider]) -> None:
-    """Test overriding services using factory providers with different scopes."""
+async def test_override_replaces_service_with_factory_provider(provider_type: Callable[..., Provider]) -> None:
     AppModule = create_basic_module(
         providers=[provider_type(ISomeService, SomeService)],
         name='AppModule',
@@ -93,8 +90,7 @@ async def test_override_with_factory_providers(provider_type: Callable[..., Prov
 
 
 @pytest.mark.parametrize('provider_type', [transient, scoped, singleton])
-async def test_override_with_object_provider(provider_type: Callable[..., Provider]) -> None:
-    """Test overriding services using object providers with different scopes."""
+async def test_override_replaces_service_with_object_provider(provider_type: Callable[..., Provider]) -> None:
     AppModule = create_basic_module(
         providers=[provider_type(ISomeService, SomeService)],
         name='AppModule',
@@ -109,8 +105,7 @@ async def test_override_with_object_provider(provider_type: Callable[..., Provid
                 assert isinstance(overrode_service, FakeSomeService)
 
 
-async def test_override_with_contextual_provider() -> None:
-    """Test overriding services that depend on contextual providers."""
+async def test_override_replaces_service_with_contextual_dependency() -> None:
     AppModule = create_basic_module(
         providers=[
             contextual(int, scope=Scope.APP),
@@ -135,26 +130,23 @@ async def test_override_with_contextual_provider() -> None:
                 assert overrode_service.method() == _EXPECTED_VAL
 
 
-async def test_override_app_container_from_fixture(application: WakuApplication) -> None:
-    """Test overriding app-scoped services using fixture-provided application."""
+async def test_override_app_scoped_service_from_fixture(application: WakuApplication) -> None:
     with override(application.container, singleton(OtherService, FakeOtherService)):
         overrode_service = await application.container.get(OtherService)
         assert isinstance(overrode_service, FakeOtherService)
 
 
 @pytest.mark.parametrize('provider_type', [transient, scoped, singleton])
-async def test_override_request_container_from_fixture(
+async def test_override_request_scoped_service_from_fixture(
     request_container: AsyncContainer,
     provider_type: Callable[..., Provider],
 ) -> None:
-    """Test overriding request-scoped services using fixture-provided container."""
     with override(request_container, provider_type(ISomeService, FakeSomeService)):
         overrode_service = await request_container.get(ISomeService)
         assert isinstance(overrode_service, FakeSomeService)
 
 
-async def test_override_with_service_depends_on_app_container() -> None:
-    """Test that override work for services that depends on application container."""
+async def test_override_service_that_depends_on_app_container() -> None:
     AppModule = create_basic_module(
         providers=[
             singleton(ServiceDependsOnContainer),
@@ -173,8 +165,7 @@ async def test_override_with_service_depends_on_app_container() -> None:
 
 
 @pytest.mark.parametrize('provider_type', [transient, scoped])
-async def test_override_with_service_depends_on_request_container(provider_type: Callable[..., Provider]) -> None:
-    """Test that override work for services that depends on request container."""
+async def test_override_service_that_depends_on_request_container(provider_type: Callable[..., Provider]) -> None:
     AppModule = create_basic_module(
         providers=[
             provider_type(ServiceDependsOnContainer),

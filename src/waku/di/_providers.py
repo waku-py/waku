@@ -1,5 +1,6 @@
+import inspect
 from collections.abc import Callable, Sequence
-from typing import Any, TypeVar, overload
+from typing import Any, TypeVar, get_type_hints, overload
 
 from dishka import Provider, Scope
 
@@ -150,6 +151,31 @@ def contextual(provided_type: Any, *, scope: Scope = Scope.REQUEST) -> Provider:
     return provider_
 
 
+def _get_provided_type(impl: Any) -> Any:
+    """Extract the type that will be provided by an implementation.
+
+    For classes, returns the class itself.
+    For factory functions, returns the return type annotation.
+
+    Raises:
+        TypeError: If impl is a factory function without return type annotation.
+    """
+    if inspect.isclass(impl):
+        return impl
+
+    if callable(impl):
+        hints = get_type_hints(impl)
+        return_type = hints.get('return')
+        if return_type is None:
+            name = getattr(impl, '__name__', repr(impl))
+            msg = f"Factory function '{name}' must have a return type annotation"
+            raise TypeError(msg)
+        return return_type
+
+    msg = f'Implementation must be a class or callable, got {type(impl).__name__}'
+    raise TypeError(msg)
+
+
 def many(
     interface: Any,
     *implementations: Any,
@@ -160,7 +186,7 @@ def many(
 
     Args:
         interface: Interface type for the collection.
-        *implementations: Implementation types to include in collection.
+        *implementations: Implementation types or factory functions to include in collection.
         scope: Scope of the collection (default: Scope.REQUEST).
         cache: Whether to cache the resolve results within scope.
 
@@ -169,14 +195,18 @@ def many(
 
     Raises:
         ValueError: If no implementations are provided.
+        TypeError: If a factory function lacks a return type annotation.
 
     Examples:
         many(IPipelineBehavior[Any, Any], ValidationBehavior, LoggingBehavior)
         many(IEventHandler[UserCreated], EmailHandler, AuditHandler, scope=Scope.APP)
+        many(IRuleStrategy, rule_strategy_factory)  # Factory functions supported
     """
     if not implementations:
         msg = 'At least one implementation must be provided'
         raise ValueError(msg)
+
+    provided_types = [_get_provided_type(impl) for impl in implementations]
 
     provider_ = Provider(scope=scope)
     provider_.provide_all(*implementations, cache=cache)
@@ -188,10 +218,10 @@ def many(
     )
     provider_.alias(list[interface], provides=Sequence[interface], cache=cache)
 
-    for cls in implementations:
+    for provided_type in provided_types:
 
         @provider_.decorate
-        def _(many_: list[interface], one: cls) -> list[interface]:  # type: ignore[valid-type]
+        def _(many_: list[interface], one: provided_type) -> list[interface]:  # type: ignore[valid-type]
             return [*many_, one]
 
     return provider_
