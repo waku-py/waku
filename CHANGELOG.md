@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v0.22.0 (2025-11-27)
+
+### 🪲 Bug Fixes
+
+- Allow usage of factories in many provider
+  ([`bbc50a3`](https://github.com/waku-py/waku/commit/bbc50a318f34d36c759de2d2184a15e9ee63df92))
+
+### ⚙️ Build System
+
+- Add python 3.14.0rc1 to testing suite
+  ([`442076f`](https://github.com/waku-py/waku/commit/442076f4d5cb467213a7c1eb6a2141ee5c4a5046))
+
+### ✨ Features
+
+- Make cqrs related handlers calls positional only
+  ([`386d31a`](https://github.com/waku-py/waku/commit/386d31a6ac548ae92d9d735ca2d58cb8a84bcab5))
+
+
 ## v0.21.0 (2025-07-20)
 
 ### ✨ Features
@@ -370,7 +388,7 @@
 
 ### ⚙️ Build System
 
-- Make patch release only for `fix` &amp;amp;amp;amp; `perf` tags
+- Make patch release only for `fix` &amp;amp;amp;amp;amp; `perf` tags
   ([`b9cf6bf`](https://github.com/waku-py/waku/commit/b9cf6bf77047e21959f4e1bbe2a1bb1566cccd1c))
 
 ### 📖 Documentation
