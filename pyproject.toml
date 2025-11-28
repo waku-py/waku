@@ -70,7 +70,7 @@ test = [
   "pytest-randomly==4.0.1",
   "pytest-timeout==2.4.0",
   "trio==0.32.0",
-  "uvloop==0.21.0; sys_platform != 'win32' and python_version < '3.14'",
+  "uvloop==0.22.1; sys_platform != 'win32' and python_version < '3.14'",
 ]
 typecheck = [
   "basedpyright==1.34.0",
