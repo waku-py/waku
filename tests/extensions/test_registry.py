@@ -22,32 +22,32 @@ if TYPE_CHECKING:
 
 class OnApplicationInitExt(OnApplicationInit):
     async def on_app_init(self, app: WakuApplication) -> None:
-        pass
+        pass  # pragma: no cover
 
 
 class AfterApplicationInitExt(AfterApplicationInit):
     async def after_app_init(self, app: WakuApplication) -> None:
-        pass
+        pass  # pragma: no cover
 
 
 class OnApplicationShutdownExt(OnApplicationShutdown):
     async def on_app_shutdown(self, app: WakuApplication) -> None:
-        pass
+        pass  # pragma: no cover
 
 
 class OnModuleConfigureExt(OnModuleConfigure):
     def on_module_configure(self, metadata: ModuleMetadata) -> None:
-        pass
+        pass  # pragma: no cover
 
 
 class OnModuleInitExt(OnModuleInit):
     async def on_module_init(self, module: Module) -> None:
-        pass
+        pass  # pragma: no cover
 
 
 class OnModuleDestroyExt(OnModuleDestroy):
     async def on_module_destroy(self, module: Module) -> None:
-        pass
+        pass  # pragma: no cover
 
 
 def test_register_application_extension() -> None:
@@ -83,10 +83,10 @@ def test_get_multi_protocol_app_extensions() -> None:
     # Arrange
     class MultiAppExt(OnApplicationInit, AfterApplicationInit):
         async def on_app_init(self, app: WakuApplication) -> None:
-            pass
+            pass  # pragma: no cover
 
         async def after_app_init(self, app: WakuApplication) -> None:
-            pass
+            pass  # pragma: no cover
 
     registry = ExtensionRegistry()
     multi_ext = MultiAppExt()
@@ -134,10 +134,10 @@ def test_get_multi_protocol_module_extensions() -> None:
     # Arrange
     class MultiModuleExt(OnModuleInit, OnModuleDestroy):
         async def on_module_init(self, module: Module) -> None:
-            pass
+            pass  # pragma: no cover
 
         async def on_module_destroy(self, module: Module) -> None:
-            pass
+            pass  # pragma: no cover
 
     registry = ExtensionRegistry()
     multi_ext = MultiModuleExt()

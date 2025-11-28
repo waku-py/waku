@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from functools import cached_property
+from abc import ABC, abstractmethod
 from itertools import chain
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from dishka.entities.factory_type import FactoryType
 from typing_extensions import override
@@ -15,7 +15,10 @@ from waku.validation.rules._types_extractor import ModuleTypesExtractor
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
-    from waku.modules import Module
+    from dishka import AsyncContainer
+    from dishka.entities.key import DependencyKey
+
+    from waku.modules import Module, ModuleRegistry
     from waku.validation._extension import ValidationContext
 
 
@@ -58,82 +61,134 @@ class DependencyInaccessibleError(ValidationError):
         return '\n'.join(msg)
 
 
-class DependencyAccessChecker:
-    """Handles dependency accessibility checks between modules."""
+class AccessibilityStrategy(ABC):
+    """Strategy for checking if a type is accessible to a module."""
+
+    __slots__ = ()
+
+    @abstractmethod
+    def is_accessible(self, required_type: type[object], module: Module) -> bool:
+        """Check if the required type is accessible to the given module."""
+
+
+class GlobalProvidersStrategy(AccessibilityStrategy):
+    """Check if type is provided by a global module or APP-scoped context."""
+
+    __slots__ = ('_global_types',)
 
     def __init__(
         self,
-        modules: list[Module],
-        context: ValidationContext,
+        modules: Sequence[Module],
+        container: AsyncContainer,
         types_extractor: ModuleTypesExtractor,
+        registry: ModuleRegistry,
     ) -> None:
-        self._modules = modules
-        self._context = context
-        self._registry = context.app.registry
-        self._type_provider = types_extractor
+        self._global_types = self._build_global_types(modules, container, types_extractor, registry)
 
-    def find_inaccessible_dependencies(self, dependencies: Sequence[Any], module: Module) -> Iterable[type[object]]:
-        """Find dependencies that are not accessible to a module."""
-        return (
-            dependency.type_hint for dependency in dependencies if not self._is_accessible(dependency.type_hint, module)
-        )
+    @override
+    def is_accessible(self, required_type: type[object], module: Module) -> bool:
+        return required_type in self._global_types
 
-    @cached_property
-    def _global_providers(self) -> set[type[object]]:
-        return self._build_global_providers()
-
-    def _build_global_providers(self) -> set[type[object]]:
-        """Build a set of all globally accessible types."""
+    @staticmethod
+    def _build_global_types(
+        modules: Sequence[Module],
+        container: AsyncContainer,
+        types_extractor: ModuleTypesExtractor,
+        registry: ModuleRegistry,
+    ) -> frozenset[type[object]]:
         global_module_types = {
             provided_type
-            for module in self._modules
+            for mod in modules
+            if mod.is_global
             for provided_type in chain(
-                self._type_provider.get_provided_types(module),
-                self._type_provider.get_reexported_types(module, self._registry),
+                types_extractor.get_provided_types(mod),
+                types_extractor.get_reexported_types(mod, registry),
             )
-            if module.is_global
         }
 
         global_context_types = {
             dep.type_hint
-            for dep, factory in self._context.app.container.registry.factories.items()
-            if (factory.scope is Scope.APP and factory.type is FactoryType.CONTEXT)
+            for dep, factory in container.registry.factories.items()
+            if factory.scope is Scope.APP and factory.type is FactoryType.CONTEXT
         }
 
-        return global_module_types | global_context_types
+        return frozenset(global_module_types | global_context_types)
 
-    def _is_accessible(self, required_type: type[object], module: Module) -> bool:
-        """Check if a type is accessible to a module.
 
-        A type is accessible if:
-        1. It is provided by the module itself
-        2. It is provided by a global module
-        3. It is provided and exported by an imported module
-        4. It is provided by a module that is re-exported by an imported module
-        """
-        # Check if type is provided by a global module
-        if required_type in self._global_providers:
-            return True
-        # Check if type is provided by the module itself
-        if required_type in self._type_provider.get_provided_types(module):
-            return True
-        # Check if type is provided by application or request container context
-        if required_type in self._type_provider.get_context_vars(module):
-            return True
-        # Check imported modules
+class LocalProvidersStrategy(AccessibilityStrategy):
+    """Check if type is provided by the module itself."""
+
+    __slots__ = ('_types_extractor',)
+
+    def __init__(self, types_extractor: ModuleTypesExtractor) -> None:
+        self._types_extractor = types_extractor
+
+    @override
+    def is_accessible(self, required_type: type[object], module: Module) -> bool:
+        return required_type in self._types_extractor.get_provided_types(module)
+
+
+class ContextVarsStrategy(AccessibilityStrategy):
+    """Check if type is provided by application or request container context."""
+
+    __slots__ = ('_types_extractor',)
+
+    def __init__(self, types_extractor: ModuleTypesExtractor) -> None:
+        self._types_extractor = types_extractor
+
+    @override
+    def is_accessible(self, required_type: type[object], module: Module) -> bool:
+        return required_type in self._types_extractor.get_context_vars(module)
+
+
+class ImportedModulesStrategy(AccessibilityStrategy):
+    """Check if type is accessible via imported modules (direct export or re-export)."""
+
+    __slots__ = ('_registry', '_types_extractor')
+
+    def __init__(self, registry: ModuleRegistry, types_extractor: ModuleTypesExtractor) -> None:
+        self._registry = registry
+        self._types_extractor = types_extractor
+
+    @override
+    def is_accessible(self, required_type: type[object], module: Module) -> bool:
         for imported in module.imports:
             imported_module = self._registry.get(imported)
-            # Check if type is directly provided and exported by the imported module
-            if (
-                required_type in self._type_provider.get_provided_types(imported_module)
-                and required_type in imported_module.exports
-            ):
+            if self._is_directly_exported(required_type, imported_module):
                 return True
-            # Check if type is provided by a module that is re-exported by an imported module
-            if self._type_provider.get_reexported_types(imported_module, self._registry):
+            if self._is_reexported(required_type, imported_module):
                 return True
-
         return False
+
+    def _is_directly_exported(self, required_type: type[object], imported_module: Module) -> bool:
+        return (
+            required_type in self._types_extractor.get_provided_types(imported_module)
+            and required_type in imported_module.exports
+        )
+
+    def _is_reexported(self, required_type: type[object], imported_module: Module) -> bool:
+        return required_type in self._types_extractor.get_reexported_types(imported_module, self._registry)
+
+
+class DependencyAccessChecker:
+    """Handles dependency accessibility checks between modules."""
+
+    __slots__ = ('_strategies',)
+
+    def __init__(self, strategies: Sequence[AccessibilityStrategy]) -> None:
+        self._strategies = strategies
+
+    def find_inaccessible_dependencies(
+        self,
+        dependencies: Sequence[DependencyKey],
+        module: Module,
+    ) -> Iterable[type[object]]:
+        for dependency in dependencies:
+            if not self._is_accessible(dependency.type_hint, module):
+                yield dependency.type_hint
+
+    def _is_accessible(self, required_type: type[object], module: Module) -> bool:
+        return any(strategy.is_accessible(required_type, module) for strategy in self._strategies)
 
 
 class DependenciesAccessibleRule(ValidationRule):
@@ -147,17 +202,24 @@ class DependenciesAccessibleRule(ValidationRule):
 
     @override
     def validate(self, context: ValidationContext) -> list[ValidationError]:
-        self._cache.clear()  # Clear cache before validation
+        self._cache.clear()
 
         registry = context.app.registry
         modules = list(registry.modules)
+        container = context.app.container
 
-        checker = DependencyAccessChecker(modules, context, self._types_extractor)
+        strategies: list[AccessibilityStrategy] = [
+            GlobalProvidersStrategy(modules, container, self._types_extractor, registry),
+            LocalProvidersStrategy(self._types_extractor),
+            ContextVarsStrategy(self._types_extractor),
+            ImportedModulesStrategy(registry, self._types_extractor),
+        ]
+
+        checker = DependencyAccessChecker(strategies)
         errors: list[ValidationError] = []
 
         for module in modules:
-            module_provider = module.provider
-            for factory in module_provider.factories:
+            for factory in module.provider.factories:
                 inaccessible_deps = checker.find_inaccessible_dependencies(
                     dependencies=factory.dependencies,
                     module=module,

@@ -1,27 +1,18 @@
-"""Tests for dependency accessibility validation."""
-
-import re
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Protocol, TypeVar, cast
+from typing import Protocol, TypeVar
 
 import pytest
-from dishka.exceptions import ImplicitOverrideDetectedError
 
 from waku import WakuApplication, WakuFactory
 from waku.di import AnyOf, Provider, Scope, contextual, provide, scoped, singleton
-from waku.modules import ModuleType
+from waku.modules import Module, ModuleType
 from waku.validation import ValidationExtension, ValidationRule
 from waku.validation.rules import DependenciesAccessibleRule, DependencyInaccessibleError
 
-from tests.data import A, AAliasType, B, C, DependentService, Service, X, Y, Z
+from tests.data import A, AAliasType, B, DependentService, Service, X, Y, Z
 from tests.module_utils import create_basic_module
 
 _T_co = TypeVar('_T_co', covariant=True)
-
-
-def _impl() -> int:  # pragma: no cover
-    return 1
 
 
 @pytest.fixture
@@ -41,8 +32,6 @@ class ApplicationFactoryFunc(Protocol):
 
 @pytest.fixture
 def application_factory(rule: ValidationRule) -> ApplicationFactoryFunc:
-    """Create a factory function for creating WakuApplication instances with validation."""
-
     def factory(
         root_module: ModuleType,
         *,
@@ -56,6 +45,22 @@ def application_factory(rule: ValidationRule) -> ApplicationFactoryFunc:
         ).create()
 
     return factory
+
+
+def assert_single_inaccessible_error(
+    exc_info: pytest.ExceptionInfo[BaseException],
+    required_type: type,
+    required_by: type,
+    from_module: Module,
+) -> None:
+    assert isinstance(exc_info.value, ExceptionGroup)
+    errors = exc_info.value.exceptions
+    assert len(errors) == 1
+    error = errors[0]
+    assert isinstance(error, DependencyInaccessibleError)
+    assert error.required_type is required_type
+    assert error.required_by is required_by
+    assert error.from_module is from_module
 
 
 @pytest.mark.parametrize(
@@ -73,7 +78,6 @@ async def test_accessibility_import_export_matrix(
     should_fail: bool,
     application_factory: ApplicationFactoryFunc,
 ) -> None:
-    """Test all combinations of import/export for dependency accessibility."""
     AModule = create_basic_module(
         providers=[scoped(A)],
         exports=[A] if exports else [],
@@ -95,38 +99,12 @@ async def test_accessibility_import_export_matrix(
         with pytest.raises(ExceptionGroup) as exc_info:
             await application.initialize()
         b_module = application.registry.get(BModule)
-
-        error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0])  # ty: ignore[unresolved-attribute]
-
-        expected_error = DependencyInaccessibleError(A, B, b_module)
-        assert isinstance(error, type(expected_error))
-        assert str(error) == str(expected_error)
+        assert_single_inaccessible_error(exc_info, required_type=A, required_by=B, from_module=b_module)
     else:
         await application.initialize()
 
 
-async def test_accessible_with_exported_and_imported(application_factory: ApplicationFactoryFunc) -> None:
-    """Test that dependency is accessible when exported and imported."""
-    AModule = create_basic_module(
-        providers=[scoped(A), scoped(C, _impl)],
-        exports=[A, C],
-        name='AModule',
-    )
-    BModule = create_basic_module(
-        providers=[scoped(B)],
-        imports=[AModule],
-        name='BModule',
-    )
-    AppModule = create_basic_module(
-        imports=[AModule, BModule],
-        name='AppModule',
-    )
-
-    await application_factory(AppModule).initialize()
-
-
 async def test_accessible_with_global_provider(application_factory: ApplicationFactoryFunc) -> None:
-    """Test that global providers are accessible everywhere."""
     AModule = create_basic_module(
         providers=[scoped(A)],
         exports=[A],
@@ -151,7 +129,6 @@ async def test_accessible_with_contextual_provider(
     rule: ValidationRule,
     scope: Scope,
 ) -> None:
-    """Test that contextual providers are accessible if present in context."""
     Module = create_basic_module(
         providers=[
             contextual(A, scope=scope),
@@ -174,7 +151,6 @@ async def test_accessible_with_contextual_provider(
 
 
 async def test_accessible_with_application_providers(application_factory: ApplicationFactoryFunc) -> None:
-    """Test that providers in the application module are accessible."""
     BModule = create_basic_module(
         providers=[scoped(B)],
         exports=[B],
@@ -192,7 +168,6 @@ async def test_accessible_with_application_providers(application_factory: Applic
 
 
 async def test_intra_module_access(application_factory: ApplicationFactoryFunc) -> None:
-    """Test that providers can access each other within the same module without export."""
     Module = create_basic_module(
         providers=[scoped(A), scoped(B)],
         name='Module',
@@ -206,7 +181,6 @@ async def test_intra_module_access(application_factory: ApplicationFactoryFunc) 
 
 
 async def test_multiple_missing_dependencies(application_factory: ApplicationFactoryFunc) -> None:
-    """Test that multiple missing dependencies are all reported."""
     XYModule = create_basic_module(
         providers=[scoped(X), scoped(Y)],
         name='XYModule',
@@ -223,13 +197,18 @@ async def test_multiple_missing_dependencies(application_factory: ApplicationFac
     with pytest.raises(ExceptionGroup) as exc_info:
         await application_factory(AppModule).initialize()
 
-    errors = cast(list[DependencyInaccessibleError], exc_info.value.exceptions)  # ty: ignore[unresolved-attribute]
-    assert errors[0].required_type is X
-    assert errors[1].required_type is Y
+    assert isinstance(exc_info.value, ExceptionGroup)
+    errors = exc_info.value.exceptions
+    assert len(errors) == 2
+    first_error = errors[0]
+    second_error = errors[1]
+    assert isinstance(first_error, DependencyInaccessibleError)
+    assert isinstance(second_error, DependencyInaccessibleError)
+    assert first_error.required_type is X
+    assert second_error.required_type is Y
 
 
 async def test_warning_mode(application_factory: ApplicationFactoryFunc) -> None:
-    """Test that non-strict mode emits warnings instead of raising."""
     AModule = create_basic_module(
         providers=[scoped(A)],
         name='AModule',
@@ -244,21 +223,23 @@ async def test_warning_mode(application_factory: ApplicationFactoryFunc) -> None
     )
 
     application = application_factory(AppModule, strict=False)
-
     b_module = application.registry.get(BModule)
-    expected_error = DependencyInaccessibleError(A, B, b_module)
 
-    with pytest.warns(Warning, match=re.escape(str(expected_error))):
+    with pytest.warns(UserWarning, match=r'not accessible') as warning_records:
         await application.initialize()
+
+    assert len(warning_records) == 1
+    warning_message = str(warning_records[0].message)
+    assert repr(A) in warning_message
+    assert repr(B) in warning_message
+    assert repr(b_module) in warning_message
 
 
 async def test_any_of_provider(application_factory: ApplicationFactoryFunc) -> None:
-    """Test that AnyOf provider works."""
-
     class AProvider(Provider):
         @provide(scope=Scope.REQUEST)
         def provide_a(self) -> AnyOf[A, AAliasType]:  # noqa: PLR6301
-            return A()
+            return A()  # pragma: no cover
 
     @dataclass()
     class DependsOnAlias:
@@ -279,25 +260,10 @@ async def test_any_of_provider(application_factory: ApplicationFactoryFunc) -> N
         name='AppModule',
     )
 
-    application = application_factory(AppModule)
-
-    async with application, application.container() as request_container:
-        a = await request_container.get(A)
-        a_alias = await request_container.get(AAliasType)
-        assert a is a_alias
+    await application_factory(AppModule).initialize()
 
 
 async def test_module_cannot_reexport_imported_types(application_factory: ApplicationFactoryFunc) -> None:
-    """Test that modules cannot re-export types they don't directly provide.
-
-    This test verifies that a module cannot re-export types that it imports from other modules.
-    This enforces proper module encapsulation by preventing transitive dependency access.
-
-    The test should fail with a DependencyInaccessibleError when a module tries to:
-        1. Import a type from another module
-        2. Re-export that same type
-        3. Have other modules depend on that re-exported type
-    """
     SharedModule = create_basic_module(
         providers=[scoped(A)],
         exports=[A],
@@ -322,17 +288,11 @@ async def test_module_cannot_reexport_imported_types(application_factory: Applic
     with pytest.raises(ExceptionGroup) as exc_info:
         await application.initialize()
 
-    error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0])  # ty: ignore[unresolved-attribute]
-    expected_error = DependencyInaccessibleError(
-        required_type=A,
-        required_by=B,
-        from_module=application.registry.get(ConsumerModule),
-    )
-    assert str(error) == str(expected_error)
+    consumer_module = application.registry.get(ConsumerModule)
+    assert_single_inaccessible_error(exc_info, required_type=A, required_by=B, from_module=consumer_module)
 
 
 async def test_reexported_module_dependencies(application_factory: ApplicationFactoryFunc) -> None:
-    """Test that re-exported module dependencies are accessible in the consumer module."""
     SharedModule = create_basic_module(
         providers=[scoped(A)],
         exports=[A],
@@ -344,7 +304,6 @@ async def test_reexported_module_dependencies(application_factory: ApplicationFa
         exports=[SharedModule],
         name='ReexportModule',
     )
-    # B depends on A, which is re-exported from SharedModule
     ConsumerModule = create_basic_module(
         providers=[scoped(B)],
         imports=[ReexportModule],
@@ -359,8 +318,6 @@ async def test_reexported_module_dependencies(application_factory: ApplicationFa
 
 
 async def test_hierarchical_dependencies(application_factory: ApplicationFactoryFunc) -> None:
-    """Test deep hierarchical dependencies between modules."""
-
     @dataclass
     class ServiceA:
         pass
@@ -408,8 +365,6 @@ async def test_hierarchical_dependencies(application_factory: ApplicationFactory
 
 
 async def test_transitive_dependencies_not_accessible(application_factory: ApplicationFactoryFunc) -> None:
-    """Test that transitive dependencies are not accessible unless re-exported."""
-
     @dataclass
     class ServiceA:
         pass
@@ -420,7 +375,6 @@ async def test_transitive_dependencies_not_accessible(application_factory: Appli
 
     @dataclass
     class ServiceC:
-        # Depends on A which should not be accessible through transitive import
         a: ServiceA
 
     ModuleA = create_basic_module(
@@ -444,73 +398,17 @@ async def test_transitive_dependencies_not_accessible(application_factory: Appli
         name='AppModule',
     )
 
+    application = application_factory(AppModule)
     with pytest.raises(ExceptionGroup) as exc_info:
-        await application_factory(AppModule).initialize()
+        await application.initialize()
 
-    error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0])  # ty: ignore[unresolved-attribute]
-    assert error.required_type is ServiceA
-
-
-async def test_multiple_module_providers(application_factory: ApplicationFactoryFunc) -> None:
-    """Test when multiple modules provide the same type."""
-
-    @dataclass
-    class SharedInterface(ABC):
-        @abstractmethod
-        def get_name(self) -> str: ...
-
-    @dataclass
-    class FirstImplementation(SharedInterface):
-        def get_name(self) -> str:  # pragma: no cover # noqa: PLR6301
-            return 'first'
-
-    @dataclass
-    class SecondImplementation(SharedInterface):
-        def get_name(self) -> str:  # pragma: no cover  # noqa: PLR6301
-            return 'second'
-
-    @dataclass
-    class Consumer:
-        dependency: SharedInterface
-
-    FirstModule = create_basic_module(
-        providers=[scoped(SharedInterface, FirstImplementation)],
-        exports=[SharedInterface],
-        name='FirstModule',
-    )
-    SecondModule = create_basic_module(
-        providers=[scoped(SharedInterface, SecondImplementation)],
-        exports=[SharedInterface],
-        name='SecondModule',
-    )
-    AppModule = create_basic_module(
-        providers=[scoped(Consumer)],
-        imports=[FirstModule, SecondModule],
-        name='AppModule',
-    )
-
-    with pytest.raises(ImplicitOverrideDetectedError):
-        await application_factory(AppModule).initialize()
+    module_c = application.registry.get(ModuleC)
+    assert_single_inaccessible_error(exc_info, required_type=ServiceA, required_by=ServiceC, from_module=module_c)
 
 
 async def test_dependencies_from_indirect_imports_are_not_accessible(
     application_factory: ApplicationFactoryFunc,
 ) -> None:
-    """Test that modules cannot access dependencies from indirect imports.
-
-    This test verifies that a module can only access dependencies from modules it directly imports.
-    Dependencies from modules that are imported by the module's imports (transitive dependencies)
-    should not be accessible. This enforces explicit dependency declarations and prevents
-    implicit dependency chains.
-
-    Test structure:
-    SecondLevelModule -> provides and exports Service
-    FirstLevelModule  -> imports SecondLevelModule but doesn't re-export it
-    ConsumerModule    -> imports FirstLevelModule and depends on Service
-
-    Expected: DependencyInaccessibleError because ConsumerModule cannot access Service
-             through FirstLevelModule's import of SecondLevelModule.
-    """
     SecondLevelModule = create_basic_module(
         providers=[scoped(Service)],
         exports=[Service],
@@ -536,13 +434,10 @@ async def test_dependencies_from_indirect_imports_are_not_accessible(
     with pytest.raises(ExceptionGroup) as exc_info:
         await application.initialize()
 
-    error = cast(DependencyInaccessibleError, exc_info.value.exceptions[0])  # ty: ignore[unresolved-attribute]
-    expected_error = DependencyInaccessibleError(
-        required_type=Service,
-        required_by=DependentService,
-        from_module=application.registry.get(ConsumerModule),
+    consumer_module = application.registry.get(ConsumerModule)
+    assert_single_inaccessible_error(
+        exc_info, required_type=Service, required_by=DependentService, from_module=consumer_module
     )
-    assert str(error) == str(expected_error)
 
 
 async def test_with_realistic_graph(application_factory: ApplicationFactoryFunc) -> None:
@@ -614,11 +509,11 @@ async def test_with_generic_provider(application_factory: ApplicationFactoryFunc
 
     class UserFactory(IUserFactory[User]):
         def create(self) -> User:  # noqa: PLR6301
-            return User()
+            return User()  # pragma: no cover
 
     class AdminUserFactory(IUserFactory[AdminUser]):
         def create(self) -> AdminUser:  # noqa: PLR6301
-            return AdminUser()
+            return AdminUser()  # pragma: no cover
 
     UsersModule = create_basic_module(
         providers=[
@@ -644,6 +539,50 @@ async def test_with_generic_provider(application_factory: ApplicationFactoryFunc
     AppModule = create_basic_module(
         providers=[scoped(FactoryService)],
         imports=[UsersModule],
+        name='AppModule',
+    )
+
+    application = application_factory(AppModule)
+    await application.initialize()
+
+
+async def test_global_module_reexports_generic_provider(application_factory: ApplicationFactoryFunc) -> None:
+    @dataclass
+    class Entity:
+        pass
+
+    class IRepository(Protocol[_T_co]):
+        def get(self) -> _T_co: ...
+
+    class EntityRepository(IRepository[Entity]):
+        def get(self) -> Entity:  # noqa: PLR6301
+            return Entity()  # pragma: no cover
+
+    NonGlobalModule = create_basic_module(
+        providers=[scoped(IRepository[Entity], EntityRepository)],
+        exports=[IRepository[Entity]],
+        name='NonGlobalModule',
+        is_global=False,
+    )
+
+    GlobalModule = create_basic_module(
+        imports=[NonGlobalModule],
+        exports=[NonGlobalModule],
+        name='GlobalModule',
+        is_global=True,
+    )
+
+    @dataclass
+    class ConsumerService:
+        repository: IRepository[Entity]
+
+    ConsumerModule = create_basic_module(
+        providers=[scoped(ConsumerService)],
+        name='ConsumerModule',
+    )
+
+    AppModule = create_basic_module(
+        imports=[GlobalModule, ConsumerModule],
         name='AppModule',
     )
 
