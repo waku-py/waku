@@ -32,14 +32,14 @@ jobs:
 
     steps:
       - name: Setup | Create access token
-        uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2
+        uses: actions/create-github-app-token@7e473efe3cb98aa54f8d4bac15400b15fad77d94 # v2
         id: app-token
         with:
           app-id: ${{ vars.VERSION_BUMPER_APPID }}
           private-key: ${{ secrets.VERSION_BUMPER_SECRET }}
 
       - name: Setup | Checkout Repository at workflow sha
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -51,12 +51,12 @@ jobs:
           git config user.email ${{ env.GITHUB_ACTIONS_AUTHOR_EMAIL }}
 
       - name: Setup | Install Python ${{ env.COMMON_PYTHON_VERSION }}
-        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6
         with:
           python-version: ${{ env.COMMON_PYTHON_VERSION }}
 
       - name: Setup | Install UV
-        uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7
+        uses: astral-sh/setup-uv@1e862dfacbd1d6d858c55d9b792c756523627244 # v7
         with:
           enable-cache: true
 
