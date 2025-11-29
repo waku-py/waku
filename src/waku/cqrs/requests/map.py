@@ -5,21 +5,25 @@ from typing import Any, Self, TypeAlias
 
 from waku.cqrs.contracts.request import RequestT, ResponseT
 from waku.cqrs.exceptions import RequestHandlerAlreadyRegistered
-from waku.cqrs.requests.handler import RequestHandlerType
+from waku.cqrs.requests.handler import RequestHandler
 
 __all__ = [
     'RequestMap',
     'RequestMapRegistry',
 ]
 
-RequestMapRegistry: TypeAlias = MutableMapping[type[RequestT], RequestHandlerType[RequestT, ResponseT]]  # ty: ignore[invalid-type-form]
+RequestMapRegistry: TypeAlias = MutableMapping[type[RequestT], type[RequestHandler[RequestT, ResponseT]]]
 
 
 class RequestMap:
     def __init__(self) -> None:
         self._registry: RequestMapRegistry[Any, Any] = {}
 
-    def bind(self, request_type: type[RequestT], handler_type: RequestHandlerType[RequestT, ResponseT]) -> Self:  # ty: ignore[invalid-type-form]
+    def bind(
+        self,
+        request_type: type[RequestT],
+        handler_type: type[RequestHandler[RequestT, ResponseT]],
+    ) -> Self:
         if request_type in self._registry:
             raise RequestHandlerAlreadyRegistered(request_type, handler_type)
         self._registry[request_type] = handler_type

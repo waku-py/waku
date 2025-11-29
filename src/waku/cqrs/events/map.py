@@ -5,7 +5,7 @@ from collections.abc import MutableMapping
 from typing import Any, Self, TypeAlias
 
 from waku.cqrs.contracts.event import EventT
-from waku.cqrs.events.handler import EventHandlerType
+from waku.cqrs.events.handler import EventHandler
 from waku.cqrs.exceptions import EventHandlerAlreadyRegistered
 
 __all__ = [
@@ -13,14 +13,14 @@ __all__ = [
     'EventMapRegistry',
 ]
 
-EventMapRegistry: TypeAlias = MutableMapping[type[EventT], list[EventHandlerType[EventT]]]  # ty: ignore[invalid-type-form]
+EventMapRegistry: TypeAlias = MutableMapping[type[EventT], list[type[EventHandler[EventT]]]]
 
 
 class EventMap:
     def __init__(self) -> None:
         self._registry: EventMapRegistry[Any] = defaultdict(list)
 
-    def bind(self, event_type: type[EventT], handler_types: list[EventHandlerType[EventT]]) -> Self:  # ty: ignore[invalid-type-form]
+    def bind(self, event_type: type[EventT], handler_types: list[type[EventHandler[EventT]]]) -> Self:
         for handler_type in handler_types:
             if handler_type in self._registry[event_type]:
                 raise EventHandlerAlreadyRegistered(event_type, handler_type)

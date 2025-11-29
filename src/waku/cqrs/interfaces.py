@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import abc
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 
 if TYPE_CHECKING:
     from waku.cqrs.contracts.event import Event
@@ -16,6 +16,12 @@ __all__ = [
 
 class ISender(abc.ABC):
     """Send a request through the cqrs middleware chain to be handled by a single handler."""
+
+    @overload
+    async def send(self, request: Request[None], /) -> None: ...
+
+    @overload
+    async def send(self, request: Request[ResponseT], /) -> ResponseT: ...
 
     @abc.abstractmethod
     async def send(self, request: Request[ResponseT], /) -> ResponseT:

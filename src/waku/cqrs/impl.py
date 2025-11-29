@@ -1,13 +1,13 @@
 from collections.abc import Sequence
 from functools import cache
-from typing import Any, cast
+from typing import Any, cast, overload
 
 from dishka.exceptions import NoFactoryError
 from typing_extensions import override
 
 from waku.cqrs import IPipelineBehavior
 from waku.cqrs.contracts.event import Event, EventT
-from waku.cqrs.contracts.request import Request, RequestT, ResponseT
+from waku.cqrs.contracts.request import Request, ResponseT
 from waku.cqrs.events.handler import EventHandler
 from waku.cqrs.events.publish import EventPublisher
 from waku.cqrs.exceptions import EventHandlerNotFound, RequestHandlerNotFound
@@ -33,8 +33,14 @@ class Mediator(IMediator):
         self._container = container
         self._event_publisher = event_publisher
 
+    @overload
+    async def send(self, request: Request[None], /) -> None: ...
+
+    @overload
+    async def send(self, request: Request[ResponseT], /) -> ResponseT: ...
+
     @override
-    async def send(self, request: Request[ResponseT], /) -> ResponseT:
+    async def send(self, request: Request[Any], /) -> Any:
         """Send a request through the CQRS pipeline chain.
 
         Args:
@@ -47,8 +53,8 @@ class Mediator(IMediator):
             RequestHandlerNotFound: If no handler is registered for the request type
         """
         request_type = type(request)
-        handler = await self._resolve_request_handler(request_type)  # ty: ignore[invalid-argument-type]
-        return await self._handle_request(handler, request)  # ty: ignore[invalid-argument-type,invalid-return-type]
+        handler = await self._resolve_request_handler(request_type)
+        return await self._handle_request(handler, request)
 
     @override
     async def publish(self, event: Event, /) -> None:
@@ -118,11 +124,11 @@ class Mediator(IMediator):
 
     @staticmethod
     @cache
-    def _get_request_handler_type(request_type: type[RequestT]) -> type:
+    def _get_request_handler_type(request_type: type[Request[Any]]) -> type:
         response_type = get_request_response_type(request_type)  # type: ignore[arg-type]
         return RequestHandler[request_type, response_type]  # type: ignore[valid-type]
 
     @staticmethod
     @cache
-    def _get_event_handler_type(event_type: type[EventT]) -> type:
+    def _get_event_handler_type(event_type: type[Event]) -> type:
         return EventHandler[event_type]  # type: ignore[valid-type]

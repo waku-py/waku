@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import abc
-from typing import Generic, TypeAlias
+from typing import Generic
 
 from waku.cqrs.contracts.request import RequestT, ResponseT
 
 __all__ = [
     'RequestHandler',
-    'RequestHandlerType',
 ]
 
 
@@ -40,6 +39,3 @@ class RequestHandler(abc.ABC, Generic[RequestT, ResponseT]):
     @abc.abstractmethod
     async def handle(self, request: RequestT, /) -> ResponseT:
         raise NotImplementedError
-
-
-RequestHandlerType: TypeAlias = type[RequestHandler[RequestT, ResponseT]]  # ty: ignore[invalid-argument-type]

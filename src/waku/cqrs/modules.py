@@ -5,14 +5,14 @@ from typing import Any, Self, TypeAlias
 
 from waku.cqrs.contracts.event import EventT
 from waku.cqrs.contracts.pipeline import IPipelineBehavior
-from waku.cqrs.contracts.request import RequestT, ResponseT
-from waku.cqrs.events.handler import EventHandler, EventHandlerType
+from waku.cqrs.contracts.request import RequestT
+from waku.cqrs.events.handler import EventHandler
 from waku.cqrs.events.map import EventMap
 from waku.cqrs.events.publish import EventPublisher, SequentialEventPublisher
 from waku.cqrs.impl import Mediator
 from waku.cqrs.interfaces import IMediator
 from waku.cqrs.pipeline.map import PipelineBehaviorMap
-from waku.cqrs.requests.handler import RequestHandler, RequestHandlerType
+from waku.cqrs.requests.handler import RequestHandler
 from waku.cqrs.requests.map import RequestMap
 from waku.cqrs.utils import get_request_response_type
 from waku.di import Provider, WithParents, many, scoped, transient
@@ -100,22 +100,22 @@ class MediatorExtension(OnModuleConfigure):
         self._event_map = EventMap()
         self._behavior_map = PipelineBehaviorMap()
 
-    def bind_request(  # ty: ignore[invalid-argument-type]
+    def bind_request(
         self,
         request_type: type[RequestT],
-        handler_type: RequestHandlerType[RequestT, ResponseT],  # ty: ignore[invalid-type-form]
+        handler_type: type[RequestHandler[RequestT, Any]],
         *,
-        behaviors: list[type[IPipelineBehavior[RequestT, ResponseT]]] | None = None,
+        behaviors: list[type[IPipelineBehavior[RequestT, Any]]] | None = None,
     ) -> Self:
         self._request_map.bind(request_type, handler_type)
         if behaviors:
-            self._behavior_map.bind(request_type, behaviors)  # ty: ignore[invalid-argument-type]
+            self._behavior_map.bind(request_type, behaviors)
         return self
 
     def bind_event(
         self,
         event_type: type[EventT],
-        handler_types: list[EventHandlerType[EventT]],  # ty: ignore[invalid-type-form]
+        handler_types: list[type[EventHandler[EventT]]],
     ) -> Self:
         self._event_map.bind(event_type, handler_types)
         return self
