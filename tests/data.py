@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import NewType
 
 from waku import Module
-from waku.di import BaseProvider
+from waku.di import ProviderSpec
 from waku.extensions import OnModuleConfigure, OnModuleDestroy, OnModuleInit
 from waku.modules import ModuleMetadata
 
@@ -99,7 +99,7 @@ class OnDestroyExt(OnModuleDestroy):
 class AddDepOnConfigure(OnModuleConfigure):
     """Extension that adds a dependency during module configuration."""
 
-    def __init__(self, provider: BaseProvider) -> None:
+    def __init__(self, provider: ProviderSpec) -> None:
         self.provider = provider
 
     def on_module_configure(self, metadata: ModuleMetadata) -> None:

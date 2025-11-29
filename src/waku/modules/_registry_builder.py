@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections import OrderedDict, defaultdict
-from typing import TYPE_CHECKING, Final, TypeAlias
+from typing import TYPE_CHECKING, Any, Final, TypeAlias
 from uuid import UUID
 
+from waku.di import ConditionalProvider, IProviderFilter, ProviderFilter
 from waku.modules import Module, ModuleCompiler, ModuleMetadata, ModuleRegistry, ModuleType
 
 if TYPE_CHECKING:
@@ -20,17 +21,40 @@ __all__ = [
 AdjacencyMatrix: TypeAlias = dict[UUID, OrderedDict[UUID, str]]
 
 
+class _ActivationBuilder:
+    """Build-time activation builder for checking registered types."""
+
+    def __init__(self) -> None:
+        self._registered_types: set[Any] = set()
+
+    def register(self, type_: Any) -> None:
+        self._registered_types.add(type_)
+
+    def has_active(self, type_: Any) -> bool:
+        return type_ in self._registered_types
+
+
 class ModuleRegistryBuilder:
-    def __init__(self, root_module_type: ModuleType, compiler: ModuleCompiler | None = None) -> None:
+    def __init__(
+        self,
+        root_module_type: ModuleType,
+        compiler: ModuleCompiler | None = None,
+        context: dict[Any, Any] | None = None,
+        provider_filter: IProviderFilter | None = None,
+    ) -> None:
         self._compiler: Final = compiler or ModuleCompiler()
         self._root_module_type: Final = root_module_type
+        self._context: Final = context
+        self._provider_filter: Final[IProviderFilter] = provider_filter or ProviderFilter()
         self._modules: dict[UUID, Module] = {}
         self._providers: list[BaseProvider] = []
 
         self._metadata_cache: dict[ModuleType | DynamicModule, tuple[ModuleType, ModuleMetadata]] = {}
+        self._builder: Final = _ActivationBuilder()
 
     def build(self) -> ModuleRegistry:
         modules, adjacency = self._collect_modules()
+        self._build_type_registry(modules)
         root_module = self._register_modules(modules)
         return self._build_registry(root_module, adjacency)
 
@@ -64,6 +88,16 @@ class ModuleRegistryBuilder:
         post_order.append((type_, metadata))
         visited.add(metadata.id)
 
+    def _build_type_registry(self, modules: list[tuple[ModuleType, ModuleMetadata]]) -> None:
+        """Build registry of all provided types before filtering."""
+        for _, metadata in modules:
+            for spec in metadata.providers:
+                if isinstance(spec, ConditionalProvider):
+                    self._builder.register(spec.provided_type)
+                else:
+                    for factory in spec.factories:
+                        self._builder.register(factory.provides.type_hint)
+
     def _register_modules(self, post_order: list[tuple[ModuleType, ModuleMetadata]]) -> Module:
         for type_, metadata in post_order:
             if metadata.id in self._modules:
@@ -75,7 +109,13 @@ class ModuleRegistryBuilder:
             module = Module(type_, metadata)
 
             self._modules[module.id] = module
-            self._providers.append(module.provider)
+            self._providers.append(
+                module.create_provider(
+                    context=self._context,
+                    builder=self._builder,
+                    provider_filter=self._provider_filter,
+                )
+            )
 
         _, root_metadata = self._get_metadata(self._root_module_type)
         return self._modules[root_metadata.id]
@@ -87,7 +127,6 @@ class ModuleRegistryBuilder:
         return self._metadata_cache[module_type]
 
     def _build_registry(self, root_module: Module, adjacency: AdjacencyMatrix) -> ModuleRegistry:
-        # Store topological order (post_order DFS) for event triggering
         return ModuleRegistry(
             compiler=self._compiler,
             modules=self._modules,
