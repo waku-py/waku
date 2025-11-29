@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from itertools import chain
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Protocol
 
 from dishka import STRICT_VALIDATION, make_async_container
 
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 __all__ = ['override']
 
 
-class _Overrideable(Protocol):
+class _HasOverride(Protocol):
     override: bool
 
 
@@ -52,8 +52,8 @@ def override(container: AsyncContainer, *providers: BaseProvider) -> Iterator[No
         ```
     """
     for provider in providers:
-        for factory in chain(provider.factories, provider.aliases):
-            cast(_Overrideable, factory).override = True
+        for factory in chain[_HasOverride](provider.factories, provider.aliases):
+            factory.override = True
 
     new_container = make_async_container(
         _container_provider(container),

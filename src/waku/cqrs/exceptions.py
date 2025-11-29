@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING, Any
 from waku.exceptions import WakuError
 
 if TYPE_CHECKING:
-    from waku.cqrs.contracts.event import Event, EventT
+    from waku.cqrs.contracts.event import Event
     from waku.cqrs.contracts.pipeline import IPipelineBehavior
     from waku.cqrs.contracts.request import Request
-    from waku.cqrs.events.handler import EventHandlerType
-    from waku.cqrs.requests.handler import RequestHandlerType
+    from waku.cqrs.events.handler import EventHandler
+    from waku.cqrs.requests.handler import RequestHandler
 
 __all__ = [
     'EventHandlerAlreadyRegistered',
@@ -38,7 +38,7 @@ class RequestHandlerAlreadyRegistered(MediatorError, KeyError):  # noqa: N818
         handler_type: The type of handler that was already registered.
     """
 
-    def __init__(self, request_type: type[Request[Any]], handler_type: RequestHandlerType[Any, Any]) -> None:  # ty: ignore[invalid-type-form]
+    def __init__(self, request_type: type[Request[Any]], handler_type: type[RequestHandler[Any, Any]]) -> None:
         self.request_type = request_type
         self.handler_type = handler_type
 
@@ -68,7 +68,7 @@ class EventHandlerAlreadyRegistered(MediatorError, KeyError):  # noqa: N818
         handler_type: The type of handler that was already registered.
     """
 
-    def __init__(self, event_type: type[EventT], handler_type: EventHandlerType[EventT]) -> None:  # ty: ignore[invalid-type-form]
+    def __init__(self, event_type: type[Event], handler_type: type[EventHandler[Any]]) -> None:
         self.event_type = event_type
         self.handler_type = handler_type
 

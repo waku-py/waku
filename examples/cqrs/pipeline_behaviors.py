@@ -180,7 +180,7 @@ class UserQueryValidationBehavior(ValidationBehavior[GetUserQuery, UserResponse]
             MediatorExtension().bind_request(
                 GetUserQuery,
                 GetUserQueryHandler,
-                behaviors=[UserQueryValidationBehavior],  # ty: ignore[invalid-argument-type]
+                behaviors=[UserQueryValidationBehavior],
             )
         ),
     ],

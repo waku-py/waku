@@ -1,6 +1,5 @@
-from waku.cqrs.requests.handler import RequestHandler, RequestHandlerType
+from waku.cqrs.requests.handler import RequestHandler
 
 __all__ = [
     'RequestHandler',
-    'RequestHandlerType',
 ]

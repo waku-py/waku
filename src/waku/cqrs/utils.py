@@ -5,10 +5,10 @@ import typing
 
 from typing_extensions import get_original_bases
 
-from waku.cqrs.contracts.request import ResponseT
+from waku.cqrs.contracts import ResponseT
 
 if typing.TYPE_CHECKING:
-    from waku.cqrs.contracts.request import Request
+    from waku.cqrs import Request
 
 __all__ = ['get_request_response_type']
 

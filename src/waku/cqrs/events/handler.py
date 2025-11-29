@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import abc
-from typing import Generic, TypeAlias
+from typing import Generic
 
 from waku.cqrs.contracts.event import EventT
 
@@ -23,6 +23,3 @@ class EventHandler(abc.ABC, Generic[EventT]):
     @abc.abstractmethod
     async def handle(self, event: EventT, /) -> None:
         raise NotImplementedError
-
-
-EventHandlerType: TypeAlias = type[EventHandler[EventT]]  # ty: ignore[invalid-argument-type]
