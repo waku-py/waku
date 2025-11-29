@@ -1,0 +1,13 @@
+project-includes = ["src"]
+project-excludes = [
+    "**/__pycache__",
+    "tests",
+]
+python-platform = "linux"
+python-version = "3.11.0"
+
+[errors]
+missing-import = "error"
+
+[[sub-config]]
+matches = "src"

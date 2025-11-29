@@ -92,6 +92,15 @@ repos:
         fail_fast: true
         stages: [ pre-commit, pre-push, manual ]
 
+      - id: typecheck-pyrefly
+        name: Run type checking with pyrefly
+        entry: task pyrefly -- --output-format=min-text
+        types: [ python ]
+        language: system
+        pass_filenames: false
+        fail_fast: true
+        stages: [ pre-commit, pre-push, manual ]
+
       - id: deptry
         name: Check dependency usage
         entry: task deptry
