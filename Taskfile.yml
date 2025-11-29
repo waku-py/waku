@@ -68,7 +68,7 @@ tasks:
     desc: Audit dependencies for vulnerabilities
     deps: [ .uv-locked ]
     silent: true
-    cmd: uv run pysentry-rs --all-extras {{.CLI_ARGS}}
+    cmd: uv run pysentry-rs {{.CLI_ARGS}}
 
   lint:
     desc: Lint code
@@ -102,6 +102,12 @@ tasks:
     deps: [ .uv-locked ]
     cmds:
       - uv run ty check {{.CLI_ARGS}} {{.SOURCES}}
+
+  pyrefly:
+    desc: Type check code with pyrefly
+    deps: [ .uv-locked ]
+    cmds:
+      - uv run pyrefly check {{.CLI_ARGS}}
 
   check:
     aliases: [ ci ]
