@@ -396,7 +396,7 @@
 
 ### ⚙️ Build System
 
-- Make patch release only for `fix` &amp;amp;amp;amp;amp;amp; `perf` tags
+- Make patch release only for `fix` & `perf` tags
   ([`b9cf6bf`](https://github.com/waku-py/waku/commit/b9cf6bf77047e21959f4e1bbe2a1bb1566cccd1c))
 
 ### 📖 Documentation

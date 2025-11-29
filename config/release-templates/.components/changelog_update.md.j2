@@ -65,7 +65,7 @@ This Update changelog template uses the following logic:
    #        was at the end of the file (ignoring whitespace)
 #}{%    set previous_changelog_bottom = changelog_parts[1] | trim
 %}{%    if previous_changelog_bottom | length > 0
-%}{{      "\n%s\n" | format(previous_changelog_bottom)
+%}{{      "\n%s\n" | format(previous_changelog_bottom) | safe
 }}{%    endif
 %}{%  endif
 %}
