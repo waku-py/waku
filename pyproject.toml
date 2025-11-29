@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "waku"
-version = "0.22.2"
+version = "0.23.0"
 description = "Framework for building modular and loosely coupled applications"
 readme = "README.md"
 license = "MIT"

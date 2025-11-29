@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.23.0 (2025-11-29)
+
+### ✨ Features
+
+- Add conditional provider activation
+  ([`a9aee1d`](https://github.com/waku-py/waku/commit/a9aee1df1bef5d551bbde9d62d56a088bb044dc3))
+
+
 ## v0.22.2 (2025-11-29)
 
 ### 🪲 Bug Fixes
