@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.22.2 (2025-11-29)
+
+### 🪲 Bug Fixes
+
+- Adjust cqrs handlers typing to support ty v0.0.1a29
+  ([`526102c`](https://github.com/waku-py/waku/commit/526102cfb28760c5963063f1609d5cb5489bd00b))
+
+
 ## v0.22.1 (2025-11-29)
 
 ### 🪲 Bug Fixes
