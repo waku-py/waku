@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.22.1 (2025-11-29)
+
+### 🪲 Bug Fixes
+
+- Do not trigger error on generic re-exports in modules
+  ([`e1a5b56`](https://github.com/waku-py/waku/commit/e1a5b5602f6cff066f84fb6f0003a179603d0e35))
+
+
 ## v0.22.0 (2025-11-27)
 
 ### 🪲 Bug Fixes
@@ -388,7 +396,7 @@
 
 ### ⚙️ Build System
 
-- Make patch release only for `fix` &amp;amp;amp;amp;amp; `perf` tags
+- Make patch release only for `fix` &amp;amp;amp;amp;amp;amp; `perf` tags
   ([`b9cf6bf`](https://github.com/waku-py/waku/commit/b9cf6bf77047e21959f4e1bbe2a1bb1566cccd1c))
 
 ### 📖 Documentation
