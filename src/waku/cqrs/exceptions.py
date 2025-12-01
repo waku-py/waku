@@ -13,7 +13,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     'EventHandlerAlreadyRegistered',
-    'EventHandlerNotFound',
     'ImproperlyConfiguredError',
     'MediatorError',
     'PipelineBehaviorAlreadyRegistered',
@@ -74,20 +73,6 @@ class EventHandlerAlreadyRegistered(MediatorError, KeyError):  # noqa: N818
 
     def __str__(self) -> str:
         return f'{self.handler_type.__name__} already registered for {self.event_type.__name__} event'
-
-
-class EventHandlerNotFound(MediatorError, TypeError):  # noqa: N818
-    """Raised when an event handler is not found.
-
-    Attributes:
-        event_type: The type of event that caused the error.
-    """
-
-    def __init__(self, event_type: type[Event]) -> None:
-        self.event_type = event_type
-
-    def __str__(self) -> str:
-        return f'Event handlers for {self.event_type.__name__} event is not registered'
 
 
 class PipelineBehaviorAlreadyRegistered(MediatorError, KeyError):  # noqa: N818
