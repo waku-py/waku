@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.24.1 (2025-12-01)
+
+### ⚡ Performance Improvements
+
+- **cqrs**: Use iterative pipeline execution to avoid partial chains
+  ([`d98ee30`](https://github.com/waku-py/waku/commit/d98ee301f52e56a21b40f85a956622e771fbb89e))
+
+
 ## v0.24.0 (2025-12-01)
 
 ### ✨ Features
