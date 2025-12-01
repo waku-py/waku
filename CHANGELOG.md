@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.24.0 (2025-12-01)
+
+### ✨ Features
+
+- **cqrs**: Make event publishing noop when no handlers registered
+  ([`ae73c04`](https://github.com/waku-py/waku/commit/ae73c041e4251d4732459a3898a82ed444610503))
+
+
 ## v0.23.0 (2025-11-29)
 
 ### ✨ Features
