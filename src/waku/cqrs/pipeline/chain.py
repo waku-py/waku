@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import functools
 from typing import TYPE_CHECKING, Generic
 
 from waku.cqrs.contracts.request import RequestT, ResponseT
@@ -14,13 +13,10 @@ if TYPE_CHECKING:
 class PipelineBehaviorWrapper(Generic[RequestT, ResponseT]):
     """Composes pipeline behaviors into a processing chain."""
 
-    def __init__(self, behaviors: Sequence[IPipelineBehavior[RequestT, ResponseT]]) -> None:
-        """Initialize the pipeline behavior chain.
+    __slots__ = ('_behaviors',)
 
-        Args:
-            behaviors: Sequence of pipeline behaviors to execute in order
-        """
-        self._behaviors = list(behaviors)  # Convert to list immediately
+    def __init__(self, behaviors: Sequence[IPipelineBehavior[RequestT, ResponseT]]) -> None:
+        self._behaviors = tuple(behaviors)
 
     def wrap(self, handle: NextHandlerType[RequestT, ResponseT]) -> NextHandlerType[RequestT, ResponseT]:
         """Create a pipeline that wraps the handler function with behaviors.
@@ -33,7 +29,17 @@ class PipelineBehaviorWrapper(Generic[RequestT, ResponseT]):
         Returns:
             A function that executes the entire pipeline
         """
-        for behavior in reversed(self._behaviors):
-            handle = functools.partial(behavior.handle, next_handler=handle)
+        if not self._behaviors:
+            return handle
 
-        return handle
+        behaviors = self._behaviors
+
+        async def pipeline(request: RequestT) -> ResponseT:
+            async def execute(req: RequestT, idx: int) -> ResponseT:
+                if idx >= len(behaviors):
+                    return await handle(req)
+                return await behaviors[idx].handle(req, next_handler=lambda r: execute(r, idx + 1))
+
+            return await execute(request, 0)
+
+        return pipeline
