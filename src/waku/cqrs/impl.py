@@ -10,7 +10,7 @@ from waku.cqrs.contracts.event import Event, EventT
 from waku.cqrs.contracts.request import Request, ResponseT
 from waku.cqrs.events.handler import EventHandler
 from waku.cqrs.events.publish import EventPublisher
-from waku.cqrs.exceptions import EventHandlerNotFound, RequestHandlerNotFound
+from waku.cqrs.exceptions import RequestHandlerNotFound
 from waku.cqrs.interfaces import IMediator
 from waku.cqrs.pipeline import PipelineBehaviorWrapper
 from waku.cqrs.requests.handler import RequestHandler
@@ -62,9 +62,6 @@ class Mediator(IMediator):
 
         Args:
             event: The event to publish
-
-        Raises:
-            EventHandlerNotFound: If no handlers are registered for the event type
         """
         event_type = type(event)
         handlers = await self._resolve_event_handlers(event_type)
@@ -119,8 +116,8 @@ class Mediator(IMediator):
         try:
             handlers = await self._container.get(Sequence[handler_type])  # type: ignore[valid-type]
             return cast(Sequence[EventHandler[EventT]], handlers)
-        except NoFactoryError as err:
-            raise EventHandlerNotFound(event_type) from err
+        except NoFactoryError:
+            return []
 
     @staticmethod
     @cache
