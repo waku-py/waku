@@ -180,3 +180,81 @@ async def test_override_service_that_depends_on_request_container(provider_type:
             overrode_service = await request_container.get(ServiceDependsOnContainer)
             assert isinstance(overrode_service, ServiceDependsOnContainer)
             assert overrode_service.container is request_container
+
+
+async def test_override_context_value() -> None:
+    AppModule = create_basic_module(
+        providers=[
+            contextual(int, scope=Scope.APP),
+            scoped(Service),
+        ],
+        name='AppModule',
+    )
+
+    initial_val = 1
+    overridden_val = 99
+    application = WakuFactory(AppModule, context={int: initial_val}).create()
+
+    async with application:
+        async with application.container() as request_container:
+            original_service = await request_container.get(Service)
+            assert original_service.val == initial_val
+
+        with override(application.container, context={int: overridden_val}):
+            async with application.container() as request_container:
+                overridden_service = await request_container.get(Service)
+                assert overridden_service.val == overridden_val
+
+        async with application.container() as request_container:
+            restored_service = await request_container.get(Service)
+            assert restored_service.val == initial_val
+
+
+async def test_override_context_and_provider_together() -> None:
+    AppModule = create_basic_module(
+        providers=[
+            contextual(int, scope=Scope.APP),
+            scoped(Service),
+        ],
+        name='AppModule',
+    )
+
+    initial_val = 1
+    overridden_val = 99
+    application = WakuFactory(AppModule, context={int: initial_val}).create()
+
+    async with application:
+        with override(
+            application.container,
+            scoped(Service, ServiceOverride),
+            context={int: overridden_val},
+        ):
+            async with application.container() as request_container:
+                overridden_service = await request_container.get(Service)
+                assert isinstance(overridden_service, ServiceOverride)
+                assert overridden_service.method() == _EXPECTED_VAL
+
+
+async def test_override_context_preserves_existing_values() -> None:
+    @dataclass
+    class MultiContextService:
+        val1: int
+        val2: str
+
+    AppModule = create_basic_module(
+        providers=[
+            contextual(int, scope=Scope.APP),
+            contextual(str, scope=Scope.APP),
+            scoped(MultiContextService),
+        ],
+        name='AppModule',
+    )
+
+    application = WakuFactory(AppModule, context={int: 1, str: 'original'}).create()
+
+    async with application:
+        with override(application.container, context={int: 42}):
+            async with application.container() as request_container:
+                service = await request_container.get(MultiContextService)
+                assert service.val1 == 42
+                assert service.val2 == 'original'
