@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.25.0 (2025-12-02)
+
+### ✨ Features
+
+- Add context override support to `override` helper
+  ([`30e572f`](https://github.com/waku-py/waku/commit/30e572f280c3f42f0f789941247ba4d56442ea9f))
+
+
 ## v0.24.1 (2025-12-01)
 
 ### ⚡ Performance Improvements
