@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager, contextmanager
 from itertools import chain
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
-from dishka import STRICT_VALIDATION, make_async_container
+from dishka import STRICT_VALIDATION, Scope, make_async_container
 from dishka.entities.factory_type import FactoryType
 
 from waku.di import DEFAULT_COMPONENT, AsyncContainer, BaseProvider, ConditionalProvider
@@ -72,7 +72,18 @@ def override(
         with override(application.container, context={int: 123}):
             ...
         ```
+
+    Raises:
+        ValueError: If container is not at root (APP) scope.
     """
+    if container.scope != Scope.APP:
+        msg = (
+            f'override() only supports root (APP scope) containers, '
+            f'got {container.scope.name} scope. '
+            f'Use application.container instead of a scoped container.'
+        )
+        raise ValueError(msg)
+
     _mark_as_overrides(providers)
 
     original_context = cast(dict[Any, Any], container._context)  # noqa: SLF001
@@ -86,6 +97,11 @@ def override(
         start_scope=container.scope,
         validation_settings=STRICT_VALIDATION,
     )
+
+    # Only copy cache when no providers are overridden (context-only override)
+    # Provider overrides may have transitive effects, so rebuild everything
+    if not providers:
+        _copy_cache(container, new_container, context_override_types)
 
     _swap(container, new_container)
     yield
@@ -112,6 +128,20 @@ def _extract_factories(registry: Registry, context_override_types: frozenset[Any
             and not (factory.type is FactoryType.CONTEXT and dep_key.type_hint in context_override_types)
         )
     ]
+
+
+def _copy_cache(
+    source: AsyncContainer,
+    target: AsyncContainer,
+    exclude_types: frozenset[type],
+) -> None:
+    """Copy cached instances from source to target, excluding specified types."""
+    source_cache = cast(dict[Any, Any], source._cache)  # noqa: SLF001
+    target_cache = cast(dict[Any, Any], target._cache)  # noqa: SLF001
+
+    for dep_key, instance in source_cache.items():
+        if dep_key.type_hint not in exclude_types:
+            target_cache[dep_key] = instance
 
 
 def _swap(c1: AsyncContainer, c2: AsyncContainer) -> None:

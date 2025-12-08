@@ -138,12 +138,13 @@ async def test_override_app_scoped_service_from_fixture(application: WakuApplica
 
 @pytest.mark.parametrize('provider_type', [transient, scoped, singleton])
 async def test_override_request_scoped_service_from_fixture(
-    request_container: AsyncContainer,
+    application: WakuApplication,
     provider_type: Callable[..., Provider],
 ) -> None:
-    with override(request_container, provider_type(ISomeService, FakeSomeService)):
-        overrode_service = await request_container.get(ISomeService)
-        assert isinstance(overrode_service, FakeSomeService)
+    with override(application.container, provider_type(ISomeService, FakeSomeService)):
+        async with application.container() as request_container:
+            overrode_service = await request_container.get(ISomeService)
+            assert isinstance(overrode_service, FakeSomeService)
 
 
 async def test_override_service_that_depends_on_app_container() -> None:
@@ -175,11 +176,12 @@ async def test_override_service_that_depends_on_request_container(provider_type:
 
     application = WakuFactory(AppModule).create()
 
-    async with application, application.container() as request_container:
-        with override(request_container, provider_type(ServiceDependsOnContainer)):
-            overrode_service = await request_container.get(ServiceDependsOnContainer)
-            assert isinstance(overrode_service, ServiceDependsOnContainer)
-            assert overrode_service.container is request_container
+    async with application:
+        with override(application.container, provider_type(ServiceDependsOnContainer)):
+            async with application.container() as request_container:
+                overrode_service = await request_container.get(ServiceDependsOnContainer)
+                assert isinstance(overrode_service, ServiceDependsOnContainer)
+                assert overrode_service.container is request_container
 
 
 async def test_override_context_value() -> None:
