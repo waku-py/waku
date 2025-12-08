@@ -8,6 +8,7 @@ from dishka import STRICT_VALIDATION, make_async_container
 from dishka.entities.factory_type import FactoryType
 
 from waku.di import DEFAULT_COMPONENT, AsyncContainer, BaseProvider, ConditionalProvider
+from waku.extensions import DEFAULT_EXTENSIONS
 from waku.factory import WakuFactory
 from waku.modules import module
 
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
 
     from waku.application import WakuApplication
     from waku.di import ProviderSpec
-    from waku.extensions import ModuleExtension
+    from waku.extensions import ApplicationExtension, ModuleExtension
     from waku.modules import DynamicModule, ModuleType
 
 
@@ -127,6 +128,7 @@ async def create_test_app(
     providers: Sequence[ProviderSpec] = (),
     imports: Sequence[ModuleType | DynamicModule] = (),
     extensions: Sequence[ModuleExtension] = (),
+    app_extensions: Sequence[ApplicationExtension] = DEFAULT_EXTENSIONS,
     context: dict[Any, Any] | None = None,
 ) -> AsyncIterator[WakuApplication]:
     """Create a minimal test application with given configuration.
@@ -141,6 +143,7 @@ async def create_test_app(
             When `base` is provided, these override existing providers.
         imports: Additional modules to import into the test module.
         extensions: Module extensions to register.
+        app_extensions: Application extensions to register (default: DEFAULT_EXTENSIONS).
         context: Context values to pass to the container.
 
     Yields:
@@ -201,7 +204,7 @@ async def create_test_app(
     class _TestModule:
         pass
 
-    app = WakuFactory(_TestModule, context=context).create()
+    app = WakuFactory(_TestModule, context=context, extensions=app_extensions).create()
     async with app:
         yield app
 
