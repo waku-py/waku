@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.26.0 (2025-12-08)
+
+### ✨ Features
+
+- Add `OnBeforeContainerBuild` extension
+  ([`8803bce`](https://github.com/waku-py/waku/commit/8803bce78843ea3af1dec069d9d81230b4ae0068))
+
+
 ## v0.25.0 (2025-12-02)
 
 ### ✨ Features
