@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.26.1 (2025-12-08)
+
+### 🪲 Bug Fixes
+
+- Add app_extensions param to create_test_app
+  ([`3bba1ac`](https://github.com/waku-py/waku/commit/3bba1ac8a0276bc04434fc09aa61dd68e4954086))
+
+
 ## v0.26.0 (2025-12-08)
 
 ### ✨ Features
