@@ -73,7 +73,7 @@ test = [
   "uvloop==0.22.1; sys_platform != 'win32' and python_version < '3.14'",
 ]
 typecheck = [
-  "basedpyright==1.34.0",
+  "basedpyright==1.36.2",
   "mypy==1.19.0",
   "pyrefly>=0.43.1",
   "ty==0.0.1a29",
