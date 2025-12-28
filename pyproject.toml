@@ -76,7 +76,7 @@ typecheck = [
   "basedpyright==1.36.2",
   "mypy==1.19.1",
   "pyrefly>=0.43.1",
-  "ty==0.0.1a29",
+  "ty==0.0.7",
 ]
 
 # ----- UV settings -----
