@@ -16,14 +16,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
         with:
           fetch-depth: 100 # Must at least retrieve a set of commits to compare changes
           # primarily because of any 'Rebase and Merge' PR action in GitHub
 
       - name: Evaluate | Check common file types for changes
         id: core-changed-files
-        uses: tj-actions/changed-files@24d32ffd492484c1d75e0c0b894501ddb9d30d62 # v47.0.0
+        uses: tj-actions/changed-files@e0021407031f5be11a464abee9a0776171c79891 # v47.0.1
         with:
           base_sha: ${{ github.event.push.before }}
           files_yaml_from_source_file: .github/changed-files-spec.yml
@@ -85,7 +85,7 @@ jobs:
 
     steps:
       - name: Setup | Create access token
-        uses: actions/create-github-app-token@7e473efe3cb98aa54f8d4bac15400b15fad77d94 # v2
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2
         id: app-token
         with:
           app-id: ${{ vars.VERSION_BUMPER_APPID }}
@@ -98,7 +98,7 @@ jobs:
       # possible that the branch was updated while the workflow was running. This
       # prevents accidentally releasing un-evaluated changes.
       - name: Setup | Checkout Repository on Release Branch
-        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
