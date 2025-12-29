@@ -7,8 +7,8 @@ import anyio
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from waku.cqrs.contracts.event import EventT
-    from waku.cqrs.events.handler import EventHandler
+    from waku.cqrs.contracts.notification import NotificationT
+    from waku.cqrs.events.handler import INotificationHandler
 
 __all__ = [
     'EventPublisher',
@@ -18,18 +18,19 @@ __all__ = [
 
 
 class EventPublisher(Protocol):
-    async def __call__(self, handlers: Sequence[EventHandler[EventT]], event: EventT, /) -> None:
-        pass
+    async def __call__(
+        self, handlers: Sequence[INotificationHandler[NotificationT]], event: NotificationT, /
+    ) -> None: ...
 
 
 class SequentialEventPublisher(EventPublisher):
-    async def __call__(self, handlers: Sequence[EventHandler[EventT]], event: EventT, /) -> None:
+    async def __call__(self, handlers: Sequence[INotificationHandler[NotificationT]], event: NotificationT, /) -> None:
         for handler in handlers:
             await handler.handle(event)
 
 
 class GroupEventPublisher(EventPublisher):
-    async def __call__(self, handlers: Sequence[EventHandler[EventT]], event: EventT, /) -> None:
+    async def __call__(self, handlers: Sequence[INotificationHandler[NotificationT]], event: NotificationT, /) -> None:
         async with anyio.create_task_group() as tg:
             for handler in handlers:
                 tg.start_soon(handler.handle, event)

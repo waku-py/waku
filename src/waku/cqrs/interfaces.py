@@ -4,8 +4,8 @@ import abc
 from typing import TYPE_CHECKING, overload
 
 if TYPE_CHECKING:
-    from waku.cqrs.contracts.event import Event
-    from waku.cqrs.contracts.request import Request, ResponseT
+    from waku.cqrs.contracts.notification import INotification
+    from waku.cqrs.contracts.request import IRequest, ResponseT
 
 __all__ = [
     'IMediator',
@@ -18,13 +18,13 @@ class ISender(abc.ABC):
     """Send a request through the cqrs middleware chain to be handled by a single handler."""
 
     @overload
-    async def send(self, request: Request[None], /) -> None: ...
+    async def send(self, request: IRequest[None], /) -> None: ...
 
     @overload
-    async def send(self, request: Request[ResponseT], /) -> ResponseT: ...
+    async def send(self, request: IRequest[ResponseT], /) -> ResponseT: ...
 
     @abc.abstractmethod
-    async def send(self, request: Request[ResponseT], /) -> ResponseT:
+    async def send(self, request: IRequest[ResponseT], /) -> ResponseT:
         """Asynchronously send a request to a single handler."""
 
 
@@ -32,7 +32,7 @@ class IPublisher(abc.ABC):
     """Publish event through the cqrs to be handled by multiple handlers."""
 
     @abc.abstractmethod
-    async def publish(self, event: Event, /) -> None:
+    async def publish(self, event: INotification, /) -> None:
         """Asynchronously send event to multiple handlers."""
 
 

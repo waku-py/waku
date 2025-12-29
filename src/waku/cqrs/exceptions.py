@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING, Any
 from waku.exceptions import WakuError
 
 if TYPE_CHECKING:
-    from waku.cqrs.contracts.event import Event
+    from waku.cqrs.contracts.notification import INotification
     from waku.cqrs.contracts.pipeline import IPipelineBehavior
-    from waku.cqrs.contracts.request import Request
-    from waku.cqrs.events.handler import EventHandler
-    from waku.cqrs.requests.handler import RequestHandler
+    from waku.cqrs.contracts.request import IRequest
+    from waku.cqrs.events.handler import INotificationHandler
+    from waku.cqrs.requests.handler import IRequestHandler
 
 __all__ = [
     'EventHandlerAlreadyRegistered',
@@ -37,7 +37,7 @@ class RequestHandlerAlreadyRegistered(MediatorError, KeyError):  # noqa: N818
         handler_type: The type of handler that was already registered.
     """
 
-    def __init__(self, request_type: type[Request[Any]], handler_type: type[RequestHandler[Any, Any]]) -> None:
+    def __init__(self, request_type: type[IRequest[Any]], handler_type: type[IRequestHandler[Any, Any]]) -> None:
         self.request_type = request_type
         self.handler_type = handler_type
 
@@ -52,7 +52,7 @@ class RequestHandlerNotFound(MediatorError, TypeError):  # noqa: N818
         request_type: The type of request that caused the error.
     """
 
-    def __init__(self, request_type: type[Request[Any]]) -> None:
+    def __init__(self, request_type: type[IRequest[Any]]) -> None:
         self.request_type = request_type
 
     def __str__(self) -> str:
@@ -67,7 +67,7 @@ class EventHandlerAlreadyRegistered(MediatorError, KeyError):  # noqa: N818
         handler_type: The type of handler that was already registered.
     """
 
-    def __init__(self, event_type: type[Event], handler_type: type[EventHandler[Any]]) -> None:
+    def __init__(self, event_type: type[INotification], handler_type: type[INotificationHandler[Any]]) -> None:
         self.event_type = event_type
         self.handler_type = handler_type
 
@@ -83,7 +83,7 @@ class PipelineBehaviorAlreadyRegistered(MediatorError, KeyError):  # noqa: N818
         behavior_type: The type of behavior that was already registered.
     """
 
-    def __init__(self, request_type: type[Request], behavior_type: type[IPipelineBehavior[Any, Any]]) -> None:
+    def __init__(self, request_type: type[IRequest[Any]], behavior_type: type[IPipelineBehavior[Any, Any]]) -> None:
         self.request_type = request_type
         self.behavior_type = behavior_type
 

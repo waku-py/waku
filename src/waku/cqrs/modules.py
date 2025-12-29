@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Any, Self, TypeAlias
 
-from waku.cqrs.contracts.event import EventT
+from waku.cqrs.contracts.notification import NotificationT
 from waku.cqrs.contracts.pipeline import IPipelineBehavior
 from waku.cqrs.contracts.request import RequestT
 from waku.cqrs.events.handler import EventHandler
@@ -114,8 +114,8 @@ class MediatorExtension(OnModuleConfigure):
 
     def bind_event(
         self,
-        event_type: type[EventT],
-        handler_types: list[type[EventHandler[EventT]]],
+        event_type: type[NotificationT],
+        handler_types: list[type[EventHandler[NotificationT]]],
     ) -> Self:
         self._event_map.bind(event_type, handler_types)
         return self

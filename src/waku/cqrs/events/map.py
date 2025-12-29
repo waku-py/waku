@@ -4,7 +4,7 @@ from collections import defaultdict
 from collections.abc import MutableMapping
 from typing import Any, Self, TypeAlias
 
-from waku.cqrs.contracts.event import EventT
+from waku.cqrs.contracts.notification import INotification, NotificationT
 from waku.cqrs.events.handler import EventHandler
 from waku.cqrs.exceptions import EventHandlerAlreadyRegistered
 
@@ -13,14 +13,14 @@ __all__ = [
     'EventMapRegistry',
 ]
 
-EventMapRegistry: TypeAlias = MutableMapping[type[EventT], list[type[EventHandler[EventT]]]]
+EventMapRegistry: TypeAlias = MutableMapping[type[INotification], list[type[EventHandler[Any]]]]
 
 
 class EventMap:
     def __init__(self) -> None:
-        self._registry: EventMapRegistry[Any] = defaultdict(list)
+        self._registry: EventMapRegistry = defaultdict(list)
 
-    def bind(self, event_type: type[EventT], handler_types: list[type[EventHandler[EventT]]]) -> Self:
+    def bind(self, event_type: type[NotificationT], handler_types: list[type[EventHandler[NotificationT]]]) -> Self:
         for handler_type in handler_types:
             if handler_type in self._registry[event_type]:
                 raise EventHandlerAlreadyRegistered(event_type, handler_type)
@@ -33,7 +33,7 @@ class EventMap:
         return self
 
     @property
-    def registry(self) -> EventMapRegistry[Any]:
+    def registry(self) -> EventMapRegistry:
         return self._registry
 
     def __bool__(self) -> bool:
