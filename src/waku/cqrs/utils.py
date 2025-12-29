@@ -8,11 +8,11 @@ from typing_extensions import get_original_bases
 from waku.cqrs.contracts import ResponseT
 
 if typing.TYPE_CHECKING:
-    from waku.cqrs import Request
+    from waku.cqrs.contracts.request import IRequest
 
 __all__ = ['get_request_response_type']
 
 
 @functools.cache
-def get_request_response_type(request_type: type[Request[ResponseT]]) -> type[ResponseT]:
+def get_request_response_type(request_type: type[IRequest[ResponseT]]) -> type[ResponseT]:
     return typing.cast(type[ResponseT], typing.get_args(get_original_bases(request_type)[0])[0])

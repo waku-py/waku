@@ -32,6 +32,16 @@ class ModuleRegistry:
         self._modules = modules
         self._providers = tuple(providers)
         self._adjacency = adjacency
+        self._parent_to_module = self._build_parent_mapping(modules)
+
+    @staticmethod
+    def _build_parent_mapping(modules: dict[UUID, Module]) -> dict[type, Module]:
+        """Build mapping from parent module classes to their registered DynamicModule instances."""
+        mapping: dict[type, Module] = {}
+        for mod in modules.values():
+            if isinstance(mod.target, type):
+                mapping[mod.target] = mod
+        return mapping
 
     @property
     def root_module(self) -> Module:
@@ -50,6 +60,12 @@ class ModuleRegistry:
         return self._compiler
 
     def get(self, module_type: ModuleType | DynamicModule) -> Module:
+        # For plain module classes, check if they're registered via parent mapping first.
+        # This handles the case where ConfigModule.register() was imported,
+        # but ConfigModule (the class) is being exported.
+        if isinstance(module_type, type) and module_type in self._parent_to_module:
+            return self._parent_to_module[module_type]
+
         module_id = self.compiler.extract_metadata(module_type)[1].id
         return self.get_by_id(module_id)
 

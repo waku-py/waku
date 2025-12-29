@@ -66,7 +66,7 @@ class LoggingBehavior(IPipelineBehavior[RequestT, ResponseT]):
                 response,
             )
         except Exception:
-            self._logger.error('Error processing request %s (ID: %s)', request_name, request.request_id)
+            self._logger.exception('Error processing request %s', request_name)
             raise
         else:
             return response
