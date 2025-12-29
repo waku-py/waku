@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v0.27.0 (2025-12-29)
+
+### ✨ Features
+
+- Migrate cqrs to `OnModuleRegistration` extension
+  ([`18e4234`](https://github.com/waku-py/waku/commit/18e4234d088d6e55336fcb0ae63d00cf57f54af6))
+
+- Rename base cqrs event marker to notification
+  ([`5aa4d2f`](https://github.com/waku-py/waku/commit/5aa4d2f24528ce07851561e1b156cf764c43afe4))
+
+- **tests**: Add app_extensions param to create_test_app
+  ([`ffdba15`](https://github.com/waku-py/waku/commit/ffdba1546a32985e26d8465d86d11e26b9a5d047))
+
+
 ## v0.26.1 (2025-12-08)
 
 ### 🪲 Bug Fixes
