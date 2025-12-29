@@ -29,11 +29,11 @@ class ISender(abc.ABC):
 
 
 class IPublisher(abc.ABC):
-    """Publish event through the cqrs to be handled by multiple handlers."""
+    """Publish notification through the cqrs to be handled by multiple handlers."""
 
     @abc.abstractmethod
-    async def publish(self, event: INotification, /) -> None:
-        """Asynchronously send event to multiple handlers."""
+    async def publish(self, notification: INotification, /) -> None:
+        """Asynchronously send notification to multiple handlers."""
 
 
 class IMediator(ISender, IPublisher, abc.ABC):

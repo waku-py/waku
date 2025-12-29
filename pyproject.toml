@@ -75,7 +75,7 @@ test = [
 typecheck = [
   "basedpyright==1.36.2",
   "mypy==1.19.1",
-  "pyrefly>=0.43.1",
+  "pyrefly==0.46.1",
   "ty==0.0.7",
 ]
 
@@ -149,7 +149,6 @@ ignore = [
   "RUF001", # ruff unicode specific rules
   "RUF002", # ruff unicode specific rules
   "RUF003", # ruff unicode specific rules
-  "TC006", # Add quotes to type expression in `typing.cast()`
   "TD", # flake8-todos
   "TRY003", # Duplicates EM101 warning
 ]
@@ -232,6 +231,7 @@ DEP004 = ["gitlint"]
 # Mypy configuration:
 # https://mypy.readthedocs.io/en/latest/config_file.html
 exclude = [
+  "benchmarks",
   "docs/code/getting_started",
   "docs/code/providers",
 ]

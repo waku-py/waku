@@ -86,7 +86,7 @@ def override(
 
     _mark_as_overrides(providers)
 
-    original_context = cast(dict[Any, Any], container._context)  # noqa: SLF001
+    original_context = cast('dict[Any, Any]', container._context)  # noqa: SLF001
     merged_context = {**original_context, **(context or {})}
     context_override_types = frozenset(context.keys()) if context else frozenset()
 
@@ -136,8 +136,8 @@ def _copy_cache(
     exclude_types: frozenset[type],
 ) -> None:
     """Copy cached instances from source to target, excluding specified types."""
-    source_cache = cast(dict[Any, Any], source._cache)  # noqa: SLF001
-    target_cache = cast(dict[Any, Any], target._cache)  # noqa: SLF001
+    source_cache = cast('dict[Any, Any]', source._cache)  # noqa: SLF001
+    target_cache = cast('dict[Any, Any]', target._cache)  # noqa: SLF001
 
     for dep_key, instance in source_cache.items():
         if dep_key.type_hint not in exclude_types:

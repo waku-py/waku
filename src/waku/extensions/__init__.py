@@ -8,10 +8,10 @@ from waku.extensions.protocols import (
     ModuleExtension,
     OnApplicationInit,
     OnApplicationShutdown,
-    OnBeforeContainerBuild,
     OnModuleConfigure,
     OnModuleDestroy,
     OnModuleInit,
+    OnModuleRegistration,
 )
 from waku.extensions.registry import ExtensionRegistry
 from waku.validation import ValidationExtension
@@ -28,10 +28,10 @@ __all__ = [
     'ModuleExtension',
     'OnApplicationInit',
     'OnApplicationShutdown',
-    'OnBeforeContainerBuild',
     'OnModuleConfigure',
     'OnModuleDestroy',
     'OnModuleInit',
+    'OnModuleRegistration',
 ]
 
 

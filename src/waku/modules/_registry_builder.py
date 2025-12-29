@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 from collections import OrderedDict, defaultdict
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final, TypeAlias
 from uuid import UUID
 
 from waku.di import ConditionalProvider, IProviderFilter, ProviderFilter
-from waku.modules import Module, ModuleCompiler, ModuleMetadata, ModuleRegistry, ModuleType
+from waku.extensions import OnModuleRegistration
+from waku.modules._metadata import ModuleCompiler, ModuleMetadata, ModuleType
+from waku.modules._metadata_registry import ModuleMetadataRegistry
+from waku.modules._module import Module
+from waku.modules._registry import ModuleRegistry
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from waku import DynamicModule
     from waku.di import BaseProvider
+    from waku.extensions import ApplicationExtension
 
 
 __all__ = [
@@ -41,11 +49,13 @@ class ModuleRegistryBuilder:
         compiler: ModuleCompiler | None = None,
         context: dict[Any, Any] | None = None,
         provider_filter: IProviderFilter | None = None,
+        app_extensions: Sequence[ApplicationExtension] = (),
     ) -> None:
         self._compiler: Final = compiler or ModuleCompiler()
         self._root_module_type: Final = root_module_type
         self._context: Final = context
         self._provider_filter: Final[IProviderFilter] = provider_filter or ProviderFilter()
+        self._app_extensions: Final = app_extensions
         self._modules: dict[UUID, Module] = {}
         self._providers: list[BaseProvider] = []
 
@@ -54,6 +64,7 @@ class ModuleRegistryBuilder:
 
     def build(self) -> ModuleRegistry:
         modules, adjacency = self._collect_modules()
+        self._execute_registration_hooks(modules)
         self._build_type_registry(modules)
         root_module = self._register_modules(modules)
         return self._build_registry(root_module, adjacency)
@@ -87,6 +98,34 @@ class ModuleRegistryBuilder:
 
         post_order.append((type_, metadata))
         visited.add(metadata.id)
+
+    def _execute_registration_hooks(
+        self,
+        modules: list[tuple[ModuleType, ModuleMetadata]],
+    ) -> None:
+        """Execute OnModuleRegistration hooks for all extensions.
+
+        Execution order:
+            1. Application-level extensions (assigned to root module)
+            2. Module-level extensions (in topological order)
+        """
+        metadata_by_type = dict(modules)
+        topological_order = tuple(mod_type for mod_type, _ in modules)
+        registry = ModuleMetadataRegistry(
+            metadata_by_type=metadata_by_type,
+            topological_order=topological_order,
+        )
+
+        read_only_context: Mapping[Any, Any] | None = MappingProxyType(self._context) if self._context else None
+
+        for ext in self._app_extensions:
+            if isinstance(ext, OnModuleRegistration):
+                ext.on_module_registration(registry, self._root_module_type, read_only_context)
+
+        for module_type, metadata in modules:
+            for ext in metadata.extensions:
+                if isinstance(ext, OnModuleRegistration):
+                    ext.on_module_registration(registry, module_type, read_only_context)
 
     def _build_type_registry(self, modules: list[tuple[ModuleType, ModuleMetadata]]) -> None:
         """Build registry of all provided types before filtering."""

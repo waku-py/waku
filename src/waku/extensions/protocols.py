@@ -5,11 +5,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, runtime_checkable
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Mapping
 
     from waku.application import WakuApplication
-    from waku.di import ProviderSpec
-    from waku.modules import Module, ModuleMetadata
+    from waku.modules import Module, ModuleMetadata, ModuleMetadataRegistry, ModuleType
 
 __all__ = [
     'AfterApplicationInit',
@@ -17,10 +16,10 @@ __all__ = [
     'ModuleExtension',
     'OnApplicationInit',
     'OnApplicationShutdown',
-    'OnBeforeContainerBuild',
     'OnModuleConfigure',
     'OnModuleDestroy',
     'OnModuleInit',
+    'OnModuleRegistration',
 ]
 
 
@@ -52,36 +51,42 @@ class OnApplicationShutdown(Protocol):
 
 
 @runtime_checkable
-class OnBeforeContainerBuild(Protocol):
-    """Extension for aggregating configuration across modules before container build.
+class OnModuleRegistration(Protocol):
+    """Extension for contributing providers to module metadata during registration.
 
-    This hook runs after all modules are collected but before the DI container
-    is created. Use this for cross-module configuration aggregation that needs
-    to produce injectable registries.
+    This hook runs after all module metadata is collected but before Module
+    objects are created. Use this for cross-module aggregation that produces
+    providers which should belong to the owning module.
 
     Can be declared at both application level (passed to WakuFactory) and
     module level (in module's extensions list).
 
     Execution order:
-        1. Application-level extensions (in registration order)
+        1. Application-level extensions (assigned to root module)
         2. Module-level extensions (in topological order)
+
+    Key differences from OnModuleConfigure:
+        - Runs after ALL modules are collected (cross-module visibility)
+        - Receives registry with access to all modules' metadata
+        - Can add providers to owning module
     """
 
     __slots__ = ()
 
-    def on_before_container_build(
+    def on_module_registration(
         self,
-        modules: Sequence[Module],
+        registry: ModuleMetadataRegistry,
+        owning_module: ModuleType,
         context: Mapping[Any, Any] | None,
-    ) -> Sequence[ProviderSpec]:
-        """Aggregate configuration from modules and return providers to register.
+    ) -> None:
+        """Contribute providers to module metadata before Module objects are created.
 
         Args:
-            modules: All application modules in topological order (dependencies first).
+            registry: Registry of all collected module metadata. Use find_extensions()
+                      to discover extensions across modules, add_provider() to contribute.
+            owning_module: The module type that owns this extension. Providers
+                          added via registry.add_provider() should target this module.
             context: Application context passed to WakuFactory (read-only).
-
-        Returns:
-            Sequence of providers to add to the container.
         """
         ...
 
@@ -116,6 +121,6 @@ class OnModuleDestroy(Protocol):
 
 
 ApplicationExtension: TypeAlias = (
-    OnApplicationInit | AfterApplicationInit | OnApplicationShutdown | OnBeforeContainerBuild
+    OnApplicationInit | AfterApplicationInit | OnApplicationShutdown | OnModuleRegistration
 )
-ModuleExtension: TypeAlias = OnModuleConfigure | OnModuleInit | OnModuleDestroy | OnBeforeContainerBuild
+ModuleExtension: TypeAlias = OnModuleConfigure | OnModuleInit | OnModuleDestroy | OnModuleRegistration

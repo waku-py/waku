@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import functools
 import uuid
-from collections.abc import Hashable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, TypeVar, cast, runtime_checkable
 
 from waku.extensions import OnModuleConfigure
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Hashable, Sequence
 
     from waku.di import ProviderSpec
     from waku.extensions import ModuleExtension
@@ -103,7 +102,7 @@ def module(
 class ModuleCompiler:
     def extract_metadata(self, module_type: ModuleType | DynamicModule) -> tuple[ModuleType, ModuleMetadata]:
         try:
-            return self._extract_metadata(cast(Hashable, module_type))
+            return self._extract_metadata(cast('Hashable', module_type))
         except AttributeError:
             msg = f'{type(module_type).__name__} is not module'
             raise ValueError(msg) from None
@@ -113,7 +112,7 @@ class ModuleCompiler:
     def _extract_metadata(module_type: ModuleType | DynamicModule) -> tuple[ModuleType, ModuleMetadata]:
         if isinstance(module_type, DynamicModule):
             parent_module = module_type.parent_module
-            parent_metadata = cast(ModuleMetadata, getattr(parent_module, _MODULE_METADATA_KEY))
+            parent_metadata = cast('ModuleMetadata', getattr(parent_module, _MODULE_METADATA_KEY))
             metadata = ModuleMetadata(
                 providers=[*parent_metadata.providers, *module_type.providers],
                 imports=[*parent_metadata.imports, *module_type.imports],
@@ -127,4 +126,4 @@ class ModuleCompiler:
                     extension.on_module_configure(metadata)
             return parent_module, metadata
 
-        return module_type, cast(ModuleMetadata, getattr(module_type, _MODULE_METADATA_KEY))
+        return module_type, cast('ModuleMetadata', getattr(module_type, _MODULE_METADATA_KEY))
