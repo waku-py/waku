@@ -60,10 +60,10 @@ class RequestHandlerNotFound(MediatorError, TypeError):  # noqa: N818
 
 
 class EventHandlerAlreadyRegistered(MediatorError, KeyError):  # noqa: N818
-    """Raised when an event handler is already registered.
+    """Raised when an notification handler is already registered.
 
     Attributes:
-        event_type: The type of event that caused the error.
+        event_type: The type of notification that caused the error.
         handler_type: The type of handler that was already registered.
     """
 
@@ -72,7 +72,7 @@ class EventHandlerAlreadyRegistered(MediatorError, KeyError):  # noqa: N818
         self.handler_type = handler_type
 
     def __str__(self) -> str:
-        return f'{self.handler_type.__name__} already registered for {self.event_type.__name__} event'
+        return f'{self.handler_type.__name__} already registered for {self.event_type.__name__} notification'
 
 
 class PipelineBehaviorAlreadyRegistered(MediatorError, KeyError):  # noqa: N818

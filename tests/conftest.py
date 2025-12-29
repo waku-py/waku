@@ -34,4 +34,4 @@ if TYPE_CHECKING:
     autouse=True,
 )
 def anyio_backend(request: SubRequest) -> tuple[str, dict[str, object]]:
-    return cast(tuple[str, dict[str, object]], request.param)
+    return cast('tuple[str, dict[str, object]]', request.param)

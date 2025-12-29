@@ -58,18 +58,17 @@ class LoggingBehavior(IPipelineBehavior[RequestT, ResponseT]):
 
         try:
             response = await next_handler(request)
-
-            self._logger.log(
-                self._log_level,
-                'Completed request %s with response: %s',
-                request_name,
-                response,
-            )
-        except Exception:
-            self._logger.exception('Error processing request %s', request_name)
+        except Exception as err:
+            self._logger.error('Error processing request %s: %s', request_name, err)
             raise
-        else:
-            return response
+
+        self._logger.log(
+            self._log_level,
+            'Completed request %s with response: %s',
+            request_name,
+            response,
+        )
+        return response
 
 
 class ValidationBehavior(IPipelineBehavior[RequestT, ResponseT]):

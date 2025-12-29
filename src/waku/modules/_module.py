@@ -85,7 +85,7 @@ class Module:
             builder=builder,
         )
 
-        cls = cast(type[_ModuleProvider], type(f'{self.name}Provider', (_ModuleProvider,), {}))
+        cls = cast('type[_ModuleProvider]', type(f'{self.name}Provider', (_ModuleProvider,), {}))
         self._provider = cls(active_providers)
         return self._provider
 

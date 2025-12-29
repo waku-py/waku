@@ -38,7 +38,7 @@ class ExtensionRegistry:
             if (isinstance(base, ApplicationExtension) and base != ext_type)  # type: ignore[unreachable]
         ]
         for base in extension_bases:
-            self._app_extensions[cast(type[ApplicationExtension], base)].append(extension)
+            self._app_extensions[cast('type[ApplicationExtension]', base)].append(extension)
         return self
 
     def register_module_extension(self, module_type: ModuleType, extension: ModuleExtension) -> Self:
@@ -46,8 +46,8 @@ class ExtensionRegistry:
         return self
 
     def get_application_extensions(self, extension_type: type[_AppExtT]) -> list[_AppExtT]:
-        return cast(list[_AppExtT], self._app_extensions.get(cast(type[ApplicationExtension], extension_type), []))
+        return cast('list[_AppExtT]', self._app_extensions.get(cast('type[ApplicationExtension]', extension_type), []))
 
     def get_module_extensions(self, module_type: ModuleType, extension_type: type[_ModExtT]) -> list[_ModExtT]:
-        extensions = cast(list[_ModExtT], self._module_extensions.get(module_type, []))
+        extensions = cast('list[_ModExtT]', self._module_extensions.get(module_type, []))
         return [ext for ext in extensions if isinstance(ext, extension_type)]

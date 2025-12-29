@@ -1534,7 +1534,7 @@ test = [
 typecheck = [
     { name = "basedpyright", specifier = "==1.36.2" },
     { name = "mypy", specifier = "==1.19.1" },
-    { name = "pyrefly", specifier = ">=0.43.1" },
+    { name = "pyrefly", specifier = "==0.46.1" },
     { name = "ty", specifier = "==0.0.7" },
 ]
 
