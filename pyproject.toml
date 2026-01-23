@@ -58,7 +58,7 @@ lint = [
   "deptry==0.24.0",
   "gitlint==0.19.1",
   "prek==0.2.25",
-  "ruff==0.14.10",
+  "ruff==0.14.14",
 ]
 test = [
   "coverage==7.13.1",
