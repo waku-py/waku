@@ -61,14 +61,14 @@ wheels = [
 
 [[package]]
 name = "basedpyright"
-version = "1.36.2"
+version = "1.37.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "nodejs-wheel-binaries" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c8/8a/4c5d74314fe085f8f9b1a92b7c96e2a116651b6c7596e4def872d5d7abf0/basedpyright-1.36.2.tar.gz", hash = "sha256:b596b1a6e6006c7dfd483efc1d602574f238321e28f70bc66e87255784b70630", size = 22835798, upload-time = "2025-12-23T02:31:27.357Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e8/68/15736c7b043dc0372ff7c61769f89a18d943240d4bd6f08280cb0dc487ac/basedpyright-1.37.2.tar.gz", hash = "sha256:7951e1b45618d207ce5a1cd1fb9181cd890e8df1d89dc2d0903a9f2ed3fd6fd3", size = 25236034, upload-time = "2026-01-24T04:04:40.249Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/69/88/0aaac8e5062cd83434ce41fac844646d0f285b574cda0eeb732e916db22b/basedpyright-1.36.2-py3-none-any.whl", hash = "sha256:8dfd74fad77fcccc066ea0af5fd07e920b6f88cb1b403936aa78ab5aaef51526", size = 11882631, upload-time = "2025-12-23T02:31:24.537Z" },
+    { url = "https://files.pythonhosted.org/packages/4e/e7/04fd5706f8b49e335765e9e3dd8dcfc4cdd6e15121213641665b433f885e/basedpyright-1.37.2-py3-none-any.whl", hash = "sha256:8e9cc5c6e6c7a00340ee48051a4d8c072ee91693d2a83b97d6c0f43bf56faf33", size = 12298065, upload-time = "2026-01-24T04:04:35.706Z" },
 ]
 
 [[package]]
@@ -1532,7 +1532,7 @@ test = [
     { name = "uvloop", marker = "python_full_version < '3.14' and sys_platform != 'win32'", specifier = "==0.22.1" },
 ]
 typecheck = [
-    { name = "basedpyright", specifier = "==1.36.2" },
+    { name = "basedpyright", specifier = "==1.37.2" },
     { name = "mypy", specifier = "==1.19.1" },
     { name = "pyrefly", specifier = "==0.46.1" },
     { name = "ty", specifier = "==0.0.7" },
