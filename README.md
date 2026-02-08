@@ -1,4 +1,6 @@
-# waku
+<p align="center">
+    <img src="docs/assets/logo.png" alt="waku logo" width="480">
+</p>
 
 <p align="center" markdown="1">
     <sup><i>waku</i> [<b>枠</b> or <b>わく</b>] <i>means framework in Japanese.</i></sup>
@@ -240,8 +242,8 @@ Check our [Getting Started](https://waku-py.github.io/waku/getting-started) guid
 
 ## Roadmap
 
-- [ ] Create logo
-- [ ] Improve inner architecture
+- [x] Create logo
+- [x] Improve inner architecture
 - [ ] Improve documentation
 - [ ] Add new and improve existing validation rules
 - [ ] Provide example projects for common architectures

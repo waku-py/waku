@@ -222,7 +222,7 @@ extend_exclude = ["docs"]
 known_first_party = ["waku"]
 
 [tool.deptry.per_rule_ignores]
-DEP004 = ["gitlint"]
+DEP004 = ["gitlint", "pytest"]
 
 
 # ----- Mypy settings -----

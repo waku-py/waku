@@ -41,7 +41,7 @@ tasks:
     silent: true
     cmds:
       - task: deps:sync
-      - uv run prek install --install-hooks
+      - uv run prek install --install-hooks --overwrite
       - echo "✅ Development environment setup complete"
 
   deps:sync:
