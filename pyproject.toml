@@ -1,5 +1,5 @@
 [build-system]
-requires = ["uv_build>=0.9.2,<0.10.0"]
+requires = ["uv_build>=0.10.0,<0.11.0"]
 build-backend = "uv_build"
 
 [project]
@@ -43,29 +43,29 @@ Issues = "https://github.com/waku-py/waku/issues"
 
 [dependency-groups]
 dev = [
-  "pysentry-rs==0.3.13",
+  "pysentry-rs==0.4.1",
 ]
 docs = [
   "mkdocs==1.6.1",
   "mkdocs-callouts==1.16.0",
   "mkdocs-exclude==1.0.2",
-  "mkdocs-git-revision-date-localized-plugin==1.5.0",
+  "mkdocs-git-revision-date-localized-plugin==1.5.1",
   "mkdocs-material==9.7.1",
   "mkdocs-redirects==1.2.2",
-  "mkdocstrings[python]==1.0.0",
+  "mkdocstrings[python]==1.0.3",
 ]
 lint = [
   "deptry==0.24.0",
   "gitlint==0.19.1",
-  "prek==0.2.25",
-  "ruff==0.14.10",
+  "prek==0.3.2",
+  "ruff==0.15.0",
 ]
 test = [
-  "coverage==7.13.1",
+  "coverage==7.13.3",
   "pytest==9.0.2",
   "pytest-clarity==1.0.1",
   "pytest-cov==7.0.0",
-  "pytest-deadfixtures==3.0.0",
+  "pytest-deadfixtures==3.1.0",
   "pytest-mock==3.15.1",
   "pytest-randomly==4.0.1",
   "pytest-timeout==2.4.0",
@@ -73,16 +73,15 @@ test = [
   "uvloop==0.22.1; sys_platform != 'win32' and python_version < '3.14'",
 ]
 typecheck = [
-  "basedpyright==1.36.2",
   "mypy==1.19.1",
-  "pyrefly==0.46.1",
-  "ty==0.0.7",
+  "pyrefly==0.51.2",
+  "ty==0.0.15",
 ]
 
 # ----- UV settings -----
 [tool.uv]
 default-groups = "all"
-required-version = ">=0.8.17"
+required-version = ">=0.10.0"
 
 
 # ----- Pytest settings -----
@@ -267,6 +266,9 @@ exclude = [
   "docs/code/getting_started",
   "docs/code/providers",
 ]
+
+[tool.ty.rules]
+unused-type-ignore-comment = "ignore"
 
 
 # ----- Semantic release settings -----

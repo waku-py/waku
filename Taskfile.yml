@@ -59,8 +59,10 @@ tasks:
     deps: [ .uv ]
     silent: true
     cmds:
-      - uv run uv-bump
+      - uv run uv-upgrade --no-sync
+      - task: deps:sync
       - uv run prek auto-update
+      - uv run prek install --install-hooks --overwrite
       - echo "✅ Dependencies upgraded"
 
   deps:audit:
@@ -86,19 +88,16 @@ tasks:
       - uv run ruff format {{.SOURCES}}
 
   typecheck:
-    aliases: [ mypy ]
-    desc: Type check code
+    desc: Run all typecheckers
+    deps: [ ty, pyrefly, mypy ]
+
+  mypy:
+    desc: Type check code with MyPy
     deps: [ .uv-locked ]
     cmd: uv run mypy{{ if ne (env "MYPY_PRETTY") "0" }} --pretty{{end}} {{.SOURCES}}
 
-  basedpyright:
-    desc: Type check code with basedpyright
-    deps: [ .uv-locked ]
-    cmds:
-      - uv run basedpyright
-
   ty:
-    desc: Type check code with ty
+    desc: Type check code with Ty
     deps: [ .uv-locked ]
     cmds:
       - uv run ty check {{.CLI_ARGS}} {{.SOURCES}}
