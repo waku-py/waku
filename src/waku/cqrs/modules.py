@@ -88,7 +88,7 @@ class MediatorModule:
     @staticmethod
     def _create_mediator_providers(config: MediatorConfig) -> _HandlerProviders:
         return (
-            scoped(WithParents[IMediator], config.mediator_implementation_type),  # ty: ignore[non-subscriptable]
+            scoped(WithParents[IMediator], config.mediator_implementation_type),  # ty:ignore[not-subscriptable]
             scoped(EventPublisher, config.event_publisher),
         )
 

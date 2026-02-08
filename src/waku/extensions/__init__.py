@@ -35,7 +35,7 @@ __all__ = [
 ]
 
 
-DEFAULT_EXTENSIONS: Sequence[ApplicationExtension] = (
+DEFAULT_EXTENSIONS: Sequence[ApplicationExtension] = (  # noqa: RUF067
     ValidationExtension(
         [DependenciesAccessibleRule()],
         strict=True,
