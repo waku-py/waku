@@ -2,38 +2,36 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Sequence  # noqa: TC003  # Dishka needs runtime access
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, assert_never
 
 from waku.eventsourcing.contracts.event import EventEnvelope, EventMetadata, StoredEvent
-from waku.eventsourcing.contracts.stream import AnyVersion, Exact, NoStream, StreamExists, StreamId
-from waku.eventsourcing.exceptions import ConcurrencyConflictError, StreamNotFoundError
+from waku.eventsourcing.contracts.stream import StreamPosition
+from waku.eventsourcing.exceptions import StreamNotFoundError
+from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001  # Dishka needs runtime access
+from waku.eventsourcing.store._version_check import check_expected_version
 from waku.eventsourcing.store.interfaces import IEventStore
+
+if TYPE_CHECKING:
+    from waku.eventsourcing.contracts.stream import AnyVersion, Exact, NoStream, StreamExists, StreamId
 
 __all__ = ['InMemoryEventStore']
 
 
 class InMemoryEventStore(IEventStore):
-    """In-memory event store for testing and prototyping.
-
-    All operations are serialised with an ``asyncio.Lock`` to prevent
-    interleaving between concurrent coroutines.
-    """
-
-    def __init__(self) -> None:
+    def __init__(self, projections: Sequence[IProjection] = ()) -> None:
         self._streams: dict[str, list[StoredEvent]] = {}
         self._global_position: int = 0
         self._lock = asyncio.Lock()
+        self._projections = projections
 
     async def read_stream(
         self,
         stream_id: StreamId,
         /,
         *,
-        start: int = 0,
+        start: int | StreamPosition = StreamPosition.START,
         count: int | None = None,
     ) -> list[StoredEvent]:
         async with self._lock:
@@ -41,10 +39,35 @@ class InMemoryEventStore(IEventStore):
             if key not in self._streams:
                 raise StreamNotFoundError(key)
             events = self._streams[key]
-            subset = events[start:]
+            match start:
+                case StreamPosition.START:
+                    offset = 0
+                case StreamPosition.END:
+                    offset = max(len(events) - 1, 0)
+                case int() as offset:
+                    pass
+                case _:
+                    assert_never(start)
+            subset = events[offset:]
             if count is not None:
                 subset = subset[:count]
             return list(subset)
+
+    async def read_all(
+        self,
+        *,
+        after_position: int = -1,
+        count: int | None = None,
+    ) -> list[StoredEvent]:
+        async with self._lock:
+            all_events: list[StoredEvent] = []
+            for stream_events in self._streams.values():
+                all_events.extend(stream_events)
+            all_events.sort(key=lambda e: e.global_position)
+            filtered = [e for e in all_events if e.global_position > after_position]
+            if count is not None:
+                filtered = filtered[:count]
+            return filtered
 
     async def stream_exists(self, stream_id: StreamId, /) -> bool:
         async with self._lock:
@@ -63,12 +86,13 @@ class InMemoryEventStore(IEventStore):
             stream = self._streams.get(key)
             current_version = len(stream) - 1 if stream is not None else -1
 
-            self._check_expected_version(key, expected_version, current_version, exists=stream is not None)
+            check_expected_version(key, expected_version, current_version, exists=stream is not None)
 
             if stream is None:
                 stream = []
                 self._streams[key] = stream
 
+            stored_events: list[StoredEvent] = []
             for envelope in events:
                 position = len(stream)
                 stored = StoredEvent(
@@ -82,30 +106,13 @@ class InMemoryEventStore(IEventStore):
                     metadata=envelope.metadata or EventMetadata(),
                 )
                 stream.append(stored)
+                stored_events.append(stored)
                 self._global_position += 1
 
-            return len(stream) - 1
+        for projection in self._projections:
+            await projection.project(stored_events)
 
-    @staticmethod
-    def _check_expected_version(
-        stream_id: str,
-        expected: Exact | NoStream | StreamExists | AnyVersion,
-        current_version: int,
-        *,
-        exists: bool,
-    ) -> None:
-        match expected:
-            case AnyVersion():
-                return
-            case NoStream():
-                if exists:
-                    raise ConcurrencyConflictError(stream_id, -1, current_version)
-            case StreamExists():
-                if not exists:
-                    raise ConcurrencyConflictError(stream_id, 0, -1)
-            case Exact(version=v):
-                if v != current_version:
-                    raise ConcurrencyConflictError(stream_id, v, current_version)
+        return len(stream) - 1
 
 
 def _event_type_name(event: Any) -> str:

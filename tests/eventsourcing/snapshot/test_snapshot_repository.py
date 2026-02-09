@@ -8,7 +8,6 @@ from typing_extensions import override
 
 from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
-from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import AggregateNotFoundError
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
@@ -55,14 +54,6 @@ class BankAccount(EventSourcedAggregate):
 
 
 class BankAccountRepository(SnapshotEventSourcedRepository[BankAccount]):
-    @override
-    def create_aggregate(self) -> BankAccount:
-        return BankAccount()
-
-    @override
-    def _stream_id(self, aggregate_id: str) -> StreamId:
-        return StreamId.for_aggregate('BankAccount', aggregate_id)
-
     @override
     def _snapshot_state(self, aggregate: BankAccount) -> object:
         return AccountState(name=aggregate.name, balance=aggregate.balance)
@@ -179,6 +170,27 @@ async def test_save_skips_snapshot_below_threshold(
     await repository.save('acc-1', account)
 
     snapshot_store.save.assert_not_called()
+
+
+async def test_multiple_saves_without_reload_triggers_snapshot_at_cumulative_threshold(
+    repository: BankAccountRepository,
+    snapshot_store: AsyncMock,
+) -> None:
+    account = BankAccount()
+    account.open('Alice')
+    account.deposit(100)
+    await repository.save('acc-1', account)
+
+    snapshot_store.save.assert_not_called()
+
+    account.deposit(200)
+    await repository.save('acc-1', account)
+
+    snapshot_store.save.assert_called_once()
+    saved_snapshot: Snapshot = snapshot_store.save.call_args[0][0]
+    assert saved_snapshot.stream_id == 'BankAccount-acc-1'
+    assert saved_snapshot.state == {'name': 'Alice', 'balance': 300}
+    assert saved_snapshot.version == 2
 
 
 async def test_save_with_no_events_returns_current_version(

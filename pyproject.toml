@@ -30,6 +30,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
+  "adaptix>=3.0.0b11",
   "anyio>=4.7.0",
   "dishka>=1.8.0",
   "typing-extensions>=4.12.2",

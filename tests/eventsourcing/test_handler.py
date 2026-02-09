@@ -8,8 +8,7 @@ from waku.cqrs import MediatorExtension, MediatorModule, Request
 from waku.cqrs.contracts.notification import INotification
 from waku.cqrs.interfaces import IMediator, IPublisher
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
-from waku.eventsourcing.contracts.stream import StreamId
-from waku.eventsourcing.handler import EventSourcedCommandHandler
+from waku.eventsourcing.handler import EventSourcedVoidCommandHandler
 from waku.eventsourcing.modules import EventSourcingExtension, EventSourcingModule
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.modules import module
@@ -47,15 +46,7 @@ class Note(EventSourcedAggregate):
 
 
 class NoteRepository(EventSourcedRepository[Note]):
-    aggregate_type_name = 'Note'
-
-    @override
-    def create_aggregate(self) -> Note:
-        return Note()
-
-    @override
-    def _stream_id(self, aggregate_id: str) -> StreamId:
-        return StreamId.for_aggregate('Note', aggregate_id)
+    pass
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -64,7 +55,7 @@ class CreateNote(Request[None]):
     title: str
 
 
-class CreateNoteHandler(EventSourcedCommandHandler[CreateNote, None, Note]):
+class CreateNoteHandler(EventSourcedVoidCommandHandler[CreateNote, Note]):
     def __init__(self, repository: NoteRepository, publisher: IPublisher) -> None:
         super().__init__(repository, publisher)
 
@@ -82,12 +73,12 @@ class CreateNoteHandler(EventSourcedCommandHandler[CreateNote, None, Note]):
 
 
 async def test_event_sourced_command_handler_creates_and_persists_aggregate() -> None:
-    es_ext = EventSourcingExtension().bind_repository(NoteRepository)
-    mediator_ext = MediatorExtension().bind_request(CreateNote, CreateNoteHandler)
-
     @module(
         imports=[EventSourcingModule.register(), MediatorModule.register()],
-        extensions=[es_ext, mediator_ext],
+        extensions=[
+            EventSourcingExtension().bind_aggregate(repository=NoteRepository),
+            MediatorExtension().bind_request(CreateNote, CreateNoteHandler),
+        ],
     )
     class NoteModule:
         pass

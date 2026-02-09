@@ -7,6 +7,8 @@ if TYPE_CHECKING:
     import uuid
     from datetime import datetime
 
+    from waku.cqrs.contracts.notification import INotification
+
 __all__ = [
     'EventEnvelope',
     'EventMetadata',
@@ -23,7 +25,7 @@ class EventMetadata:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EventEnvelope:
-    domain_event: Any
+    domain_event: INotification
     metadata: EventMetadata = field(default_factory=EventMetadata)
 
 
@@ -35,5 +37,5 @@ class StoredEvent:
     position: int
     global_position: int
     timestamp: datetime
-    data: Any
+    data: INotification
     metadata: EventMetadata

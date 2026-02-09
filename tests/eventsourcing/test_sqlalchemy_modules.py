@@ -4,18 +4,16 @@ from dataclasses import dataclass
 
 from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from typing_extensions import override
 
 from waku.cqrs.contracts.notification import INotification
 from waku.di import Scope, contextual
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
-from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
-from waku.eventsourcing.store.sqlalchemy.store import EventStoreTables, SqlAlchemyEventStore
-from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
+from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
+from waku.eventsourcing.store.sqlalchemy.tables import bind_tables
 from waku.modules import module
 from waku.testing import create_test_app
 
@@ -40,32 +38,25 @@ class Note(EventSourcedAggregate):
 
 
 class NoteRepository(EventSourcedRepository[Note]):
-    aggregate_type_name = 'Note'
-
-    @override
-    def create_aggregate(self) -> Note:
-        return Note()
-
-    @override
-    def _stream_id(self, aggregate_id: str) -> StreamId:
-        return StreamId.for_aggregate('Note', aggregate_id)
+    pass
 
 
 async def test_sqlalchemy_module_wiring_end_to_end() -> None:
     engine = create_async_engine('sqlite+aiosqlite://', echo=False)
     metadata = MetaData()
-    streams_table, events_table = bind_event_store_tables(metadata)
-    tables = EventStoreTables(streams=streams_table, events=events_table)
+    tables = bind_tables(metadata)
 
     async with engine.begin() as conn:
         await conn.run_sync(metadata.create_all)
 
-    es_ext = EventSourcingExtension().bind_repository(NoteRepository).register_events(NoteCreated)
+    es_ext = EventSourcingExtension().bind_aggregate(
+        repository=NoteRepository,
+        event_types=[NoteCreated],
+    )
 
     config = EventSourcingConfig(
-        event_store_type=SqlAlchemyEventStore,
-        serializer_type=JsonEventSerializer,
-        event_store_tables=tables,
+        store_factory=make_sqlalchemy_event_store(tables),
+        serializer=JsonEventSerializer,
     )
 
     @module(

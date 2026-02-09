@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy import (
     BigInteger,
     Column,
@@ -14,7 +16,14 @@ from sqlalchemy import (
 )
 from sqlalchemy.types import JSON
 
-__all__ = ['bind_event_store_tables']
+__all__ = ['EventStoreTables', 'bind_tables']
+
+
+@dataclass(frozen=True, slots=True)
+class EventStoreTables:
+    streams: Table
+    events: Table
+
 
 _internal_metadata = MetaData()
 
@@ -45,7 +54,7 @@ es_events_table = Table(
 )
 
 
-def bind_event_store_tables(metadata: MetaData) -> tuple[Table, Table]:
+def bind_tables(metadata: MetaData) -> EventStoreTables:
     streams = es_streams_table.to_metadata(metadata)
     events = es_events_table.to_metadata(metadata)
-    return streams, events
+    return EventStoreTables(streams=streams, events=events)

@@ -1,8 +1,14 @@
-from waku.eventsourcing.store.sqlalchemy.store import EventStoreTables, SqlAlchemyEventStore
-from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
+from waku.eventsourcing.store.sqlalchemy.store import (
+    SqlAlchemyEventStore,
+    SqlAlchemyEventStoreFactory,
+    make_sqlalchemy_event_store,
+)
+from waku.eventsourcing.store.sqlalchemy.tables import EventStoreTables, bind_tables
 
 __all__ = [
     'EventStoreTables',
     'SqlAlchemyEventStore',
-    'bind_event_store_tables',
+    'SqlAlchemyEventStoreFactory',
+    'bind_tables',
+    'make_sqlalchemy_event_store',
 ]

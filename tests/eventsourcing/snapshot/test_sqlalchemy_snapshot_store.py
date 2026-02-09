@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from waku.eventsourcing.snapshot.interfaces import Snapshot
 from waku.eventsourcing.snapshot.sqlalchemy.store import SqlAlchemySnapshotStore
-from waku.eventsourcing.snapshot.sqlalchemy.tables import bind_snapshot_tables
+from waku.eventsourcing.snapshot.sqlalchemy.tables import bind_tables
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 async def snapshot_store() -> AsyncIterator[SqlAlchemySnapshotStore]:
     engine = create_async_engine('sqlite+aiosqlite://', echo=False)
     metadata = MetaData()
-    snapshots_table = bind_snapshot_tables(metadata)
+    snapshots_table = bind_tables(metadata)
 
     async with engine.begin() as conn:
         await conn.run_sync(metadata.create_all)
