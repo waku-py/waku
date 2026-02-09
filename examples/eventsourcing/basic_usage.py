@@ -1,7 +1,7 @@
 """Event Sourcing with In-Memory Store — current API as of 2026-02-09.
 
 Shows the full registration and usage flow:
-1. Define domain events (frozen dataclasses implementing Event)
+1. Define domain events (frozen dataclasses implementing INotification)
 2. Define an aggregate (EventSourcedAggregate subclass)
 3. Define a repository (EventSourcedRepository subclass)
 4. Define a command + handler (EventSourcedCommandHandler)
@@ -19,9 +19,9 @@ from typing_extensions import override
 
 from waku import WakuFactory, module
 from waku.cqrs import (
-    Event,
     EventHandler,
     IMediator,
+    INotification,
     MediatorExtension,
     MediatorModule,
     Request,
@@ -34,7 +34,6 @@ from waku.eventsourcing import (
     EventSourcingConfig,
     EventSourcingExtension,
     EventSourcingModule,
-    StreamId,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -45,19 +44,19 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, kw_only=True)
-class AccountOpened(Event):
+class AccountOpened(INotification):
     account_id: str
     owner: str
 
 
 @dataclass(frozen=True, kw_only=True)
-class MoneyDeposited(Event):
+class MoneyDeposited(INotification):
     account_id: str
     amount: int
 
 
 @dataclass(frozen=True, kw_only=True)
-class MoneyWithdrawn(Event):
+class MoneyWithdrawn(INotification):
     account_id: str
     amount: int
 
@@ -87,7 +86,7 @@ class BankAccount(EventSourcedAggregate):
         self._raise_event(MoneyWithdrawn(account_id=account_id, amount=amount))
 
     @override
-    def _apply(self, event: object) -> None:
+    def _apply(self, event: INotification) -> None:
         match event:
             case AccountOpened(owner=owner):
                 self.owner = owner
@@ -101,15 +100,7 @@ class BankAccount(EventSourcedAggregate):
 
 
 class BankAccountRepository(EventSourcedRepository[BankAccount]):
-    aggregate_type_name = 'BankAccount'
-
-    @override
-    def create_aggregate(self) -> BankAccount:
-        return BankAccount()
-
-    @override
-    def _stream_id(self, aggregate_id: str) -> StreamId:
-        return StreamId.for_aggregate(self.aggregate_type_name, aggregate_id)
+    pass
 
 
 # ── Commands & Handlers ────────────────────────────────────────────
@@ -189,9 +180,10 @@ class MoneyDepositedHandler(EventHandler[MoneyDeposited]):
 
 @module(
     extensions=[
-        EventSourcingExtension()
-        .bind_repository(BankAccountRepository)
-        .register_events(AccountOpened, MoneyDeposited, MoneyWithdrawn),
+        EventSourcingExtension().bind_aggregate(
+            repository=BankAccountRepository,
+            event_types=[AccountOpened, MoneyDeposited, MoneyWithdrawn],
+        ),
         MediatorExtension()
         .bind_request(OpenAccountCommand, OpenAccountHandler)
         .bind_request(DepositCommand, DepositHandler)
@@ -229,11 +221,11 @@ async def main() -> None:
 
         # Deposit money
         result2 = await mediator.send(DepositCommand(account_id='acc-1', amount=500))
-        logger.info('Balance after deposit: %d', result2.balance)
+        logger.info('Balance after deposit: %d', result2.balance)  # ty: ignore[unresolved-attribute]
 
         # Deposit more
         result3 = await mediator.send(DepositCommand(account_id='acc-1', amount=300))
-        logger.info('Balance after second deposit: %d', result3.balance)
+        logger.info('Balance after second deposit: %d', result3.balance)  # ty: ignore[unresolved-attribute]
 
 
 if __name__ == '__main__':

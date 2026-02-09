@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
-from typing_extensions import override
 
 from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
@@ -44,15 +43,7 @@ class BankAccount(EventSourcedAggregate):
 
 
 class BankAccountRepository(EventSourcedRepository[BankAccount]):
-    aggregate_type_name = 'BankAccount'
-
-    @override
-    def create_aggregate(self) -> BankAccount:
-        return BankAccount()
-
-    @override
-    def _stream_id(self, aggregate_id: str) -> StreamId:
-        return StreamId.for_aggregate('BankAccount', aggregate_id)
+    pass
 
 
 # --- Fixtures ---

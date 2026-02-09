@@ -12,7 +12,6 @@ __all__ = [
     'CommandT',
     'EventSourcedAggregate',
     'EventT',
-    'IDecider',
     'StateT',
 ]
 

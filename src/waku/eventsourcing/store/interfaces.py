@@ -3,6 +3,8 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING
 
+from waku.eventsourcing.contracts.stream import StreamPosition
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -23,7 +25,15 @@ class IEventReader(abc.ABC):
         stream_id: StreamId,
         /,
         *,
-        start: int = 0,
+        start: int | StreamPosition = StreamPosition.START,
+        count: int | None = None,
+    ) -> list[StoredEvent]: ...
+
+    @abc.abstractmethod
+    async def read_all(
+        self,
+        *,
+        after_position: int = -1,
         count: int | None = None,
     ) -> list[StoredEvent]: ...
 

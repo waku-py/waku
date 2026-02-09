@@ -55,6 +55,15 @@ def test_serialize_nested_dataclass_produces_dict(serializer: JsonEventSerialize
     assert data == {'name': 'Alice', 'address': {'city': 'Berlin', 'zip_code': '10115'}}
 
 
+def test_round_trip_nested_dataclass(serializer: JsonEventSerializer) -> None:
+    event = CustomerCreated(name='Alice', address=Address(city='Berlin', zip_code='10115'))
+    data = serializer.serialize(event)
+    restored = serializer.deserialize(data, 'CustomerCreated')
+
+    assert restored == event
+    assert isinstance(restored.address, Address)
+
+
 def test_serialize_non_dataclass_raises(serializer: JsonEventSerializer) -> None:
     with pytest.raises(TypeError, match='Expected a dataclass instance'):
         serializer.serialize('not a dataclass')

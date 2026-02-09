@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence  # noqa: TC003  # Dishka needs runtime access
-from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, assert_never
 
 from sqlalchemy import (  # Dishka needs runtime access
-    Table,
     func as sa_func,
     select,
 )
@@ -15,26 +13,32 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002  # Dishka needs runtime access
 
 from waku.eventsourcing.contracts.event import EventMetadata, StoredEvent
-from waku.eventsourcing.contracts.stream import AnyVersion, Exact, NoStream, StreamExists
+from waku.eventsourcing.contracts.stream import StreamPosition
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, StreamNotFoundError
 from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.serialization.interfaces import IEventSerializer  # noqa: TC001  # Dishka needs runtime access
+from waku.eventsourcing.store._version_check import check_expected_version
 from waku.eventsourcing.store.interfaces import IEventStore
+from waku.eventsourcing.store.sqlalchemy.tables import EventStoreTables  # noqa: TC001  # Dishka needs runtime access
 
 if TYPE_CHECKING:
     from waku.eventsourcing.contracts.event import EventEnvelope
     from waku.eventsourcing.contracts.stream import ExpectedVersion, StreamId
 
 __all__ = [
-    'EventStoreTables',
     'SqlAlchemyEventStore',
+    'SqlAlchemyEventStoreFactory',
+    'make_sqlalchemy_event_store',
 ]
 
 
-@dataclass(frozen=True, slots=True)
-class EventStoreTables:
-    streams: Table
-    events: Table
+class SqlAlchemyEventStoreFactory(Protocol):
+    def __call__(
+        self,
+        session: AsyncSession,
+        serializer: IEventSerializer,
+        projections: Sequence[IProjection] = (),
+    ) -> SqlAlchemyEventStore: ...
 
 
 class SqlAlchemyEventStore(IEventStore):
@@ -56,7 +60,7 @@ class SqlAlchemyEventStore(IEventStore):
         stream_id: StreamId,
         /,
         *,
-        start: int = 0,
+        start: int | StreamPosition = StreamPosition.START,
         count: int | None = None,
     ) -> list[StoredEvent]:
         key = str(stream_id)
@@ -64,11 +68,43 @@ class SqlAlchemyEventStore(IEventStore):
         if not exists:
             raise StreamNotFoundError(key)
 
+        match start:
+            case StreamPosition.START:
+                offset = 0
+            case StreamPosition.END:
+                offset = (
+                    select(sa_func.coalesce(sa_func.max(self._events.c.position), 0))
+                    .where(self._events.c.stream_id == key)
+                    .scalar_subquery()
+                )
+            case int() as offset:
+                pass
+            case _:
+                assert_never(start)
+
         query = (
             select(self._events)
             .where(self._events.c.stream_id == key)
-            .where(self._events.c.position >= start)
+            .where(self._events.c.position >= offset)
             .order_by(self._events.c.position)
+        )
+        if count is not None:
+            query = query.limit(count)
+
+        result = await self._session.execute(query)
+        rows = result.fetchall()
+        return [self._row_to_stored_event(row) for row in rows]
+
+    async def read_all(
+        self,
+        *,
+        after_position: int = -1,
+        count: int | None = None,
+    ) -> list[StoredEvent]:
+        query = (
+            select(self._events)
+            .where(self._events.c.global_position > after_position)
+            .order_by(self._events.c.global_position)
         )
         if count is not None:
             query = query.limit(count)
@@ -98,7 +134,7 @@ class SqlAlchemyEventStore(IEventStore):
         current_version = stream_row.version if stream_row is not None else -1
         exists = stream_row is not None
 
-        self._check_expected_version(key, expected_version, current_version, exists=exists)
+        check_expected_version(key, expected_version, current_version, exists=exists)
 
         if not exists:
             await self._session.execute(
@@ -188,27 +224,6 @@ class SqlAlchemyEventStore(IEventStore):
         )
 
     @staticmethod
-    def _check_expected_version(
-        stream_id: str,
-        expected: ExpectedVersion,
-        current_version: int,
-        *,
-        exists: bool,
-    ) -> None:
-        match expected:
-            case AnyVersion():
-                return
-            case NoStream():
-                if exists:
-                    raise ConcurrencyConflictError(stream_id, -1, current_version)
-            case StreamExists():
-                if not exists:
-                    raise ConcurrencyConflictError(stream_id, 0, -1)
-            case Exact(version=v):
-                if v != current_version:
-                    raise ConcurrencyConflictError(stream_id, v, current_version)
-
-    @staticmethod
     def _serialize_metadata(metadata: EventMetadata) -> dict[str, Any]:
         return {
             'correlation_id': metadata.correlation_id,
@@ -223,3 +238,16 @@ class SqlAlchemyEventStore(IEventStore):
             causation_id=data.get('causation_id'),
             extra=data.get('extra', {}),
         )
+
+
+def make_sqlalchemy_event_store(
+    tables: EventStoreTables,
+) -> SqlAlchemyEventStoreFactory:
+    def factory(
+        session: AsyncSession,
+        serializer: IEventSerializer,
+        projections: Sequence[IProjection] = (),
+    ) -> SqlAlchemyEventStore:
+        return SqlAlchemyEventStore(session, serializer, tables, projections)
+
+    return factory

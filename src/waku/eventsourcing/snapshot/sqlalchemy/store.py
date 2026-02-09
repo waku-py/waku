@@ -1,13 +1,19 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Table, select  # Dishka needs runtime access
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002  # Dishka needs runtime access
 
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, Snapshot
 
-__all__ = ['SqlAlchemySnapshotStore']
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+__all__ = [
+    'SqlAlchemySnapshotStore',
+    'make_sqlalchemy_snapshot_store',
+]
 
 
 class SqlAlchemySnapshotStore(ISnapshotStore):
@@ -39,3 +45,12 @@ class SqlAlchemySnapshotStore(ISnapshotStore):
             )
         )
         await self._session.flush()
+
+
+def make_sqlalchemy_snapshot_store(
+    snapshots_table: Table,
+) -> Callable[..., SqlAlchemySnapshotStore]:
+    def factory(session: AsyncSession) -> SqlAlchemySnapshotStore:
+        return SqlAlchemySnapshotStore(session, snapshots_table)
+
+    return factory
