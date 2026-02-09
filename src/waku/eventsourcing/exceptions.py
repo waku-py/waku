@@ -5,8 +5,11 @@ from waku.exceptions import WakuError
 __all__ = [
     'AggregateNotFoundError',
     'ConcurrencyConflictError',
+    'DuplicateEventTypeError',
     'EventSourcingError',
+    'RegistryFrozenError',
     'StreamNotFoundError',
+    'UnknownEventTypeError',
 ]
 
 
@@ -36,3 +39,20 @@ class AggregateNotFoundError(EventSourcingError):
         self.aggregate_type = aggregate_type
         self.aggregate_id = aggregate_id
         super().__init__(f'{aggregate_type} with id {aggregate_id!r} not found')
+
+
+class UnknownEventTypeError(EventSourcingError):
+    def __init__(self, event_type_name: str) -> None:
+        self.event_type_name = event_type_name
+        super().__init__(f'Unknown event type: {event_type_name!r}')
+
+
+class DuplicateEventTypeError(EventSourcingError):
+    def __init__(self, event_type_name: str) -> None:
+        self.event_type_name = event_type_name
+        super().__init__(f'Event type {event_type_name!r} is already registered')
+
+
+class RegistryFrozenError(EventSourcingError):
+    def __init__(self) -> None:
+        super().__init__('Cannot register event types after registry is frozen')
