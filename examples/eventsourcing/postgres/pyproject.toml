@@ -1,0 +1,12 @@
+[project]
+name = "waku-eventsourcing-postgres-example"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "waku",
+    "sqlalchemy[asyncio]>=2.0",
+    "psycopg>=3.1",
+]
+
+[tool.uv.sources]
+waku = { path = "../../.." }

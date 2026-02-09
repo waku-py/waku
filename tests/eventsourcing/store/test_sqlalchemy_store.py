@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import MetaData
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from typing_extensions import override
 
 from waku.eventsourcing.contracts.event import EventEnvelope, StoredEvent
@@ -18,7 +17,9 @@ from waku.eventsourcing.store.sqlalchemy.store import SqlAlchemyEventStore
 from waku.eventsourcing.store.sqlalchemy.tables import bind_tables
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Sequence
+    from collections.abc import Sequence
+
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @dataclass(frozen=True)
@@ -45,26 +46,10 @@ def serializer(registry: EventTypeRegistry) -> JsonEventSerializer:
 
 
 @pytest.fixture
-async def session_and_store(
-    serializer: JsonEventSerializer,
-) -> AsyncIterator[tuple[AsyncSession, SqlAlchemyEventStore]]:
-    engine = create_async_engine('sqlite+aiosqlite://', echo=False)
+def store(pg_session: AsyncSession, serializer: JsonEventSerializer) -> SqlAlchemyEventStore:
     metadata = MetaData()
     tables = bind_tables(metadata)
-
-    async with engine.begin() as conn:
-        await conn.run_sync(metadata.create_all)
-
-    async with AsyncSession(engine, expire_on_commit=False) as session, session.begin():
-        store = SqlAlchemyEventStore(session=session, serializer=serializer, tables=tables)
-        yield session, store
-
-    await engine.dispose()
-
-
-@pytest.fixture
-def store(session_and_store: tuple[AsyncSession, SqlAlchemyEventStore]) -> SqlAlchemyEventStore:
-    return session_and_store[1]
+    return SqlAlchemyEventStore(session=pg_session, serializer=serializer, tables=tables)
 
 
 @pytest.fixture
@@ -230,38 +215,27 @@ async def test_append_with_any_version_always_succeeds(store: SqlAlchemyEventSto
     assert version == 1
 
 
-async def test_multiple_appends_increment_global_position(serializer: JsonEventSerializer) -> None:
-    engine = create_async_engine('sqlite+aiosqlite://', echo=False)
-    metadata = MetaData()
-    tables = bind_tables(metadata)
+async def test_multiple_appends_increment_global_position(store: SqlAlchemyEventStore) -> None:
+    stream_a = StreamId.for_aggregate('Order', 'A')
+    stream_b = StreamId.for_aggregate('Order', 'B')
 
-    async with engine.begin() as conn:
-        await conn.run_sync(metadata.create_all)
+    await store.append_to_stream(
+        stream_a,
+        [_envelope(OrderCreated(order_id='A')), _envelope(ItemAdded(item_name='X'))],
+        expected_version=NoStream(),
+    )
+    await store.append_to_stream(
+        stream_b,
+        [_envelope(OrderCreated(order_id='B'))],
+        expected_version=NoStream(),
+    )
 
-    async with AsyncSession(engine, expire_on_commit=False) as session, session.begin():
-        store = SqlAlchemyEventStore(session=session, serializer=serializer, tables=tables)
-        stream_a = StreamId.for_aggregate('Order', 'A')
-        stream_b = StreamId.for_aggregate('Order', 'B')
+    events_a = await store.read_stream(stream_a)
+    events_b = await store.read_stream(stream_b)
 
-        await store.append_to_stream(
-            stream_a,
-            [_envelope(OrderCreated(order_id='A')), _envelope(ItemAdded(item_name='X'))],
-            expected_version=NoStream(),
-        )
-        await store.append_to_stream(
-            stream_b,
-            [_envelope(OrderCreated(order_id='B'))],
-            expected_version=NoStream(),
-        )
-
-        events_a = await store.read_stream(stream_a)
-        events_b = await store.read_stream(stream_b)
-
-        assert events_a[0].global_position == 0
-        assert events_a[1].global_position == 1
-        assert events_b[0].global_position == 2
-
-    await engine.dispose()
+    assert events_a[0].global_position == 0
+    assert events_a[1].global_position == 1
+    assert events_b[0].global_position == 2
 
 
 async def test_stored_event_has_correct_event_type(store: SqlAlchemyEventStore, stream_id: StreamId) -> None:
@@ -274,14 +248,7 @@ async def test_stored_event_has_correct_event_type(store: SqlAlchemyEventStore, 
     assert events[0].event_type == 'OrderCreated'
 
 
-async def test_projection_receives_events(serializer: JsonEventSerializer) -> None:
-    engine = create_async_engine('sqlite+aiosqlite://', echo=False)
-    metadata = MetaData()
-    tables = bind_tables(metadata)
-
-    async with engine.begin() as conn:
-        await conn.run_sync(metadata.create_all)
-
+async def test_projection_receives_events(store: SqlAlchemyEventStore) -> None:
     projected: list[StoredEvent] = []
 
     class TestProjection(IProjection):
@@ -289,93 +256,59 @@ async def test_projection_receives_events(serializer: JsonEventSerializer) -> No
         async def project(self, events: Sequence[StoredEvent], /) -> None:
             projected.extend(events)
 
-    async with AsyncSession(engine, expire_on_commit=False) as session, session.begin():
-        store = SqlAlchemyEventStore(
-            session=session,
-            serializer=serializer,
-            tables=tables,
-            projections=[TestProjection()],
-        )
-        stream_id = StreamId.for_aggregate('Order', '1')
-        await store.append_to_stream(
-            stream_id,
-            [_envelope(OrderCreated(order_id='1'))],
-            expected_version=NoStream(),
-        )
+    store._projections = [TestProjection()]  # noqa: SLF001
+    stream_id = StreamId.for_aggregate('Order', '1')
+    await store.append_to_stream(
+        stream_id,
+        [_envelope(OrderCreated(order_id='1'))],
+        expected_version=NoStream(),
+    )
 
     assert len(projected) == 1
     assert projected[0].event_type == 'OrderCreated'
     assert projected[0].stream_id == 'Order-1'
 
-    await engine.dispose()
 
-
-async def test_projection_failure_propagates(serializer: JsonEventSerializer) -> None:
-    engine = create_async_engine('sqlite+aiosqlite://', echo=False)
-    metadata = MetaData()
-    tables = bind_tables(metadata)
-
-    async with engine.begin() as conn:
-        await conn.run_sync(metadata.create_all)
-
+async def test_projection_failure_propagates(store: SqlAlchemyEventStore) -> None:
     class FailingProjection(IProjection):
         @override
         async def project(self, _events: Sequence[StoredEvent], /) -> None:
             msg = 'projection failed'
             raise RuntimeError(msg)
 
-    async with AsyncSession(engine, expire_on_commit=False) as session, session.begin():
-        store = SqlAlchemyEventStore(
-            session=session,
-            serializer=serializer,
-            tables=tables,
-            projections=[FailingProjection()],
-        )
-        stream_id = StreamId.for_aggregate('Order', '1')
-        with pytest.raises(RuntimeError, match='projection failed'):
-            await store.append_to_stream(
-                stream_id,
-                [_envelope(OrderCreated(order_id='1'))],
-                expected_version=NoStream(),
-            )
-
-    await engine.dispose()
-
-
-async def test_read_all_returns_events_across_streams(serializer: JsonEventSerializer) -> None:
-    engine = create_async_engine('sqlite+aiosqlite://', echo=False)
-    metadata = MetaData()
-    tables = bind_tables(metadata)
-
-    async with engine.begin() as conn:
-        await conn.run_sync(metadata.create_all)
-
-    async with AsyncSession(engine, expire_on_commit=False) as session, session.begin():
-        store = SqlAlchemyEventStore(session=session, serializer=serializer, tables=tables)
-        stream_a = StreamId.for_aggregate('Order', 'A')
-        stream_b = StreamId.for_aggregate('Order', 'B')
-
+    store._projections = [FailingProjection()]  # noqa: SLF001
+    stream_id = StreamId.for_aggregate('Order', '1')
+    with pytest.raises(RuntimeError, match='projection failed'):
         await store.append_to_stream(
-            stream_a,
-            [_envelope(OrderCreated(order_id='A')), _envelope(ItemAdded(item_name='X'))],
-            expected_version=NoStream(),
-        )
-        await store.append_to_stream(
-            stream_b,
-            [_envelope(OrderCreated(order_id='B'))],
+            stream_id,
+            [_envelope(OrderCreated(order_id='1'))],
             expected_version=NoStream(),
         )
 
-        all_events = await store.read_all()
-        assert len(all_events) == 3
-        assert all_events[0].global_position == 0
-        assert all_events[1].global_position == 1
-        assert all_events[2].global_position == 2
 
-        after_first = await store.read_all(after_position=0)
-        assert len(after_first) == 2
+async def test_read_all_returns_events_across_streams(store: SqlAlchemyEventStore) -> None:
+    stream_a = StreamId.for_aggregate('Order', 'A')
+    stream_b = StreamId.for_aggregate('Order', 'B')
 
-        limited = await store.read_all(count=2)
-        assert len(limited) == 2
+    await store.append_to_stream(
+        stream_a,
+        [_envelope(OrderCreated(order_id='A')), _envelope(ItemAdded(item_name='X'))],
+        expected_version=NoStream(),
+    )
+    await store.append_to_stream(
+        stream_b,
+        [_envelope(OrderCreated(order_id='B'))],
+        expected_version=NoStream(),
+    )
 
-    await engine.dispose()
+    all_events = await store.read_all()
+    assert len(all_events) == 3
+    assert all_events[0].global_position == 0
+    assert all_events[1].global_position == 1
+    assert all_events[2].global_position == 2
+
+    after_first = await store.read_all(after_position=0)
+    assert len(after_first) == 2
+
+    limited = await store.read_all(count=2)
+    assert len(limited) == 2

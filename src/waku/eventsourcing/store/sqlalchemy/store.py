@@ -145,48 +145,56 @@ class SqlAlchemyEventStore(IEventStore):
                 )
             )
 
-        max_global = await self._get_max_global_position()
-        next_global = max_global + 1
-
-        stored_events: list[StoredEvent] = []
+        rows: list[dict[str, Any]] = []
+        envelopes_data: list[tuple[uuid.UUID, str, datetime, object, EventMetadata]] = []
         for envelope in events:
             current_version += 1
-            event_id = str(uuid.uuid4())
+            event_id = uuid.uuid4()
             now = datetime.now(UTC)
             data = self._serializer.serialize(envelope.domain_event)
             event_type = type(envelope.domain_event).__qualname__
             metadata = envelope.metadata or EventMetadata()
             metadata_dict = self._serialize_metadata(metadata)
 
-            await self._session.execute(
-                self._events.insert().values(
+            rows.append({
+                'event_id': event_id,
+                'stream_id': key,
+                'event_type': event_type,
+                'position': current_version,
+                'data': data,
+                'metadata': metadata_dict,
+                'timestamp': now,
+            })
+            envelopes_data.append((event_id, event_type, now, envelope.domain_event, metadata))
+
+        result = await self._session.execute(
+            self._events.insert().values(rows).returning(self._events.c.global_position)
+        )
+        global_positions = [row[0] for row in result.fetchall()]
+
+        stored_events: list[StoredEvent] = []
+        for i, (event_id, event_type, now, domain_event, metadata) in enumerate(envelopes_data):
+            stored_events.append(
+                StoredEvent(
                     event_id=event_id,
                     stream_id=key,
                     event_type=event_type,
-                    position=current_version,
-                    global_position=next_global,
-                    data=data,
-                    metadata=metadata_dict,
+                    position=rows[i]['position'],
+                    global_position=global_positions[i],
                     timestamp=now,
-                )
-            )
-
-            stored_events.append(
-                StoredEvent(
-                    event_id=uuid.UUID(event_id),
-                    stream_id=key,
-                    event_type=event_type,
-                    position=current_version,
-                    global_position=next_global,
-                    timestamp=now,
-                    data=envelope.domain_event,
+                    data=domain_event,
                     metadata=metadata,
                 )
             )
-            next_global += 1
 
         await self._session.execute(
-            self._streams.update().where(self._streams.c.stream_id == key).values(version=current_version)
+            self._streams
+            .update()
+            .where(self._streams.c.stream_id == key)
+            .values(
+                version=current_version,
+                updated_at=sa_func.now(),
+            )
         )
 
         try:
@@ -204,16 +212,11 @@ class SqlAlchemyEventStore(IEventStore):
         result = await self._session.execute(query)
         return result.one_or_none()
 
-    async def _get_max_global_position(self) -> int:
-        query = select(sa_func.coalesce(sa_func.max(self._events.c.global_position), -1))
-        result = await self._session.execute(query)
-        return int(result.scalar_one())
-
     def _row_to_stored_event(self, row: Any) -> StoredEvent:
         metadata = self._deserialize_metadata(row.metadata)
         data = self._serializer.deserialize(row.data, row.event_type)
         return StoredEvent(
-            event_id=uuid.UUID(row.event_id),
+            event_id=row.event_id,
             stream_id=row.stream_id,
             event_type=row.event_type,
             position=row.position,
@@ -240,9 +243,7 @@ class SqlAlchemyEventStore(IEventStore):
         )
 
 
-def make_sqlalchemy_event_store(
-    tables: EventStoreTables,
-) -> SqlAlchemyEventStoreFactory:
+def make_sqlalchemy_event_store(tables: EventStoreTables) -> SqlAlchemyEventStoreFactory:
     def factory(
         session: AsyncSession,
         serializer: IEventSerializer,

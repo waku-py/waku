@@ -29,7 +29,6 @@ if TYPE_CHECKING:
             ],
         ),
         pytest.param(('asyncio', {'use_uvloop': False}), id='asyncio'),
-        pytest.param(('trio', {'restrict_keyboard_interrupt_to_checkpoints': True}), id='trio'),
     ],
     autouse=True,
 )

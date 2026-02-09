@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from sqlalchemy import MetaData
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from waku.cqrs.contracts.notification import INotification
 from waku.di import Scope, contextual
@@ -16,6 +17,9 @@ from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_stor
 from waku.eventsourcing.store.sqlalchemy.tables import bind_tables
 from waku.modules import module
 from waku.testing import create_test_app
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncEngine
 
 
 @dataclass(frozen=True)
@@ -41,12 +45,11 @@ class NoteRepository(EventSourcedRepository[Note]):
     pass
 
 
-async def test_sqlalchemy_module_wiring_end_to_end() -> None:
-    engine = create_async_engine('sqlite+aiosqlite://', echo=False)
+async def test_postgres_module_wiring_end_to_end(pg_engine: AsyncEngine) -> None:
     metadata = MetaData()
     tables = bind_tables(metadata)
 
-    async with engine.begin() as conn:
+    async with pg_engine.begin() as conn:
         await conn.run_sync(metadata.create_all)
 
     es_ext = EventSourcingExtension().bind_aggregate(
@@ -67,7 +70,7 @@ async def test_sqlalchemy_module_wiring_end_to_end() -> None:
         pass
 
     async with (
-        AsyncSession(engine, expire_on_commit=False) as session,
+        AsyncSession(pg_engine, expire_on_commit=False) as session,
         session.begin(),
         create_test_app(
             imports=[NoteModule],
@@ -90,4 +93,5 @@ async def test_sqlalchemy_module_wiring_end_to_end() -> None:
         assert loaded.title == 'Hello'
         assert loaded.version == 0
 
-    await engine.dispose()
+    async with pg_engine.begin() as conn:
+        await conn.run_sync(metadata.drop_all)
