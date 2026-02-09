@@ -5,3 +5,4 @@ extend-exclude = [
 
 [default.extend-words]
 AggregateT = "AggregateT"
+brin = "brin"

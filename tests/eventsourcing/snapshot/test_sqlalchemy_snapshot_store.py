@@ -4,30 +4,20 @@ from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import MetaData
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from waku.eventsourcing.snapshot.interfaces import Snapshot
 from waku.eventsourcing.snapshot.sqlalchemy.store import SqlAlchemySnapshotStore
 from waku.eventsourcing.snapshot.sqlalchemy.tables import bind_tables
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @pytest.fixture
-async def snapshot_store() -> AsyncIterator[SqlAlchemySnapshotStore]:
-    engine = create_async_engine('sqlite+aiosqlite://', echo=False)
+def snapshot_store(pg_session: AsyncSession) -> SqlAlchemySnapshotStore:
     metadata = MetaData()
     snapshots_table = bind_tables(metadata)
-
-    async with engine.begin() as conn:
-        await conn.run_sync(metadata.create_all)
-
-    async with AsyncSession(engine, expire_on_commit=False) as session, session.begin():
-        store = SqlAlchemySnapshotStore(session=session, snapshots_table=snapshots_table)
-        yield store
-
-    await engine.dispose()
+    return SqlAlchemySnapshotStore(session=pg_session, snapshots_table=snapshots_table)
 
 
 async def test_load_returns_none_when_no_snapshot(snapshot_store: SqlAlchemySnapshotStore) -> None:

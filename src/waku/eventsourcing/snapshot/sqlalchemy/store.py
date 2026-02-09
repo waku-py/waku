@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Table, select  # Dishka needs runtime access
+from sqlalchemy import (  # Dishka needs runtime access
+    Table,
+    func as sa_func,
+    select,
+)
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002  # Dishka needs runtime access
 
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, Snapshot
@@ -35,15 +40,22 @@ class SqlAlchemySnapshotStore(ISnapshotStore):
         )
 
     async def save(self, snapshot: Snapshot, /) -> None:
-        await self._session.execute(self._snapshots.delete().where(self._snapshots.c.stream_id == snapshot.stream_id))
-        await self._session.execute(
-            self._snapshots.insert().values(
-                stream_id=snapshot.stream_id,
-                state=snapshot.state,
-                version=snapshot.version,
-                state_type=snapshot.state_type,
-            )
+        stmt = pg_insert(self._snapshots).values(
+            stream_id=snapshot.stream_id,
+            state=snapshot.state,
+            version=snapshot.version,
+            state_type=snapshot.state_type,
         )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=['stream_id'],
+            set_={
+                'state': stmt.excluded.state,
+                'version': stmt.excluded.version,
+                'state_type': stmt.excluded.state_type,
+                'updated_at': sa_func.now(),
+            },
+        )
+        await self._session.execute(stmt)
         await self._session.flush()
 
 
