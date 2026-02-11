@@ -5,48 +5,13 @@ from dataclasses import dataclass
 from typing_extensions import override
 
 from waku.cqrs import MediatorExtension, MediatorModule, Request
-from waku.cqrs.contracts.notification import INotification
 from waku.cqrs.interfaces import IMediator
-from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.handler import EventSourcedVoidCommandHandler
 from waku.eventsourcing.modules import EventSourcingExtension, EventSourcingModule
-from waku.eventsourcing.repository import EventSourcedRepository
 from waku.modules import module
 from waku.testing import create_test_app
 
-
-@dataclass(frozen=True)
-class NoteCreated(INotification):
-    title: str
-
-
-@dataclass(frozen=True)
-class NoteEdited(INotification):
-    content: str
-
-
-class Note(EventSourcedAggregate):
-    def __init__(self) -> None:
-        super().__init__()
-        self.title: str = ''
-        self.content: str = ''
-
-    def create(self, title: str) -> None:
-        self._raise_event(NoteCreated(title=title))
-
-    def edit(self, content: str) -> None:
-        self._raise_event(NoteEdited(content=content))
-
-    def _apply(self, event: INotification) -> None:
-        match event:
-            case NoteCreated(title=title):
-                self.title = title
-            case NoteEdited(content=content):
-                self.content = content
-
-
-class NoteRepository(EventSourcedRepository[Note]):
-    pass
+from tests.eventsourcing.domain import Note, NoteCreated, NoteEdited, NoteRepository
 
 
 @dataclass(frozen=True, kw_only=True)
