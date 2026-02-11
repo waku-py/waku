@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from unittest.mock import AsyncMock
 
 import pytest
 from typing_extensions import override
 
-from waku.cqrs.contracts.notification import INotification
-from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.exceptions import AggregateNotFoundError, SnapshotTypeMismatchError
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, Snapshot
@@ -16,41 +13,7 @@ from waku.eventsourcing.snapshot.serialization import JsonSnapshotStateSerialize
 from waku.eventsourcing.snapshot.strategy import EventCountStrategy
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
-
-@dataclass(frozen=True)
-class AccountOpened(INotification):
-    name: str
-
-
-@dataclass(frozen=True)
-class MoneyDeposited(INotification):
-    amount: int
-
-
-@dataclass(frozen=True)
-class AccountState:
-    name: str
-    balance: int
-
-
-class BankAccount(EventSourcedAggregate):
-    def __init__(self) -> None:
-        super().__init__()
-        self.name: str = ''
-        self.balance: int = 0
-
-    def open(self, name: str) -> None:
-        self._raise_event(AccountOpened(name=name))
-
-    def deposit(self, amount: int) -> None:
-        self._raise_event(MoneyDeposited(amount=amount))
-
-    def _apply(self, event: INotification) -> None:
-        match event:
-            case AccountOpened(name=name):
-                self.name = name
-            case MoneyDeposited(amount=amount):
-                self.balance += amount
+from tests.eventsourcing.domain import AccountOpened, AccountState, BankAccount, MoneyDeposited
 
 
 class BankAccountRepository(SnapshotEventSourcedRepository[BankAccount]):

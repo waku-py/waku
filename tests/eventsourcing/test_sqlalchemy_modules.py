@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from waku.cqrs.contracts.notification import INotification
 from waku.di import Scope, contextual
-from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
-from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
@@ -18,31 +14,10 @@ from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
 from waku.modules import module
 from waku.testing import create_test_app
 
+from tests.eventsourcing.domain import Note, NoteCreated, NoteRepository
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
-
-
-@dataclass(frozen=True)
-class NoteCreated(INotification):
-    title: str
-
-
-class Note(EventSourcedAggregate):
-    def __init__(self) -> None:
-        super().__init__()
-        self.title: str = ''
-
-    def create(self, title: str) -> None:
-        self._raise_event(NoteCreated(title=title))
-
-    def _apply(self, event: INotification) -> None:
-        match event:
-            case NoteCreated(title=title):
-                self.title = title
-
-
-class NoteRepository(EventSourcedRepository[Note]):
-    pass
 
 
 async def test_postgres_module_wiring_end_to_end(pg_engine: AsyncEngine) -> None:
