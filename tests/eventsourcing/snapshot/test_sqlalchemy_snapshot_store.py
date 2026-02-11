@@ -7,7 +7,7 @@ from sqlalchemy import MetaData
 
 from waku.eventsourcing.snapshot.interfaces import Snapshot
 from waku.eventsourcing.snapshot.sqlalchemy.store import SqlAlchemySnapshotStore
-from waku.eventsourcing.snapshot.sqlalchemy.tables import bind_tables
+from waku.eventsourcing.snapshot.sqlalchemy.tables import bind_snapshot_tables
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 @pytest.fixture
 def snapshot_store(pg_session: AsyncSession) -> SqlAlchemySnapshotStore:
     metadata = MetaData()
-    snapshots_table = bind_tables(metadata)
+    snapshots_table = bind_snapshot_tables(metadata)
     return SqlAlchemySnapshotStore(session=pg_session, snapshots_table=snapshots_table)
 
 

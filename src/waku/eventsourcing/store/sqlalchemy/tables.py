@@ -16,7 +16,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 
-__all__ = ['EventStoreTables', 'bind_tables']
+__all__ = ['EventStoreTables', 'bind_event_store_tables']
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +54,7 @@ es_events_table = Table(
 )
 
 
-def bind_tables(metadata: MetaData) -> EventStoreTables:
+def bind_event_store_tables(metadata: MetaData) -> EventStoreTables:
     streams = es_streams_table.to_metadata(metadata)
     events = es_events_table.to_metadata(metadata)
     return EventStoreTables(streams=streams, events=events)

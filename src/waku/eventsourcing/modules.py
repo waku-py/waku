@@ -3,7 +3,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, Self, TypeAlias
 
 from typing_extensions import override
 
@@ -12,41 +12,55 @@ from waku.eventsourcing.projection.interfaces import IProjection
 from waku.eventsourcing.serialization.interfaces import IEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, ISnapshotStrategy
+from waku.eventsourcing.snapshot.serialization import ISnapshotStateSerializer
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.extensions import OnModuleConfigure, OnModuleRegistration
 from waku.modules import DynamicModule, ModuleMetadataRegistry, module
 
 if TYPE_CHECKING:
+    from waku.cqrs.contracts.notification import INotification
     from waku.eventsourcing.repository import EventSourcedRepository
     from waku.modules import ModuleMetadata, ModuleType
 
 __all__ = [
-    'AggregateBinding',
     'EventSourcingConfig',
     'EventSourcingExtension',
     'EventSourcingModule',
+    'EventType',
+    'EventTypeSpec',
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class EventType:
+    event_type: type[INotification]
+    name: str | None = field(default=None, kw_only=True)
+    aliases: Sequence[str] = field(default=(), kw_only=True)
+
+
+EventTypeSpec: TypeAlias = 'type[INotification] | EventType'
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AggregateBinding:
     repository: type[EventSourcedRepository[Any]]
-    event_types: Sequence[type[Any]] = ()
+    event_types: Sequence[EventTypeSpec] = ()
     projections: Sequence[type[Any]] = ()
     snapshot_strategy: ISnapshotStrategy | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EventSourcingConfig:
-    store: type[IEventStore] = InMemoryEventStore
-    serializer: type[IEventSerializer] | None = None
+    store: type[IEventStore] | None = None
+    event_serializer: type[IEventSerializer] | None = None
     snapshot_store: type[ISnapshotStore] | None = None
+    snapshot_state_serializer: type[ISnapshotStateSerializer] | None = None
     store_factory: Callable[..., IEventStore] | None = None
     snapshot_store_factory: Callable[..., ISnapshotStore] | None = None
 
     def __post_init__(self) -> None:
-        if self.store is not InMemoryEventStore and self.store_factory is not None:
+        if self.store is not None and self.store_factory is not None:
             msg = 'Cannot set both store and store_factory'
             raise ValueError(msg)
         if self.snapshot_store is not None and self.snapshot_store_factory is not None:
@@ -64,21 +78,25 @@ class EventSourcingModule:
         if config_.store_factory is not None:
             providers.append(scoped(IEventStore, config_.store_factory))
         else:
-            providers.append(scoped(WithParents[IEventStore], config_.store))  # ty:ignore[not-subscriptable]
+            store_type = config_.store or InMemoryEventStore
+            providers.append(scoped(WithParents[IEventStore], store_type))  # ty:ignore[not-subscriptable]
 
-        if config_.serializer is not None:
-            providers.append(scoped(IEventSerializer, config_.serializer))
+        if config_.event_serializer is not None:
+            providers.append(scoped(IEventSerializer, config_.event_serializer))
 
         if config_.snapshot_store_factory is not None:
             providers.append(scoped(ISnapshotStore, config_.snapshot_store_factory))
         elif config_.snapshot_store is not None:
             providers.append(scoped(ISnapshotStore, config_.snapshot_store))
 
+        if config_.snapshot_state_serializer is not None:
+            providers.append(scoped(ISnapshotStateSerializer, config_.snapshot_state_serializer))
+
         return DynamicModule(
             parent_module=cls,
             providers=providers,
             extensions=[
-                EventTypeRegistryAggregator(has_serializer=config_.serializer is not None),
+                EventTypeRegistryAggregator(has_serializer=config_.event_serializer is not None),
                 ProjectionAggregator(),
             ],
             is_global=True,
@@ -92,7 +110,7 @@ class EventSourcingExtension(OnModuleConfigure):
     def bind_aggregate(
         self,
         repository: type[EventSourcedRepository[Any]],
-        event_types: Sequence[type[Any]] = (),
+        event_types: Sequence[EventTypeSpec] = (),
         projections: Sequence[type[Any]] = (),
         snapshot_strategy: ISnapshotStrategy | None = None,
     ) -> Self:
@@ -132,8 +150,13 @@ class EventTypeRegistryAggregator(OnModuleRegistration):
         aggregated = EventTypeRegistry()
         for _module_type, ext in registry.find_extensions(EventSourcingExtension):
             for binding in ext.bindings:
-                for event_type in binding.event_types:
-                    aggregated.register(event_type)
+                for item in binding.event_types:
+                    if isinstance(item, EventType):
+                        aggregated.register(item.event_type, name=item.name)
+                        for alias in item.aliases:
+                            aggregated.add_alias(item.event_type, alias)
+                    else:
+                        aggregated.register(item)
         aggregated.freeze()
         registry.add_provider(owning_module, object_(aggregated))
 

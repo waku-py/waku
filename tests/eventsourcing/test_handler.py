@@ -6,7 +6,7 @@ from typing_extensions import override
 
 from waku.cqrs import MediatorExtension, MediatorModule, Request
 from waku.cqrs.contracts.notification import INotification
-from waku.cqrs.interfaces import IMediator, IPublisher
+from waku.cqrs.interfaces import IMediator
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.handler import EventSourcedVoidCommandHandler
 from waku.eventsourcing.modules import EventSourcingExtension, EventSourcingModule
@@ -56,9 +56,6 @@ class CreateNote(Request[None]):
 
 
 class CreateNoteHandler(EventSourcedVoidCommandHandler[CreateNote, Note]):
-    def __init__(self, repository: NoteRepository, publisher: IPublisher) -> None:
-        super().__init__(repository, publisher)
-
     @override
     def _aggregate_id(self, request: CreateNote) -> str:
         return request.note_id
@@ -76,7 +73,7 @@ async def test_event_sourced_command_handler_creates_and_persists_aggregate() ->
     @module(
         imports=[EventSourcingModule.register(), MediatorModule.register()],
         extensions=[
-            EventSourcingExtension().bind_aggregate(repository=NoteRepository),
+            EventSourcingExtension().bind_aggregate(repository=NoteRepository, event_types=[NoteCreated, NoteEdited]),
             MediatorExtension().bind_request(CreateNote, CreateNoteHandler),
         ],
     )

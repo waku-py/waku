@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import Column, Integer, MetaData, Table, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 
-__all__ = ['bind_tables']
+__all__ = ['bind_snapshot_tables']
 
 _internal_metadata = MetaData()
 
@@ -19,5 +19,5 @@ es_snapshots_table = Table(
 )
 
 
-def bind_tables(metadata: MetaData) -> Table:
+def bind_snapshot_tables(metadata: MetaData) -> Table:
     return es_snapshots_table.to_metadata(metadata)

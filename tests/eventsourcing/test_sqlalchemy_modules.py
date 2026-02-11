@@ -14,7 +14,7 @@ from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
-from waku.eventsourcing.store.sqlalchemy.tables import bind_tables
+from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
 from waku.modules import module
 from waku.testing import create_test_app
 
@@ -47,7 +47,7 @@ class NoteRepository(EventSourcedRepository[Note]):
 
 async def test_postgres_module_wiring_end_to_end(pg_engine: AsyncEngine) -> None:
     metadata = MetaData()
-    tables = bind_tables(metadata)
+    tables = bind_event_store_tables(metadata)
 
     async with pg_engine.begin() as conn:
         await conn.run_sync(metadata.create_all)
@@ -59,7 +59,7 @@ async def test_postgres_module_wiring_end_to_end(pg_engine: AsyncEngine) -> None
 
     config = EventSourcingConfig(
         store_factory=make_sqlalchemy_event_store(tables),
-        serializer=JsonEventSerializer,
+        event_serializer=JsonEventSerializer,
     )
 
     @module(

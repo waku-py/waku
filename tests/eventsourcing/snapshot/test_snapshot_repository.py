@@ -8,11 +8,11 @@ from typing_extensions import override
 
 from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
-from waku.eventsourcing.exceptions import AggregateNotFoundError
-from waku.eventsourcing.serialization.json import JsonEventSerializer
+from waku.eventsourcing.exceptions import AggregateNotFoundError, SnapshotTypeMismatchError
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, Snapshot
 from waku.eventsourcing.snapshot.repository import SnapshotEventSourcedRepository
+from waku.eventsourcing.snapshot.serialization import JsonSnapshotStateSerializer
 from waku.eventsourcing.snapshot.strategy import EventCountStrategy
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
@@ -68,7 +68,10 @@ class BankAccountRepository(SnapshotEventSourcedRepository[BankAccount]):
 
 @pytest.fixture
 def event_store() -> InMemoryEventStore:
-    return InMemoryEventStore()
+    registry = EventTypeRegistry()
+    registry.register(AccountOpened)
+    registry.register(MoneyDeposited)
+    return InMemoryEventStore(registry=registry)
 
 
 @pytest.fixture
@@ -79,22 +82,18 @@ def snapshot_store() -> AsyncMock:
 
 
 @pytest.fixture
-def serializer() -> JsonEventSerializer:
-    registry = EventTypeRegistry()
-    registry.register(AccountOpened)
-    registry.register(MoneyDeposited)
-    registry.register(AccountState)
-    return JsonEventSerializer(registry)
+def state_serializer() -> JsonSnapshotStateSerializer:
+    return JsonSnapshotStateSerializer()
 
 
 @pytest.fixture
 def repository(
     event_store: InMemoryEventStore,
     snapshot_store: AsyncMock,
-    serializer: JsonEventSerializer,
+    state_serializer: JsonSnapshotStateSerializer,
 ) -> BankAccountRepository:
     strategy = EventCountStrategy(threshold=3)
-    return BankAccountRepository(event_store, snapshot_store, strategy, serializer)
+    return BankAccountRepository(event_store, snapshot_store, strategy, state_serializer)
 
 
 async def test_load_without_snapshot_full_replay(
@@ -191,6 +190,21 @@ async def test_multiple_saves_without_reload_triggers_snapshot_at_cumulative_thr
     assert saved_snapshot.stream_id == 'BankAccount-acc-1'
     assert saved_snapshot.state == {'name': 'Alice', 'balance': 300}
     assert saved_snapshot.version == 2
+
+
+async def test_load_with_mismatched_snapshot_type_raises(
+    repository: BankAccountRepository,
+    snapshot_store: AsyncMock,
+) -> None:
+    snapshot_store.load.return_value = Snapshot(
+        stream_id='BankAccount-acc-1',
+        state={'name': 'Alice', 'balance': 100},
+        version=1,
+        state_type='WrongType',
+    )
+
+    with pytest.raises(SnapshotTypeMismatchError, match='WrongType'):
+        await repository.load('acc-1')
 
 
 async def test_save_with_no_events_returns_current_version(

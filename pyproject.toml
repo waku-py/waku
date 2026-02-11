@@ -8,7 +8,7 @@ version = "0.28.1"
 description = "Framework for building modular and loosely coupled applications"
 readme = "README.md"
 license = "MIT"
-keywords = ["architecture", "modular", "decoupled", "framework", "dishka", "ioc", "di"]
+keywords = ["architecture", "modular", "decoupled", "framework", "dishka", "ioc", "di", "cqrs", "eventstore", "eventsourcing"]
 authors = [
   { name = "Daniil Kharkov", email = "fadeddexofan@gmail.com" },
   { name = "Doctor", email = "thirvondukr@gmail.com" },
@@ -37,7 +37,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-sqlalchemy = ["sqlalchemy[asyncio]>=2.0", "psycopg>=3.0"]
+sqlalchemy = ["sqlalchemy[asyncio]>=2.0"]
 
 [project.urls]
 Repository = "https://github.com/waku-py/waku"
@@ -65,7 +65,7 @@ lint = [
   "ruff==0.15.0",
 ]
 test = [
-  "coverage==7.13.3",
+  "coverage==7.13.4",
   "psycopg[binary]>=3.3.2",
   "pytest==9.0.2",
   "pytest-clarity==1.0.1",
@@ -74,14 +74,14 @@ test = [
   "pytest-mock==3.15.1",
   "pytest-randomly==4.0.1",
   "pytest-timeout==2.4.0",
-  "sqlalchemy[asyncio]>=2.0",
+  "sqlalchemy[asyncio]>=2.0.46",
   "testcontainers[postgres]>=4.14.1",
   "uvloop==0.22.1; sys_platform != 'win32' and python_version < '3.14'",
 ]
 typecheck = [
   "mypy==1.19.1",
-  "pyrefly==0.51.2",
-  "ty==0.0.15",
+  "pyrefly==0.52.0",
+  "ty==0.0.16",
 ]
 
 # ----- UV settings -----
@@ -102,7 +102,7 @@ addopts = [
   "--cov-fail-under=88",
 ]
 # pytest-timeout settings
-timeout = 30
+timeout = 15
 session_timeout = 100
 
 # ----- Coverage settings -----

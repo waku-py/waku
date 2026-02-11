@@ -8,6 +8,7 @@ __all__ = [
     'DuplicateEventTypeError',
     'EventSourcingError',
     'RegistryFrozenError',
+    'SnapshotTypeMismatchError',
     'StreamNotFoundError',
     'UnknownEventTypeError',
 ]
@@ -51,6 +52,16 @@ class DuplicateEventTypeError(EventSourcingError):
     def __init__(self, event_type_name: str) -> None:
         self.event_type_name = event_type_name
         super().__init__(f'Event type {event_type_name!r} is already registered')
+
+
+class SnapshotTypeMismatchError(EventSourcingError):
+    def __init__(self, stream_id: str, expected_type: str, actual_type: str) -> None:
+        self.stream_id = stream_id
+        self.expected_type = expected_type
+        self.actual_type = actual_type
+        super().__init__(
+            f'Snapshot type mismatch on stream {stream_id!r}: expected {expected_type!r}, got {actual_type!r}'
+        )
 
 
 class RegistryFrozenError(EventSourcingError):
