@@ -15,7 +15,7 @@ es_snapshots_table = Table(
     Column('version', Integer, nullable=False),
     Column('state_type', Text, nullable=False),
     Column('created_at', TIMESTAMP(timezone=True), server_default=func.now()),
-    Column('updated_at', TIMESTAMP(timezone=True), onupdate=func.now()),
+    Column('updated_at', TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now()),
 )
 
 

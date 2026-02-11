@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 from testcontainers.postgres import PostgresContainer  # type: ignore[import-untyped]
 
+from waku.eventsourcing.projection.sqlalchemy.tables import bind_checkpoint_tables
 from waku.eventsourcing.snapshot.sqlalchemy.tables import bind_snapshot_tables
 from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
 
@@ -35,6 +36,7 @@ async def pg_session(pg_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
     metadata = MetaData()
     bind_event_store_tables(metadata)
     bind_snapshot_tables(metadata)
+    bind_checkpoint_tables(metadata)
 
     async with pg_engine.begin() as conn:
         await conn.run_sync(metadata.create_all)

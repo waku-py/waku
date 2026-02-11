@@ -27,7 +27,14 @@ from waku.eventsourcing.modules import (
     EventType,
     EventTypeSpec,
 )
-from waku.eventsourcing.projection.interfaces import IProjection
+from waku.eventsourcing.projection.checkpoint import Checkpoint
+from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
+from waku.eventsourcing.projection.interfaces import ICheckpointStore, IProjection
+from waku.eventsourcing.projection.sqlalchemy import (
+    SqlAlchemyCheckpointStore,
+    bind_checkpoint_tables,
+    make_sqlalchemy_checkpoint_store,
+)
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.interfaces import IEventSerializer
 from waku.eventsourcing.serialization.json import JsonEventSerializer
@@ -43,6 +50,7 @@ from waku.eventsourcing.store.interfaces import IEventReader, IEventStore, IEven
 __all__ = [
     'AggregateNotFoundError',
     'AnyVersion',
+    'Checkpoint',
     'ConcurrencyConflictError',
     'DuplicateEventTypeError',
     'EventCountStrategy',
@@ -61,6 +69,7 @@ __all__ = [
     'EventTypeSpec',
     'Exact',
     'ExpectedVersion',
+    'ICheckpointStore',
     'IEventReader',
     'IEventSerializer',
     'IEventStore',
@@ -69,6 +78,7 @@ __all__ = [
     'ISnapshotStateSerializer',
     'ISnapshotStore',
     'ISnapshotStrategy',
+    'InMemoryCheckpointStore',
     'InMemoryEventStore',
     'InMemorySnapshotStore',
     'JsonEventSerializer',
@@ -78,10 +88,13 @@ __all__ = [
     'Snapshot',
     'SnapshotEventSourcedRepository',
     'SnapshotTypeMismatchError',
+    'SqlAlchemyCheckpointStore',
     'StoredEvent',
     'StreamExists',
     'StreamId',
     'StreamNotFoundError',
     'StreamPosition',
     'UnknownEventTypeError',
+    'bind_checkpoint_tables',
+    'make_sqlalchemy_checkpoint_store',
 ]
