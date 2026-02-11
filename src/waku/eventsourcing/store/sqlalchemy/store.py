@@ -151,12 +151,42 @@ class SqlAlchemyEventStore(IEventStore):
         *,
         expected_version: ExpectedVersion,
     ) -> int:
-        key = str(stream_id)
-        stream_type = key.split('-', 1)[0] if '-' in key else key
+        if not events:
+            return await self._resolve_current_version(stream_id, expected_version)
 
+        key = str(stream_id)
+        current_version = await self._resolve_stream_state(key, stream_id.stream_type, expected_version)
+        new_version = current_version + len(events)
+
+        await self._update_stream_version(key, current_version, new_version)
+        stored_events = await self._insert_events(key, events, start_position=current_version + 1)
+
+        await self._session.flush()
+
+        for projection in self._projections:
+            await projection.project(stored_events)
+
+        return new_version
+
+    async def _resolve_current_version(
+        self,
+        stream_id: StreamId,
+        expected_version: ExpectedVersion,
+    ) -> int:
+        key = str(stream_id)
         stream_row = await self._get_stream(key)
         current_version = stream_row.version if stream_row is not None else -1
-        original_version = current_version
+        check_expected_version(key, expected_version, current_version, exists=stream_row is not None)
+        return current_version
+
+    async def _resolve_stream_state(
+        self,
+        key: str,
+        stream_type: str,
+        expected_version: ExpectedVersion,
+    ) -> int:
+        stream_row = await self._get_stream(key)
+        current_version = stream_row.version if stream_row is not None else -1
         exists = stream_row is not None
 
         check_expected_version(key, expected_version, current_version, exists=exists)
@@ -170,10 +200,41 @@ class SqlAlchemyEventStore(IEventStore):
                 )
             )
 
+        return current_version
+
+    async def _update_stream_version(
+        self,
+        key: str,
+        expected_version: int,
+        new_version: int,
+    ) -> None:
+        result = await self._session.execute(
+            self._streams
+            .update()
+            .where(
+                self._streams.c.stream_id == key,
+                self._streams.c.version == expected_version,
+            )
+            .values(
+                version=new_version,
+                updated_at=sa_func.now(),
+            )
+        )
+        if result.rowcount != 1:  # type: ignore[attr-defined]
+            raise ConcurrencyConflictError(key, expected_version, new_version)
+
+    async def _insert_events(
+        self,
+        key: str,
+        events: Sequence[EventEnvelope],
+        *,
+        start_position: int,
+    ) -> list[StoredEvent]:
         rows: list[dict[str, Any]] = []
         envelopes_data: list[tuple[uuid.UUID, str, datetime, object, EventMetadata]] = []
+
+        position = start_position
         for envelope in events:
-            current_version += 1
             event_id = uuid.uuid4()
             now = datetime.now(UTC)
             data = self._serializer.serialize(envelope.domain_event)
@@ -185,54 +246,32 @@ class SqlAlchemyEventStore(IEventStore):
                 'event_id': event_id,
                 'stream_id': key,
                 'event_type': event_type,
-                'position': current_version,
+                'position': position,
                 'data': data,
                 'metadata': metadata_dict,
                 'timestamp': now,
             })
             envelopes_data.append((event_id, event_type, now, envelope.domain_event, metadata))
+            position += 1
 
         result = await self._session.execute(
             self._events.insert().values(rows).returning(self._events.c.global_position)
         )
         global_positions = [row[0] for row in result.fetchall()]
 
-        stored_events: list[StoredEvent] = []
-        for i, (event_id, event_type, now, domain_event, metadata) in enumerate(envelopes_data):
-            stored_events.append(
-                StoredEvent(
-                    event_id=event_id,
-                    stream_id=key,
-                    event_type=event_type,
-                    position=rows[i]['position'],
-                    global_position=global_positions[i],
-                    timestamp=now,
-                    data=domain_event,
-                    metadata=metadata,
-                )
+        return [
+            StoredEvent(
+                event_id=envelopes_data[i][0],
+                stream_id=key,
+                event_type=envelopes_data[i][1],
+                position=rows[i]['position'],
+                global_position=global_positions[i],
+                timestamp=envelopes_data[i][2],
+                data=envelopes_data[i][3],
+                metadata=envelopes_data[i][4],
             )
-
-        update_result = await self._session.execute(
-            self._streams
-            .update()
-            .where(
-                self._streams.c.stream_id == key,
-                self._streams.c.version == original_version,
-            )
-            .values(
-                version=current_version,
-                updated_at=sa_func.now(),
-            )
-        )
-        if update_result.rowcount != 1:  # type: ignore[attr-defined]
-            raise ConcurrencyConflictError(key, original_version, current_version)
-
-        await self._session.flush()
-
-        for projection in self._projections:
-            await projection.project(stored_events)
-
-        return current_version
+            for i in range(len(events))
+        ]
 
     async def _get_stream(self, stream_id: str) -> Any:
         query = select(self._streams).where(self._streams.c.stream_id == stream_id)

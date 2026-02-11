@@ -17,16 +17,24 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class StreamId:
-    value: str
+    stream_type: str
+    stream_key: str
 
     def __post_init__(self) -> None:
-        if not self.value:
-            msg = 'StreamId cannot be empty'
+        if not self.stream_type:
+            msg = 'StreamId stream_type cannot be empty'
+            raise ValueError(msg)
+        if not self.stream_key:
+            msg = 'StreamId stream_key cannot be empty'
             raise ValueError(msg)
 
     @classmethod
     def for_aggregate(cls, aggregate_type: str, aggregate_id: str) -> StreamId:
-        return cls(value=f'{aggregate_type}-{aggregate_id}')
+        return cls(stream_type=aggregate_type, stream_key=aggregate_id)
+
+    @property
+    def value(self) -> str:
+        return f'{self.stream_type}-{self.stream_key}'
 
     def __str__(self) -> str:
         return self.value
