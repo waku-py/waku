@@ -4,12 +4,13 @@ import asyncio
 import uuid
 from collections.abc import Sequence  # noqa: TC003  # Dishka needs runtime access
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, assert_never
+from typing import TYPE_CHECKING, assert_never
 
 from waku.eventsourcing.contracts.event import EventEnvelope, EventMetadata, StoredEvent
 from waku.eventsourcing.contracts.stream import StreamPosition
 from waku.eventsourcing.exceptions import StreamNotFoundError
 from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001  # Dishka needs runtime access
+from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.store._version_check import check_expected_version
 from waku.eventsourcing.store.interfaces import IEventStore
 
@@ -20,7 +21,8 @@ __all__ = ['InMemoryEventStore']
 
 
 class InMemoryEventStore(IEventStore):
-    def __init__(self, projections: Sequence[IProjection] = ()) -> None:
+    def __init__(self, registry: EventTypeRegistry, projections: Sequence[IProjection] = ()) -> None:
+        self._registry = registry
         self._streams: dict[str, list[StoredEvent]] = {}
         self._global_position: int = 0
         self._lock = asyncio.Lock()
@@ -98,7 +100,7 @@ class InMemoryEventStore(IEventStore):
                 stored = StoredEvent(
                     event_id=uuid.uuid4(),
                     stream_id=key,
-                    event_type=_event_type_name(envelope.domain_event),
+                    event_type=self._registry.get_name(type(envelope.domain_event)),
                     position=position,
                     global_position=self._global_position,
                     timestamp=datetime.now(UTC),
@@ -109,11 +111,7 @@ class InMemoryEventStore(IEventStore):
                 stored_events.append(stored)
                 self._global_position += 1
 
-        for projection in self._projections:
-            await projection.project(stored_events)
+            for projection in self._projections:
+                await projection.project(stored_events)
 
-        return len(stream) - 1
-
-
-def _event_type_name(event: Any) -> str:
-    return type(event).__qualname__
+            return len(stream) - 1

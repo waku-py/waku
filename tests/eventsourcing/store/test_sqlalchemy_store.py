@@ -8,13 +8,13 @@ from sqlalchemy import MetaData
 from typing_extensions import override
 
 from waku.eventsourcing.contracts.event import EventEnvelope, StoredEvent
-from waku.eventsourcing.contracts.stream import AnyVersion, Exact, NoStream, StreamExists, StreamId
+from waku.eventsourcing.contracts.stream import AnyVersion, Exact, NoStream, StreamExists, StreamId, StreamPosition
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, StreamNotFoundError
 from waku.eventsourcing.projection.interfaces import IProjection
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.sqlalchemy.store import SqlAlchemyEventStore
-from waku.eventsourcing.store.sqlalchemy.tables import bind_tables
+from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -41,15 +41,19 @@ def registry() -> EventTypeRegistry:
 
 
 @pytest.fixture
-def serializer(registry: EventTypeRegistry) -> JsonEventSerializer:
+def event_serializer(registry: EventTypeRegistry) -> JsonEventSerializer:
     return JsonEventSerializer(registry)
 
 
 @pytest.fixture
-def store(pg_session: AsyncSession, serializer: JsonEventSerializer) -> SqlAlchemyEventStore:
+def store(
+    pg_session: AsyncSession,
+    event_serializer: JsonEventSerializer,
+    registry: EventTypeRegistry,
+) -> SqlAlchemyEventStore:
     metadata = MetaData()
-    tables = bind_tables(metadata)
-    return SqlAlchemyEventStore(session=pg_session, serializer=serializer, tables=tables)
+    tables = bind_event_store_tables(metadata)
+    return SqlAlchemyEventStore(session=pg_session, serializer=event_serializer, registry=registry, tables=tables)
 
 
 @pytest.fixture
@@ -312,3 +316,38 @@ async def test_read_all_returns_events_across_streams(store: SqlAlchemyEventStor
 
     limited = await store.read_all(count=2)
     assert len(limited) == 2
+
+
+async def test_read_stream_with_start_end_returns_last_event(
+    store: SqlAlchemyEventStore,
+    stream_id: StreamId,
+) -> None:
+    await store.append_to_stream(
+        stream_id,
+        [
+            _envelope(OrderCreated(order_id='1')),
+            _envelope(OrderCreated(order_id='2')),
+            _envelope(OrderCreated(order_id='3')),
+        ],
+        expected_version=NoStream(),
+    )
+
+    events = await store.read_stream(stream_id, start=StreamPosition.END)
+
+    assert len(events) == 1
+    assert events[0].data == OrderCreated(order_id='3')
+
+
+async def test_read_stream_with_count_zero_returns_empty(
+    store: SqlAlchemyEventStore,
+    stream_id: StreamId,
+) -> None:
+    await store.append_to_stream(
+        stream_id,
+        [_envelope(OrderCreated(order_id='1'))],
+        expected_version=NoStream(),
+    )
+
+    events = await store.read_stream(stream_id, count=0)
+
+    assert events == []

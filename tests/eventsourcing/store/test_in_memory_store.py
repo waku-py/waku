@@ -5,8 +5,9 @@ from dataclasses import dataclass
 import pytest
 
 from waku.eventsourcing.contracts.event import EventEnvelope
-from waku.eventsourcing.contracts.stream import AnyVersion, Exact, NoStream, StreamExists, StreamId
+from waku.eventsourcing.contracts.stream import AnyVersion, Exact, NoStream, StreamExists, StreamId, StreamPosition
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, StreamNotFoundError
+from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
 
@@ -21,8 +22,16 @@ class ItemAdded:
 
 
 @pytest.fixture
-def store() -> InMemoryEventStore:
-    return InMemoryEventStore()
+def registry() -> EventTypeRegistry:
+    reg = EventTypeRegistry()
+    reg.register(OrderCreated)
+    reg.register(ItemAdded)
+    return reg
+
+
+@pytest.fixture
+def store(registry: EventTypeRegistry) -> InMemoryEventStore:
+    return InMemoryEventStore(registry=registry)
 
 
 @pytest.fixture
@@ -266,3 +275,38 @@ async def test_stored_event_has_correct_event_type(
     events = await store.read_stream(stream_id)
 
     assert events[0].event_type == 'OrderCreated'
+
+
+async def test_read_stream_with_start_end_returns_last_event(
+    store: InMemoryEventStore,
+    stream_id: StreamId,
+) -> None:
+    await store.append_to_stream(
+        stream_id,
+        [
+            _envelope(OrderCreated(order_id='1')),
+            _envelope(OrderCreated(order_id='2')),
+            _envelope(OrderCreated(order_id='3')),
+        ],
+        expected_version=NoStream(),
+    )
+
+    events = await store.read_stream(stream_id, start=StreamPosition.END)
+
+    assert len(events) == 1
+    assert events[0].data == OrderCreated(order_id='3')
+
+
+async def test_read_stream_with_count_zero_returns_empty(
+    store: InMemoryEventStore,
+    stream_id: StreamId,
+) -> None:
+    await store.append_to_stream(
+        stream_id,
+        [_envelope(OrderCreated(order_id='1'))],
+        expected_version=NoStream(),
+    )
+
+    events = await store.read_stream(stream_id, count=0)
+
+    assert events == []

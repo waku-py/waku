@@ -35,40 +35,41 @@ def registry() -> EventTypeRegistry:
 
 
 @pytest.fixture
-def serializer(registry: EventTypeRegistry) -> JsonEventSerializer:
+def event_serializer(registry: EventTypeRegistry) -> JsonEventSerializer:
     return JsonEventSerializer(registry)
 
 
-def test_round_trip_frozen_dataclass(serializer: JsonEventSerializer) -> None:
+def test_round_trip_frozen_dataclass(event_serializer: JsonEventSerializer) -> None:
     event = OrderCreated(order_id='123', amount=99)
-    data = serializer.serialize(event)
-    restored = serializer.deserialize(data, 'OrderCreated')
+    data = event_serializer.serialize(event)
+    restored = event_serializer.deserialize(data, 'OrderCreated')
 
     assert restored == event
     assert data == {'order_id': '123', 'amount': 99}
 
 
-def test_serialize_nested_dataclass_produces_dict(serializer: JsonEventSerializer) -> None:
+def test_serialize_nested_dataclass_produces_dict(event_serializer: JsonEventSerializer) -> None:
     event = CustomerCreated(name='Alice', address=Address(city='Berlin', zip_code='10115'))
-    data = serializer.serialize(event)
+    data = event_serializer.serialize(event)
 
     assert data == {'name': 'Alice', 'address': {'city': 'Berlin', 'zip_code': '10115'}}
 
 
-def test_round_trip_nested_dataclass(serializer: JsonEventSerializer) -> None:
+def test_round_trip_nested_dataclass(event_serializer: JsonEventSerializer) -> None:
     event = CustomerCreated(name='Alice', address=Address(city='Berlin', zip_code='10115'))
-    data = serializer.serialize(event)
-    restored = serializer.deserialize(data, 'CustomerCreated')
+    data = event_serializer.serialize(event)
+    restored = event_serializer.deserialize(data, 'CustomerCreated')
 
     assert restored == event
+    assert isinstance(restored, CustomerCreated)
     assert isinstance(restored.address, Address)
 
 
-def test_serialize_non_dataclass_raises(serializer: JsonEventSerializer) -> None:
+def test_serialize_non_dataclass_raises(event_serializer: JsonEventSerializer) -> None:
     with pytest.raises(TypeError, match='Expected a dataclass instance'):
-        serializer.serialize('not a dataclass')
+        event_serializer.serialize('not a dataclass')
 
 
-def test_serialize_dataclass_type_raises(serializer: JsonEventSerializer) -> None:
+def test_serialize_dataclass_type_raises(event_serializer: JsonEventSerializer) -> None:
     with pytest.raises(TypeError, match='Expected a dataclass instance'):
-        serializer.serialize(OrderCreated)
+        event_serializer.serialize(OrderCreated)

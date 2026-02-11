@@ -6,8 +6,9 @@ import pytest
 
 from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
-from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
+from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule, EventType
 from waku.eventsourcing.repository import EventSourcedRepository
+from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.modules import module
@@ -17,6 +18,11 @@ from waku.testing import create_test_app
 @dataclass(frozen=True)
 class ItemCreated(INotification):
     name: str
+
+
+@dataclass(frozen=True)
+class ItemRenamed(INotification):
+    new_name: str
 
 
 class Item(EventSourcedAggregate):
@@ -78,6 +84,39 @@ async def test_event_sourcing_extension_binds_repository() -> None:
     ):
         repo = await container.get(ItemRepository)
         assert isinstance(repo, ItemRepository)
+
+
+async def test_event_type_descriptor_with_custom_name_and_aliases() -> None:
+    es_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemRepository,
+        event_types=[
+            ItemCreated,
+            EventType(ItemRenamed, name='item_renamed', aliases=['item_renamed_v0']),
+        ],
+    )
+
+    @module(
+        imports=[EventSourcingModule.register()],
+        extensions=[es_ext],
+    )
+    class ItemModule:
+        pass
+
+    async with (
+        create_test_app(imports=[ItemModule]) as app,
+        app.container() as container,
+    ):
+        registry = await container.get(EventTypeRegistry)
+
+        assert 'ItemCreated' in registry
+        assert registry.resolve('ItemCreated') is ItemCreated
+
+        assert 'item_renamed' in registry
+        assert registry.resolve('item_renamed') is ItemRenamed
+        assert registry.get_name(ItemRenamed) == 'item_renamed'
+
+        assert 'item_renamed_v0' in registry
+        assert registry.resolve('item_renamed_v0') is ItemRenamed
 
 
 def test_config_rejects_both_store_and_store_factory() -> None:

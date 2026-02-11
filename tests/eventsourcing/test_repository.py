@@ -9,6 +9,7 @@ from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import AggregateNotFoundError, ConcurrencyConflictError
 from waku.eventsourcing.repository import EventSourcedRepository
+from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
 
@@ -51,7 +52,10 @@ class BankAccountRepository(EventSourcedRepository[BankAccount]):
 
 @pytest.fixture
 def store() -> InMemoryEventStore:
-    return InMemoryEventStore()
+    registry = EventTypeRegistry()
+    registry.register(AccountOpened)
+    registry.register(MoneyDeposited)
+    return InMemoryEventStore(registry=registry)
 
 
 @pytest.fixture

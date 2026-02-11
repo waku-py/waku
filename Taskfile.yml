@@ -59,8 +59,7 @@ tasks:
     deps: [ .uv ]
     silent: true
     cmds:
-      - uv run uv-upgrade --no-sync
-      - task: deps:sync
+      - uvx uv-upx upgrade run --profile with_pinned
       - uv run prek auto-update
       - uv run prek install --install-hooks --overwrite
       - echo "✅ Dependencies upgraded"

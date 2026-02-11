@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import abc
+import typing
 from typing import TYPE_CHECKING, ClassVar, Generic, TypeVar
 
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
-from waku.eventsourcing.exceptions import AggregateNotFoundError, StreamNotFoundError
+from waku.eventsourcing.exceptions import AggregateNotFoundError, EventSourcingError, StreamNotFoundError
 from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Dishka needs runtime access
 
 if TYPE_CHECKING:
@@ -32,10 +33,18 @@ class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
 
     @classmethod
     def _resolve_aggregate_type(cls) -> type[AggregateT] | None:
-        for base in getattr(cls, '__orig_bases__', ()):
-            origin = getattr(base, '__origin__', None)
-            if origin is not None and issubclass(origin, EventSourcedRepository):
-                args = getattr(base, '__args__', ())
+        for klass in cls.__mro__:
+            for base in getattr(klass, '__orig_bases__', ()):
+                origin = typing.get_origin(base)
+                if origin is None or not isinstance(origin, type):
+                    continue
+                try:
+                    is_repo = issubclass(origin, EventSourcedRepository)
+                except TypeError:
+                    continue
+                if not is_repo:
+                    continue
+                args = typing.get_args(base)
                 if args and isinstance(args[0], type):
                     return args[0]
         return None
@@ -52,6 +61,9 @@ class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
                 aggregate_type=self.aggregate_name,
                 aggregate_id=aggregate_id,
             ) from None
+        if not stored_events:
+            msg = f'Stream contains no events: {stream_id}'
+            raise EventSourcingError(msg)
         aggregate = self.create_aggregate()
         domain_events = [e.data for e in stored_events]
         version = len(stored_events) - 1

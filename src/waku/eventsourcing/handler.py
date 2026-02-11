@@ -21,13 +21,6 @@ class EventSourcedCommandHandler(
     abc.ABC,
     Generic[RequestT, ResponseT, AggregateT],
 ):
-    """Command handler that orchestrates the event-sourced aggregate lifecycle.
-
-    Loads or creates an aggregate, executes domain logic, persists new events,
-    and publishes them through the CQRS pipeline.  Plugs into the standard
-    ``MediatorExtension.bind_request()`` registration.
-    """
-
     def __init__(
         self,
         repository: EventSourcedRepository[AggregateT],
@@ -67,10 +60,9 @@ class EventSourcedCommandHandler(
 
 class EventSourcedVoidCommandHandler(
     EventSourcedCommandHandler[RequestT, None, AggregateT],
+    abc.ABC,
     Generic[RequestT, AggregateT],
 ):
-    """Command handler for void commands that don't return a response."""
-
     @override
     def _to_response(self, aggregate: AggregateT) -> None:
         return None

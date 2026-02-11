@@ -39,7 +39,7 @@ from waku.eventsourcing import (
 )
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
-from waku.eventsourcing.store.sqlalchemy.tables import bind_tables
+from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -185,7 +185,7 @@ class MoneyDepositedHandler(EventHandler[MoneyDeposited]):
 # ── PostgreSQL Wiring ──────────────────────────────────────────────
 
 metadata = MetaData()
-tables = bind_tables(metadata)
+tables = bind_event_store_tables(metadata)
 engine = create_async_engine(DATABASE_URL, echo=False)
 
 
@@ -196,7 +196,7 @@ async def create_session(engine_: AsyncEngine) -> AsyncIterator[AsyncSession]:
 
 es_config = EventSourcingConfig(
     store_factory=make_sqlalchemy_event_store(tables),
-    serializer=JsonEventSerializer,
+    event_serializer=JsonEventSerializer,
 )
 
 
