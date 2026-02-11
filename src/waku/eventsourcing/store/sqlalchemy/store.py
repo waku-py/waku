@@ -9,7 +9,6 @@ from sqlalchemy import (  # Dishka needs runtime access
     func as sa_func,
     select,
 )
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002  # Dishka needs runtime access
 
 from waku.eventsourcing.contracts.event import EventMetadata, StoredEvent
@@ -67,19 +66,17 @@ class SqlAlchemyEventStore(IEventStore):
         count: int | None = None,
     ) -> list[StoredEvent]:
         key = str(stream_id)
-        exists = await self.stream_exists(stream_id)
-        if not exists:
-            raise StreamNotFoundError(key)
+
+        if count == 0:
+            await self._ensure_stream_exists(stream_id)
+            return []
+
+        if start is StreamPosition.END:
+            return await self._read_stream_end(stream_id, key)
 
         match start:
             case StreamPosition.START:
                 offset = 0
-            case StreamPosition.END:
-                offset = (
-                    select(sa_func.coalesce(sa_func.max(self._events.c.position), 0))
-                    .where(self._events.c.stream_id == key)
-                    .scalar_subquery()
-                )
             case int() as offset:
                 pass
             case _:
@@ -96,7 +93,31 @@ class SqlAlchemyEventStore(IEventStore):
 
         result = await self._session.execute(query)
         rows = result.fetchall()
+
+        if not rows:
+            await self._ensure_stream_exists(stream_id)
+
         return [self._row_to_stored_event(row) for row in rows]
+
+    async def _read_stream_end(self, stream_id: StreamId, key: str) -> list[StoredEvent]:
+        query = (
+            select(self._events)
+            .where(self._events.c.stream_id == key)
+            .order_by(self._events.c.position.desc())
+            .limit(1)
+        )
+        result = await self._session.execute(query)
+        row: Any = result.one_or_none()
+
+        if row is None:
+            await self._ensure_stream_exists(stream_id)
+            return []
+
+        return [self._row_to_stored_event(row)]
+
+    async def _ensure_stream_exists(self, stream_id: StreamId) -> None:
+        if not await self.stream_exists(stream_id):
+            raise StreamNotFoundError(str(stream_id))
 
     async def read_all(
         self,
@@ -135,6 +156,7 @@ class SqlAlchemyEventStore(IEventStore):
 
         stream_row = await self._get_stream(key)
         current_version = stream_row.version if stream_row is not None else -1
+        original_version = current_version
         exists = stream_row is not None
 
         check_expected_version(key, expected_version, current_version, exists=exists)
@@ -190,20 +212,22 @@ class SqlAlchemyEventStore(IEventStore):
                 )
             )
 
-        await self._session.execute(
+        update_result = await self._session.execute(
             self._streams
             .update()
-            .where(self._streams.c.stream_id == key)
+            .where(
+                self._streams.c.stream_id == key,
+                self._streams.c.version == original_version,
+            )
             .values(
                 version=current_version,
                 updated_at=sa_func.now(),
             )
         )
+        if update_result.rowcount != 1:  # type: ignore[attr-defined]
+            raise ConcurrencyConflictError(key, original_version, current_version)
 
-        try:
-            await self._session.flush()
-        except IntegrityError as exc:
-            raise ConcurrencyConflictError(key, current_version, -1) from exc
+        await self._session.flush()
 
         for projection in self._projections:
             await projection.project(stored_events)

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Self, TypeAlias
 from typing_extensions import override
 
 from waku.di import ProviderSpec, WithParents, many, object_, scoped
-from waku.eventsourcing.projection.interfaces import IProjection
+from waku.eventsourcing.projection.interfaces import ICheckpointStore, IProjection
 from waku.eventsourcing.serialization.interfaces import IEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, ISnapshotStrategy
@@ -56,8 +56,10 @@ class EventSourcingConfig:
     event_serializer: type[IEventSerializer] | None = None
     snapshot_store: type[ISnapshotStore] | None = None
     snapshot_state_serializer: type[ISnapshotStateSerializer] | None = None
+    checkpoint_store: type[ICheckpointStore] | None = None
     store_factory: Callable[..., IEventStore] | None = None
     snapshot_store_factory: Callable[..., ISnapshotStore] | None = None
+    checkpoint_store_factory: Callable[..., ICheckpointStore] | None = None
 
     def __post_init__(self) -> None:
         if self.store is not None and self.store_factory is not None:
@@ -65,6 +67,9 @@ class EventSourcingConfig:
             raise ValueError(msg)
         if self.snapshot_store is not None and self.snapshot_store_factory is not None:
             msg = 'Cannot set both snapshot_store and snapshot_store_factory'
+            raise ValueError(msg)
+        if self.checkpoint_store is not None and self.checkpoint_store_factory is not None:
+            msg = 'Cannot set both checkpoint_store and checkpoint_store_factory'
             raise ValueError(msg)
 
 
@@ -91,6 +96,11 @@ class EventSourcingModule:
 
         if config_.snapshot_state_serializer is not None:
             providers.append(scoped(ISnapshotStateSerializer, config_.snapshot_state_serializer))
+
+        if config_.checkpoint_store_factory is not None:
+            providers.append(scoped(ICheckpointStore, config_.checkpoint_store_factory))
+        elif config_.checkpoint_store is not None:
+            providers.append(scoped(ICheckpointStore, config_.checkpoint_store))
 
         return DynamicModule(
             parent_module=cls,

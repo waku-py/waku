@@ -317,6 +317,8 @@ async def test_projection_receives_events(store_factory: EventStoreFactory) -> N
     projected: list[StoredEvent] = []
 
     class TestProjection(IProjection):
+        projection_name = 'test_projection'
+
         @override
         async def project(self, events: Sequence[StoredEvent], /) -> None:
             projected.extend(events)
@@ -336,6 +338,8 @@ async def test_projection_receives_events(store_factory: EventStoreFactory) -> N
 
 async def test_projection_failure_propagates(store_factory: EventStoreFactory) -> None:
     class FailingProjection(IProjection):
+        projection_name = 'failing_projection'
+
         @override
         async def project(self, _events: Sequence[StoredEvent], /) -> None:
             msg = 'projection failed'
