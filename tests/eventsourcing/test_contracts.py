@@ -28,23 +28,36 @@ from waku.exceptions import WakuError
 
 
 def test_stream_id_stores_value() -> None:
-    stream_id = StreamId(value='order-123')
+    stream_id = StreamId(stream_type='order', stream_key='123')
     assert stream_id.value == 'order-123'
+
+
+def test_stream_id_exposes_fields() -> None:
+    stream_id = StreamId(stream_type='order', stream_key='abc-456')
+    assert stream_id.stream_type == 'order'
+    assert stream_id.stream_key == 'abc-456'
 
 
 def test_stream_id_for_aggregate_formats_type_and_id() -> None:
     stream_id = StreamId.for_aggregate('Order', 'abc-456')
     assert stream_id.value == 'Order-abc-456'
+    assert stream_id.stream_type == 'Order'
+    assert stream_id.stream_key == 'abc-456'
 
 
 def test_stream_id_str_returns_value() -> None:
-    stream_id = StreamId(value='user-789')
+    stream_id = StreamId(stream_type='user', stream_key='789')
     assert str(stream_id) == 'user-789'
 
 
-def test_stream_id_empty_value_raises_value_error() -> None:
-    with pytest.raises(ValueError, match='StreamId cannot be empty'):
-        StreamId(value='')
+def test_stream_id_empty_stream_type_raises_value_error() -> None:
+    with pytest.raises(ValueError, match='StreamId stream_type cannot be empty'):
+        StreamId(stream_type='', stream_key='123')
+
+
+def test_stream_id_empty_stream_key_raises_value_error() -> None:
+    with pytest.raises(ValueError, match='StreamId stream_key cannot be empty'):
+        StreamId(stream_type='order', stream_key='')
 
 
 # --- ExpectedVersion ADT ---

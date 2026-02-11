@@ -90,6 +90,9 @@ class InMemoryEventStore(IEventStore):
 
             check_expected_version(key, expected_version, current_version, exists=stream is not None)
 
+            if not events:
+                return current_version
+
             if stream is None:
                 stream = []
                 self._streams[key] = stream
