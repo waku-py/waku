@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from waku import Module
-    from waku.di import AsyncContainer, BaseProvider, IProviderFilter, Scope
+    from waku.di import AsyncContainer, BaseProvider, Scope
     from waku.extensions import ApplicationExtension
     from waku.lifespan import LifespanFunc
     from waku.modules import ModuleType
@@ -45,7 +45,6 @@ class WakuFactory:
         lifespan: Sequence[LifespanFunc] = (),
         extensions: Sequence[ApplicationExtension] = DEFAULT_EXTENSIONS,
         container_config: ContainerConfig | None = None,
-        provider_filter: IProviderFilter | None = None,
     ) -> None:
         self._root_module_type = root_module_type
 
@@ -53,13 +52,11 @@ class WakuFactory:
         self._lifespan = lifespan
         self._extensions = extensions
         self._container_config = container_config or ContainerConfig()
-        self._provider_filter = provider_filter
 
     def create(self) -> WakuApplication:
         registry = ModuleRegistryBuilder(
             self._root_module_type,
             context=self._context,
-            provider_filter=self._provider_filter,
             app_extensions=self._extensions,
         ).build()
 
