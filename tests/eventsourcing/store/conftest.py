@@ -19,12 +19,17 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from waku.eventsourcing.contracts.event import IMetadataEnricher
     from waku.eventsourcing.projection.interfaces import IProjection
     from waku.eventsourcing.store.interfaces import IEventStore
 
 
 class EventStoreFactory(Protocol):
-    def __call__(self, projections: Sequence[IProjection] = ()) -> IEventStore: ...
+    def __call__(
+        self,
+        projections: Sequence[IProjection] = (),
+        enrichers: Sequence[IMetadataEnricher] = (),
+    ) -> IEventStore: ...
 
 
 @pytest.fixture
@@ -44,8 +49,11 @@ def stream_id() -> StreamId:
 def store_factory(request: pytest.FixtureRequest, registry: EventTypeRegistry) -> EventStoreFactory:
     if request.param == 'in_memory':
 
-        def _in_memory(projections: Sequence[IProjection] = ()) -> IEventStore:
-            return InMemoryEventStore(registry=registry, projections=projections)
+        def _in_memory(
+            projections: Sequence[IProjection] = (),
+            enrichers: Sequence[IMetadataEnricher] = (),
+        ) -> IEventStore:
+            return InMemoryEventStore(registry=registry, projections=projections, enrichers=enrichers)
 
         return _in_memory
 
@@ -54,13 +62,17 @@ def store_factory(request: pytest.FixtureRequest, registry: EventTypeRegistry) -
     metadata = MetaData()
     tables = bind_event_store_tables(metadata)
 
-    def _sqlalchemy(projections: Sequence[IProjection] = ()) -> IEventStore:
+    def _sqlalchemy(
+        projections: Sequence[IProjection] = (),
+        enrichers: Sequence[IMetadataEnricher] = (),
+    ) -> IEventStore:
         return SqlAlchemyEventStore(
             session=pg_session,
             serializer=serializer,
             registry=registry,
             tables=tables,
             projections=projections,
+            enrichers=enrichers,
         )
 
     return _sqlalchemy

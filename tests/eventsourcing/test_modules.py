@@ -5,9 +5,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pytest
+from typing_extensions import override
 
 from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
+from waku.eventsourcing.contracts.event import EventMetadata, IMetadataEnricher
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule, EventType
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, IProjection
 from waku.eventsourcing.repository import EventSourcedRepository
@@ -201,3 +203,30 @@ async def test_catch_up_and_inline_projections_independent() -> None:
         catch_up_projections = await container.get(Sequence[ICatchUpProjection])
         assert len(catch_up_projections) == 1
         assert isinstance(catch_up_projections[0], SearchIndexProjection)
+
+
+class TraceIdEnricher(IMetadataEnricher):
+    @override
+    def enrich(self, metadata: EventMetadata, /) -> EventMetadata:
+        return metadata
+
+
+async def test_enrichers_registered_via_config() -> None:
+    config = EventSourcingConfig(enrichers=[TraceIdEnricher])
+
+    async with (
+        create_test_app(imports=[EventSourcingModule.register(config)]) as app,
+        app.container() as container,
+    ):
+        enrichers = await container.get(Sequence[IMetadataEnricher])
+        assert len(enrichers) == 1
+        assert isinstance(enrichers[0], TraceIdEnricher)
+
+
+async def test_no_enrichers_resolves_empty_sequence() -> None:
+    async with (
+        create_test_app(imports=[EventSourcingModule.register()]) as app,
+        app.container() as container,
+    ):
+        enrichers = await container.get(Sequence[IMetadataEnricher])
+        assert len(enrichers) == 0

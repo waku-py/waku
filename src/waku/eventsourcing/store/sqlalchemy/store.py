@@ -11,12 +11,13 @@ from sqlalchemy import (  # Dishka needs runtime access
 )
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002  # Dishka needs runtime access
 
-from waku.eventsourcing.contracts.event import EventMetadata, StoredEvent
+from waku.eventsourcing.contracts.event import EventMetadata, IMetadataEnricher, StoredEvent
 from waku.eventsourcing.contracts.stream import StreamPosition
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, StreamNotFoundError
 from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.serialization.interfaces import IEventSerializer  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa: TC001  # Dishka needs runtime access
+from waku.eventsourcing.store._shared import enrich_metadata
 from waku.eventsourcing.store._version_check import check_expected_version
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.eventsourcing.store.sqlalchemy.tables import EventStoreTables  # noqa: TC001  # Dishka needs runtime access
@@ -38,6 +39,7 @@ class SqlAlchemyEventStoreFactory(Protocol):
         serializer: IEventSerializer,
         registry: EventTypeRegistry,
         projections: Sequence[IProjection] = (),
+        enrichers: Sequence[IMetadataEnricher] = (),
     ) -> SqlAlchemyEventStore: ...
 
 
@@ -49,6 +51,7 @@ class SqlAlchemyEventStore(IEventStore):
         registry: EventTypeRegistry,
         tables: EventStoreTables,
         projections: Sequence[IProjection] = (),
+        enrichers: Sequence[IMetadataEnricher] = (),
     ) -> None:
         self._session = session
         self._serializer = serializer
@@ -56,6 +59,7 @@ class SqlAlchemyEventStore(IEventStore):
         self._streams = tables.streams
         self._events = tables.events
         self._projections = projections
+        self._enrichers = enrichers
 
     async def read_stream(
         self,
@@ -239,7 +243,7 @@ class SqlAlchemyEventStore(IEventStore):
             now = datetime.now(UTC)
             data = self._serializer.serialize(envelope.domain_event)
             event_type = self._registry.get_name(type(envelope.domain_event))
-            metadata = envelope.metadata or EventMetadata()
+            metadata = enrich_metadata(envelope.metadata, self._enrichers)
             metadata_dict = self._serialize_metadata(metadata)
 
             rows.append({
@@ -315,7 +319,8 @@ def make_sqlalchemy_event_store(tables: EventStoreTables) -> SqlAlchemyEventStor
         serializer: IEventSerializer,
         registry: EventTypeRegistry,
         projections: Sequence[IProjection] = (),
+        enrichers: Sequence[IMetadataEnricher] = (),
     ) -> SqlAlchemyEventStore:
-        return SqlAlchemyEventStore(session, serializer, registry, tables, projections)
+        return SqlAlchemyEventStore(session, serializer, registry, tables, projections, enrichers)
 
     return factory

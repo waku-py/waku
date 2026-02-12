@@ -1,5 +1,5 @@
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
-from waku.eventsourcing.contracts.event import EventEnvelope, EventMetadata, StoredEvent
+from waku.eventsourcing.contracts.event import EventEnvelope, EventMetadata, IMetadataEnricher, StoredEvent
 from waku.eventsourcing.contracts.stream import (
     AnyVersion,
     Exact,
@@ -51,6 +51,7 @@ __all__ = [
     'EventTypeSpec',
     'Exact',
     'ExpectedVersion',
+    'IMetadataEnricher',
     'NoStream',
     'ProjectionError',
     'ProjectionStoppedError',
