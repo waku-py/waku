@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import abc
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -12,6 +13,7 @@ if TYPE_CHECKING:
 __all__ = [
     'EventEnvelope',
     'EventMetadata',
+    'IMetadataEnricher',
     'StoredEvent',
 ]
 
@@ -21,6 +23,13 @@ class EventMetadata:
     correlation_id: str | None = None
     causation_id: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+
+
+class IMetadataEnricher(abc.ABC):
+    """Enriches event metadata before persistence."""
+
+    @abc.abstractmethod
+    def enrich(self, metadata: EventMetadata, /) -> EventMetadata: ...
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

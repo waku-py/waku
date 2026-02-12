@@ -7,11 +7,12 @@ from typing import TYPE_CHECKING, assert_never
 
 import anyio
 
-from waku.eventsourcing.contracts.event import EventEnvelope, EventMetadata, StoredEvent
+from waku.eventsourcing.contracts.event import EventEnvelope, IMetadataEnricher, StoredEvent
 from waku.eventsourcing.contracts.stream import StreamPosition
 from waku.eventsourcing.exceptions import StreamNotFoundError
 from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa: TC001  # Dishka needs runtime access
+from waku.eventsourcing.store._shared import enrich_metadata
 from waku.eventsourcing.store._version_check import check_expected_version
 from waku.eventsourcing.store.interfaces import IEventStore
 
@@ -22,12 +23,18 @@ __all__ = ['InMemoryEventStore']
 
 
 class InMemoryEventStore(IEventStore):
-    def __init__(self, registry: EventTypeRegistry, projections: Sequence[IProjection] = ()) -> None:
+    def __init__(
+        self,
+        registry: EventTypeRegistry,
+        projections: Sequence[IProjection] = (),
+        enrichers: Sequence[IMetadataEnricher] = (),
+    ) -> None:
         self._registry = registry
         self._streams: dict[str, list[StoredEvent]] = {}
         self._global_position: int = 0
         self._lock = anyio.Lock()
         self._projections = projections
+        self._enrichers = enrichers
 
     async def read_stream(
         self,
@@ -109,7 +116,7 @@ class InMemoryEventStore(IEventStore):
                     global_position=self._global_position,
                     timestamp=datetime.now(UTC),
                     data=envelope.domain_event,
-                    metadata=envelope.metadata or EventMetadata(),
+                    metadata=enrich_metadata(envelope.metadata, self._enrichers),
                 )
                 stream.append(stored)
                 stored_events.append(stored)

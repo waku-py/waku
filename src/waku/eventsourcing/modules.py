@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Self, TypeAlias
 from typing_extensions import override
 
 from waku.di import ProviderSpec, WithParents, many, object_, scoped
+from waku.eventsourcing.contracts.event import IMetadataEnricher
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore, IProjection
 from waku.eventsourcing.serialization.interfaces import IEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
@@ -60,6 +61,7 @@ class EventSourcingConfig:
     store_factory: Callable[..., IEventStore] | None = None
     snapshot_store_factory: Callable[..., ISnapshotStore] | None = None
     checkpoint_store_factory: Callable[..., ICheckpointStore] | None = None
+    enrichers: Sequence[type[IMetadataEnricher]] = ()
 
     def __post_init__(self) -> None:
         if self.store is not None and self.store_factory is not None:
@@ -109,6 +111,7 @@ class EventSourcingModule:
                 EventTypeRegistryAggregator(has_serializer=config_.event_serializer is not None),
                 ProjectionAggregator(),
                 CatchUpProjectionAggregator(),
+                MetadataEnricherAggregator(config_.enrichers),
             ],
             is_global=True,
         )
@@ -224,3 +227,20 @@ class CatchUpProjectionAggregator(OnModuleRegistration):
             registry.add_provider(owning_module, many(ICatchUpProjection, *all_types))
         else:
             registry.add_provider(owning_module, object_((), provided_type=Sequence[ICatchUpProjection]))
+
+
+class MetadataEnricherAggregator(OnModuleRegistration):
+    def __init__(self, enricher_types: Sequence[type[IMetadataEnricher]]) -> None:
+        self._enricher_types = enricher_types
+
+    @override
+    def on_module_registration(
+        self,
+        registry: ModuleMetadataRegistry,
+        owning_module: ModuleType,
+        context: Mapping[Any, Any] | None,
+    ) -> None:
+        if self._enricher_types:
+            registry.add_provider(owning_module, many(IMetadataEnricher, *self._enricher_types))
+        else:
+            registry.add_provider(owning_module, object_((), provided_type=Sequence[IMetadataEnricher]))
