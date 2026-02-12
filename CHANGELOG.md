@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.28.0 (2026-02-12)
+
+### ✨ Features
+
+- Use dishka 1.8.0 features
+  ([`08fe7cb`](https://github.com/waku-py/waku/commit/08fe7cbdd2bc5f3f554f8e50ab5d147e342786c0))
+
+
 ## v0.27.0 (2025-12-29)
 
 ### ✨ Features
