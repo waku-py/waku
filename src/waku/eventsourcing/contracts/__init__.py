@@ -1,6 +1,14 @@
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.event import EventEnvelope, EventMetadata, StoredEvent
-from waku.eventsourcing.contracts.stream import AnyVersion, Exact, ExpectedVersion, NoStream, StreamExists, StreamId
+from waku.eventsourcing.contracts.stream import (
+    AnyVersion,
+    Exact,
+    ExpectedVersion,
+    NoStream,
+    StreamExists,
+    StreamId,
+    StreamPosition,
+)
 
 __all__ = [
     'AnyVersion',
@@ -13,4 +21,5 @@ __all__ = [
     'StoredEvent',
     'StreamExists',
     'StreamId',
+    'StreamPosition',
 ]

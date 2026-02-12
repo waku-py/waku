@@ -20,6 +20,9 @@ from waku.eventsourcing.exceptions import (
     AggregateNotFoundError,
     ConcurrencyConflictError,
     EventSourcingError,
+    ProjectionError,
+    ProjectionStoppedError,
+    RetryExhaustedError,
     StreamNotFoundError,
 )
 from waku.exceptions import WakuError
@@ -156,3 +159,33 @@ def test_aggregate_not_found_error_carries_attrs() -> None:
     assert 'Order' in str(error)
     assert 'abc-123' in str(error)
     assert isinstance(error, EventSourcingError)
+
+
+# --- Projection Errors ---
+
+
+def test_projection_error_hierarchy() -> None:
+    assert issubclass(ProjectionError, EventSourcingError)
+    assert issubclass(ProjectionError, WakuError)
+    assert issubclass(ProjectionStoppedError, ProjectionError)
+    assert issubclass(RetryExhaustedError, ProjectionError)
+
+
+def test_projection_stopped_error_carries_attrs() -> None:
+    cause = RuntimeError('boom')
+    error = ProjectionStoppedError(projection_name='search_index', cause=cause)
+    assert error.projection_name == 'search_index'
+    assert error.cause is cause
+    assert 'search_index' in str(error)
+    assert 'boom' in str(error)
+
+
+def test_retry_exhausted_error_carries_attrs() -> None:
+    cause = RuntimeError('timeout')
+    error = RetryExhaustedError(projection_name='analytics', attempts=3, cause=cause)
+    assert error.projection_name == 'analytics'
+    assert error.attempts == 3
+    assert error.cause is cause
+    assert 'analytics' in str(error)
+    assert '3' in str(error)
+    assert 'timeout' in str(error)

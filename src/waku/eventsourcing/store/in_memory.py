@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import asyncio
 import uuid
 from collections.abc import Sequence  # noqa: TC003  # Dishka needs runtime access
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, assert_never
+
+import anyio
 
 from waku.eventsourcing.contracts.event import EventEnvelope, EventMetadata, StoredEvent
 from waku.eventsourcing.contracts.stream import StreamPosition
@@ -25,7 +26,7 @@ class InMemoryEventStore(IEventStore):
         self._registry = registry
         self._streams: dict[str, list[StoredEvent]] = {}
         self._global_position: int = 0
-        self._lock = asyncio.Lock()
+        self._lock = anyio.Lock()
         self._projections = projections
 
     async def read_stream(
