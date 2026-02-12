@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import enum
 import inspect
 from typing import TYPE_CHECKING, ClassVar
 
@@ -11,6 +12,8 @@ if TYPE_CHECKING:
     from waku.eventsourcing.projection.checkpoint import Checkpoint
 
 __all__ = [
+    'ErrorPolicy',
+    'ICatchUpProjection',
     'ICheckpointStore',
     'IProjection',
 ]
@@ -29,6 +32,19 @@ class IProjection(abc.ABC):
 
     @abc.abstractmethod
     async def project(self, events: Sequence[StoredEvent], /) -> None: ...
+
+
+class ErrorPolicy(enum.Enum):
+    RETRY = 'retry'
+    SKIP = 'skip'
+    STOP = 'stop'
+
+
+class ICatchUpProjection(IProjection):
+    error_policy: ClassVar[ErrorPolicy] = ErrorPolicy.RETRY
+
+    async def teardown(self) -> None:
+        pass
 
 
 class ICheckpointStore(abc.ABC):

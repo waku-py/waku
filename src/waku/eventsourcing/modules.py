@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Self, TypeAlias
 from typing_extensions import override
 
 from waku.di import ProviderSpec, WithParents, many, object_, scoped
-from waku.eventsourcing.projection.interfaces import ICheckpointStore, IProjection
+from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore, IProjection
 from waku.eventsourcing.serialization.interfaces import IEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, ISnapshotStrategy
@@ -108,6 +108,7 @@ class EventSourcingModule:
             extensions=[
                 EventTypeRegistryAggregator(has_serializer=config_.event_serializer is not None),
                 ProjectionAggregator(),
+                CatchUpProjectionAggregator(),
             ],
             is_global=True,
         )
@@ -116,6 +117,7 @@ class EventSourcingModule:
 @dataclass
 class EventSourcingExtension(OnModuleConfigure):
     _bindings: list[AggregateBinding] = field(default_factory=list, init=False)
+    _catch_up_projection_types: list[type[ICatchUpProjection]] = field(default_factory=list, init=False)
 
     def bind_aggregate(
         self,
@@ -134,9 +136,17 @@ class EventSourcingExtension(OnModuleConfigure):
         )
         return self
 
+    def bind_catch_up_projections(self, projections: Sequence[type[ICatchUpProjection]]) -> Self:
+        self._catch_up_projection_types.extend(projections)
+        return self
+
     @property
     def bindings(self) -> Sequence[AggregateBinding]:
         return list(self._bindings)
+
+    @property
+    def catch_up_projection_types(self) -> Sequence[type[ICatchUpProjection]]:
+        return list(self._catch_up_projection_types)
 
     def on_module_configure(self, metadata: ModuleMetadata) -> None:
         for binding in self._bindings:
@@ -196,3 +206,21 @@ class ProjectionAggregator(OnModuleRegistration):
             registry.add_provider(owning_module, many(IProjection, *all_projection_types))
         else:
             registry.add_provider(owning_module, object_((), provided_type=Sequence[IProjection]))
+
+
+class CatchUpProjectionAggregator(OnModuleRegistration):
+    @override
+    def on_module_registration(
+        self,
+        registry: ModuleMetadataRegistry,
+        owning_module: ModuleType,
+        context: Mapping[Any, Any] | None,
+    ) -> None:
+        all_types: list[type[ICatchUpProjection]] = []
+        for _module_type, ext in registry.find_extensions(EventSourcingExtension):
+            all_types.extend(ext.catch_up_projection_types)
+
+        if all_types:
+            registry.add_provider(owning_module, many(ICatchUpProjection, *all_types))
+        else:
+            registry.add_provider(owning_module, object_((), provided_type=Sequence[ICatchUpProjection]))
