@@ -1,91 +1,46 @@
-import pytest
-
-from waku.di import ActivationContext, Has
-
-
-class _MockBuilder:
-    def __init__(self, registered: set[type] | None = None) -> None:
-        self._registered = registered or set()
-
-    def has_active(self, type_: object) -> bool:
-        return type_ in self._registered
+from dishka import Has, Marker
+from dishka.entities.marker import AndMarker, NotMarker, OrMarker
 
 
-class TestActivationContextFields:
+class TestHasMarker:
     @staticmethod
-    def test_container_context_field() -> None:
-        ctx = ActivationContext(
-            container_context={'key': 'value'},
-            module_type=object,
-            provided_type=str,
-            builder=_MockBuilder(),
-        )
-
-        assert ctx.container_context == {'key': 'value'}
+    def test_has_creates_marker_for_type() -> None:
+        marker = Has(str)
+        assert marker.value is str
 
     @staticmethod
-    def test_module_type_field() -> None:
-        class MyModule:
-            pass
-
-        ctx = ActivationContext(
-            container_context={},
-            module_type=MyModule,
-            provided_type=str,
-            builder=_MockBuilder(),
-        )
-
-        assert ctx.module_type is MyModule
+    def test_has_supports_negation() -> None:
+        marker = ~Has(str)
+        assert isinstance(marker, NotMarker)
 
     @staticmethod
-    def test_provided_type_field() -> None:
-        ctx = ActivationContext(
-            container_context={},
-            module_type=object,
-            provided_type=int,
-            builder=_MockBuilder(),
-        )
-
-        assert ctx.provided_type is int
+    def test_has_supports_or_composition() -> None:
+        marker = Has(str) | Has(int)
+        assert isinstance(marker, OrMarker)
 
     @staticmethod
-    def test_builder_has_active() -> None:
-        builder = _MockBuilder(registered={str, int})
-
-        ctx = ActivationContext(
-            container_context={},
-            module_type=object,
-            provided_type=int,
-            builder=builder,
-        )
-
-        assert ctx.builder.has_active(str) is True
-        assert ctx.builder.has_active(float) is False
+    def test_has_supports_and_composition() -> None:
+        marker = Has(str) & Has(int)
+        assert isinstance(marker, AndMarker)
 
 
-class TestHasActivator:
+class TestMarkerComposition:
     @staticmethod
-    @pytest.mark.parametrize(
-        ('registered', 'check_type', 'expected'),
-        [
-            pytest.param({str, int}, str, True, id='type_registered'),
-            pytest.param({str}, float, False, id='type_not_registered'),
-            pytest.param(set(), str, False, id='empty_registry'),
-        ],
-    )
-    def test_checks_if_type_is_registered(
-        registered: set[type],
-        check_type: type,
-        expected: bool,
-    ) -> None:
-        builder = _MockBuilder(registered=registered)
-        ctx = ActivationContext(
-            container_context={},
-            module_type=object,
-            provided_type=str,
-            builder=builder,
-        )
+    def test_marker_negation() -> None:
+        marker = Marker('test')
+        negated = ~marker
+        assert isinstance(negated, NotMarker)
 
-        has = Has(check_type)
+    @staticmethod
+    def test_marker_or() -> None:
+        m1 = Marker('a')
+        m2 = Marker('b')
+        combined = m1 | m2
+        assert isinstance(combined, OrMarker)
 
-        assert has(ctx) is expected
+    @staticmethod
+    def test_marker_and() -> None:
+        m1 = Marker('a')
+        m2 = Marker('b')
+        combined = m1 & m2
+        assert isinstance(combined, AndMarker)

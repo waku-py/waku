@@ -182,25 +182,6 @@ async def test_many_provider_with_factory_with_dependencies() -> None:
         assert handlers[0].handle() == 'handled_config_value'
 
 
-def test_many_provider_with_factory_without_return_annotation_error() -> None:
-    class IStrategy(Protocol):
-        pass
-
-    def invalid_factory():  # type: ignore[no-untyped-def]  # noqa: ANN202
-        return object()  # pragma: no cover
-
-    with pytest.raises(TypeError, match="Factory function 'invalid_factory' must have a return type annotation"):
-        many(IStrategy, invalid_factory)
-
-
-def test_many_provider_with_non_callable_implementation_error() -> None:
-    class IService(Protocol):
-        pass
-
-    with pytest.raises(TypeError, match='Implementation must be a class or callable, got str'):
-        many(IService, 'not_a_class_or_callable')
-
-
 async def test_many_provider_with_multiple_factories() -> None:
     class IValidator(Protocol):
         def validate(self) -> str: ...

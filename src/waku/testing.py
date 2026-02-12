@@ -5,9 +5,11 @@ from itertools import chain
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from dishka import STRICT_VALIDATION, Scope, make_async_container
+from dishka.async_container import CONTAINER_KEY
 from dishka.entities.factory_type import FactoryType
+from dishka.entities.marker import BaseMarker, BoolMarker
 
-from waku.di import DEFAULT_COMPONENT, AsyncContainer, BaseProvider, ConditionalProvider
+from waku.di import DEFAULT_COMPONENT, AsyncContainer, BaseProvider
 from waku.extensions import DEFAULT_EXTENSIONS
 from waku.factory import WakuFactory
 from waku.modules import module
@@ -15,11 +17,11 @@ from waku.modules import module
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator, Sequence
 
+    from dishka import Provider
     from dishka.dependency_source import Factory
     from dishka.registry import Registry
 
     from waku.application import WakuApplication
-    from waku.di import ProviderSpec
     from waku.extensions import ApplicationExtension, ModuleExtension
     from waku.modules import DynamicModule, ModuleType
 
@@ -31,7 +33,7 @@ __all__ = [
 
 
 class _HasOverride(Protocol):
-    override: bool
+    when_override: BaseMarker | None
 
 
 @contextmanager
@@ -88,10 +90,8 @@ def override(
 
     original_context = cast('dict[Any, Any]', container._context)  # noqa: SLF001
     merged_context = {**original_context, **(context or {})}
-    context_override_types = frozenset(context.keys()) if context else frozenset()
-
     new_container = make_async_container(
-        _container_provider(container, context_override_types),
+        _container_provider(container),
         *providers,
         context=merged_context,
         start_scope=container.scope,
@@ -101,47 +101,37 @@ def override(
     # Only copy cache when no providers are overridden (context-only override)
     # Provider overrides may have transitive effects, so rebuild everything
     if not providers:
-        _copy_cache(container, new_container, context_override_types)
+        _copy_cache(container, new_container)
 
     _swap(container, new_container)
+    container._cache[CONTAINER_KEY] = container  # noqa: SLF001
     yield
     _swap(new_container, container)
 
 
-def _container_provider(
-    container: AsyncContainer,
-    context_override_types: frozenset[Any],
-) -> BaseProvider:
+def _container_provider(container: AsyncContainer) -> BaseProvider:
     container_provider = BaseProvider(component=DEFAULT_COMPONENT)
-    container_provider.factories.extend(_extract_factories(container.registry, context_override_types))
+    container_provider.factories.extend(_extract_factories(container.registry))
     for registry in container.child_registries:
-        container_provider.factories.extend(_extract_factories(registry, context_override_types))
+        container_provider.factories.extend(_extract_factories(registry))
     return container_provider
 
 
-def _extract_factories(registry: Registry, context_override_types: frozenset[Any]) -> list[Factory]:
+def _extract_factories(registry: Registry) -> list[Factory]:
     return [
         factory
         for dep_key, factory in registry.factories.items()
-        if (
-            dep_key.type_hint is not AsyncContainer
-            and not (factory.type is FactoryType.CONTEXT and dep_key.type_hint in context_override_types)
-        )
+        if (dep_key.type_hint is not AsyncContainer and factory.type is not FactoryType.CONTEXT)
     ]
 
 
 def _copy_cache(
     source: AsyncContainer,
     target: AsyncContainer,
-    exclude_types: frozenset[type],
 ) -> None:
-    """Copy cached instances from source to target, excluding specified types."""
     source_cache = cast('dict[Any, Any]', source._cache)  # noqa: SLF001
     target_cache = cast('dict[Any, Any]', target._cache)  # noqa: SLF001
-
-    for dep_key, instance in source_cache.items():
-        if dep_key.type_hint not in exclude_types:
-            target_cache[dep_key] = instance
+    target_cache.update(source_cache)
 
 
 def _swap(c1: AsyncContainer, c2: AsyncContainer) -> None:
@@ -155,7 +145,7 @@ def _swap(c1: AsyncContainer, c2: AsyncContainer) -> None:
 async def create_test_app(
     *,
     base: ModuleType | DynamicModule | None = None,
-    providers: Sequence[ProviderSpec] = (),
+    providers: Sequence[Provider] = (),
     imports: Sequence[ModuleType | DynamicModule] = (),
     extensions: Sequence[ModuleExtension] = (),
     app_extensions: Sequence[ApplicationExtension] = DEFAULT_EXTENSIONS,
@@ -239,8 +229,9 @@ async def create_test_app(
         yield app
 
 
-def _mark_as_overrides(providers: Sequence[BaseProvider | ConditionalProvider]) -> None:
-    for provider_spec in providers:
-        provider = provider_spec.provider if isinstance(provider_spec, ConditionalProvider) else provider_spec
-        for factory in chain[_HasOverride](provider.factories, provider.aliases):
-            factory.override = True
+def _mark_as_overrides(providers: Sequence[BaseProvider]) -> None:
+    for prov in providers:
+        for factory in chain[_HasOverride](prov.factories, prov.aliases):
+            factory.when_override = BoolMarker(True)  # noqa: FBT003
+        for context_var in prov.context_vars:
+            context_var.override = True

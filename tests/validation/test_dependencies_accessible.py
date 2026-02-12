@@ -517,8 +517,8 @@ async def test_with_generic_provider(application_factory: ApplicationFactoryFunc
 
     UsersModule = create_basic_module(
         providers=[
-            scoped(AnyOf[IUserFactory[User], UserFactory], UserFactory),
-            scoped(AnyOf[IUserFactory[AdminUser], AdminUserFactory], AdminUserFactory),
+            scoped(AnyOf[IUserFactory[User], UserFactory], UserFactory),  # type: ignore[arg-type]
+            scoped(AnyOf[IUserFactory[AdminUser], AdminUserFactory], AdminUserFactory),  # type: ignore[arg-type]
         ],
         name='UsersModule',
         exports=[

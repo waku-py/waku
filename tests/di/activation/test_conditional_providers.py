@@ -1,12 +1,11 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from typing import Any
 
 import pytest
-from dishka import Provider
+from dishka import Marker, Provider
 
 from waku.di import (
-    ActivationContext,
-    ConditionalProvider,
+    Has,
     contextual,
     many,
     object_,
@@ -17,9 +16,7 @@ from waku.di import (
 
 from tests.data import A, B, Service
 
-
-def always(_: ActivationContext) -> bool:
-    return True
+ALWAYS = Marker('always')
 
 
 class TestProviderFunctionsWithoutWhen:
@@ -68,17 +65,15 @@ class TestProviderFunctionsWithWhen:
     @staticmethod
     @pytest.mark.parametrize(
         'provider_func',
-        [singleton, scoped, transient, contextual],
-        ids=['singleton', 'scoped', 'transient', 'contextual'],
+        [singleton, scoped, transient],
+        ids=['singleton', 'scoped', 'transient'],
     )
-    def test_simple_provider_returns_conditional_provider(
+    def test_simple_provider_with_when_returns_provider(
         provider_func: Callable[..., Any],
     ) -> None:
-        result = provider_func(Service, when=always)
+        result = provider_func(Service, when=ALWAYS)
 
-        assert isinstance(result, ConditionalProvider)
-        assert isinstance(result.provider, Provider)
-        assert result.provided_type is Service
+        assert isinstance(result, Provider)
 
     @staticmethod
     @pytest.mark.parametrize(
@@ -86,51 +81,57 @@ class TestProviderFunctionsWithWhen:
         [singleton, scoped, transient],
         ids=['singleton', 'scoped', 'transient'],
     )
-    def test_interface_implementation_returns_conditional_provider(
+    def test_interface_implementation_with_when_returns_provider(
         provider_func: Callable[..., Any],
     ) -> None:
-        result = provider_func(A, B, when=always)
+        result = provider_func(A, B, when=ALWAYS)
 
-        assert isinstance(result, ConditionalProvider)
-        assert result.provided_type is A
+        assert isinstance(result, Provider)
 
     @staticmethod
-    def test_object_returns_conditional_provider() -> None:
+    def test_object_with_when_returns_provider() -> None:
         instance = Service()
 
-        result = object_(instance, provided_type=Service, when=always)
+        result = object_(instance, provided_type=Service, when=ALWAYS)
 
-        assert isinstance(result, ConditionalProvider)
-        assert result.provided_type is Service
+        assert isinstance(result, Provider)
 
     @staticmethod
-    def test_many_returns_conditional_provider() -> None:
-        result = many(Service, Service, when=always)
+    def test_many_with_when_returns_provider() -> None:
+        result = many(Service, Service, when=ALWAYS)
 
-        assert isinstance(result, ConditionalProvider)
-        assert result.provided_type == Sequence[Service]
+        assert isinstance(result, Provider)
 
 
-class TestPredicateAttachment:
+class TestMarkerPassthrough:
     @staticmethod
-    @pytest.mark.parametrize(
-        ('provider_func', 'args'),
-        [
-            (singleton, (Service,)),
-            (scoped, (Service,)),
-            (transient, (Service,)),
-            (contextual, (Service,)),
-        ],
-        ids=['singleton', 'scoped', 'transient', 'contextual'],
-    )
-    def test_predicate_is_correctly_attached(
-        provider_func: Callable[..., Any],
-        args: tuple[Any, ...],
-    ) -> None:
-        def custom_predicate(_: ActivationContext) -> bool:
-            return True
+    def test_when_marker_is_set_on_factories() -> None:
+        marker = Marker('test')
+        result = singleton(Service, when=marker)
 
-        result = provider_func(*args, when=custom_predicate)
+        for factory in result.factories:
+            assert factory.when_active == marker
 
-        assert isinstance(result, ConditionalProvider)
-        assert result.when is custom_predicate
+    @staticmethod
+    def test_has_marker_is_set_on_factories() -> None:
+        marker = Has(A)
+        result = scoped(Service, when=marker)
+
+        for factory in result.factories:
+            assert factory.when_active == marker
+
+    @staticmethod
+    def test_negated_marker_is_set_on_factories() -> None:
+        marker = ~Marker('test')
+        result = transient(Service, when=marker)
+
+        for factory in result.factories:
+            assert factory.when_active == marker
+
+    @staticmethod
+    def test_when_marker_is_set_on_many_factories() -> None:
+        marker = Marker('test')
+        result = many(A, B, when=marker)
+
+        for factory in result.factories:
+            assert factory.when_active == marker

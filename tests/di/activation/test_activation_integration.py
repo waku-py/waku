@@ -1,62 +1,62 @@
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Protocol
 
 import pytest
-from dishka import Provider
-from dishka.exceptions import GraphMissingFactoryError, NoFactoryError
+from dishka import Marker, Scope
+from dishka.exceptions import GraphMissingFactoryError, NoActiveFactoryError
 
-from waku import DynamicModule, WakuFactory
-from waku.di import (
-    ActivationBuilder,
-    ActivationContext,
-    ConditionalProvider,
-    IProviderFilter,
-    ProviderFilter,
-    ProviderSpec,
-    scoped,
-    singleton,
-)
-from waku.modules import ModuleType
+from waku import WakuFactory
+from waku.di import Has, activator, contextual, scoped, singleton
 
 from tests.data import A, B, Service
 from tests.module_utils import create_basic_module
 
 
-class _MockBuilder:
-    def __init__(self, registered: set[type] | None = None) -> None:
-        self._registered = registered or set()
-
-    def has_active(self, type_: object) -> bool:
-        return type_ in self._registered
-
-
-def when_redis(ctx: ActivationContext) -> bool:
-    return bool(ctx.container_context.get('use_redis')) if ctx.container_context else False
+@dataclass
+class AppConfig:
+    use_redis: bool = False
+    environment: str = 'development'
+    debug: bool = False
 
 
-def when_production(ctx: ActivationContext) -> bool:
-    return ctx.container_context.get('environment') == 'production' if ctx.container_context else False
+USE_REDIS = Marker('use_redis')
+PRODUCTION = Marker('production')
+DEBUG = Marker('debug')
+ALWAYS = Marker('always')
+NEVER = Marker('never')
 
 
-def when_debug(ctx: ActivationContext) -> bool:
-    return bool(ctx.container_context.get('debug')) if ctx.container_context else False
+def is_redis(config: AppConfig) -> bool:
+    return config.use_redis
 
 
-def always(_: ActivationContext) -> bool:
+def is_production(config: AppConfig) -> bool:
+    return config.environment == 'production'
+
+
+def is_debug(config: AppConfig) -> bool:
+    return config.debug
+
+
+def always_true() -> bool:
     return True
 
 
-def never(_: ActivationContext) -> bool:
+def always_false() -> bool:
     return False
 
 
 async def test_activated_provider_available_in_container() -> None:
     AppModule = create_basic_module(
-        providers=[scoped(Service, when=when_redis)],
+        providers=[
+            contextual(AppConfig, scope=Scope.APP),
+            activator(is_redis, USE_REDIS),
+            scoped(Service, when=USE_REDIS),
+        ],
         name='AppModule',
     )
 
-    app = WakuFactory(AppModule, context={'use_redis': True}).create()
+    app = WakuFactory(AppModule, context={AppConfig: AppConfig(use_redis=True)}).create()
 
     async with app, app.container() as container:
         result = await container.get(Service)
@@ -64,22 +64,26 @@ async def test_activated_provider_available_in_container() -> None:
 
 
 @pytest.mark.parametrize(
-    'context',
+    'config',
     [
-        pytest.param({'use_redis': False}, id='explicit_false'),
-        pytest.param({}, id='missing_key'),
+        pytest.param(AppConfig(use_redis=False), id='explicit_false'),
+        pytest.param(AppConfig(), id='default'),
     ],
 )
-async def test_deactivated_provider_raises_no_factory_error(context: dict[str, object]) -> None:
+async def test_deactivated_provider_raises_error(config: AppConfig) -> None:
     AppModule = create_basic_module(
-        providers=[scoped(Service, when=when_redis)],
+        providers=[
+            contextual(AppConfig, scope=Scope.APP),
+            activator(is_redis, USE_REDIS),
+            scoped(Service, when=USE_REDIS),
+        ],
         name='AppModule',
     )
 
-    app = WakuFactory(AppModule, context=context).create()
+    app = WakuFactory(AppModule, context={AppConfig: config}).create()
 
     async with app, app.container() as container:
-        with pytest.raises(NoFactoryError):
+        with pytest.raises(NoActiveFactoryError):
             await container.get(Service)
 
 
@@ -89,7 +93,7 @@ async def test_unconditional_provider_always_available() -> None:
         name='AppModule',
     )
 
-    app = WakuFactory(AppModule, context={'use_redis': False}).create()
+    app = WakuFactory(AppModule).create()
 
     async with app, app.container() as container:
         result = await container.get(Service)
@@ -108,23 +112,22 @@ async def test_multiple_conditionals_for_same_interface() -> None:
     class ICache(Protocol):
         pass
 
-    def when_not_redis(ctx: ActivationContext) -> bool:
-        return not bool(ctx.container_context.get('use_redis')) if ctx.container_context else True
-
     AppModule = create_basic_module(
         providers=[
-            scoped(ICache, RedisCache, when=when_redis),
-            scoped(ICache, InMemoryCache, when=when_not_redis),
+            contextual(AppConfig, scope=Scope.APP),
+            activator(is_redis, USE_REDIS),
+            scoped(ICache, RedisCache, when=USE_REDIS),
+            scoped(ICache, InMemoryCache, when=~USE_REDIS),
         ],
         name='AppModule',
     )
 
-    redis_app = WakuFactory(AppModule, context={'use_redis': True}).create()
+    redis_app = WakuFactory(AppModule, context={AppConfig: AppConfig(use_redis=True)}).create()
     async with redis_app, redis_app.container() as container:
         result = await container.get(ICache)
         assert isinstance(result, RedisCache)
 
-    inmem_app = WakuFactory(AppModule, context={'use_redis': False}).create()
+    inmem_app = WakuFactory(AppModule, context={AppConfig: AppConfig(use_redis=False)}).create()
     async with inmem_app, inmem_app.container() as container:
         result = await container.get(ICache)
         assert isinstance(result, InMemoryCache)
@@ -141,35 +144,38 @@ async def test_some_providers_activated_some_not() -> None:
 
     AppModule = create_basic_module(
         providers=[
-            scoped(DebugLogger, when=when_debug),
-            scoped(ProductionService, when=when_production),
+            contextual(AppConfig, scope=Scope.APP),
+            activator(is_debug, DEBUG),
+            activator(is_production, PRODUCTION),
+            scoped(DebugLogger, when=DEBUG),
+            scoped(ProductionService, when=PRODUCTION),
         ],
         name='AppModule',
     )
 
     app = WakuFactory(
         AppModule,
-        context={'debug': True, 'environment': 'development'},
+        context={AppConfig: AppConfig(debug=True, environment='development')},
     ).create()
 
     async with app, app.container() as container:
         debug = await container.get(DebugLogger)
         assert isinstance(debug, DebugLogger)
 
-        with pytest.raises(NoFactoryError):
+        with pytest.raises(NoActiveFactoryError):
             await container.get(ProductionService)
 
 
-async def test_conditional_dependency_available_when_active() -> None:
+async def test_has_marker_activates_when_type_registered() -> None:
     AppModule = create_basic_module(
         providers=[
-            scoped(A, when=when_redis),
-            scoped(B),
+            scoped(A),
+            scoped(B, when=Has(A)),
         ],
         name='AppModule',
     )
 
-    app = WakuFactory(AppModule, context={'use_redis': True}).create()
+    app = WakuFactory(AppModule).create()
 
     async with app, app.container() as container:
         b = await container.get(B)
@@ -177,137 +183,48 @@ async def test_conditional_dependency_available_when_active() -> None:
         assert isinstance(b.a, A)
 
 
-def test_conditional_dependency_fails_graph_validation_when_inactive() -> None:
+def test_has_marker_fails_validation_when_type_not_registered() -> None:
     AppModule = create_basic_module(
         providers=[
-            scoped(A, when=when_redis),
-            scoped(B),
+            scoped(B, when=Has(A)),
         ],
         name='AppModule',
     )
 
     with pytest.raises(GraphMissingFactoryError):
-        WakuFactory(AppModule, context={'use_redis': False}).create()
+        WakuFactory(AppModule).create()
 
 
-async def test_activation_none_creates_empty_context() -> None:
+async def test_always_true_activator() -> None:
     AppModule = create_basic_module(
-        providers=[scoped(Service, when=when_redis)],
+        providers=[
+            activator(always_true, ALWAYS),
+            scoped(Service, when=ALWAYS),
+        ],
         name='AppModule',
     )
 
-    app = WakuFactory(AppModule, context=None).create()
-
-    async with app, app.container() as container:
-        with pytest.raises(NoFactoryError):
-            await container.get(Service)
-
-
-async def test_custom_filter_receives_providers_and_context() -> None:
-    received: list[tuple[list[ProviderSpec], dict[Any, Any] | None, ModuleType | DynamicModule, ActivationBuilder]] = []
-
-    class RecordingFilter(IProviderFilter):
-        def filter(  # noqa: PLR6301
-            self,
-            providers: list[ProviderSpec],
-            context: dict[Any, Any] | None,
-            module_type: ModuleType | DynamicModule,
-            builder: ActivationBuilder,
-        ) -> list[Provider]:
-            received.append((list(providers), context, module_type, builder))
-            return [p if isinstance(p, Provider) else p.provider for p in providers]
-
-    AppModule = create_basic_module(
-        providers=[scoped(Service)],
-        name='AppModule',
-    )
-
-    app = WakuFactory(
-        AppModule,
-        context={'env': 'test'},
-        provider_filter=RecordingFilter(),
-    ).create()
-
-    async with app, app.container() as container:
-        await container.get(Service)
-
-    assert received
-    _providers, ctx, _module_type, _builder = received[0]
-    assert ctx is not None
-    assert ctx.get('env') == 'test'
-
-
-async def test_custom_filter_can_always_include() -> None:
-    class AlwaysIncludeFilter(IProviderFilter):
-        def filter(  # noqa: PLR6301
-            self,
-            providers: list[ProviderSpec],
-            context: dict[Any, Any] | None,  # noqa: ARG002
-            module_type: ModuleType | DynamicModule,  # noqa: ARG002
-            builder: ActivationBuilder,  # noqa: ARG002
-        ) -> list[Provider]:
-            return [p if isinstance(p, Provider) else p.provider for p in providers]
-
-    AppModule = create_basic_module(
-        providers=[scoped(Service, when=never)],
-        name='AppModule',
-    )
-
-    app = WakuFactory(
-        AppModule,
-        provider_filter=AlwaysIncludeFilter(),
-    ).create()
+    app = WakuFactory(AppModule).create()
 
     async with app, app.container() as container:
         result = await container.get(Service)
         assert isinstance(result, Service)
 
 
-async def test_custom_filter_can_always_exclude() -> None:
-    class AlwaysExcludeFilter(IProviderFilter):
-        def filter(  # noqa: PLR6301
-            self,
-            providers: list[ProviderSpec],  # noqa: ARG002
-            context: dict[Any, Any] | None,  # noqa: ARG002
-            module_type: ModuleType | DynamicModule,  # noqa: ARG002
-            builder: ActivationBuilder,  # noqa: ARG002
-        ) -> list[Provider]:
-            return []
-
-    AppModule = create_basic_module(
-        providers=[scoped(Service)],
-        name='AppModule',
-    )
-
-    app = WakuFactory(
-        AppModule,
-        provider_filter=AlwaysExcludeFilter(),
-    ).create()
-
-    async with app, app.container() as container:
-        with pytest.raises(NoFactoryError):
-            await container.get(Service)
-
-
-def test_on_skip_called_during_factory_creation() -> None:
-    skipped: list[ConditionalProvider] = []
-
-    def record_skip(cond: ConditionalProvider, _: ActivationContext) -> None:
-        skipped.append(cond)
-
-    filter_ = ProviderFilter(on_skip=record_skip)
-
+async def test_always_false_activator() -> None:
     AppModule = create_basic_module(
         providers=[
-            scoped(Service, when=never),
-            scoped(A, when=never),
+            activator(always_false, NEVER),
+            scoped(Service, when=NEVER),
         ],
         name='AppModule',
     )
 
-    WakuFactory(AppModule, provider_filter=filter_).create()
+    app = WakuFactory(AppModule).create()
 
-    assert len(skipped) == 2
+    async with app, app.container() as container:
+        with pytest.raises(NoActiveFactoryError):
+            await container.get(Service)
 
 
 async def test_production_only_provider() -> None:
@@ -316,13 +233,17 @@ async def test_production_only_provider() -> None:
         pass
 
     AppModule = create_basic_module(
-        providers=[singleton(ProductionCache, when=when_production)],
+        providers=[
+            contextual(AppConfig, scope=Scope.APP),
+            activator(is_production, PRODUCTION),
+            singleton(ProductionCache, when=PRODUCTION),
+        ],
         name='AppModule',
     )
 
     prod_app = WakuFactory(
         AppModule,
-        context={'environment': 'production'},
+        context={AppConfig: AppConfig(environment='production')},
     ).create()
 
     async with prod_app, prod_app.container() as container:
@@ -331,63 +252,43 @@ async def test_production_only_provider() -> None:
 
     dev_app = WakuFactory(
         AppModule,
-        context={'environment': 'development'},
+        context={AppConfig: AppConfig(environment='development')},
     ).create()
 
     async with dev_app, dev_app.container() as container:
-        with pytest.raises(NoFactoryError):
+        with pytest.raises(NoActiveFactoryError):
             await container.get(ProductionCache)
 
 
-async def test_multiple_environment_conditions() -> None:
+async def test_composed_markers() -> None:
     @dataclass
-    class StagingOrProdService:
+    class DebugProductionService:
         pass
 
-    def when_staging_or_prod(ctx: ActivationContext) -> bool:
-        if not ctx.container_context:
-            return False
-        env = ctx.container_context.get('environment')
-        return env in {'staging', 'production'}
-
     AppModule = create_basic_module(
-        providers=[scoped(StagingOrProdService, when=when_staging_or_prod)],
+        providers=[
+            contextual(AppConfig, scope=Scope.APP),
+            activator(is_debug, DEBUG),
+            activator(is_production, PRODUCTION),
+            scoped(DebugProductionService, when=DEBUG & PRODUCTION),
+        ],
         name='AppModule',
     )
 
-    for env in ('staging', 'production'):
-        app = WakuFactory(AppModule, context={'environment': env}).create()
-        async with app, app.container() as container:
-            result = await container.get(StagingOrProdService)
-            assert isinstance(result, StagingOrProdService)
-
-    dev_app = WakuFactory(AppModule, context={'environment': 'development'}).create()
-    async with dev_app, dev_app.container() as container:
-        with pytest.raises(NoFactoryError):
-            await container.get(StagingOrProdService)
-
-
-async def test_always_true_predicate() -> None:
-    AppModule = create_basic_module(
-        providers=[scoped(Service, when=always)],
-        name='AppModule',
-    )
-
-    app = WakuFactory(AppModule, context={}).create()
+    app = WakuFactory(
+        AppModule,
+        context={AppConfig: AppConfig(debug=True, environment='production')},
+    ).create()
 
     async with app, app.container() as container:
-        result = await container.get(Service)
-        assert isinstance(result, Service)
+        result = await container.get(DebugProductionService)
+        assert isinstance(result, DebugProductionService)
 
+    app2 = WakuFactory(
+        AppModule,
+        context={AppConfig: AppConfig(debug=True, environment='development')},
+    ).create()
 
-async def test_always_false_predicate() -> None:
-    AppModule = create_basic_module(
-        providers=[scoped(Service, when=never)],
-        name='AppModule',
-    )
-
-    app = WakuFactory(AppModule, context={'everything': True}).create()
-
-    async with app, app.container() as container:
-        with pytest.raises(NoFactoryError):
-            await container.get(Service)
+    async with app2, app2.container() as container:
+        with pytest.raises(NoActiveFactoryError):
+            await container.get(DebugProductionService)

@@ -2,16 +2,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final, cast
 
-from waku.di import DEFAULT_COMPONENT, ActivationBuilder, BaseProvider, IProviderFilter
+from waku.di import DEFAULT_COMPONENT, BaseProvider
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
-    from typing import Any
     from uuid import UUID
 
     from dishka import Provider
 
-    from waku.di import ProviderSpec
     from waku.extensions import ModuleExtension
     from waku.modules._metadata import DynamicModule, ModuleMetadata, ModuleType
 
@@ -35,7 +33,7 @@ class Module:
         self.id: Final[UUID] = metadata.id
         self.target: Final[ModuleType] = module_type
 
-        self.providers: Final[Sequence[ProviderSpec]] = metadata.providers
+        self.providers: Final[Sequence[Provider]] = metadata.providers
         self.imports: Final[Sequence[ModuleType | DynamicModule]] = metadata.imports
         self.exports: Final[Sequence[type[object] | ModuleType | DynamicModule]] = metadata.exports
         self.extensions: Final[Sequence[ModuleExtension]] = metadata.extensions
@@ -49,44 +47,14 @@ class Module:
 
     @property
     def provider(self) -> BaseProvider:
-        """Get the aggregated provider for this module.
-
-        This property returns the provider created by create_provider().
-        Must be called after create_provider() has been invoked.
-
-        Raises:
-            RuntimeError: If create_provider() has not been called yet.
-        """
         if self._provider is None:
             msg = f'Module {self.name} provider not yet created. Call create_provider() first.'
             raise RuntimeError(msg)
         return self._provider
 
-    def create_provider(
-        self,
-        context: dict[Any, Any] | None,
-        builder: ActivationBuilder,
-        provider_filter: IProviderFilter,
-    ) -> BaseProvider:
-        """Create aggregated provider with activation filtering applied.
-
-        Args:
-            context: Context dict for activation decisions.
-            builder: Activation builder for checking if types are registered.
-            provider_filter: Filter strategy for conditional provider activation.
-
-        Returns:
-            BaseProvider with only active providers aggregated.
-        """
-        active_providers = provider_filter.filter(
-            list(self.providers),
-            context=context,
-            module_type=self.target,
-            builder=builder,
-        )
-
+    def create_provider(self) -> BaseProvider:
         cls = cast('type[_ModuleProvider]', type(f'{self.name}Provider', (_ModuleProvider,), {}))
-        self._provider = cls(active_providers)
+        self._provider = cls(self.providers)
         return self._provider
 
     def __str__(self) -> str:
@@ -103,8 +71,6 @@ class Module:
 
 
 class _ModuleProvider(BaseProvider):
-    """Aggregates factories from filtered providers."""
-
     def __init__(self, providers: Iterable[Provider]) -> None:
         super().__init__(DEFAULT_COMPONENT)
         for provider in providers:
@@ -112,3 +78,5 @@ class _ModuleProvider(BaseProvider):
             self.aliases.extend(provider.aliases)
             self.decorators.extend(provider.decorators)
             self.context_vars.extend(provider.context_vars)
+            self.factory_union_mode.extend(provider.factory_union_mode)
+            self.activators.extend(provider.activators)

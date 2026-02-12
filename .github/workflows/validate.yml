@@ -60,7 +60,7 @@ on:
 permissions: { }
 
 env:
-  COMMON_PYTHON_VERSION: '3.12'
+  COMMON_PYTHON_VERSION: '3.14'
   PYTEST_TIMEOUT: 60
 
 jobs:

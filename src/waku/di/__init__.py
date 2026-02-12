@@ -4,9 +4,12 @@ from dishka import (
     AsyncContainer,
     FromComponent,
     FromDishka as Injected,
+    Has,
+    Marker,
     Provider,
     Scope,
     WithParents,
+    activate,
     alias,
     from_context,
     provide,
@@ -14,35 +17,22 @@ from dishka import (
 )
 from dishka.provider import BaseProvider
 
-from waku.di._activation import (
-    ActivationBuilder,
-    ActivationContext,
-    Activator,
-    ConditionalProvider,
-    Has,
-    IProviderFilter,
-    ProviderFilter,
-)
-from waku.di._providers import ProviderSpec, contextual, many, object_, provider, scoped, singleton, transient
+from waku.di._providers import activator, contextual, many, object_, provider, scoped, singleton, transient
 
 __all__ = [
     'DEFAULT_COMPONENT',
-    'ActivationBuilder',
-    'ActivationContext',
-    'Activator',
     'AnyOf',
     'AsyncContainer',
     'BaseProvider',
-    'ConditionalProvider',
     'FromComponent',
     'Has',
-    'IProviderFilter',
     'Injected',
+    'Marker',
     'Provider',
-    'ProviderFilter',
-    'ProviderSpec',
     'Scope',
     'WithParents',
+    'activate',
+    'activator',
     'alias',
     'contextual',
     'from_context',

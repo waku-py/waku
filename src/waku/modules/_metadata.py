@@ -10,7 +10,8 @@ from waku.extensions import OnModuleConfigure
 if TYPE_CHECKING:
     from collections.abc import Callable, Hashable, Sequence
 
-    from waku.di import ProviderSpec
+    from dishka import Provider
+
     from waku.extensions import ModuleExtension
 
 __all__ = [
@@ -30,7 +31,7 @@ _MODULE_METADATA_KEY: Final = '__module_metadata__'
 
 @dataclass(kw_only=True, slots=True)
 class ModuleMetadata:
-    providers: list[ProviderSpec] = field(default_factory=list)
+    providers: list[Provider] = field(default_factory=list)
     """List of providers for dependency injection."""
     imports: list[ModuleType | DynamicModule] = field(default_factory=list)
     """List of modules imported by this module."""
@@ -65,7 +66,7 @@ class DynamicModule(ModuleMetadata):
 
 def module(
     *,
-    providers: Sequence[ProviderSpec] = (),
+    providers: Sequence[Provider] = (),
     imports: Sequence[ModuleType | DynamicModule] = (),
     exports: Sequence[type[object] | ModuleType | DynamicModule] = (),
     extensions: Sequence[ModuleExtension] = (),

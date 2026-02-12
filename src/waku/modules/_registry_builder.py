@@ -5,7 +5,6 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final, TypeAlias
 from uuid import UUID
 
-from waku.di import ConditionalProvider, IProviderFilter, ProviderFilter
 from waku.extensions import OnModuleRegistration
 from waku.modules._metadata import ModuleCompiler, ModuleMetadata, ModuleType
 from waku.modules._metadata_registry import ModuleMetadataRegistry
@@ -29,48 +28,30 @@ __all__ = [
 AdjacencyMatrix: TypeAlias = dict[UUID, OrderedDict[UUID, str]]
 
 
-class _ActivationBuilder:
-    """Build-time activation builder for checking registered types."""
-
-    def __init__(self) -> None:
-        self._registered_types: set[Any] = set()
-
-    def register(self, type_: Any) -> None:
-        self._registered_types.add(type_)
-
-    def has_active(self, type_: Any) -> bool:
-        return type_ in self._registered_types
-
-
 class ModuleRegistryBuilder:
     def __init__(
         self,
         root_module_type: ModuleType,
         compiler: ModuleCompiler | None = None,
         context: dict[Any, Any] | None = None,
-        provider_filter: IProviderFilter | None = None,
         app_extensions: Sequence[ApplicationExtension] = (),
     ) -> None:
         self._compiler: Final = compiler or ModuleCompiler()
         self._root_module_type: Final = root_module_type
         self._context: Final = context
-        self._provider_filter: Final[IProviderFilter] = provider_filter or ProviderFilter()
         self._app_extensions: Final = app_extensions
         self._modules: dict[UUID, Module] = {}
         self._providers: list[BaseProvider] = []
 
         self._metadata_cache: dict[ModuleType | DynamicModule, tuple[ModuleType, ModuleMetadata]] = {}
-        self._builder: Final = _ActivationBuilder()
 
     def build(self) -> ModuleRegistry:
         modules, adjacency = self._collect_modules()
         self._execute_registration_hooks(modules)
-        self._build_type_registry(modules)
         root_module = self._register_modules(modules)
         return self._build_registry(root_module, adjacency)
 
     def _collect_modules(self) -> tuple[list[tuple[ModuleType, ModuleMetadata]], AdjacencyMatrix]:
-        """Collect modules in post-order DFS."""
         visited: set[UUID] = set()
         post_order: list[tuple[ModuleType, ModuleMetadata]] = []
         adjacency: AdjacencyMatrix = defaultdict(OrderedDict)
@@ -103,12 +84,6 @@ class ModuleRegistryBuilder:
         self,
         modules: list[tuple[ModuleType, ModuleMetadata]],
     ) -> None:
-        """Execute OnModuleRegistration hooks for all extensions.
-
-        Execution order:
-            1. Application-level extensions (assigned to root module)
-            2. Module-level extensions (in topological order)
-        """
         metadata_by_type = dict(modules)
         topological_order = tuple(mod_type for mod_type, _ in modules)
         registry = ModuleMetadataRegistry(
@@ -127,16 +102,6 @@ class ModuleRegistryBuilder:
                 if isinstance(ext, OnModuleRegistration):
                     ext.on_module_registration(registry, module_type, read_only_context)
 
-    def _build_type_registry(self, modules: list[tuple[ModuleType, ModuleMetadata]]) -> None:
-        """Build registry of all provided types before filtering."""
-        for _, metadata in modules:
-            for spec in metadata.providers:
-                if isinstance(spec, ConditionalProvider):
-                    self._builder.register(spec.provided_type)
-                else:
-                    for factory in spec.factories:
-                        self._builder.register(factory.provides.type_hint)
-
     def _register_modules(self, post_order: list[tuple[ModuleType, ModuleMetadata]]) -> Module:
         for type_, metadata in post_order:
             if metadata.id in self._modules:
@@ -148,19 +113,12 @@ class ModuleRegistryBuilder:
             module = Module(type_, metadata)
 
             self._modules[module.id] = module
-            self._providers.append(
-                module.create_provider(
-                    context=self._context,
-                    builder=self._builder,
-                    provider_filter=self._provider_filter,
-                )
-            )
+            self._providers.append(module.create_provider())
 
         _, root_metadata = self._get_metadata(self._root_module_type)
         return self._modules[root_metadata.id]
 
     def _get_metadata(self, module_type: ModuleType | DynamicModule) -> tuple[ModuleType, ModuleMetadata]:
-        """Get metadata with caching to avoid repeated extractions."""
         if module_type not in self._metadata_cache:
             self._metadata_cache[module_type] = self._compiler.extract_metadata(module_type)
         return self._metadata_cache[module_type]

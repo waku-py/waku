@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING, TypeVar
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from waku.di import ProviderSpec
+    from dishka import Provider
+
     from waku.modules._metadata import ModuleMetadata, ModuleType
 
 __all__ = ['ModuleMetadataRegistry']
@@ -60,7 +61,7 @@ class ModuleMetadataRegistry:
                 if isinstance(ext, protocol):
                     yield module_type, ext
 
-    def add_provider(self, module_type: ModuleType, provider: ProviderSpec) -> None:
+    def add_provider(self, module_type: ModuleType, provider: Provider) -> None:
         """Add a provider to a module's metadata.
 
         This is the preferred way to add providers during registration hooks.

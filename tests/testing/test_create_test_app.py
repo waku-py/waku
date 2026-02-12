@@ -1,8 +1,9 @@
 from typing import NewType, Protocol
 
+from dishka import Has
+
 from waku import module
-from waku.di import contextual, singleton
-from waku.di._activation import ActivationContext
+from waku.di import Scope, contextual, scoped, singleton
 from waku.extensions import OnModuleConfigure, OnModuleDestroy, OnModuleInit
 from waku.modules import Module, ModuleMetadata
 from waku.testing import create_test_app
@@ -36,7 +37,7 @@ async def test_create_test_app_with_context() -> None:
     expected_value = TestValue('test_value')
 
     async with create_test_app(
-        providers=[contextual(TestValue)],
+        providers=[contextual(TestValue, scope=Scope.APP)],
         context={TestValue: expected_value},
     ) as app:
         retrieved_value = await app.container.get(TestValue)
@@ -129,10 +130,7 @@ async def test_create_test_app_with_base_module_and_conditional_provider() -> No
     class BaseModule:
         pass
 
-    def always_active(_ctx: ActivationContext) -> bool:
-        return True
-
-    conditional_provider = singleton(IService, FakeService, when=always_active)
+    conditional_provider = singleton(IService, FakeService, when=Has(IService))
 
     async with create_test_app(
         base=BaseModule,
@@ -178,6 +176,20 @@ async def test_create_test_app_base_with_additional_imports() -> None:
 
         another = await app.container.get(IAnotherService)
         assert another.get_name() == 'another'
+
+
+async def test_create_test_app_base_with_contextual_override() -> None:
+    @module(providers=[contextual(int, scope=Scope.APP), scoped(RealService)])
+    class BaseModule:
+        pass
+
+    async with create_test_app(
+        base=BaseModule,
+        providers=[contextual(int, scope=Scope.APP)],
+        context={int: 42},
+    ) as app:
+        val = await app.container.get(int)
+        assert val == 42
 
 
 async def test_create_test_app_base_with_extensions() -> None:
