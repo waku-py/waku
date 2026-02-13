@@ -48,6 +48,7 @@ es_events_table = Table(
     Column('data', JSONB, nullable=False),
     Column('metadata', JSONB, nullable=False),
     Column('timestamp', TIMESTAMP(timezone=True), nullable=False),
+    Column('schema_version', Integer, nullable=False, server_default='1'),
     UniqueConstraint('stream_id', 'position', name='uq_es_events_stream_id_position'),
     Index('ix_es_events_global_position', 'global_position'),
     Index('ix_es_events_event_type', 'event_type'),
