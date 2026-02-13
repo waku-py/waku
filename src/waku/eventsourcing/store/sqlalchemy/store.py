@@ -21,6 +21,7 @@ from waku.eventsourcing.store._shared import enrich_metadata
 from waku.eventsourcing.store._version_check import check_expected_version
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.eventsourcing.store.sqlalchemy.tables import EventStoreTables  # noqa: TC001  # Dishka needs runtime access
+from waku.eventsourcing.upcasting.chain import UpcasterChain  # noqa: TC001  # Dishka needs runtime access
 
 if TYPE_CHECKING:
     from waku.eventsourcing.contracts.event import EventEnvelope
@@ -38,6 +39,7 @@ class SqlAlchemyEventStoreFactory(Protocol):
         session: AsyncSession,
         serializer: IEventSerializer,
         registry: EventTypeRegistry,
+        upcaster_chain: UpcasterChain,
         projections: Sequence[IProjection] = (),
         enrichers: Sequence[IMetadataEnricher] = (),
     ) -> SqlAlchemyEventStore: ...
@@ -50,6 +52,7 @@ class SqlAlchemyEventStore(IEventStore):
         serializer: IEventSerializer,
         registry: EventTypeRegistry,
         tables: EventStoreTables,
+        upcaster_chain: UpcasterChain,
         projections: Sequence[IProjection] = (),
         enrichers: Sequence[IMetadataEnricher] = (),
     ) -> None:
@@ -58,6 +61,7 @@ class SqlAlchemyEventStore(IEventStore):
         self._registry = registry
         self._streams = tables.streams
         self._events = tables.events
+        self._upcaster_chain = upcaster_chain
         self._projections = projections
         self._enrichers = enrichers
 
@@ -254,6 +258,7 @@ class SqlAlchemyEventStore(IEventStore):
                 'data': data,
                 'metadata': metadata_dict,
                 'timestamp': now,
+                'schema_version': self._registry.get_version(type(envelope.domain_event)),
             })
             envelopes_data.append((event_id, event_type, now, envelope.domain_event, metadata))
             position += 1
@@ -273,6 +278,7 @@ class SqlAlchemyEventStore(IEventStore):
                 timestamp=envelopes_data[i][2],
                 data=envelopes_data[i][3],
                 metadata=envelopes_data[i][4],
+                schema_version=rows[i]['schema_version'],
             )
             for i in range(len(events))
         ]
@@ -284,7 +290,13 @@ class SqlAlchemyEventStore(IEventStore):
 
     def _row_to_stored_event(self, row: Any) -> StoredEvent:
         metadata = self._deserialize_metadata(row.metadata)
-        data = self._serializer.deserialize(row.data, row.event_type)
+        schema_version = row.schema_version
+        data = row.data
+
+        canonical_type = self._registry.get_name(self._registry.resolve(row.event_type))
+        data = self._upcaster_chain.upcast(canonical_type, data, schema_version)
+
+        domain_event = self._serializer.deserialize(data, row.event_type)
         return StoredEvent(
             event_id=row.event_id,
             stream_id=row.stream_id,
@@ -292,8 +304,9 @@ class SqlAlchemyEventStore(IEventStore):
             position=row.position,
             global_position=row.global_position,
             timestamp=row.timestamp,
-            data=data,
+            data=domain_event,
             metadata=metadata,
+            schema_version=schema_version,
         )
 
     @staticmethod
@@ -318,9 +331,10 @@ def make_sqlalchemy_event_store(tables: EventStoreTables) -> SqlAlchemyEventStor
         session: AsyncSession,
         serializer: IEventSerializer,
         registry: EventTypeRegistry,
+        upcaster_chain: UpcasterChain,
         projections: Sequence[IProjection] = (),
         enrichers: Sequence[IMetadataEnricher] = (),
     ) -> SqlAlchemyEventStore:
-        return SqlAlchemyEventStore(session, serializer, registry, tables, projections, enrichers)
+        return SqlAlchemyEventStore(session, serializer, registry, tables, upcaster_chain, projections, enrichers)
 
     return factory

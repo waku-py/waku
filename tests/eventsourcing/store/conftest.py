@@ -11,6 +11,7 @@ from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.sqlalchemy.store import SqlAlchemyEventStore
 from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
+from waku.eventsourcing.upcasting.chain import UpcasterChain
 
 from tests.eventsourcing.store.domain import ItemAdded, OrderCreated
 
@@ -71,6 +72,7 @@ def store_factory(request: pytest.FixtureRequest, registry: EventTypeRegistry) -
             serializer=serializer,
             registry=registry,
             tables=tables,
+            upcaster_chain=UpcasterChain({}),
             projections=projections,
             enrichers=enrichers,
         )
