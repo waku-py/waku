@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.28.1 (2026-02-13)
+
+### 🪲 Bug Fixes
+
+- Adjust cqrs `many` to run `collect` only after all providers registered
+  ([`92a2a24`](https://github.com/waku-py/waku/commit/92a2a24134f2e94802af35745cb40ac139562fa7))
+
+
 ## v0.28.0 (2026-02-12)
 
 ### ✨ Features
