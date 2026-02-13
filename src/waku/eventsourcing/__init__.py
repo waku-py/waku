@@ -21,6 +21,7 @@ from waku.eventsourcing.exceptions import (
     SnapshotTypeMismatchError,
     StreamNotFoundError,
     UnknownEventTypeError,
+    UpcasterChainError,
 )
 from waku.eventsourcing.handler import EventSourcedCommandHandler, EventSourcedVoidCommandHandler
 from waku.eventsourcing.modules import (
@@ -31,6 +32,16 @@ from waku.eventsourcing.modules import (
     EventTypeSpec,
 )
 from waku.eventsourcing.repository import EventSourcedRepository
+from waku.eventsourcing.upcasting import (
+    FnUpcaster,
+    IEventUpcaster,
+    UpcasterChain,
+    add_field,
+    noop,
+    remove_field,
+    rename_field,
+    upcast,
+)
 
 __all__ = [
     'AggregateNotFoundError',
@@ -51,6 +62,8 @@ __all__ = [
     'EventTypeSpec',
     'Exact',
     'ExpectedVersion',
+    'FnUpcaster',
+    'IEventUpcaster',
     'IMetadataEnricher',
     'NoStream',
     'ProjectionError',
@@ -64,4 +77,11 @@ __all__ = [
     'StreamNotFoundError',
     'StreamPosition',
     'UnknownEventTypeError',
+    'UpcasterChain',
+    'UpcasterChainError',
+    'add_field',
+    'noop',
+    'remove_field',
+    'rename_field',
+    'upcast',
 ]
