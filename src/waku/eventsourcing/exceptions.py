@@ -14,6 +14,7 @@ __all__ = [
     'SnapshotTypeMismatchError',
     'StreamNotFoundError',
     'UnknownEventTypeError',
+    'UpcasterChainError',
 ]
 
 
@@ -89,3 +90,7 @@ class RetryExhaustedError(ProjectionError):
         self.attempts = attempts
         self.cause = cause
         super().__init__(f'Projection {projection_name!r} exhausted {attempts} retry attempts: {cause}')
+
+
+class UpcasterChainError(EventSourcingError):
+    pass
