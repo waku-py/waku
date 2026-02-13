@@ -117,6 +117,7 @@ class InMemoryEventStore(IEventStore):
                     timestamp=datetime.now(UTC),
                     data=envelope.domain_event,
                     metadata=enrich_metadata(envelope.metadata, self._enrichers),
+                    schema_version=self._registry.get_version(type(envelope.domain_event)),
                 )
                 stream.append(stored)
                 stored_events.append(stored)
