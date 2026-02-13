@@ -10,12 +10,14 @@ from typing_extensions import override
 from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.event import EventMetadata, IMetadataEnricher
+from waku.eventsourcing.exceptions import UpcasterChainError
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule, EventType
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, IProjection
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import IEventStore
+from waku.eventsourcing.upcasting import UpcasterChain, add_field, rename_field
 from waku.modules import module
 from waku.testing import create_test_app
 
@@ -230,3 +232,74 @@ async def test_no_enrichers_resolves_empty_sequence() -> None:
     ):
         enrichers = await container.get(Sequence[IMetadataEnricher])
         assert len(enrichers) == 0
+
+
+async def test_event_type_with_version_and_upcasters() -> None:
+    es_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemRepository,
+        event_types=[
+            EventType(
+                ItemCreated,
+                version=2,
+                upcasters=[rename_field(from_version=1, old='name', new='full_name')],
+            ),
+        ],
+    )
+
+    @module(
+        imports=[EventSourcingModule.register()],
+        extensions=[es_ext],
+    )
+    class ItemModule:
+        pass
+
+    async with create_test_app(imports=[ItemModule]) as app, app.container() as container:
+        registry = await container.get(EventTypeRegistry)
+        assert registry.get_version(ItemCreated) == 2
+
+        chain = await container.get(UpcasterChain)
+        result = chain.upcast('ItemCreated', {'name': 'Widget'}, schema_version=1)
+        assert result == {'full_name': 'Widget'}
+
+
+async def test_upcaster_from_version_gte_event_version_raises() -> None:
+    es_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemRepository,
+        event_types=[
+            EventType(
+                ItemCreated,
+                version=2,
+                upcasters=[add_field(from_version=2, field='x', default=0)],
+            ),
+        ],
+    )
+
+    @module(
+        imports=[EventSourcingModule.register()],
+        extensions=[es_ext],
+    )
+    class ItemModule:
+        pass
+
+    with pytest.raises(UpcasterChainError, match=r'from_version .* must be < event version'):
+        async with create_test_app(imports=[ItemModule]):
+            pass
+
+
+async def test_empty_upcaster_chain_always_registered() -> None:
+    es_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemRepository,
+        event_types=[ItemCreated],
+    )
+
+    @module(
+        imports=[EventSourcingModule.register()],
+        extensions=[es_ext],
+    )
+    class ItemModule:
+        pass
+
+    async with create_test_app(imports=[ItemModule]) as app, app.container() as container:
+        chain = await container.get(UpcasterChain)
+        result = chain.upcast('ItemCreated', {'name': 'Widget'}, schema_version=1)
+        assert result == {'name': 'Widget'}

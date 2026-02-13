@@ -8,7 +8,7 @@ from typing_extensions import override
 
 from waku.di import Provider, WithParents, many, object_, scoped
 from waku.eventsourcing.contracts.event import IMetadataEnricher
-from waku.eventsourcing.exceptions import RegistryFrozenError
+from waku.eventsourcing.exceptions import RegistryFrozenError, UpcasterChainError
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore, IProjection
 from waku.eventsourcing.serialization.interfaces import IEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
@@ -16,6 +16,7 @@ from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, ISnapshotStra
 from waku.eventsourcing.snapshot.serialization import ISnapshotStateSerializer
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import IEventStore
+from waku.eventsourcing.upcasting.chain import UpcasterChain
 from waku.extensions import OnModuleConfigure, OnModuleRegistration
 from waku.modules import DynamicModule, ModuleMetadataRegistry, module
 
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
 
     from waku.cqrs.contracts.notification import INotification
     from waku.eventsourcing.repository import EventSourcedRepository
+    from waku.eventsourcing.upcasting.interfaces import IEventUpcaster
     from waku.modules import ModuleMetadata, ModuleType
 
 __all__ = [
@@ -40,6 +42,8 @@ class EventType:
     event_type: type[INotification]
     name: str | None = field(default=None, kw_only=True)
     aliases: Sequence[str] = field(default=(), kw_only=True)
+    version: int = field(default=1, kw_only=True)
+    upcasters: Sequence[IEventUpcaster] = field(default=(), kw_only=True)
 
 
 EventTypeSpec: TypeAlias = 'type[INotification] | EventType'
@@ -190,6 +194,15 @@ class EventSourcingExtension(OnModuleConfigure):
                 metadata.providers.append(object_(binding.snapshot_strategy, provided_type=ISnapshotStrategy))
 
 
+def _validate_upcaster_versions(upcasters: Sequence[IEventUpcaster], type_name: str, version: int) -> None:
+    for u in upcasters:
+        if u.from_version >= version:
+            msg = (
+                f'Upcaster from_version {u.from_version} for event type {type_name!r} must be < event version {version}'
+            )
+            raise UpcasterChainError(msg)
+
+
 class EventSourcingRegistryAggregator(OnModuleRegistration):
     def __init__(self, *, has_serializer: bool = False) -> None:
         self._has_serializer = has_serializer
@@ -214,16 +227,9 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
         aggregated.freeze()
         registry.add_provider(owning_module, object_(aggregated))
 
-        event_type_registry = EventTypeRegistry()
-        for item in aggregated.event_type_bindings:
-            if isinstance(item, EventType):
-                event_type_registry.register(item.event_type, name=item.name)
-                for alias in item.aliases:
-                    event_type_registry.add_alias(item.event_type, alias)
-            else:
-                event_type_registry.register(item)
-        event_type_registry.freeze()
+        event_type_registry, upcaster_chain = self._build_type_registry(aggregated)
         registry.add_provider(owning_module, object_(event_type_registry))
+        registry.add_provider(owning_module, object_(upcaster_chain))
 
         if self._has_serializer and len(event_type_registry) == 0:
             warnings.warn(
@@ -232,3 +238,24 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
                 UserWarning,
                 stacklevel=1,
             )
+
+    @staticmethod
+    def _build_type_registry(aggregated: EventSourcingRegistry) -> tuple[EventTypeRegistry, UpcasterChain]:
+        event_type_registry = EventTypeRegistry()
+        upcasters_by_type: dict[str, list[IEventUpcaster]] = {}
+
+        for item in aggregated.event_type_bindings:
+            if isinstance(item, EventType):
+                event_type_registry.register(item.event_type, name=item.name, version=item.version)
+                for alias in item.aliases:
+                    event_type_registry.add_alias(item.event_type, alias)
+
+                if item.upcasters:
+                    type_name = item.name or item.event_type.__name__
+                    _validate_upcaster_versions(item.upcasters, type_name, item.version)
+                    upcasters_by_type[type_name] = list(item.upcasters)
+            else:
+                event_type_registry.register(item)
+
+        event_type_registry.freeze()
+        return event_type_registry, UpcasterChain(upcasters_by_type)
