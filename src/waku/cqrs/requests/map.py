@@ -50,9 +50,7 @@ class RequestMap:
 
     def merge(self, other: RequestMap) -> Self:
         for request_type, entry in other._registry.items():
-            if request_type in self._registry:
-                raise RequestHandlerAlreadyRegistered(request_type, entry.handler_type)
-            self._registry[request_type] = RequestMapEntry(entry.handler_type, entry.di_lookup_type)
+            self.bind(request_type, entry.handler_type)  # ty: ignore[invalid-argument-type]
         return self
 
     @property

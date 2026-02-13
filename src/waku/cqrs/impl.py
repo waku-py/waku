@@ -8,35 +8,29 @@ from waku.cqrs import IPipelineBehavior
 from waku.cqrs.contracts.notification import INotification, NotificationT
 from waku.cqrs.contracts.request import IRequest, ResponseT
 from waku.cqrs.events.handler import INotificationHandler
-from waku.cqrs.events.map import EventMap
 from waku.cqrs.events.publish import EventPublisher
 from waku.cqrs.exceptions import RequestHandlerNotFound
 from waku.cqrs.interfaces import IMediator
 from waku.cqrs.pipeline import PipelineBehaviorWrapper
-from waku.cqrs.pipeline.map import PipelineBehaviorMap
+from waku.cqrs.registry import MediatorRegistry
 from waku.cqrs.requests.handler import RequestHandler
-from waku.cqrs.requests.map import RequestMap
 from waku.di import AsyncContainer
 
 
 class Mediator(IMediator):
     """Default CQRS implementation."""
 
-    __slots__ = ('_behavior_map', '_container', '_event_map', '_event_publisher', '_request_map')
+    __slots__ = ('_container', '_event_publisher', '_registry')
 
     def __init__(
         self,
         container: AsyncContainer,
         event_publisher: EventPublisher,
-        request_map: RequestMap,
-        event_map: EventMap,
-        behavior_map: PipelineBehaviorMap,
+        registry: MediatorRegistry,
     ) -> None:
         self._container = container
         self._event_publisher = event_publisher
-        self._request_map = request_map
-        self._event_map = event_map
-        self._behavior_map = behavior_map
+        self._registry = registry
 
     @overload
     async def send(self, request: IRequest[None], /) -> None: ...
@@ -60,10 +54,10 @@ class Mediator(IMediator):
         self,
         request_type: type[IRequest[ResponseT]],
     ) -> RequestHandler[IRequest[ResponseT], ResponseT]:
-        if not self._request_map.has_handler(request_type):
+        if not self._registry.request_map.has_handler(request_type):
             raise RequestHandlerNotFound(request_type)
 
-        handler_type = self._request_map.get_handler_type(request_type)
+        handler_type = self._registry.request_map.get_handler_type(request_type)
         return cast('RequestHandler[IRequest[ResponseT], ResponseT]', await self._container.get(handler_type))
 
     async def _handle_request(
@@ -86,8 +80,8 @@ class Mediator(IMediator):
             global_behaviors = []
 
         request_specific_behaviors: Sequence[IPipelineBehavior[Any, Any]] = []
-        if self._behavior_map.has_behaviors(request_type):
-            lookup_type = self._behavior_map.get_lookup_type(request_type)
+        if self._registry.behavior_map.has_behaviors(request_type):
+            lookup_type = self._registry.behavior_map.get_lookup_type(request_type)
             request_specific_behaviors = await self._container.get(Sequence[lookup_type])  # type: ignore[valid-type]
 
         return [*global_behaviors, *request_specific_behaviors]
@@ -96,9 +90,9 @@ class Mediator(IMediator):
         self,
         event_type: type[NotificationT],
     ) -> Sequence[INotificationHandler[NotificationT]]:
-        if not self._event_map.has_handlers(event_type):
+        if not self._registry.event_map.has_handlers(event_type):
             return []
 
-        handler_type = self._event_map.get_handler_type(event_type)
+        handler_type = self._registry.event_map.get_handler_type(event_type)
         handlers = await self._container.get(Sequence[handler_type])  # type: ignore[valid-type]
         return cast('Sequence[INotificationHandler[NotificationT]]', handlers)

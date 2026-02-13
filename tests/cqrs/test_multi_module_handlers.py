@@ -18,7 +18,7 @@ from waku.cqrs import (
     Response,
 )
 from waku.cqrs.contracts.pipeline import IPipelineBehavior, NextHandlerType
-from waku.cqrs.events.map import EventMap
+from waku.cqrs.registry import MediatorRegistry
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -77,10 +77,10 @@ async def test_multi_module_event_handlers_all_resolved() -> None:
     app = WakuFactory(AppModule).create()
 
     async with app, app.container() as container:
-        event_map = await container.get(EventMap)
-        assert len(event_map.registry[OrderPlaced].handler_types) == 3
+        mediator_registry = await container.get(MediatorRegistry)
+        assert len(mediator_registry.event_map.registry[OrderPlaced].handler_types) == 3
 
-        handler_type = event_map.get_handler_type(OrderPlaced)
+        handler_type = mediator_registry.event_map.get_handler_type(OrderPlaced)
         handlers = await container.get(Sequence[handler_type])  # type: ignore[valid-type]
         assert len(handlers) == 3
 

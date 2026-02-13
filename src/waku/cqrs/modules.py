@@ -8,16 +8,14 @@ from waku.cqrs.contracts.notification import NotificationT
 from waku.cqrs.contracts.pipeline import IPipelineBehavior
 from waku.cqrs.contracts.request import RequestT
 from waku.cqrs.events.handler import EventHandler
-from waku.cqrs.events.map import EventMap
 from waku.cqrs.events.publish import EventPublisher, SequentialEventPublisher
 from waku.cqrs.impl import Mediator
 from waku.cqrs.interfaces import IMediator
-from waku.cqrs.pipeline.map import PipelineBehaviorMap
+from waku.cqrs.registry import MediatorRegistry
 from waku.cqrs.requests.handler import RequestHandler
-from waku.cqrs.requests.map import RequestMap
 from waku.di import Provider, WithParents, many, object_, scoped
-from waku.extensions import OnModuleConfigure, OnModuleRegistration
-from waku.modules import DynamicModule, ModuleMetadata, ModuleMetadataRegistry, module
+from waku.extensions import OnModuleDiscover, OnModuleRegistration
+from waku.modules import DynamicModule, ModuleMetadataRegistry, module
 
 if TYPE_CHECKING:
     from waku.modules import ModuleType
@@ -80,7 +78,7 @@ class MediatorModule:
                 *cls._create_mediator_providers(config_),
                 *cls._create_pipeline_behavior_providers(config_),
             ],
-            extensions=[RequestMapAggregator(), EventMapAggregator(), PipelineBehaviorMapAggregator()],
+            extensions=[MediatorRegistryAggregator()],
             is_global=True,
         )
 
@@ -98,11 +96,9 @@ class MediatorModule:
         return (many(IPipelineBehavior[Any, Any], *config.pipeline_behaviors),)
 
 
-class MediatorExtension(OnModuleConfigure):
+class MediatorExtension(OnModuleDiscover):
     def __init__(self) -> None:
-        self._request_map = RequestMap()
-        self._event_map = EventMap()
-        self._behavior_map = PipelineBehaviorMap()
+        self._registry = MediatorRegistry()
 
     def bind_request(
         self,
@@ -111,9 +107,9 @@ class MediatorExtension(OnModuleConfigure):
         *,
         behaviors: list[type[IPipelineBehavior[RequestT, Any]]] | None = None,
     ) -> Self:
-        self._request_map.bind(request_type, handler_type)
+        self._registry.request_map.bind(request_type, handler_type)
         if behaviors:
-            self._behavior_map.bind(request_type, behaviors)
+            self._registry.behavior_map.bind(request_type, behaviors)
         return self
 
     def bind_event(
@@ -121,28 +117,15 @@ class MediatorExtension(OnModuleConfigure):
         event_type: type[NotificationT],
         handler_types: list[type[EventHandler[NotificationT]]],
     ) -> Self:
-        self._event_map.bind(event_type, handler_types)
+        self._registry.event_map.bind(event_type, handler_types)
         return self
 
     @property
-    def request_map(self) -> RequestMap:
-        return self._request_map
-
-    @property
-    def event_map(self) -> EventMap:
-        return self._event_map
-
-    @property
-    def behavior_map(self) -> PipelineBehaviorMap:
-        return self._behavior_map
-
-    def on_module_configure(self, metadata: ModuleMetadata) -> None:
-        metadata.providers.extend(
-            scoped(entry.di_lookup_type, entry.handler_type) for entry in self._request_map.registry.values()
-        )
+    def registry(self) -> MediatorRegistry:
+        return self._registry
 
 
-class RequestMapAggregator(OnModuleRegistration):
+class MediatorRegistryAggregator(OnModuleRegistration):
     @override
     def on_module_registration(
         self,
@@ -150,39 +133,14 @@ class RequestMapAggregator(OnModuleRegistration):
         owning_module: 'ModuleType',
         context: Mapping[Any, Any] | None,
     ) -> None:
-        aggregated = RequestMap()
-        for _module_type, ext in registry.find_extensions(MediatorExtension):
-            aggregated.merge(ext.request_map)
+        aggregated = MediatorRegistry()
+
+        for module_type, ext in registry.find_extensions(MediatorExtension):
+            aggregated.merge(ext.registry)
+            for provider in ext.registry.handler_providers():
+                registry.add_provider(module_type, provider)
+
+        for provider in aggregated.collector_providers():
+            registry.add_provider(owning_module, provider)
+
         registry.add_provider(owning_module, object_(aggregated))
-
-
-class EventMapAggregator(OnModuleRegistration):
-    @override
-    def on_module_registration(
-        self,
-        registry: ModuleMetadataRegistry,
-        owning_module: 'ModuleType',
-        context: Mapping[Any, Any] | None,
-    ) -> None:
-        aggregated = EventMap()
-        for _module_type, ext in registry.find_extensions(MediatorExtension):
-            aggregated.merge(ext.event_map)
-        registry.add_provider(owning_module, object_(aggregated))
-        for entry in aggregated.registry.values():
-            registry.add_provider(owning_module, many(entry.di_lookup_type, *entry.handler_types))
-
-
-class PipelineBehaviorMapAggregator(OnModuleRegistration):
-    @override
-    def on_module_registration(
-        self,
-        registry: ModuleMetadataRegistry,
-        owning_module: 'ModuleType',
-        context: Mapping[Any, Any] | None,
-    ) -> None:
-        aggregated = PipelineBehaviorMap()
-        for _module_type, ext in registry.find_extensions(MediatorExtension):
-            aggregated.merge(ext.behavior_map)
-        registry.add_provider(owning_module, object_(aggregated))
-        for entry in aggregated.registry.values():
-            registry.add_provider(owning_module, many(entry.di_lookup_type, *entry.behavior_types))

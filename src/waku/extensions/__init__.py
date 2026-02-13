@@ -10,6 +10,7 @@ from waku.extensions.protocols import (
     OnApplicationShutdown,
     OnModuleConfigure,
     OnModuleDestroy,
+    OnModuleDiscover,
     OnModuleInit,
     OnModuleRegistration,
 )
@@ -30,6 +31,7 @@ __all__ = [
     'OnApplicationShutdown',
     'OnModuleConfigure',
     'OnModuleDestroy',
+    'OnModuleDiscover',
     'OnModuleInit',
     'OnModuleRegistration',
 ]
