@@ -4,6 +4,8 @@ import abc
 import typing
 from typing import TYPE_CHECKING, ClassVar, Generic, TypeVar
 
+from typing_extensions import get_original_bases
+
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
@@ -34,7 +36,7 @@ class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
     @classmethod
     def _resolve_aggregate_type(cls) -> type[AggregateT] | None:
         for klass in cls.__mro__:
-            for base in getattr(klass, '__orig_bases__', ()):
+            for base in get_original_bases(klass):
                 origin = typing.get_origin(base)
                 if origin is None or not isinstance(origin, type):
                     continue

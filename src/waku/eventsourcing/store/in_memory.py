@@ -111,13 +111,17 @@ class InMemoryEventStore(IEventStore):
                 stored = StoredEvent(
                     event_id=uuid.uuid4(),
                     stream_id=key,
-                    event_type=self._registry.get_name(type(envelope.domain_event)),
+                    event_type=self._registry.get_name(
+                        type(envelope.domain_event)  # pyrefly: ignore[bad-argument-type]
+                    ),
                     position=position,
                     global_position=self._global_position,
                     timestamp=datetime.now(UTC),
                     data=envelope.domain_event,
                     metadata=enrich_metadata(envelope.metadata, self._enrichers),
-                    schema_version=self._registry.get_version(type(envelope.domain_event)),
+                    schema_version=self._registry.get_version(
+                        type(envelope.domain_event)  # pyrefly: ignore[bad-argument-type]
+                    ),
                 )
                 stream.append(stored)
                 stored_events.append(stored)

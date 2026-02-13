@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
     from waku.cqrs.contracts.notification import INotification
 
+
 __all__ = [
     'EventEnvelope',
     'EventMetadata',

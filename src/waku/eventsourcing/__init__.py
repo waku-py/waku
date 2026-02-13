@@ -9,6 +9,12 @@ from waku.eventsourcing.contracts.stream import (
     StreamId,
     StreamPosition,
 )
+from waku.eventsourcing.decider import (
+    DeciderCommandHandler,
+    DeciderRepository,
+    DeciderVoidCommandHandler,
+    SnapshotDeciderRepository,
+)
 from waku.eventsourcing.exceptions import (
     AggregateNotFoundError,
     ConcurrencyConflictError,
@@ -47,6 +53,9 @@ __all__ = [
     'AggregateNotFoundError',
     'AnyVersion',
     'ConcurrencyConflictError',
+    'DeciderCommandHandler',
+    'DeciderRepository',
+    'DeciderVoidCommandHandler',
     'DuplicateEventTypeError',
     'EventEnvelope',
     'EventMetadata',
@@ -70,6 +79,7 @@ __all__ = [
     'ProjectionStoppedError',
     'RegistryFrozenError',
     'RetryExhaustedError',
+    'SnapshotDeciderRepository',
     'SnapshotTypeMismatchError',
     'StoredEvent',
     'StreamExists',

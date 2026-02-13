@@ -245,20 +245,20 @@ class SqlAlchemyEventStore(IEventStore):
         for envelope in events:
             event_id = uuid.uuid4()
             now = datetime.now(UTC)
-            data = self._serializer.serialize(envelope.domain_event)
-            event_type = self._registry.get_name(type(envelope.domain_event))
+            event_type = self._registry.get_name(type(envelope.domain_event))  # pyrefly: ignore[bad-argument-type]
             metadata = enrich_metadata(envelope.metadata, self._enrichers)
-            metadata_dict = self._serialize_metadata(metadata)
 
             rows.append({
                 'event_id': event_id,
                 'stream_id': key,
                 'event_type': event_type,
                 'position': position,
-                'data': data,
-                'metadata': metadata_dict,
+                'data': self._serializer.serialize(envelope.domain_event),
+                'metadata': self._serialize_metadata(metadata),
                 'timestamp': now,
-                'schema_version': self._registry.get_version(type(envelope.domain_event)),
+                'schema_version': self._registry.get_version(
+                    type(envelope.domain_event)  # pyrefly: ignore[bad-argument-type]
+                ),
             })
             envelopes_data.append((event_id, event_type, now, envelope.domain_event, metadata))
             position += 1
