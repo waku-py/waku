@@ -71,7 +71,12 @@ class ModuleTypesExtractor:
     @staticmethod
     def _extract_provided_types(module: Module) -> set[type[object]]:
         provider = module.provider
-        deps: chain[_HasProvides] = chain(provider.factories, provider.aliases, provider.decorators)
+        deps: chain[_HasProvides] = chain(
+            provider.factories,
+            provider.aliases,
+            provider.decorators,
+            provider.factory_union_mode,
+        )
         return {dep.provides.type_hint for dep in deps}
 
 
