@@ -8,14 +8,15 @@ __all__ = ['EventTypeRegistry']
 
 
 class EventTypeRegistry:
-    __slots__ = ('_frozen', '_name_to_type', '_type_to_name')
+    __slots__ = ('_frozen', '_name_to_type', '_type_to_name', '_type_to_version')
 
     def __init__(self) -> None:
         self._name_to_type: dict[str, type[Any]] = {}
         self._type_to_name: dict[type[Any], str] = {}
+        self._type_to_version: dict[type[Any], int] = {}
         self._frozen = False
 
-    def register(self, event_type: type[Any], /, *, name: str | None = None) -> None:
+    def register(self, event_type: type[Any], /, *, name: str | None = None, version: int = 1) -> None:
         if self._frozen:
             raise RegistryFrozenError
         type_name = name or event_type.__name__
@@ -25,6 +26,7 @@ class EventTypeRegistry:
             raise DuplicateEventTypeError(type_name)
         self._name_to_type[type_name] = event_type
         self._type_to_name[event_type] = type_name
+        self._type_to_version[event_type] = version
 
     def add_alias(self, event_type: type[Any], alias: str, /) -> None:
         if self._frozen:
@@ -47,6 +49,12 @@ class EventTypeRegistry:
         except KeyError:
             raise UnknownEventTypeError(event_type.__name__) from None
 
+    def get_version(self, event_type: type[Any], /) -> int:
+        try:
+            return self._type_to_version[event_type]
+        except KeyError:
+            raise UnknownEventTypeError(event_type.__name__) from None
+
     def freeze(self) -> None:
         self._frozen = True
 
@@ -62,4 +70,5 @@ class EventTypeRegistry:
 
     def merge(self, other: EventTypeRegistry) -> None:
         for event_type, type_name in other._type_to_name.items():
-            self.register(event_type, name=type_name)
+            version = other._type_to_version.get(event_type, 1)
+            self.register(event_type, name=type_name, version=version)

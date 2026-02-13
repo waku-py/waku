@@ -184,3 +184,39 @@ def test_merge_duplicate_raises() -> None:
 
     with pytest.raises(DuplicateEventTypeError, match='OrderCreated'):
         merged.merge(registry_b)
+
+
+def test_register_with_version() -> None:
+    registry = EventTypeRegistry()
+    registry.register(OrderCreated, version=2)
+
+    assert registry.get_version(OrderCreated) == 2
+
+
+def test_default_version_is_one() -> None:
+    registry = EventTypeRegistry()
+    registry.register(OrderCreated)
+
+    assert registry.get_version(OrderCreated) == 1
+
+
+def test_get_version_for_unregistered_type_raises() -> None:
+    registry = EventTypeRegistry()
+
+    with pytest.raises(UnknownEventTypeError, match='OrderCreated'):
+        registry.get_version(OrderCreated)
+
+
+def test_merge_carries_versions() -> None:
+    registry_a = EventTypeRegistry()
+    registry_a.register(OrderCreated, version=3)
+
+    registry_b = EventTypeRegistry()
+    registry_b.register(ItemAdded, version=2)
+
+    merged = EventTypeRegistry()
+    merged.merge(registry_a)
+    merged.merge(registry_b)
+
+    assert merged.get_version(OrderCreated) == 3
+    assert merged.get_version(ItemAdded) == 2
