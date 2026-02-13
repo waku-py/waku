@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Self, TypeAlias
 
 from typing_extensions import override
 
-from waku.di import ProviderSpec, WithParents, many, object_, scoped
+from waku.di import Provider, WithParents, many, object_, scoped
 from waku.eventsourcing.contracts.event import IMetadataEnricher
+from waku.eventsourcing.exceptions import RegistryFrozenError
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore, IProjection
 from waku.eventsourcing.serialization.interfaces import IEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
@@ -20,6 +20,8 @@ from waku.extensions import OnModuleConfigure, OnModuleRegistration
 from waku.modules import DynamicModule, ModuleMetadataRegistry, module
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator, Mapping, Sequence
+
     from waku.cqrs.contracts.notification import INotification
     from waku.eventsourcing.repository import EventSourcedRepository
     from waku.modules import ModuleMetadata, ModuleType
@@ -75,12 +77,44 @@ class EventSourcingConfig:
             raise ValueError(msg)
 
 
+@dataclass(slots=True)
+class EventSourcingRegistry:
+    projection_types: list[type[IProjection]] = field(default_factory=list)
+    catch_up_projection_types: list[type[ICatchUpProjection]] = field(default_factory=list)
+    event_type_bindings: list[EventTypeSpec] = field(default_factory=list)
+    _frozen: bool = field(default=False, init=False, repr=False)
+
+    def merge(self, other: EventSourcingRegistry) -> None:
+        self._check_not_frozen()
+        self.projection_types.extend(other.projection_types)
+        self.catch_up_projection_types.extend(other.catch_up_projection_types)
+        self.event_type_bindings.extend(other.event_type_bindings)
+
+    def freeze(self) -> None:
+        self._frozen = True
+
+    def handler_providers(self) -> Iterator[Provider]:
+        if self.projection_types:
+            yield many(IProjection, *self.projection_types, collect=False)
+        if self.catch_up_projection_types:
+            yield many(ICatchUpProjection, *self.catch_up_projection_types, collect=False)
+
+    @staticmethod
+    def collector_providers() -> Iterator[Provider]:
+        yield many(IProjection, collect=True)
+        yield many(ICatchUpProjection, collect=True)
+
+    def _check_not_frozen(self) -> None:
+        if self._frozen:
+            raise RegistryFrozenError
+
+
 @module()
 class EventSourcingModule:
     @classmethod
     def register(cls, config: EventSourcingConfig | None = None, /) -> DynamicModule:
         config_ = config or EventSourcingConfig()
-        providers: list[ProviderSpec] = []
+        providers: list[Provider] = []
 
         if config_.store_factory is not None:
             providers.append(scoped(IEventStore, config_.store_factory))
@@ -104,14 +138,13 @@ class EventSourcingModule:
         elif config_.checkpoint_store is not None:
             providers.append(scoped(ICheckpointStore, config_.checkpoint_store))
 
+        providers.append(many(IMetadataEnricher, *config_.enrichers))
+
         return DynamicModule(
             parent_module=cls,
             providers=providers,
             extensions=[
-                EventTypeRegistryAggregator(has_serializer=config_.event_serializer is not None),
-                ProjectionAggregator(),
-                CatchUpProjectionAggregator(),
-                MetadataEnricherAggregator(config_.enrichers),
+                EventSourcingRegistryAggregator(has_serializer=config_.event_serializer is not None),
             ],
             is_global=True,
         )
@@ -120,7 +153,7 @@ class EventSourcingModule:
 @dataclass
 class EventSourcingExtension(OnModuleConfigure):
     _bindings: list[AggregateBinding] = field(default_factory=list, init=False)
-    _catch_up_projection_types: list[type[ICatchUpProjection]] = field(default_factory=list, init=False)
+    _registry: EventSourcingRegistry = field(default_factory=EventSourcingRegistry, init=False)
 
     def bind_aggregate(
         self,
@@ -137,19 +170,17 @@ class EventSourcingExtension(OnModuleConfigure):
                 snapshot_strategy=snapshot_strategy,
             )
         )
+        self._registry.projection_types.extend(projections)
+        self._registry.event_type_bindings.extend(event_types)
         return self
 
     def bind_catch_up_projections(self, projections: Sequence[type[ICatchUpProjection]]) -> Self:
-        self._catch_up_projection_types.extend(projections)
+        self._registry.catch_up_projection_types.extend(projections)
         return self
 
     @property
-    def bindings(self) -> Sequence[AggregateBinding]:
-        return list(self._bindings)
-
-    @property
-    def catch_up_projection_types(self) -> Sequence[type[ICatchUpProjection]]:
-        return list(self._catch_up_projection_types)
+    def registry(self) -> EventSourcingRegistry:
+        return self._registry
 
     def on_module_configure(self, metadata: ModuleMetadata) -> None:
         for binding in self._bindings:
@@ -159,7 +190,7 @@ class EventSourcingExtension(OnModuleConfigure):
                 metadata.providers.append(object_(binding.snapshot_strategy, provided_type=ISnapshotStrategy))
 
 
-class EventTypeRegistryAggregator(OnModuleRegistration):
+class EventSourcingRegistryAggregator(OnModuleRegistration):
     def __init__(self, *, has_serializer: bool = False) -> None:
         self._has_serializer = has_serializer
 
@@ -170,77 +201,34 @@ class EventTypeRegistryAggregator(OnModuleRegistration):
         owning_module: ModuleType,
         context: Mapping[Any, Any] | None,
     ) -> None:
-        aggregated = EventTypeRegistry()
-        for _module_type, ext in registry.find_extensions(EventSourcingExtension):
-            for binding in ext.bindings:
-                for item in binding.event_types:
-                    if isinstance(item, EventType):
-                        aggregated.register(item.event_type, name=item.name)
-                        for alias in item.aliases:
-                            aggregated.add_alias(item.event_type, alias)
-                    else:
-                        aggregated.register(item)
+        aggregated = EventSourcingRegistry()
+
+        for module_type, ext in registry.find_extensions(EventSourcingExtension):
+            aggregated.merge(ext.registry)
+            for provider in ext.registry.handler_providers():
+                registry.add_provider(module_type, provider)
+
+        for provider in aggregated.collector_providers():
+            registry.add_provider(owning_module, provider)
+
         aggregated.freeze()
         registry.add_provider(owning_module, object_(aggregated))
 
-        if self._has_serializer and len(aggregated) == 0:
+        event_type_registry = EventTypeRegistry()
+        for item in aggregated.event_type_bindings:
+            if isinstance(item, EventType):
+                event_type_registry.register(item.event_type, name=item.name)
+                for alias in item.aliases:
+                    event_type_registry.add_alias(item.event_type, alias)
+            else:
+                event_type_registry.register(item)
+        event_type_registry.freeze()
+        registry.add_provider(owning_module, object_(event_type_registry))
+
+        if self._has_serializer and len(event_type_registry) == 0:
             warnings.warn(
                 'A serializer is configured but no event types were registered via '
                 'bind_aggregate(event_types=[...]). Deserialization will fail at runtime.',
                 UserWarning,
                 stacklevel=1,
             )
-
-
-class ProjectionAggregator(OnModuleRegistration):
-    @override
-    def on_module_registration(
-        self,
-        registry: ModuleMetadataRegistry,
-        owning_module: ModuleType,
-        context: Mapping[Any, Any] | None,
-    ) -> None:
-        all_projection_types: list[type[Any]] = []
-        for _module_type, ext in registry.find_extensions(EventSourcingExtension):
-            for binding in ext.bindings:
-                all_projection_types.extend(binding.projections)
-
-        if all_projection_types:
-            registry.add_provider(owning_module, many(IProjection, *all_projection_types))
-        else:
-            registry.add_provider(owning_module, object_((), provided_type=Sequence[IProjection]))
-
-
-class CatchUpProjectionAggregator(OnModuleRegistration):
-    @override
-    def on_module_registration(
-        self,
-        registry: ModuleMetadataRegistry,
-        owning_module: ModuleType,
-        context: Mapping[Any, Any] | None,
-    ) -> None:
-        all_types: list[type[ICatchUpProjection]] = []
-        for _module_type, ext in registry.find_extensions(EventSourcingExtension):
-            all_types.extend(ext.catch_up_projection_types)
-
-        if all_types:
-            registry.add_provider(owning_module, many(ICatchUpProjection, *all_types))
-        else:
-            registry.add_provider(owning_module, object_((), provided_type=Sequence[ICatchUpProjection]))
-
-
-class MetadataEnricherAggregator(OnModuleRegistration):
-    def __init__(self, enricher_types: Sequence[type[IMetadataEnricher]]) -> None:
-        self._enricher_types = enricher_types
-
-    @override
-    def on_module_registration(
-        self,
-        registry: ModuleMetadataRegistry,
-        owning_module: ModuleType,
-        context: Mapping[Any, Any] | None,
-    ) -> None:
-        if self._enricher_types:
-            registry.add_provider(owning_module, many(IMetadataEnricher, *self._enricher_types))
-        else:
-            registry.add_provider(owning_module, object_((), provided_type=Sequence[IMetadataEnricher]))

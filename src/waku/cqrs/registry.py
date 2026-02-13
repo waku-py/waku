@@ -25,6 +25,11 @@ class MediatorRegistry:
         self.event_map.merge(other.event_map)
         self.behavior_map.merge(other.behavior_map)
 
+    def freeze(self) -> None:
+        self.request_map.freeze()
+        self.event_map.freeze()
+        self.behavior_map.freeze()
+
     def handler_providers(self) -> Iterator[Provider]:
         for entry in self.request_map.registry.values():
             yield scoped(entry.di_lookup_type, entry.handler_type)
