@@ -71,6 +71,13 @@ class TestAddField:
         result = add_field(from_version=1, field='new', default=0).upcast(data)
         assert result is not data
 
+    @staticmethod
+    def test_mutable_default_not_shared() -> None:
+        upcaster = add_field(from_version=1, field='tags', default=[])
+        result_a = upcaster.upcast({'x': 1})
+        result_b = upcaster.upcast({'x': 2})
+        assert result_a['tags'] is not result_b['tags']
+
 
 class TestRemoveField:
     @staticmethod

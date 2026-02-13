@@ -148,3 +148,47 @@ async def test_read_all_applies_upcasting(pg_session: AsyncSession, event_tables
     assert len(order_events) == 1
     assert isinstance(order_events[0].data, OrderCreatedV2)
     assert order_events[0].data.full_name == 'Charlie'
+
+
+async def test_alias_resolved_before_upcasting(pg_session: AsyncSession, event_tables: EventStoreTables) -> None:
+    v1_registry = EventTypeRegistry()
+    v1_registry.register(OrderCreatedV1, name='OrderCreated', version=1)
+    v1_registry.add_alias(OrderCreatedV1, 'order_created_v0')
+    v1_serializer = JsonEventSerializer(v1_registry)
+    empty_chain = UpcasterChain({})
+
+    v1_store = SqlAlchemyEventStore(
+        session=pg_session,
+        serializer=v1_serializer,
+        registry=v1_registry,
+        tables=event_tables,
+        upcaster_chain=empty_chain,
+    )
+    stream_id = StreamId.for_aggregate('Order', 'alias-1')
+    await v1_store.append_to_stream(
+        stream_id,
+        [EventEnvelope(domain_event=OrderCreatedV1(name='Diana'))],
+        expected_version=NoStream(),
+    )
+
+    v2_registry = EventTypeRegistry()
+    v2_registry.register(OrderCreatedV2, name='OrderCreated', version=2)
+    v2_serializer = JsonEventSerializer(v2_registry)
+    chain = UpcasterChain({
+        'OrderCreated': [
+            rename_field(from_version=1, old='name', new='full_name'),
+        ],
+    })
+
+    v2_store = SqlAlchemyEventStore(
+        session=pg_session,
+        serializer=v2_serializer,
+        registry=v2_registry,
+        tables=event_tables,
+        upcaster_chain=chain,
+    )
+    events = await v2_store.read_stream(stream_id)
+
+    assert len(events) == 1
+    assert isinstance(events[0].data, OrderCreatedV2)
+    assert events[0].data.full_name == 'Diana'
