@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING, Any
 
 from waku.eventsourcing.upcasting.fn import FnUpcaster
@@ -36,7 +37,7 @@ def add_field(from_version: int, *, field: str, default: Any) -> IEventUpcaster:
     def _add(data: dict[str, Any]) -> dict[str, Any]:
         result = dict(data)
         if field not in result:
-            result[field] = default
+            result[field] = copy.copy(default)
         return result
 
     return FnUpcaster(from_version, fn=_add)
