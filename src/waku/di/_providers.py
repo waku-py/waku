@@ -173,6 +173,7 @@ def many(
     scope: Scope = Scope.REQUEST,
     cache: bool = True,
     when: BaseMarker | None = None,
+    collect: bool = True,
 ) -> Provider:
     """Register multiple implementations as a collection.
 
@@ -182,20 +183,23 @@ def many(
         scope: Scope of the collection (default: Scope.REQUEST).
         cache: Whether to cache the resolve results within scope.
         when: Optional marker to conditionally activate the provider.
+        collect: Whether to include collect+alias for Sequence/list resolution.
+            Set to False to only register implementations without the collector.
 
     Returns:
         Provider configured for collection resolution.
 
     Raises:
-        ValueError: If no implementations are provided.
+        ValueError: If no implementations and collect is False.
     """
-    if not implementations:
-        msg = 'At least one implementation must be provided'
+    if not implementations and not collect:
+        msg = 'At least one implementation must be provided when collect=False'
         raise ValueError(msg)
 
     provider_ = Provider(scope=scope)
     for impl in implementations:
         provider_.provide(impl, provides=interface, cache=cache, when=when)
-    provider_.collect(interface, scope=scope, cache=cache, provides=Sequence[interface])
-    provider_.alias(Sequence[interface], provides=list[interface], cache=cache)
+    if collect:
+        provider_.collect(interface, scope=scope, cache=cache, provides=Sequence[interface])
+        provider_.alias(Sequence[interface], provides=list[interface], cache=cache)
     return provider_

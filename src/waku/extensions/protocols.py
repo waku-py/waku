@@ -18,6 +18,7 @@ __all__ = [
     'OnApplicationShutdown',
     'OnModuleConfigure',
     'OnModuleDestroy',
+    'OnModuleDiscover',
     'OnModuleInit',
     'OnModuleRegistration',
 ]
@@ -92,6 +93,13 @@ class OnModuleRegistration(Protocol):
 
 
 @runtime_checkable
+class OnModuleDiscover(Protocol):
+    """Marker for extensions discoverable via find_extensions() without requiring lifecycle hooks."""
+
+    __slots__ = ()
+
+
+@runtime_checkable
 class OnModuleConfigure(Protocol):
     """Extension for module configuration."""
 
@@ -123,4 +131,6 @@ class OnModuleDestroy(Protocol):
 ApplicationExtension: TypeAlias = (
     OnApplicationInit | AfterApplicationInit | OnApplicationShutdown | OnModuleRegistration
 )
-ModuleExtension: TypeAlias = OnModuleConfigure | OnModuleInit | OnModuleDestroy | OnModuleRegistration
+ModuleExtension: TypeAlias = (
+    OnModuleConfigure | OnModuleInit | OnModuleDestroy | OnModuleRegistration | OnModuleDiscover
+)

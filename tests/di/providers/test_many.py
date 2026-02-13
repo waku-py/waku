@@ -88,8 +88,26 @@ def test_many_provider_empty_implementations_error() -> None:
     class IEmpty(Protocol):
         pass
 
-    with pytest.raises(ValueError, match='At least one implementation must be provided'):
-        many(IEmpty)
+    with pytest.raises(ValueError, match='At least one implementation must be provided when collect=False'):
+        many(IEmpty, collect=False)
+
+
+async def test_many_provider_collect_only_without_implementations() -> None:
+    class IEmpty(Protocol):
+        pass
+
+    AppModule = create_basic_module(
+        providers=[many(IEmpty)],
+        name='AppModule',
+    )
+
+    app = WakuFactory(AppModule).create()
+
+    async with app, app.container() as container:
+        services_seq = await container.get(Sequence[IEmpty])
+        services_list = await container.get(list[IEmpty])
+        assert list(services_seq) == []
+        assert services_list == []
 
 
 async def test_many_provider_with_factory_function() -> None:
