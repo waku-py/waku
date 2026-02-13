@@ -48,3 +48,4 @@ class StoredEvent:
     timestamp: datetime
     data: INotification
     metadata: EventMetadata
+    schema_version: int = 1
