@@ -4,7 +4,12 @@ from dataclasses import dataclass
 
 import pytest
 
-from waku.eventsourcing.exceptions import DuplicateEventTypeError, RegistryFrozenError, UnknownEventTypeError
+from waku.eventsourcing.exceptions import (
+    ConflictingEventTypeError,
+    DuplicateEventTypeError,
+    RegistryFrozenError,
+    UnknownEventTypeError,
+)
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 
 
@@ -60,20 +65,38 @@ def test_resolve_unknown_type_raises() -> None:
         registry.resolve('NonExistent')
 
 
-def test_duplicate_name_registration_raises() -> None:
+def test_register_idempotent_same_type_name_version() -> None:
+    registry = EventTypeRegistry()
+    registry.register(OrderCreated)
+    registry.register(OrderCreated)
+
+    assert registry.resolve('OrderCreated') is OrderCreated
+    assert len(registry) == 1
+
+
+def test_register_idempotent_with_custom_name_and_version() -> None:
+    registry = EventTypeRegistry()
+    registry.register(OrderCreated, name='order.created', version=3)
+    registry.register(OrderCreated, name='order.created', version=3)
+
+    assert registry.resolve('order.created') is OrderCreated
+    assert registry.get_version(OrderCreated) == 3
+
+
+def test_register_conflicting_name_raises() -> None:
     registry = EventTypeRegistry()
     registry.register(OrderCreated)
 
-    with pytest.raises(DuplicateEventTypeError, match='OrderCreated'):
-        registry.register(OrderCreated)
-
-
-def test_same_type_with_different_name_raises() -> None:
-    registry = EventTypeRegistry()
-    registry.register(OrderCreated)
-
-    with pytest.raises(DuplicateEventTypeError, match='OrderCreated'):
+    with pytest.raises(ConflictingEventTypeError, match=r"name 'OrderCreated' → 'order_created_v2'"):
         registry.register(OrderCreated, name='order_created_v2')
+
+
+def test_register_conflicting_version_raises() -> None:
+    registry = EventTypeRegistry()
+    registry.register(OrderCreated, version=1)
+
+    with pytest.raises(ConflictingEventTypeError, match=r'version v1 → v2'):
+        registry.register(OrderCreated, version=2)
 
 
 def test_alias_resolves_to_same_type() -> None:
@@ -83,6 +106,25 @@ def test_alias_resolves_to_same_type() -> None:
 
     assert registry.resolve('order_created_v0') is OrderCreated
     assert registry.get_name(OrderCreated) == 'OrderCreated'
+
+
+def test_alias_idempotent_same_type() -> None:
+    registry = EventTypeRegistry()
+    registry.register(OrderCreated)
+    registry.add_alias(OrderCreated, 'order_v0')
+    registry.add_alias(OrderCreated, 'order_v0')
+
+    assert registry.resolve('order_v0') is OrderCreated
+
+
+def test_alias_same_name_different_type_raises() -> None:
+    registry = EventTypeRegistry()
+    registry.register(OrderCreated)
+    registry.register(ItemAdded)
+    registry.add_alias(OrderCreated, 'shared_alias')
+
+    with pytest.raises(DuplicateEventTypeError, match='shared_alias'):
+        registry.add_alias(ItemAdded, 'shared_alias')
 
 
 def test_alias_for_unregistered_type_raises() -> None:
@@ -144,46 +186,12 @@ def test_len() -> None:
     assert len(registry) == 2
 
 
-def test_merge() -> None:
-    registry_a = EventTypeRegistry()
-    registry_a.register(OrderCreated)
-
-    registry_b = EventTypeRegistry()
-    registry_b.register(ItemAdded)
-
-    merged = EventTypeRegistry()
-    merged.merge(registry_a)
-    merged.merge(registry_b)
-
-    assert merged.resolve('OrderCreated') is OrderCreated
-    assert merged.resolve('ItemAdded') is ItemAdded
-    assert len(merged) == 2
-
-
-def test_merge_after_freeze_raises() -> None:
+def test_different_type_same_name_raises() -> None:
     registry = EventTypeRegistry()
-    registry.register(OrderCreated)
-    registry.freeze()
+    registry.register(OrderCreated, name='shared_name')
 
-    other = EventTypeRegistry()
-    other.register(ItemAdded)
-
-    with pytest.raises(RegistryFrozenError):
-        registry.merge(other)
-
-
-def test_merge_duplicate_raises() -> None:
-    registry_a = EventTypeRegistry()
-    registry_a.register(OrderCreated)
-
-    registry_b = EventTypeRegistry()
-    registry_b.register(OrderCreated)
-
-    merged = EventTypeRegistry()
-    merged.merge(registry_a)
-
-    with pytest.raises(DuplicateEventTypeError, match='OrderCreated'):
-        merged.merge(registry_b)
+    with pytest.raises(DuplicateEventTypeError, match='shared_name'):
+        registry.register(ItemAdded, name='shared_name')
 
 
 def test_register_with_version() -> None:
@@ -205,18 +213,3 @@ def test_get_version_for_unregistered_type_raises() -> None:
 
     with pytest.raises(UnknownEventTypeError, match='OrderCreated'):
         registry.get_version(OrderCreated)
-
-
-def test_merge_carries_versions() -> None:
-    registry_a = EventTypeRegistry()
-    registry_a.register(OrderCreated, version=3)
-
-    registry_b = EventTypeRegistry()
-    registry_b.register(ItemAdded, version=2)
-
-    merged = EventTypeRegistry()
-    merged.merge(registry_a)
-    merged.merge(registry_b)
-
-    assert merged.get_version(OrderCreated) == 3
-    assert merged.get_version(ItemAdded) == 2

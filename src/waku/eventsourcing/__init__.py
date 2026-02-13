@@ -18,6 +18,7 @@ from waku.eventsourcing.decider import (
 from waku.eventsourcing.exceptions import (
     AggregateNotFoundError,
     ConcurrencyConflictError,
+    ConflictingEventTypeError,
     DuplicateEventTypeError,
     EventSourcingError,
     ProjectionError,
@@ -53,6 +54,7 @@ __all__ = [
     'AggregateNotFoundError',
     'AnyVersion',
     'ConcurrencyConflictError',
+    'ConflictingEventTypeError',
     'DeciderCommandHandler',
     'DeciderRepository',
     'DeciderVoidCommandHandler',

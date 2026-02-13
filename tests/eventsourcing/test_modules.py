@@ -286,6 +286,165 @@ async def test_upcaster_from_version_gte_event_version_raises() -> None:
             pass
 
 
+class ItemLog(EventSourcedAggregate):
+    def __init__(self) -> None:
+        super().__init__()
+        self.entries: list[str] = []
+
+    def _apply(self, event: INotification) -> None:
+        match event:
+            case ItemCreated(name=name):
+                self.entries.append(name)
+
+
+class ItemLogRepository(EventSourcedRepository[ItemLog]):
+    pass
+
+
+async def test_same_event_type_across_two_modules() -> None:
+    producer_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemRepository,
+        event_types=[ItemCreated],
+    )
+    consumer_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemLogRepository,
+        event_types=[ItemCreated],
+    )
+
+    @module(
+        imports=[EventSourcingModule.register()],
+        extensions=[producer_ext],
+    )
+    class ProducerModule:
+        pass
+
+    @module(
+        extensions=[consumer_ext],
+    )
+    class ConsumerModule:
+        pass
+
+    async with (
+        create_test_app(imports=[ProducerModule, ConsumerModule]) as app,
+        app.container() as container,
+    ):
+        registry = await container.get(EventTypeRegistry)
+        assert registry.resolve('ItemCreated') is ItemCreated
+        assert registry.get_version(ItemCreated) == 1
+
+
+async def test_same_event_type_with_aliases_across_two_modules() -> None:
+    shared_event = EventType(ItemCreated, aliases=['item_created_v0'])
+
+    producer_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemRepository,
+        event_types=[shared_event],
+    )
+    consumer_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemLogRepository,
+        event_types=[shared_event],
+    )
+
+    @module(
+        imports=[EventSourcingModule.register()],
+        extensions=[producer_ext],
+    )
+    class ProducerModule:
+        pass
+
+    @module(
+        extensions=[consumer_ext],
+    )
+    class ConsumerModule:
+        pass
+
+    async with (
+        create_test_app(imports=[ProducerModule, ConsumerModule]) as app,
+        app.container() as container,
+    ):
+        registry = await container.get(EventTypeRegistry)
+        assert registry.resolve('ItemCreated') is ItemCreated
+        assert registry.resolve('item_created_v0') is ItemCreated
+
+
+async def test_same_upcasters_across_two_modules() -> None:
+    shared_event = EventType(
+        ItemCreated,
+        version=2,
+        upcasters=[rename_field(from_version=1, old='name', new='full_name')],
+    )
+
+    producer_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemRepository,
+        event_types=[shared_event],
+    )
+    consumer_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemLogRepository,
+        event_types=[shared_event],
+    )
+
+    @module(
+        imports=[EventSourcingModule.register()],
+        extensions=[producer_ext],
+    )
+    class ProducerModule:
+        pass
+
+    @module(
+        extensions=[consumer_ext],
+    )
+    class ConsumerModule:
+        pass
+
+    async with (
+        create_test_app(imports=[ProducerModule, ConsumerModule]) as app,
+        app.container() as container,
+    ):
+        chain = await container.get(UpcasterChain)
+        result = chain.upcast('ItemCreated', {'name': 'Widget'}, schema_version=1)
+        assert result == {'full_name': 'Widget'}
+
+
+async def test_conflicting_upcasters_across_modules_raises() -> None:
+    producer_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemRepository,
+        event_types=[
+            EventType(
+                ItemCreated,
+                version=2,
+                upcasters=[rename_field(from_version=1, old='name', new='full_name')],
+            ),
+        ],
+    )
+    consumer_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemLogRepository,
+        event_types=[
+            EventType(
+                ItemCreated,
+                version=2,
+                upcasters=[add_field(from_version=1, field='x', default=0)],
+            ),
+        ],
+    )
+
+    @module(
+        imports=[EventSourcingModule.register()],
+        extensions=[producer_ext],
+    )
+    class ProducerModule:
+        pass
+
+    @module(
+        extensions=[consumer_ext],
+    )
+    class ConsumerModule:
+        pass
+
+    with pytest.raises(UpcasterChainError, match='Conflicting upcaster definitions'):
+        async with create_test_app(imports=[ProducerModule, ConsumerModule]):
+            pass
+
+
 async def test_empty_upcaster_chain_always_registered() -> None:
     es_ext = EventSourcingExtension().bind_aggregate(
         repository=ItemRepository,

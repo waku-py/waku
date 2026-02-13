@@ -5,6 +5,7 @@ from waku.exceptions import WakuError
 __all__ = [
     'AggregateNotFoundError',
     'ConcurrencyConflictError',
+    'ConflictingEventTypeError',
     'DuplicateEventTypeError',
     'EventSourcingError',
     'ProjectionError',
@@ -56,6 +57,27 @@ class DuplicateEventTypeError(EventSourcingError):
     def __init__(self, event_type_name: str) -> None:
         self.event_type_name = event_type_name
         super().__init__(f'Event type {event_type_name!r} is already registered')
+
+
+class ConflictingEventTypeError(EventSourcingError):
+    def __init__(
+        self,
+        event_type: type,
+        existing_name: str,
+        existing_version: int,
+        attempted_name: str,
+        attempted_version: int,
+    ) -> None:
+        self.event_type = event_type
+        self.existing_name = existing_name
+        self.existing_version = existing_version
+        self.attempted_name = attempted_name
+        self.attempted_version = attempted_version
+        if existing_name != attempted_name:
+            detail = f'name {existing_name!r} → {attempted_name!r}'
+        else:
+            detail = f'version v{existing_version} → v{attempted_version}'
+        super().__init__(f'Conflicting registration for event type {event_type.__name__!r}: {detail}')
 
 
 class SnapshotTypeMismatchError(EventSourcingError):
