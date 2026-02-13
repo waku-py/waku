@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from waku.eventsourcing.exceptions import DuplicateEventTypeError, RegistryFrozenError, UnknownEventTypeError
+from waku.eventsourcing.exceptions import (
+    ConflictingEventTypeError,
+    DuplicateEventTypeError,
+    RegistryFrozenError,
+    UnknownEventTypeError,
+)
 
 if TYPE_CHECKING:
     from waku.cqrs.contracts.notification import INotification
@@ -23,10 +28,17 @@ class EventTypeRegistry:
         if self._frozen:
             raise RegistryFrozenError
         type_name = name or event_type.__name__
+
         if event_type in self._type_to_name:
-            raise DuplicateEventTypeError(self._type_to_name[event_type])
+            existing_name = self._type_to_name[event_type]
+            existing_version = self._type_to_version[event_type]
+            if existing_name == type_name and existing_version == version:
+                return
+            raise ConflictingEventTypeError(event_type, existing_name, existing_version, type_name, version)
+
         if type_name in self._name_to_type:
             raise DuplicateEventTypeError(type_name)
+
         self._name_to_type[type_name] = event_type
         self._type_to_name[event_type] = type_name
         self._type_to_version[event_type] = version
@@ -37,6 +49,8 @@ class EventTypeRegistry:
         if event_type not in self._type_to_name:
             raise UnknownEventTypeError(event_type.__name__)
         if alias in self._name_to_type:
+            if self._name_to_type[alias] is event_type:
+                return
             raise DuplicateEventTypeError(alias)
         self._name_to_type[alias] = event_type
 
@@ -70,8 +84,3 @@ class EventTypeRegistry:
 
     def __len__(self) -> int:
         return len(self._name_to_type)
-
-    def merge(self, other: EventTypeRegistry) -> None:
-        for event_type, type_name in other._type_to_name.items():
-            version = other._type_to_version.get(event_type, 1)
-            self.register(event_type, name=type_name, version=version)

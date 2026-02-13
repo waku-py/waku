@@ -285,24 +285,35 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
 
     @classmethod
     def _build_type_registry(cls, aggregated: EventSourcingRegistry) -> tuple[EventTypeRegistry, UpcasterChain]:
-        event_type_registry = EventTypeRegistry()
-        upcasters_by_type: dict[str, list[IEventUpcaster]] = {}
+        registry = EventTypeRegistry()
+        upcasters: dict[str, Sequence[IEventUpcaster]] = {}
 
-        for item in aggregated.event_type_bindings:
-            if isinstance(item, EventType):
-                event_type_registry.register(item.event_type, name=item.name, version=item.version)
-                for alias in item.aliases:
-                    event_type_registry.add_alias(item.event_type, alias)
+        for spec in cls._deduplicate(aggregated.event_type_bindings):
+            item = spec if isinstance(spec, EventType) else EventType(spec)
 
-                if item.upcasters:
-                    type_name = item.name or item.event_type.__name__
-                    cls._validate_upcaster_versions(item.upcasters, type_name, item.version)
-                    upcasters_by_type[type_name] = list(item.upcasters)
-            else:
-                event_type_registry.register(item)
+            registry.register(item.event_type, name=item.name, version=item.version)
+            for alias in item.aliases:
+                registry.add_alias(item.event_type, alias)
 
-        event_type_registry.freeze()
-        return event_type_registry, UpcasterChain(upcasters_by_type)
+            if item.upcasters:
+                type_name = item.name or item.event_type.__name__
+                cls._validate_upcaster_versions(item.upcasters, type_name, item.version)
+                if type_name in upcasters and upcasters[type_name] is not item.upcasters:
+                    msg = f'Conflicting upcaster definitions for event type {type_name!r}'
+                    raise UpcasterChainError(msg)
+                upcasters[type_name] = item.upcasters
+
+        registry.freeze()
+        return registry, UpcasterChain({k: list(v) for k, v in upcasters.items()})
+
+    @staticmethod
+    def _deduplicate(bindings: Sequence[EventTypeSpec]) -> Iterator[EventTypeSpec]:
+        seen: set[int] = set()
+        for item in bindings:
+            item_id = id(item)
+            if item_id not in seen:
+                seen.add(item_id)
+                yield item
 
     @staticmethod
     def _validate_upcaster_versions(upcasters: Sequence[IEventUpcaster], type_name: str, version: int) -> None:
