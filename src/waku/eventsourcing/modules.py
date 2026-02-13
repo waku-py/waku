@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import typing
 import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Self, TypeAlias
 
-from typing_extensions import override
+from typing_extensions import get_original_bases, override
 
 from waku.di import Provider, WithParents, many, object_, scoped
+from waku.eventsourcing.contracts.aggregate import IDecider
 from waku.eventsourcing.contracts.event import IMetadataEnricher
+from waku.eventsourcing.decider.repository import DeciderRepository
 from waku.eventsourcing.exceptions import RegistryFrozenError, UpcasterChainError
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore, IProjection
 from waku.eventsourcing.serialization.interfaces import IEventSerializer
@@ -27,6 +30,7 @@ if TYPE_CHECKING:
     from waku.eventsourcing.repository import EventSourcedRepository
     from waku.eventsourcing.upcasting.interfaces import IEventUpcaster
     from waku.modules import ModuleMetadata, ModuleType
+
 
 __all__ = [
     'EventSourcingConfig',
@@ -53,7 +57,16 @@ EventTypeSpec: TypeAlias = 'type[INotification] | EventType'
 class AggregateBinding:
     repository: type[EventSourcedRepository[Any]]
     event_types: Sequence[EventTypeSpec] = ()
-    projections: Sequence[type[Any]] = ()
+    projections: Sequence[type[IProjection]] = ()
+    snapshot_strategy: ISnapshotStrategy | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DeciderBinding:
+    repository: type[DeciderRepository[Any, Any, Any]]
+    decider: type[IDecider[Any, Any, Any]]
+    event_types: Sequence[EventTypeSpec] = ()
+    projections: Sequence[type[IProjection]] = ()
     snapshot_strategy: ISnapshotStrategy | None = None
 
 
@@ -157,18 +170,40 @@ class EventSourcingModule:
 @dataclass
 class EventSourcingExtension(OnModuleConfigure):
     _bindings: list[AggregateBinding] = field(default_factory=list, init=False)
+    _decider_bindings: list[DeciderBinding] = field(default_factory=list, init=False)
     _registry: EventSourcingRegistry = field(default_factory=EventSourcingRegistry, init=False)
 
     def bind_aggregate(
         self,
         repository: type[EventSourcedRepository[Any]],
         event_types: Sequence[EventTypeSpec] = (),
-        projections: Sequence[type[Any]] = (),
+        projections: Sequence[type[IProjection]] = (),
         snapshot_strategy: ISnapshotStrategy | None = None,
     ) -> Self:
         self._bindings.append(
             AggregateBinding(
                 repository=repository,
+                event_types=event_types,
+                projections=projections,
+                snapshot_strategy=snapshot_strategy,
+            )
+        )
+        self._registry.projection_types.extend(projections)
+        self._registry.event_type_bindings.extend(event_types)
+        return self
+
+    def bind_decider(
+        self,
+        repository: type[DeciderRepository[Any, Any, Any]],
+        decider: type[IDecider[Any, Any, Any]],
+        event_types: Sequence[EventTypeSpec] = (),
+        projections: Sequence[type[IProjection]] = (),
+        snapshot_strategy: ISnapshotStrategy | None = None,
+    ) -> Self:
+        self._decider_bindings.append(
+            DeciderBinding(
+                repository=repository,
+                decider=decider,
                 event_types=event_types,
                 projections=projections,
                 snapshot_strategy=snapshot_strategy,
@@ -193,14 +228,23 @@ class EventSourcingExtension(OnModuleConfigure):
             if binding.snapshot_strategy is not None:
                 metadata.providers.append(object_(binding.snapshot_strategy, provided_type=ISnapshotStrategy))
 
+        for binding in self._decider_bindings:
+            repo_type = binding.repository
+            metadata.providers.append(scoped(WithParents[repo_type], repo_type))  # type: ignore[misc,valid-type]
+            decider_iface = self._resolve_decider_interface(repo_type)
+            metadata.providers.append(scoped(decider_iface, binding.decider))
+            if binding.snapshot_strategy is not None:
+                metadata.providers.append(object_(binding.snapshot_strategy, provided_type=ISnapshotStrategy))
 
-def _validate_upcaster_versions(upcasters: Sequence[IEventUpcaster], type_name: str, version: int) -> None:
-    for u in upcasters:
-        if u.from_version >= version:
-            msg = (
-                f'Upcaster from_version {u.from_version} for event type {type_name!r} must be < event version {version}'
-            )
-            raise UpcasterChainError(msg)
+    @staticmethod
+    def _resolve_decider_interface(repo_type: type[Any]) -> type[Any]:
+        for base in get_original_bases(repo_type):
+            origin = typing.get_origin(base)
+            if origin is not None and isinstance(origin, type) and issubclass(origin, DeciderRepository):
+                args = typing.get_args(base)
+                if len(args) == 3:  # noqa: PLR2004
+                    return IDecider[args[0], args[1], args[2]]  # type: ignore[valid-type]
+        return IDecider
 
 
 class EventSourcingRegistryAggregator(OnModuleRegistration):
@@ -239,8 +283,8 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
                 stacklevel=1,
             )
 
-    @staticmethod
-    def _build_type_registry(aggregated: EventSourcingRegistry) -> tuple[EventTypeRegistry, UpcasterChain]:
+    @classmethod
+    def _build_type_registry(cls, aggregated: EventSourcingRegistry) -> tuple[EventTypeRegistry, UpcasterChain]:
         event_type_registry = EventTypeRegistry()
         upcasters_by_type: dict[str, list[IEventUpcaster]] = {}
 
@@ -252,10 +296,20 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
 
                 if item.upcasters:
                     type_name = item.name or item.event_type.__name__
-                    _validate_upcaster_versions(item.upcasters, type_name, item.version)
+                    cls._validate_upcaster_versions(item.upcasters, type_name, item.version)
                     upcasters_by_type[type_name] = list(item.upcasters)
             else:
                 event_type_registry.register(item)
 
         event_type_registry.freeze()
         return event_type_registry, UpcasterChain(upcasters_by_type)
+
+    @staticmethod
+    def _validate_upcaster_versions(upcasters: Sequence[IEventUpcaster], type_name: str, version: int) -> None:
+        for u in upcasters:
+            if u.from_version >= version:
+                msg = (
+                    f'Upcaster from_version {u.from_version} for event type {type_name!r} '
+                    f'must be < event version {version}'
+                )
+                raise UpcasterChainError(msg)

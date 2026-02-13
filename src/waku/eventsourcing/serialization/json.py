@@ -36,4 +36,4 @@ class JsonEventSerializer(IEventSerializer):
     @override
     def deserialize(self, data: dict[str, Any], event_type: str, /) -> INotification:
         cls = self._registry.resolve(event_type)
-        return cast('INotification', self._retort.load(data, cls))
+        return self._retort.load(data, cls)

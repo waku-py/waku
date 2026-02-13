@@ -3,21 +3,22 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
+from waku.cqrs.contracts.notification import INotification
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
-
-    from waku.cqrs.contracts.notification import INotification
 
 __all__ = [
     'CommandT',
     'EventSourcedAggregate',
     'EventT',
+    'IDecider',
     'StateT',
 ]
 
 StateT = TypeVar('StateT')
 CommandT = TypeVar('CommandT', contravariant=True)  # noqa: PLC0105
-EventT = TypeVar('EventT')
+EventT = TypeVar('EventT', bound=INotification)
 
 
 class IDecider(Protocol[StateT, CommandT, EventT]):
