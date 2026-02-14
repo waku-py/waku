@@ -112,7 +112,7 @@ In this example:
 - `scoped` indicates this provider should be created once for every container context entrance.
 
 !!! info
-    For more information on providers and scopes, see [Providers](core/providers.md#scopes).
+    For more information on providers and scopes, see [Providers](fundamentals/providers.md#scopes).
 
 ### Application Bootstrap
 
@@ -139,7 +139,7 @@ async with application, application.container() as container:
 
 The `application.container()` context manager creates a scoped session where providers are resolved and
 managed. In real applications, you would typically wire this into the `lifespan` of your framework — see
-[Framework Integrations](core/integrations.md).
+[Framework Integrations](fundamentals/integrations.md).
 
 ## Creating a More Realistic Application
 
@@ -245,10 +245,10 @@ Available languages: ['en', 'es', 'fr']
 Now that you have a basic understanding of `waku`, you can:
 
 1. Explore more advanced features like [Mediator (CQRS)](extensions/cqrs.md)
-2. Learn about [Extensions](extensions/index.md) for adding functionality to your application
-3. Integrate with web frameworks like [FastAPI](core/integrations.md)
-4. Understand [Module System](core/modules.md) in depth
-5. Explore [Dependency Injection](core/providers.md) techniques
+2. Learn about [Extensions](extensions/lifecycle.md) for adding functionality to your application
+3. Integrate with web frameworks like [FastAPI](fundamentals/integrations.md)
+4. Understand [Module System](fundamentals/modules.md) in depth
+5. Explore [Dependency Injection](fundamentals/providers.md) techniques
 
 `waku` modular architecture allows your application to grow while maintaining clear separation of concerns and a clean,
 maintainable codebase.

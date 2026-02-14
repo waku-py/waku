@@ -23,6 +23,7 @@ hide:
 [![CI/CD](https://img.shields.io/github/actions/workflow/status/waku-py/waku/release.yml?branch=master&logo=github&label=CI/CD)](https://github.com/waku-py/waku/actions?query=event%3Apush+branch%3Amaster+workflow%3ACI/CD)
 [![codecov](https://codecov.io/gh/waku-py/waku/graph/badge.svg?token=3M64SAF38A)](https://codecov.io/gh/waku-py/waku)
 [![GitHub license](https://img.shields.io/github/license/waku-py/waku)](https://github.com/waku-py/waku/blob/master/LICENSE)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/waku-py/waku)
 
 </div>
 
@@ -51,13 +52,13 @@ Inspired by [NestJS](https://nestjs.com/), powered by [Dishka](https://github.co
 
 !!! abstract "Modular Architecture"
 
-    Group related code into [modules](core/modules.md) with explicit imports and exports
+    Group related code into [modules](fundamentals/modules.md) with explicit imports and exports
     for clear boundaries and responsibilities.
 
 !!! abstract "Dependency Injection"
 
     Built on [Dishka](https://github.com/reagento/dishka/) with flexible
-    [provider patterns](core/providers.md) — singleton, scoped, transient — swap
+    [provider patterns](fundamentals/providers.md) — singleton, scoped, transient — swap
     implementations easily.
 
 !!! abstract "Mediator & CQRS"
@@ -74,12 +75,12 @@ Inspired by [NestJS](https://nestjs.com/), powered by [Dishka](https://github.co
 !!! abstract "Extensions & Lifecycle"
 
     Hook into the app lifecycle for logging, validation, and custom logic with
-    [extensions](extensions/index.md) and [lifespan management](core/lifespan.md).
+    [extensions](extensions/lifecycle.md) and [lifespan management](fundamentals/lifespan.md).
 
 !!! abstract "Framework Integrations"
 
     Works with FastAPI, Litestar, FastStream, Aiogram, and
-    [more](core/integrations.md) — no vendor lock-in.
+    [more](fundamentals/integrations.md) — no vendor lock-in.
 
 </div>
 
@@ -103,7 +104,7 @@ Inspired by [NestJS](https://nestjs.com/), powered by [Dishka](https://github.co
 !!! info ""
 
     waku is **framework-agnostic** — entrypoints (HTTP handlers, message consumers, etc.)
-    are provided by [integrations](core/integrations.md), not the core.
+    are provided by [integrations](fundamentals/integrations.md), not the core.
 
 ## Quick Example
 
@@ -215,12 +216,6 @@ Inspired by [NestJS](https://nestjs.com/), powered by [Dishka](https://github.co
     ---
 
     Build your first application step by step
-
--   :material-book-open-variant: **[Examples](examples/modularity.md)**
-
-    ---
-
-    See real-world usage patterns
 
 -   :material-api: **[API Reference](reference.md)**
 
