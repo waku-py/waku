@@ -10,14 +10,21 @@ docs_dir = "docs"
 nav = [
   { "Overview" = "index.md" },
   { "Getting Started" = "getting-started.md" },
-  { "Core" = [
-    "core/providers.md",
-    "core/modules.md",
-    "core/lifespan.md",
-    "core/integrations.md",
+  { "Fundamentals" = [
+    "fundamentals/providers.md",
+    "fundamentals/modules.md",
+    "fundamentals/lifespan.md",
+    "fundamentals/integrations.md",
+    "fundamentals/testing.md",
+  ] },
+  { "Advanced" = [
+    "advanced/conditional-providers.md",
+    "advanced/multi-bindings.md",
+    "advanced/di-patterns.md",
+    "advanced/custom-extensions.md",
   ] },
   { "Extensions" = [
-    "extensions/index.md",
+    { "Lifecycle Hooks" = "extensions/lifecycle.md" },
     { "Mediator (CQRS)" = "extensions/cqrs.md" },
     { "Validation" = "extensions/validation.md" },
     { "Event Sourcing" = [
