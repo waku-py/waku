@@ -8,7 +8,7 @@ title: Multi-bindings
 
 Many applications need to work with **multiple implementations of the same interface** at once.
 A plugin system that loads every registered plugin, a validation pipeline that runs all validators
-in sequence, or a notification dispatcher that fans out to every channel -- all of these require
+in sequence, or a notification dispatcher that fans out to every channel — all of these require
 injecting a *collection* of implementations rather than a single one.
 
 Waku's `many()` helper solves this by registering any number of implementations for an interface
@@ -59,7 +59,7 @@ registered.
 
 ## Injection
 
-You can request the collection using either `Sequence[Interface]` or `list[Interface]` --
+You can request the collection using either `Sequence[Interface]` or `list[Interface]` —
 both resolve to the same instances:
 
 ```python linenums="1"
@@ -105,7 +105,7 @@ many(IPlugin, AuthPlugin, LoggingPlugin, scope=Scope.REQUEST)
 ### `cache`
 
 When `True` (the default), each implementation is resolved once per scope entry and reused
-within that scope. Set to `False` for transient behavior -- a fresh instance on every injection:
+within that scope. Set to `False` for transient behavior — a fresh instance on every injection:
 
 ```python linenums="1"
 from waku.di import many
@@ -168,7 +168,7 @@ class PluginHostModule:
     When `collect=False`, you must provide at least one implementation. Calling
     `many(IPlugin, collect=False)` with no implementations raises `ValueError`.
 
-When `collect=True` (the default), passing no implementations is valid -- it creates a
+When `collect=True` (the default), passing no implementations is valid — it creates a
 collector that resolves to an empty list. This is useful when implementations are registered
 in child modules.
 
@@ -198,7 +198,7 @@ class PhoneValidator:
         return value.isdigit() and len(value) >= 10
 
 
-# Factory function -- return type annotation is required
+# Factory function — return type annotation is required
 def regex_validator_factory() -> IValidator:
     import re
     pattern = re.compile(r'^[a-zA-Z]+$')
@@ -404,16 +404,16 @@ def many(
 
 Under the hood, `many()` builds a Dishka `Provider` with three layers:
 
-1. **Individual registrations** -- each implementation is registered via `provider.provide(impl, provides=interface)`.
-2. **Collector** -- `provider.collect(interface)` creates a `Sequence[interface]` that aggregates all registered implementations (Dishka's built-in collection mechanism).
-3. **Alias** -- `provider.alias(Sequence[interface], provides=list[interface])` makes the collection available as `list[interface]` too.
+1. **Individual registrations** — each implementation is registered via `provider.provide(impl, provides=interface)`.
+2. **Collector** — `provider.collect(interface)` creates a `Sequence[interface]` that aggregates all registered implementations (Dishka's built-in collection mechanism).
+3. **Alias** — `provider.alias(Sequence[interface], provides=list[interface])` makes the collection available as `list[interface]` too.
 
 When `collect=False`, only step 1 runs. This lets you split registration across modules while
 keeping a single collection point.
 
 ## Further reading
 
-- [Providers](../fundamentals/providers.md) -- provider types and scopes
-- [Conditional Providers](conditional-providers.md) -- `when=` parameter and markers
-- [Modules](../fundamentals/modules.md) -- module system and provider registration
-- [Dishka collections](https://dishka.readthedocs.io/en/stable/advanced/collect.html) -- underlying collection mechanism
+- [Providers](../fundamentals/providers.md) — provider types and scopes
+- [Conditional Providers](conditional-providers.md) — `when=` parameter and markers
+- [Modules](../fundamentals/modules.md) — module system and provider registration
+- [Dishka collections](https://dishka.readthedocs.io/en/stable/advanced/collect.html) — underlying collection mechanism

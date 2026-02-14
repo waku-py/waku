@@ -29,7 +29,7 @@ PRODUCTION = Marker('production')
 DEBUG = Marker('debug')
 ```
 
-Markers are inert on their own -- they only become meaningful once you wire them to an
+Markers are inert on their own — they only become meaningful once you wire them to an
 activator function and attach them to providers via `when=`.
 
 ## Activator functions
@@ -72,7 +72,7 @@ def is_debug(config: AppConfig) -> bool:
 !!! note
     The activator function's parameters are resolved from the container context. If your
     function accepts `AppConfig`, Dishka will inject the `AppConfig` instance from the context
-    dictionary. Activators with no parameters are also valid -- they are called with no arguments.
+    dictionary. Activators with no parameters are also valid — they are called with no arguments.
 
 ## Providing config via context
 
@@ -201,10 +201,10 @@ async def main() -> None:
         assert isinstance(cache, InMemoryCache)
 ```
 
-## `Has(Type)` -- presence-based activation
+## `Has(Type)` — presence-based activation
 
 `Has(Type)` activates a provider only when the specified type is registered somewhere in the
-container. No activator function is needed -- the container checks its own registry at build time.
+container. No activator function is needed — the container checks its own registry at build time.
 
 This is useful for feature-flag-style activation where a feature is enabled by the mere presence
 of a dependency:
@@ -355,7 +355,7 @@ activator(is_debug_mode, DEBUG, VERBOSE)
 
 ## Further reading
 
-- [Providers](../fundamentals/providers.md) -- provider types and scopes
-- [Modules](../fundamentals/modules.md) -- module system and provider registration
-- [Dishka conditional activation](https://dishka.readthedocs.io/en/stable/advanced/when.html) --
+- [Providers](../fundamentals/providers.md) — provider types and scopes
+- [Modules](../fundamentals/modules.md) — module system and provider registration
+- [Dishka conditional activation](https://dishka.readthedocs.io/en/stable/advanced/when.html) —
   advanced patterns from the underlying DI framework

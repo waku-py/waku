@@ -7,16 +7,16 @@ title: Custom Extensions
 ## Introduction
 
 Waku's extension system lets you hook into the module and application lifecycle to implement
-cross-cutting concerns -- logging, validation, metrics, provider aggregation, and anything else
+cross-cutting concerns — logging, validation, metrics, provider aggregation, and anything else
 that does not belong inside a single module's business logic. Extensions are plain classes that
 implement one or more `Protocol` interfaces. Because every protocol is `@runtime_checkable`,
 a single class can combine several hooks without explicit base-class inheritance.
 
 There are two categories of extensions:
 
-- **Module extensions** -- attached to a specific module via `@module(extensions=[...])` or
+- **Module extensions** — attached to a specific module via `@module(extensions=[...])` or
   `DynamicModule(extensions=[...])`.
-- **Application extensions** -- passed to `WakuFactory(extensions=[...])` and operate on the
+- **Application extensions** — passed to `WakuFactory(extensions=[...])` and operate on the
   entire application.
 
 ## Module extensions
@@ -70,7 +70,7 @@ class AutoRegisterHealthCheck(OnModuleConfigure):
 
 !!! note
     `OnModuleConfigure` runs **synchronously** because it executes at import time, inside the
-    `@module()` decorator. Do not perform I/O here -- use `OnModuleInit` for async setup.
+    `@module()` decorator. Do not perform I/O here — use `OnModuleInit` for async setup.
 
 ### `OnModuleInit`
 
@@ -86,7 +86,7 @@ from waku.modules import Module
 class WarmUpCache(OnModuleInit):
     async def on_module_init(self, module: Module) -> None:
         print(f'Initializing module: {module.target.__name__}')
-        # Perform async setup -- pre-populate caches, open connections, etc.
+        # Perform async setup — pre-populate caches, open connections, etc.
 ```
 
 ### `OnModuleDestroy`
@@ -107,7 +107,7 @@ class GracefulShutdown(OnModuleDestroy):
 
 ### `OnModuleDiscover`
 
-**Marker protocol -- no methods.** An extension that implements `OnModuleDiscover` can be
+**Marker protocol — no methods.** An extension that implements `OnModuleDiscover` can be
 discovered across all modules via `ModuleMetadataRegistry.find_extensions()` during the
 registration phase.
 
@@ -139,7 +139,7 @@ Key parameters:
 | Parameter | Type | Purpose |
 |---|---|---|
 | `registry` | `ModuleMetadataRegistry` | Read access to all modules; `find_extensions()` for discovery; `add_provider()` for contributing providers |
-| `owning_module` | `ModuleType` | The module that owns this extension instance -- target for `add_provider()` calls |
+| `owning_module` | `ModuleType` | The module that owns this extension instance — target for `add_provider()` calls |
 | `context` | `Mapping[Any, Any] \| None` | Read-only application context passed to `WakuFactory` |
 
 `OnModuleRegistration` can be used at **both** the module level and the application level.
@@ -238,7 +238,7 @@ from waku.extensions import AfterApplicationInit
 
 class PostInitHealthCheck(AfterApplicationInit):
     async def after_app_init(self, app: WakuApplication) -> None:
-        # Container is available -- resolve dependencies if needed
+        # Container is available — resolve dependencies if needed
         async with app.container() as container:
             health = await container.get(HealthService)
             await health.check()
@@ -348,7 +348,7 @@ class TimingExtension(OnApplicationInit, OnApplicationShutdown):
 ## Fluent builder pattern
 
 Extensions that collect configuration benefit from a fluent builder API. The `MediatorExtension`
-in waku's CQRS module is a good example -- it chains `.bind_request()` and `.bind_event()` calls:
+in waku's CQRS module is a good example — it chains `.bind_request()` and `.bind_event()` calls:
 
 ```python linenums="1"
 from waku import module
@@ -394,9 +394,9 @@ class RouteExtension(OnModuleDiscover):
 The CQRS mediator is the most comprehensive built-in extension. It combines two extension
 protocols across two classes:
 
-1. **`MediatorExtension`** (`OnModuleDiscover`) -- placed in each feature module. Collects
+1. **`MediatorExtension`** (`OnModuleDiscover`) — placed in each feature module. Collects
    request/event handler bindings via the fluent builder API.
-2. **`MediatorRegistryAggregator`** (`OnModuleRegistration`) -- placed in `MediatorModule`.
+2. **`MediatorRegistryAggregator`** (`OnModuleRegistration`) — placed in `MediatorModule`.
    Discovers all `MediatorExtension` instances across the module tree, merges their registries,
    and contributes the aggregated providers to the appropriate modules.
 
@@ -439,8 +439,8 @@ class MediatorRegistryAggregator(OnModuleRegistration):
         registry.add_provider(owning_module, object_(aggregated))
 ```
 
-This pattern -- **marker extension for data collection** + **registration extension for
-aggregation** -- is the recommended approach for any cross-module discovery use case.
+This pattern — **marker extension for data collection** + **registration extension for
+aggregation** — is the recommended approach for any cross-module discovery use case.
 
 ## Summary
 
@@ -448,7 +448,7 @@ aggregation** -- is the recommended approach for any cross-module discovery use 
 |---|---|---|---|
 | `OnModuleConfigure` | Sync | Module | During `@module()` decoration |
 | `OnModuleRegistration` | Sync | Module or App | After all modules collected, before container build |
-| `OnModuleDiscover` | -- | Module | Marker only; discovered via `find_extensions()` |
+| `OnModuleDiscover` | — | Module | Marker only; discovered via `find_extensions()` |
 | `OnModuleInit` | Async | Module | App initialization, topological order |
 | `OnModuleDestroy` | Async | Module | App shutdown, reverse topological order |
 | `OnApplicationInit` | Async | App | After all `OnModuleInit` hooks |
@@ -457,6 +457,6 @@ aggregation** -- is the recommended approach for any cross-module discovery use 
 
 ## Further reading
 
-- [Lifecycle hooks](../extensions/lifecycle.md) -- overview diagram of the full application lifecycle
-- [Modules](../fundamentals/modules.md) -- module system and the `@module()` decorator
-- [CQRS extension](../extensions/cqrs.md) -- the mediator extension in detail
+- [Lifecycle hooks](../extensions/lifecycle.md) — overview diagram of the full application lifecycle
+- [Modules](../fundamentals/modules.md) — module system and the `@module()` decorator
+- [CQRS extension](../extensions/cqrs.md) — the mediator extension in detail

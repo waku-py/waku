@@ -6,7 +6,7 @@ title: Advanced DI Patterns
 
 ## Introduction
 
-Waku's shorthand helpers -- `singleton`, `scoped`, `transient`, `object_`, and `contextual` -- cover
+Waku's shorthand helpers — `singleton`, `scoped`, `transient`, `object_`, and `contextual` — cover
 the most common dependency registration patterns. However, certain scenarios require more control over
 scope, caching, or factory behavior. This page covers the general-purpose `provider()` helper and
 explains when to drop down to raw Dishka primitives.
@@ -118,7 +118,7 @@ each helper does under the hood.
 
 Waku's helpers handle the majority of registration patterns, but Dishka offers capabilities that
 go beyond what the helpers wrap. In these cases, create a Dishka `Provider` subclass or use the
-raw primitives directly -- all of which are available from `waku.di`.
+raw primitives directly — all of which are available from `waku.di`.
 
 ### Generator factories with finalization
 
@@ -201,7 +201,7 @@ class AuthProvider(Provider):
 
 ### `decorate` for wrapping
 
-`decorate` wraps an existing provider's output with additional behavior -- logging, caching,
+`decorate` wraps an existing provider's output with additional behavior — logging, caching,
 metrics, or any cross-cutting concern:
 
 ```python linenums="1"
@@ -226,7 +226,7 @@ injecting the result.
 ### Custom scopes beyond APP/REQUEST
 
 Waku uses two built-in scopes (`Scope.APP` and `Scope.REQUEST`). If your application needs
-additional scope levels -- for example, a per-session or per-tenant scope -- you can define custom
+additional scope levels — for example, a per-session or per-tenant scope — you can define custom
 scopes using Dishka's scope mechanism.
 
 !!! tip
@@ -281,7 +281,7 @@ class UserRepository:
 
 ## Further reading
 
-- [Providers](../fundamentals/providers.md) -- provider types and scopes
-- [Conditional Providers](conditional-providers.md) -- `when=` parameter and markers
-- [Multi-bindings](multi-bindings.md) -- collection providers with `many()`
-- [Dishka documentation](https://dishka.readthedocs.io/en/stable/) -- the underlying DI framework
+- [Providers](../fundamentals/providers.md) — provider types and scopes
+- [Conditional Providers](conditional-providers.md) — `when=` parameter and markers
+- [Multi-bindings](multi-bindings.md) — collection providers with `many()`
+- [Dishka documentation](https://dishka.readthedocs.io/en/stable/) — the underlying DI framework
