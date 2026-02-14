@@ -6,7 +6,7 @@ title: Lifecycle Hooks
 
 ## Introduction
 
-Waku's extension system provides hooks at every stage of the application lifecycle -- from the
+Waku's extension system provides hooks at every stage of the application lifecycle — from the
 moment a module is decorated with `@module()` through initialization, runtime, and eventual
 shutdown. Each hook is defined as a `@runtime_checkable` `Protocol`, so extensions are plain
 classes that implement one or more of these protocols without needing to inherit from a shared
@@ -54,7 +54,7 @@ graph TD
 
 Fires synchronously during `@module()` decoration (import time). The extension receives the
 mutable `ModuleMetadata` and can add providers, imports, or exports. Because this runs at
-import time, do not perform I/O here -- use `OnModuleInit` for async setup.
+import time, do not perform I/O here — use `OnModuleInit` for async setup.
 
 ```python
 def on_module_configure(self, metadata: ModuleMetadata) -> None: ...

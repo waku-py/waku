@@ -10,9 +10,9 @@ Waku provides utilities to simplify testing DI-heavy applications. Instead of ma
 and modules for every test, two helpers in `waku.testing` let you spin up isolated test applications
 and swap providers on the fly:
 
-- **`create_test_app()`** -- an async context manager that builds a fully initialized `WakuApplication`
+- **`create_test_app()`** — an async context manager that builds a fully initialized `WakuApplication`
   from minimal configuration.
-- **`override()`** -- a sync context manager that temporarily replaces providers (or context values)
+- **`override()`** — a sync context manager that temporarily replaces providers (or context values)
   inside a live container.
 
 Together they cover the two most common testing scenarios: creating a throwaway app with fakes,
@@ -260,11 +260,11 @@ def anyio_backend(request: pytest.FixtureRequest) -> tuple[str, dict[str, object
 ```
 
 !!! note
-    With anyio, async test functions require no special markers -- just define them as `async def`.
+    With anyio, async test functions require no special markers — just define them as `async def`.
 
 ## Further reading
 
-- [Event Sourcing Testing](../extensions/eventsourcing/testing.md) -- `DeciderSpec` Given/When/Then DSL
+- [Event Sourcing Testing](../extensions/eventsourcing/testing.md) — `DeciderSpec` Given/When/Then DSL
   for testing deciders and aggregates.
-- [Dishka testing documentation](https://dishka.readthedocs.io/en/stable/testing/index.html) --
+- [Dishka testing documentation](https://dishka.readthedocs.io/en/stable/testing/index.html) —
   alternative testing approaches provided by the underlying DI framework.
