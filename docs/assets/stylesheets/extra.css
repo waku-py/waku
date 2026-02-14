@@ -1,0 +1,34 @@
+.md-header__topic > .md-ellipsis {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-family: var(--md-code-font-family);
+}
+
+.hero-subtitle {
+  text-align: center;
+  font-size: 1rem;
+  margin: -0.5rem 0 0;
+  opacity: 0.6;
+  letter-spacing: 0.03em;
+}
+
+.hero-logo {
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+}
+
+.md-typeset table:not([class]) td code {
+  white-space: nowrap;
+}
+
+abbr[title*="modular, type-safe"] {
+  font-family: var(--md-code-font-family);
+  font-size: 0.85em;
+  padding: 0.05em 0.35em;
+  border-radius: 0.25em;
+  border-bottom: none;
+  text-decoration: none;
+  cursor: help;
+  background-color: var(--md-primary-fg-color);
+  color: var(--md-primary-bg-color);
+}

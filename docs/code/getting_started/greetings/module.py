@@ -1,11 +1,11 @@
 from waku import module
-from waku.di import Singleton
+from waku.di import singleton
 
 from app.modules.greetings.services import GreetingService
 
 
 @module(
-    providers=[Singleton(GreetingService)],
+    providers=[singleton(GreetingService)],
     exports=[GreetingService],
 )
 class GreetingModule:

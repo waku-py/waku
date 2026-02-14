@@ -8,6 +8,6 @@ Based on the [CQRS](https://martinfowler.com/bliki/CQRS.html) pattern, the media
 
 Implementation heavily inspired by C# [MediatR](https://github.com/jbogard/MediatR) library.
 
-For full documentation, visit the [Mediator (CQRS)](../usage/cqrs.md) section.
+For full documentation, visit the [Mediator (CQRS)](../extensions/cqrs.md) section.
 
 ## Code
