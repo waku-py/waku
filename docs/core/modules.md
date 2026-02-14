@@ -55,7 +55,7 @@ class AppModule:
 ```
 
 !!! note
-    Encapsulation is enforced by [validators](extensions/validation.md), which you can disable at runtime if needed.
+    Encapsulation is enforced by [validators](../extensions/validation.md), which you can disable at runtime if needed.
     However, **disabling them entirely is not recommended**, as they help maintain modularity.
 
 ## Module Re-exporting

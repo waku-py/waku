@@ -8,10 +8,10 @@ from adaptix import Retort, dumper, loader
 from typing_extensions import override
 
 from waku.eventsourcing.serialization.interfaces import IEventSerializer
+from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa: TC001  # Dishka needs runtime access
 
 if TYPE_CHECKING:
     from waku.cqrs.contracts.notification import INotification
-from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa: TC001  # Dishka needs runtime access
 
 __all__ = ['JsonEventSerializer']
 

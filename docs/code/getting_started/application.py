@@ -1,8 +1,8 @@
 from waku import WakuApplication, WakuFactory, module
 
+from app.modules.greetings.module import GreetingModule
+from app.modules.users.module import UserModule
 from app.settings import ConfigModule
-from app.greetings.module import GreetingModule
-from app.users.module import UserModule
 
 
 @module(

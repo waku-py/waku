@@ -38,12 +38,11 @@ In `app.py`, let's define our modules and application setup:
 import asyncio
 
 from waku import WakuApplication, WakuFactory, module
-from waku.di import Injected, inject, scoped
+from waku.di import scoped
 
 from project.services import GreetingService
 
 
-# Define a feature module
 @module(
     providers=[scoped(GreetingService)],
     exports=[GreetingService],
@@ -52,32 +51,21 @@ class GreetingModule:
     pass
 
 
-# Define the root application module
 @module(imports=[GreetingModule])
 class AppModule:
     pass
 
 
-# Define a function that will use our service
-@inject
-async def greet_user(greeting_service: Injected[GreetingService]) -> str:
-    return greeting_service.greet('waku')
-
-
-# Bootstrap the application
 def bootstrap() -> WakuApplication:
     return WakuFactory(AppModule).create()
 
 
-# Run the application
 async def main() -> None:
     application = bootstrap()
 
-    # Create a context for our application
     async with application, application.container() as container:
-        # Use our service
-        message = await greet_user()  # type: ignore[call-arg]
-        print(message)
+        svc = await container.get(GreetingService)
+        print(svc.greet('waku'))
 
 
 if __name__ == '__main__':
@@ -124,7 +112,7 @@ In this example:
 - `scoped` indicates this provider should be created once for every container context entrance.
 
 !!! info
-    For more information on providers and scopes, see [Providers](usage/providers.md#scopes).
+    For more information on providers and scopes, see [Providers](core/providers.md#scopes).
 
 ### Application Bootstrap
 
@@ -138,30 +126,20 @@ def bootstrap() -> WakuApplication:
 
 This creates an application instance with `AppModule` as the root module.
 
-### Dependency Injection
+### Dependency Resolution
 
-Providers are injected into functions using the @inject decorator:
+Resolve providers from the container using `container.get()`:
 
-```python hl_lines="1" linenums="1"
-@inject
-async def greet_user(greeting_service: Injected[GreetingService]) -> str:
-    return greeting_service.greet('waku')
-
-```
-
-The `#!python Injected[GreetingService]` type annotation tells `waku` which provider to inject.
-
-### Context Management
-
-`waku` uses context managers to manage the lifecycle of your application and its providers:
-
-```python linenums="1"
+```python hl_lines="2" linenums="1"
 async with application, application.container() as container:
-    message = await greet_user()
+    svc = await container.get(GreetingService)
+    print(svc.greet('waku'))
 
 ```
 
-In real applications, you would typically use this context managers in `lifespan` of your framework.
+The `application.container()` context manager creates a scoped session where providers are resolved and
+managed. In real applications, you would typically wire this into the `lifespan` of your framework — see
+[Framework Integrations](core/integrations.md).
 
 ## Creating a More Realistic Application
 
@@ -266,11 +244,11 @@ Available languages: ['en', 'es', 'fr']
 
 Now that you have a basic understanding of `waku`, you can:
 
-1. Explore more advanced features like [Mediator (CQRS)](usage/cqrs.md)
-2. Learn about [Extensions](usage/extensions/index.md) for adding functionality to your application
-3. Integrate with web frameworks like [FastAPI](integrations/asgi.md)
-4. Understand [Module System](usage/modules.md) in depth
-5. Explore [Dependency Injection](usage/providers.md) techniques
+1. Explore more advanced features like [Mediator (CQRS)](extensions/cqrs.md)
+2. Learn about [Extensions](extensions/index.md) for adding functionality to your application
+3. Integrate with web frameworks like [FastAPI](core/integrations.md)
+4. Understand [Module System](core/modules.md) in depth
+5. Explore [Dependency Injection](core/providers.md) techniques
 
 `waku` modular architecture allows your application to grow while maintaining clear separation of concerns and a clean,
 maintainable codebase.

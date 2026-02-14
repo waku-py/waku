@@ -29,7 +29,6 @@
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff/)
 [![ty](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json)](https://github.com/astral-sh/ty)
 [![mypy - checked](https://www.mypy-lang.org/static/mypy_badge.svg)](https://mypy-lang.org/)
-[![basedpyright - checked](https://img.shields.io/badge/basedpyright-checked-42b983?color=ffc105)](https://docs.basedpyright.com)
 
 <!-- Social -->
 [![Telegram](https://img.shields.io/badge/-telegram-black?color=blue&logo=telegram&label=RU)](https://t.me/wakupy)
@@ -43,19 +42,17 @@
 
 <!-- Separate quote blocks -->
 
-> [!WARNING]
-> `waku` is going through a major rewrite, so docs aren't fully up-to-date yet.
-> Stick to this **README** and our [**examples**](https://github.com/waku-py/waku/tree/master/examples) for now.
->
-> For more details, check out our [`waku` deepwiki](https://deepwiki.com/waku-py/waku/) page.
+> [!TIP]
+> Check out the full [**documentation**](https://waku-py.github.io/waku/) and our [**examples**](https://github.com/waku-py/waku/tree/master/examples) to get started.
 
 ## Why `waku`?
 
-- 🧩 [Modular architecture](https://waku-py.github.io/waku/usage/modules/): Group related code with explicit imports/exports for clear boundaries and responsibilities.
-- 💉 [First-class Dependency Injection](https://waku-py.github.io/waku/usage/providers/): Built on [Dishka](https://github.com/reagento/dishka/) with flexible provider patterns (singleton, scoped, transient); swap implementations easily.
-- 📨 [Event-driven & CQRS](https://waku-py.github.io/waku/usage/cqrs/): Handle commands, queries, and events with a comprehensive CQRS implementation, pipeline chains, and centralized processing inspired by [MediatR (C#)](https://github.com/jbogard/MediatR).
-- 🔌 [Framework-agnostic & Integrations](https://waku-py.github.io/waku/integrations/): Works with FastAPI, Litestar, FastStream, Aiogram, and more - no vendor lock-in.
-- 🧰 [Extensions & Lifecycle Hooks](https://waku-py.github.io/waku/usage/extensions/): Hook into the app lifecycle for logging, validation, and custom logic; [precise startup/shutdown management](https://waku-py.github.io/waku/usage/lifespan/).
+- 🧩 [Modular architecture](https://waku-py.github.io/waku/core/modules/): Group related code with explicit imports/exports for clear boundaries and responsibilities.
+- 💉 [First-class Dependency Injection](https://waku-py.github.io/waku/core/providers/): Built on [Dishka](https://github.com/reagento/dishka/) with flexible provider patterns (singleton, scoped, transient); swap implementations easily.
+- 📨 [Event-driven & CQRS](https://waku-py.github.io/waku/extensions/cqrs/): Handle commands, queries, and events with a comprehensive CQRS implementation, pipeline chains, and centralized processing inspired by [MediatR (C#)](https://github.com/jbogard/MediatR).
+- 📜 [Event Sourcing](https://waku-py.github.io/waku/extensions/eventsourcing/): Aggregates, projections, snapshots, schema evolution, and the decider pattern — all with built-in SQLAlchemy adapters.
+- 🔌 [Framework-agnostic & Integrations](https://waku-py.github.io/waku/core/integrations/): Works with FastAPI, Litestar, FastStream, Aiogram, and more - no vendor lock-in.
+- 🧰 [Extensions & Lifecycle Hooks](https://waku-py.github.io/waku/extensions/): Hook into the app lifecycle for logging, validation, and custom logic; [precise startup/shutdown management](https://waku-py.github.io/waku/core/lifespan/).
 - 🛡️ Production-ready: Type-safe APIs, robust validation, and scalable testing support.
 
 ## Who is it for?
@@ -171,7 +168,7 @@ class UserService:
 
 # Infrastructure module provides core services
 @module(
-    providers=[singleton(ConsoleLogger, provided_type=Logger)],
+    providers=[singleton(Logger, ConsoleLogger)],
     exports=[Logger],  # Export to make available to other modules
 )
 class InfrastructureModule:
@@ -211,23 +208,25 @@ if __name__ == '__main__':
 
 Want to learn more? Here's where to go next:
 
-- Get familiar with [module exports and imports](https://waku-py.github.io/waku/usage/modules/)
-- Try different [provider scopes](https://waku-py.github.io/waku/usage/providers/)
-- Add [CQRS](https://waku-py.github.io/waku/usage/cqrs/) for clean command handling
-- Use [extension hooks](https://waku-py.github.io/waku/usage/extensions/) to customize your app
-- Connect with your [favorite framework](https://waku-py.github.io/waku/integrations/)
+- Get familiar with [module exports and imports](https://waku-py.github.io/waku/core/modules/)
+- Try different [provider scopes](https://waku-py.github.io/waku/core/providers/)
+- Add [CQRS](https://waku-py.github.io/waku/extensions/cqrs/) for clean command handling
+- Use [extension hooks](https://waku-py.github.io/waku/extensions/) to customize your app
+- Connect with your [favorite framework](https://waku-py.github.io/waku/core/integrations/)
 
 Check our [Getting Started](https://waku-py.github.io/waku/getting-started) guide and browse the [examples directory](https://github.com/waku-py/waku/tree/master/examples) for inspiration.
 
 ## Documentation
 
 - [Getting Started](https://waku-py.github.io/waku/getting-started/)
-- [Module System](https://waku-py.github.io/waku/usage/modules/)
-- [Providers](https://waku-py.github.io/waku/usage/providers/)
-- [Extensions](https://waku-py.github.io/waku/usage/extensions/)
-- [CQRS](https://waku-py.github.io/waku/usage/cqrs/)
+- [Module System](https://waku-py.github.io/waku/core/modules/)
+- [Providers](https://waku-py.github.io/waku/core/providers/)
+- [Extensions](https://waku-py.github.io/waku/extensions/)
+- [CQRS](https://waku-py.github.io/waku/extensions/cqrs/)
+- [Event Sourcing](https://waku-py.github.io/waku/extensions/eventsourcing/)
 - [API Reference](https://waku-py.github.io/waku/reference/)
 - [Dishka Documentation](https://dishka.readthedocs.io/en/stable/index.html/)
+- [DeepWiki](https://deepwiki.com/waku-py/waku)
 
 ## Contributing
 

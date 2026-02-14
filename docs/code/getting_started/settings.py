@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from waku import DynamicModule, module
-from waku.di import Object
+from waku.di import object_
 
 Environment = Literal['dev', 'prod']
 
@@ -24,5 +24,5 @@ class ConfigModule:
         )
         return DynamicModule(
             parent_module=cls,
-            providers=[Object(settings)],
+            providers=[object_(settings)],
         )
