@@ -1,7 +1,7 @@
 [project]
 site_name = "waku"
 extra_css = ["assets/stylesheets/extra.css"]
-site_description = "A Python framework for creating modular, loosely coupled, and extensible applications"
+site_description = "Python makes it easy to build a backend. waku makes it easy to keep growing one."
 site_url = "https://waku-py.github.io/waku/"
 repo_name = "waku-py/waku"
 repo_url = "https://github.com/waku-py/waku"
