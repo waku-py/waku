@@ -12,6 +12,8 @@ and message brokers.
 
 Dishka offers ready-made integrations for:
 
+<div class="mdx-columns" markdown>
+
 - **FastAPI** / **Starlette** / **ASGI**
 - **Litestar**
 - **FastStream** (RabbitMQ, Kafka, NATS, Redis)
@@ -20,6 +22,8 @@ Dishka offers ready-made integrations for:
 - **Flask**
 - **Django**
 - and more
+
+</div>
 
 See the full list in the [Dishka integrations documentation](https://dishka.readthedocs.io/en/stable/integrations/index.html).
 

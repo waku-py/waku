@@ -148,7 +148,7 @@ class MyProvider(Provider):
 Register the class-based provider in your module's `providers` list just like any helper result.
 
 !!! tip
-    See [Dishka: Factory](https://dishka.readthedocs.io/en/stable/provider/factory.html) for
+    See [Dishka: Factory](https://dishka.readthedocs.io/en/stable/provider/provide.html) for
     the full generator factory documentation.
 
 ### Class-based providers with `@provide` methods
@@ -220,7 +220,7 @@ The container resolves `IUserService` as usual, then passes it through `add_logg
 injecting the result.
 
 !!! tip
-    See [Dishka: Decorator](https://dishka.readthedocs.io/en/stable/provider/decorator.html) for
+    See [Dishka: Decorator](https://dishka.readthedocs.io/en/stable/provider/decorate.html) for
     details.
 
 ### Custom scopes beyond APP/REQUEST

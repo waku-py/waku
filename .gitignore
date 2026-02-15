@@ -66,3 +66,7 @@ site/
 # LLM
 .continue*
 .cursor*
+
+# Plans
+docs/plans/
+plans/

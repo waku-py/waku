@@ -6,79 +6,94 @@ title: Providers
 
 ## Introduction
 
-Providers are the core of `waku` dependency injection system.
+Providers are the core of `waku` module system.
 The idea behind a provider is that it can be injected as a dependency into other provider constructors,
 allowing objects to form various relationships with each other.
 
-`waku` responsibility is to "wire up" all the providers using the DI framework and manage their lifecycle.
+`waku` responsibility is to "wire up" all the providers and manage the underlying DI container which handles their lifecycle.
 This way you can focus on writing your application logic.
 
 ## Dependency Injection
 
-`waku` is designed to be modular and extensible.
-To support this principle, it provides a flexible dependency injection (DI) system that integrates seamlessly
-with various DI frameworks. `waku` itself acts as an IoC container,
-allowing you to register and resolve dependencies using the [modules system](modules.md).
+`waku` provides a [module system](modules.md) that lets you organize providers into cohesive,
+self-contained units with explicit import/export boundaries.
+At bootstrap, `waku` collects providers from all modules, resolves the module dependency graph,
+and hands the result to the [Dishka](https://github.com/reagento/dishka/) IoC container,
+which handles dependency resolution and lifecycle management.
 
-!!! note
-    `waku` uses the [Dishka](https://github.com/reagento/dishka/) IoC container under the hood.
-    All provider lifecycles and dependency resolution are handled by Dishka.
 
-### What is Dependency Injection?
+??? note "What is Dependency Injection?"
+    Dependency Injection (DI) is a design pattern that addresses the issue of tightly coupled code by decoupling the
+    creation and management of dependencies from the classes that rely on them. In traditional approaches, classes directly
+    instantiate their dependencies, resulting in rigid, hard-to-maintain code. DI solves this problem by enabling
+    dependencies to be supplied externally, typically through mechanisms like constructor or setter injection.
 
-Dependency Injection (DI) is a design pattern that addresses the issue of tightly coupled code by decoupling the
-creation and management of dependencies from the classes that rely on them. In traditional approaches, classes directly
-instantiate their dependencies, resulting in rigid, hard-to-maintain code. DI solves this problem by enabling
-dependencies to be supplied externally, typically through mechanisms like constructor or setter injection.
+    By shifting the responsibility of dependency management outside the class, DI promotes loose coupling, allowing classes
+    to focus on their core functionality rather than how dependencies are created. This separation enhances maintainability,
+    testability, and flexibility, as dependencies can be easily swapped or modified without altering the class's code.
+    Ultimately, DI improves system design by reducing interdependencies and making code more modular and scalable.
 
-By shifting the responsibility of dependency management outside the class, DI promotes loose coupling, allowing classes
-to focus on their core functionality rather than how dependencies are created. This separation enhances maintainability,
-testability, and flexibility, as dependencies can be easily swapped or modified without altering the class's code.
-Ultimately, DI improves system design by reducing interdependencies and making code more modular and scalable.
+    See also: [Dishka — Introduction to DI](https://dishka.readthedocs.io/en/stable/di_intro.html)
 
-??? note "Manual DI Example"
-    ```python linenums="1"
-    --8<-- "docs/code/providers/manual_di.py"
-    ```
+    ??? example "Manual DI Example"
+        ```python linenums="1"
+        --8<-- "docs/code/providers/manual_di.py"
+        ```
 
-    Here, a `MockClient` is injected into `Service`, making it easy to test `Service` in isolation without relying
-    on a real client implementation.
+        Here, a `MockClient` is injected into `Service`, making it easy to test `Service` in isolation without relying
+        on a real client implementation.
 
-### What is IoC-container?
+??? note "What is IoC-container?"
+    An IoC container is a framework that automates object creation and dependency management based on the Inversion of
+    Control (IoC) principle. It centralizes the configuration and instantiation of components, reducing tight coupling and
+    simplifying code maintenance. By handling dependency resolution, an IoC container promotes modular, testable, and
+    scalable application design.
 
-An IoC container is a framework that automates object creation and dependency management based on the Inversion of
-Control (IoC) principle. It centralizes the configuration and instantiation of components, reducing tight coupling and
-simplifying code maintenance. By handling dependency resolution, an IoC container promotes modular, testable, and
-scalable application design.
+    With the power of an IoC container, you can leverage all the benefits of DI without manually managing dependencies.
 
-With the power of an IoC container, you can leverage all the benefits of DI without manually managing dependencies.
+    See also: [Dishka — Key Concepts](https://dishka.readthedocs.io/en/stable/concepts.html)
 
 ## Providers
 
 `Provider` is an object that holds dependency metadata, such as its type, lifetime [scope](#scopes) and factory.
 
-In `waku`, there are five types of providers, one for each [scope](#scopes):
+In `waku`, there are five provider helpers:
 
-- [`Transient`](#transient)
-- [`Scoped`](#scoped)
-- [`Singleton`](#singleton)
-- [`Object`](#object)
-- [`Contextual`](#contextual)
+<div class="mdx-columns" markdown>
 
-Each provider (except [`Contextual`](#contextual)) takes two arguments:
+- [`transient()`](#transient)
+- [`scoped()`](#scoped)
+- [`singleton()`](#singleton)
+- [`object_()`](#object)
+- [`contextual()`](#contextual)
 
-- `source`: type or callable that returns or yields an instance of the dependency.
-- `provided_type`: type of the dependency. If not provided, it will be inferred from the factory function's return type.
+</div>
+
+Each provider (except [`object_()`](#object) and [`contextual()`](#contextual)) accepts two positional arguments:
+
+- `interface_or_source`: the type to register — or the interface type when a separate implementation is provided.
+- `implementation` *(optional)*: the implementation type or factory. When given, the first argument is treated as the interface.
 
 ## Scopes
 
-`waku` supports four different lifetime scopes for providers, inspired by
-the [service lifetimes](https://learn.microsoft.com/en-us/dotnet/core/extensions/dependency-injection#service-lifetimes)
-from .NET Core's DI system.
+Provider helper names are inspired by
+[.NET Core's service lifetimes](https://learn.microsoft.com/en-us/dotnet/core/extensions/dependency-injection#service-lifetimes).
+Under the hood, each helper maps to a Dishka [scope](https://dishka.readthedocs.io/en/stable/advanced/scopes.html)
+that determines the dependency's lifetime. Dishka uses two primary scopes:
+
+- **`APP`** — the dependency lives for the entire application lifetime.
+- **`REQUEST`** — the dependency lives for a single scope entry (e.g., one HTTP request).
+
+Dependencies are lazy — they are created when first requested.
+Within a scope, the same instance is returned by default (configurable per helper).
+When a scope exits, all its dependencies are finalized in reverse creation order.
+
+For more details, see the [Dishka scopes documentation](https://dishka.readthedocs.io/en/stable/advanced/scopes.html).
 
 ### Transient
 
-Dependencies defined with the `Transient` provider are created each time they're requested.
+Registers the dependency in `Scope.REQUEST` with **caching disabled**.
+A new instance is created every time the dependency is requested, even within the same scope.
 
 ```python hl_lines="5" linenums="1"
 --8<-- "docs/code/providers/scopes/transient.py"
@@ -86,8 +101,9 @@ Dependencies defined with the `Transient` provider are created each time they're
 
 ### Scoped
 
-Dependencies defined with the `Scoped` provider are created once per dependency provider context entry and disposed
-when the context exits.
+Registers the dependency in `Scope.REQUEST` with **caching enabled**.
+The instance is created once per scope entry and reused for all subsequent requests within that scope.
+Finalized when the scope exits.
 
 ```python hl_lines="5" linenums="1"
 --8<-- "docs/code/providers/scopes/scoped.py"
@@ -95,8 +111,9 @@ when the context exits.
 
 ### Singleton
 
-Dependencies defined with the `Singleton` provider are created the first time they're requested and disposed when the
-application lifecycle ends.
+Registers the dependency in `Scope.APP` with **caching enabled**.
+The instance is created once on first request and reused across all scopes for the entire application lifetime.
+Finalized when the application shuts down.
 
 ```python hl_lines="5" linenums="1"
 --8<-- "docs/code/providers/scopes/singleton.py"
@@ -104,8 +121,8 @@ application lifecycle ends.
 
 ### Object
 
-Dependencies defined with the `Object` provider behave like `Singleton`, but you must provide the implementation instance
-directly to the provider and manage its lifecycle manually, outside the IoC container.
+Registers a pre-created instance in `Scope.APP`.
+Unlike `singleton()`, you provide the instance directly — its lifecycle is managed by you, not the container.
 
 ```python hl_lines="9" linenums="1"
 --8<-- "docs/code/providers/scopes/object.py"
@@ -113,7 +130,7 @@ directly to the provider and manage its lifecycle manually, outside the IoC cont
 
 ### Contextual
 
-The `Contextual` provider enables you to inject external objects that originate outside the DI container directly into your
+The `contextual()` provider enables you to inject external objects that originate outside the DI container directly into your
 dependency graph. This is particularly valuable for framework-specific objects like HTTP requests, database transactions,
 or event data that have their own lifecycle managed externally.
 
@@ -128,12 +145,14 @@ or event data that have their own lifecycle managed externally.
 
 1. **Declare the contextual dependency** using the `contextual` provider in your module
 2. **Use the dependency** in other providers just like any regular dependency
-3. **Provide the actual value** when entering the container scope using the `context=` parameter
+3. **Provide the actual value** when entering the container scope using the `context=` parameter.
+   Context can be provided at APP level via `WakuFactory(context=...)` or at REQUEST level
+   via `app.container(context=...)` — see [Application — Container Access](application.md#container-access) for details
 
-The `contextual` provider accepts two arguments:
+`contextual()` accepts two arguments:
 
-- `provided_type`: The type of the dependency to be injected
-- `scope`: The scope where the context is available (defaults to `Scope.REQUEST`)
+- `provided_type`: the type of the dependency to be injected.
+- `scope`: the scope where the context is available (defaults to `Scope.REQUEST`).
 
 ```python hl_lines="9 21" linenums="1"
 --8<-- "docs/code/providers/scopes/contextual.py"

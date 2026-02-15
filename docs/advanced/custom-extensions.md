@@ -64,7 +64,7 @@ class AutoRegisterHealthCheck(OnModuleConfigure):
 
     def on_module_configure(self, metadata: ModuleMetadata) -> None:
         metadata.providers.append(
-            scoped(HealthCheck, provided_type=HealthCheck),
+            scoped(HealthCheck),
         )
 ```
 
@@ -140,7 +140,7 @@ Key parameters:
 |---|---|---|
 | `registry` | `ModuleMetadataRegistry` | Read access to all modules; `find_extensions()` for discovery; `add_provider()` for contributing providers |
 | `owning_module` | `ModuleType` | The module that owns this extension instance — target for `add_provider()` calls |
-| `context` | `Mapping[Any, Any] \| None` | Read-only application context passed to `WakuFactory` |
+| `context` | `Mapping[Any, Any] | None` | Read-only application context passed to `WakuFactory` |
 
 `OnModuleRegistration` can be used at **both** the module level and the application level.
 
@@ -289,38 +289,6 @@ DEFAULT_EXTENSIONS = (
     ).create()
     ```
 
-## Execution order
-
-The following diagram shows the complete lifecycle and when each hook fires:
-
-```mermaid
-sequenceDiagram
-    participant Dec as @module() decorator
-    participant Fac as WakuFactory.create()
-    participant App as WakuApplication
-
-    Note over Dec: Import time
-    Dec->>Dec: OnModuleConfigure (sync, per module)
-
-    Note over Fac: Build time
-    Fac->>Fac: Collect all modules (topological sort)
-    Fac->>Fac: OnModuleRegistration (sync)<br/>1. App-level extensions<br/>2. Module-level extensions (topo order)
-    Fac->>Fac: Build DI container
-    Fac->>Fac: Build ExtensionRegistry
-
-    Note over App: Runtime — app.__aenter__()
-    App->>App: OnModuleInit (async, topo order)
-    App->>App: OnApplicationInit (async)
-    App->>App: AfterApplicationInit (async)
-    App->>App: Lifespan functions enter
-
-    Note over App: Runtime — app.__aexit__()
-    App->>App: OnModuleDestroy (async, reverse topo order)
-    App->>App: OnApplicationShutdown (async)
-    App->>App: Lifespan functions exit
-    App->>App: Container closed
-```
-
 ## Combining multiple hooks
 
 A single extension class can implement several protocols. This is useful when setup and
@@ -442,21 +410,9 @@ class MediatorRegistryAggregator(OnModuleRegistration):
 This pattern — **marker extension for data collection** + **registration extension for
 aggregation** — is the recommended approach for any cross-module discovery use case.
 
-## Summary
-
-| Protocol | Sync/Async | Scope | When it runs |
-|---|---|---|---|
-| `OnModuleConfigure` | Sync | Module | During `@module()` decoration |
-| `OnModuleRegistration` | Sync | Module or App | After all modules collected, before container build |
-| `OnModuleDiscover` | — | Module | Marker only; discovered via `find_extensions()` |
-| `OnModuleInit` | Async | Module | App initialization, topological order |
-| `OnModuleDestroy` | Async | Module | App shutdown, reverse topological order |
-| `OnApplicationInit` | Async | App | After all `OnModuleInit` hooks |
-| `AfterApplicationInit` | Async | App | After `OnApplicationInit` |
-| `OnApplicationShutdown` | Async | App | After all `OnModuleDestroy` hooks |
-
 ## Further reading
 
-- [Lifecycle hooks](../extensions/lifecycle.md) — overview diagram of the full application lifecycle
+- [Lifecycle Hooks](../extensions/lifecycle.md) — full lifecycle diagram, hook reference table, and phase descriptions
+- [Application](../fundamentals/application.md) — application lifecycle and lifespan functions
 - [Modules](../fundamentals/modules.md) — module system and the `@module()` decorator
 - [CQRS extension](../extensions/cqrs.md) — the mediator extension in detail

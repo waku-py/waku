@@ -32,6 +32,7 @@
 
 <!-- Social -->
 [![Telegram](https://img.shields.io/badge/-telegram-black?color=blue&logo=telegram&label=RU)](https://t.me/wakupy)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/waku-py/waku)
 
 </div>
 
@@ -225,7 +226,7 @@ Check our [Getting Started](https://waku-py.github.io/waku/getting-started) guid
 - [CQRS](https://waku-py.github.io/waku/extensions/cqrs/)
 - [Event Sourcing](https://waku-py.github.io/waku/extensions/eventsourcing/)
 - [API Reference](https://waku-py.github.io/waku/reference/)
-- [Dishka Documentation](https://dishka.readthedocs.io/en/stable/index.html/)
+- [Dishka Documentation](https://dishka.readthedocs.io/en/stable/index.html)
 - [DeepWiki](https://deepwiki.com/waku-py/waku)
 
 ## Contributing
@@ -243,7 +244,7 @@ Check our [Getting Started](https://waku-py.github.io/waku/getting-started) guid
 
 - [x] Create logo
 - [x] Improve inner architecture
-- [ ] Improve documentation
+- [x] Improve documentation
 - [ ] Add new and improve existing validation rules
 - [ ] Provide example projects for common architectures
 
