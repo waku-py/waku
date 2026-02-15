@@ -196,7 +196,7 @@ constructor.
 !!! tip
     If you need to **swap implementations** based on a runtime condition (e.g., use Redis in
     production but in-memory in development), prefer
-    [conditional providers](../advanced/conditional-providers.md) over dynamic modules.
+    [conditional providers](../advanced/di/conditional-providers.md) over dynamic modules.
     Dynamic modules are for **parameterized construction** — passing values into a module to
     build providers from them.
 
@@ -209,5 +209,5 @@ constructor.
 
 - **[Providers](providers.md)** — provider types and scopes for dependency injection
 - **[Lifecycle Hooks](../extensions/lifecycle.md)** — module and application extension hooks
-- **[Custom Extensions](../advanced/custom-extensions.md)** — writing your own module extensions
+- **[Custom Extensions](../extensions/custom-extensions.md)** — writing your own module extensions
 - **[Validation](../extensions/validation.md)** — encapsulation rules and how to configure them

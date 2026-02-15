@@ -287,6 +287,6 @@ app = WakuFactory(
 ## Further reading
 
 - **[Modules](../fundamentals/modules.md)** — module system, imports, and export boundaries
-- **[Custom Extensions](../advanced/custom-extensions.md)** — writing your own extensions and hooks
+- **[Custom Extensions](custom-extensions.md)** — writing your own extensions and hooks
 - **[Lifecycle Hooks](lifecycle.md)** — when validation runs in the application lifecycle
 - **[Testing](../fundamentals/testing.md)** — test utilities and working with validation in tests

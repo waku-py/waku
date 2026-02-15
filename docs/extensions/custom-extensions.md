@@ -412,7 +412,7 @@ aggregation** — is the recommended approach for any cross-module discovery use
 
 ## Further reading
 
-- [Lifecycle Hooks](../extensions/lifecycle.md) — full lifecycle diagram, hook reference table, and phase descriptions
+- [Lifecycle Hooks](lifecycle.md) — full lifecycle diagram, hook reference table, and phase descriptions
 - [Application](../fundamentals/application.md) — application lifecycle and lifespan functions
 - [Modules](../fundamentals/modules.md) — module system and the `@module()` decorator
-- [CQRS extension](../extensions/cqrs.md) — the mediator extension in detail
+- [CQRS extension](cqrs.md) — the mediator extension in detail

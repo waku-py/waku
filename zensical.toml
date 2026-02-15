@@ -21,13 +21,16 @@ nav = [
     "fundamentals/testing.md",
   ] },
   { "Advanced" = [
-    "advanced/conditional-providers.md",
-    "advanced/multi-bindings.md",
-    "advanced/di-patterns.md",
-    "advanced/custom-extensions.md",
+    { "Dependency Injection" = [
+      "advanced/di/index.md",
+      { "Conditional Providers" = "advanced/di/conditional-providers.md" },
+      { "Multi-bindings" = "advanced/di/multi-bindings.md" },
+      { "Advanced DI Patterns" = "advanced/di/di-patterns.md" },
+    ] },
   ] },
   { "Extensions" = [
     { "Lifecycle Hooks" = "extensions/lifecycle.md" },
+    { "Custom Extensions" = "extensions/custom-extensions.md" },
     { "Mediator (CQRS)" = "extensions/cqrs.md" },
     { "Validation" = "extensions/validation.md" },
     { "Event Sourcing" = [
