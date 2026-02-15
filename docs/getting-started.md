@@ -199,7 +199,7 @@ User 4 not found
 Available languages: ['en', 'es', 'fr']
 ```
 
-## Next Steps
+## Next steps
 
 Now that you have a basic understanding of `waku`, you can:
 

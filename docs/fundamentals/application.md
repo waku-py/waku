@@ -296,3 +296,10 @@ async def handle_request(request_id: str) -> None:
     For declaring contextual dependencies, see [Contextual providers](providers.md#contextual).
     For a deeper dive into Dishka scopes, see the
     [Dishka scopes documentation](https://dishka.readthedocs.io/en/stable/advanced/scopes.html).
+
+## Further reading
+
+- **[Lifecycle Hooks](../extensions/lifecycle.md)** — extension hooks that run during application startup and shutdown
+- **[Modules](modules.md)** — module system and the `@module()` decorator
+- **[Framework Integrations](integrations.md)** — connecting waku to FastAPI, Litestar, and other frameworks
+- **[Testing](testing.md)** — test utilities and provider overrides

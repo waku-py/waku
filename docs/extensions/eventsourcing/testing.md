@@ -62,3 +62,10 @@ async def test_full_flow() -> None:
 
 !!! tip
     The default `EventSourcingConfig()` already uses in-memory stores, so no extra configuration is needed for tests.
+
+## Further reading
+
+- **[Testing](../../fundamentals/testing.md)** — core waku testing utilities and provider overrides
+- **[Aggregates](aggregates.md)** — OOP aggregates and functional deciders
+- **[Projections](projections.md)** — read model projections
+- **[Schema Evolution](schema-evolution.md)** — upcasting and event versioning

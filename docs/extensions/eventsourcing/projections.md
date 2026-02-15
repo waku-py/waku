@@ -149,3 +149,10 @@ across multiple processes. This prevents duplicate processing and checkpoint con
 
 - **SQLAlchemy [advisory lock](https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS)** — uses PostgreSQL advisory locks for lightweight
   multi-process coordination.
+
+## Further reading
+
+- **[Event Store](event-store.md)** — event persistence and metadata enrichment
+- **[Schema Evolution](schema-evolution.md)** — handling evolved events in projections
+- **[Snapshots](snapshots.md)** — aggregate snapshots and checkpoint strategies
+- **[Testing](testing.md)** — in-memory stores for integration tests

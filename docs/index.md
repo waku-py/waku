@@ -211,7 +211,7 @@ Inspired by [NestJS](https://nestjs.com/), powered by [Dishka](https://github.co
         asyncio.run(main())
     ```
 
-## Next Steps
+## Next steps
 
 <div class="grid cards" markdown>
 

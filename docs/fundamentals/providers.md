@@ -185,7 +185,10 @@ To inject dependencies with `waku`, you need to:
    find out how to do this.
 3. Add dependencies as arguments to your entrypoint signature using the `Injected` type hint.
 
-## Next steps
+## Further reading
 
-For advanced features and customization options, refer to
-the [Dishka documentation](https://dishka.readthedocs.io/en/stable/index.html).
+- **[Modules](modules.md)** — module system, imports, and exports
+- **[Conditional Providers](../advanced/conditional-providers.md)** — activate providers based on markers
+- **[Multi-bindings](../advanced/multi-bindings.md)** — collection providers with `many()`
+- **[DI Patterns](../advanced/di-patterns.md)** — factory providers, aliases, and components
+- **[Dishka documentation](https://dishka.readthedocs.io/en/stable/index.html)** — the underlying DI framework

@@ -91,3 +91,10 @@ if __name__ == '__main__':
     The pattern stays the same — see the
     [Dishka documentation](https://dishka.readthedocs.io/en/stable/integrations/index.html)
     for framework-specific details.
+
+## Further reading
+
+- **[Application](application.md)** — application lifecycle, lifespan functions, and container access
+- **[Providers](providers.md)** — provider types and scopes for dependency injection
+- **[Testing](testing.md)** — test utilities and provider overrides
+- **[Dishka integrations](https://dishka.readthedocs.io/en/stable/integrations/index.html)** — framework-specific integration guides

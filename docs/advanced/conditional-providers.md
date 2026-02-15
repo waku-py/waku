@@ -355,7 +355,6 @@ activator(is_debug_mode, DEBUG, VERBOSE)
 
 ## Further reading
 
-- [Providers](../fundamentals/providers.md) — provider types and scopes
-- [Modules](../fundamentals/modules.md) — module system and provider registration
-- [Dishka conditional activation](https://dishka.readthedocs.io/en/stable/advanced/when.html) —
-  advanced patterns from the underlying DI framework
+- **[Providers](../fundamentals/providers.md)** — provider types and scopes
+- **[Modules](../fundamentals/modules.md)** — module system and provider registration
+- **[Dishka conditional activation](https://dishka.readthedocs.io/en/stable/advanced/when.html)** — advanced patterns from the underlying DI framework
