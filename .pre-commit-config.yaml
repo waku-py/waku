@@ -41,12 +41,11 @@ repos:
     hooks:
       - id: actionlint
 
-  - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.1
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.43.4
     hooks:
-      - id: codespell
-        additional_dependencies: [ tomli ]
-        files: '\.(py|pyi|md|yml|yaml|json|toml)$'
+      - id: typos
+        args: [ "--force-exclude" ]
 
   - repo: local
     hooks:

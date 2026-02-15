@@ -1,7 +1,10 @@
 ---
 title: Changelog
 hide:
-- navigation
+  - navigation
+tags:
+  - changelog
+  - releases
 ---
 
 --8<-- "CHANGELOG.md"

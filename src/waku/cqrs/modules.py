@@ -143,4 +143,5 @@ class MediatorRegistryAggregator(OnModuleRegistration):
         for provider in aggregated.collector_providers():
             registry.add_provider(owning_module, provider)
 
+        aggregated.freeze()
         registry.add_provider(owning_module, object_(aggregated))

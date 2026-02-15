@@ -8,7 +8,7 @@ from typing_extensions import TypeVar
 
 from waku.cqrs.contracts.notification import INotification, NotificationT
 from waku.cqrs.events.handler import EventHandler
-from waku.cqrs.exceptions import EventHandlerAlreadyRegistered
+from waku.cqrs.exceptions import EventHandlerAlreadyRegistered, MapFrozenError
 
 __all__ = [
     'EventMap',
@@ -42,8 +42,18 @@ EventMapRegistry: TypeAlias = MutableMapping[type[INotification], EventMapEntry[
 class EventMap:
     def __init__(self) -> None:
         self._registry: EventMapRegistry = {}
+        self._frozen = False
+
+    def freeze(self) -> None:
+        self._frozen = True
+
+    @property
+    def is_frozen(self) -> bool:
+        return self._frozen
 
     def bind(self, event_type: type[NotificationT], handler_types: list[type[EventHandler[NotificationT]]]) -> Self:
+        if self._frozen:
+            raise MapFrozenError
         if event_type not in self._registry:
             self._registry[event_type] = EventMapEntry.for_event(event_type)
 
@@ -53,6 +63,8 @@ class EventMap:
         return self
 
     def merge(self, other: EventMap) -> Self:
+        if self._frozen:
+            raise MapFrozenError
         for event_type, entry in other._registry.items():
             self.bind(event_type, entry.handler_types)
         return self

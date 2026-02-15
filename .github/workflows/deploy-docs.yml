@@ -27,8 +27,6 @@ jobs:
 
     env:
       DOCS_DEPLOY: true
-      GITHUB_ACTIONS_AUTHOR_NAME: github-actions
-      GITHUB_ACTIONS_AUTHOR_EMAIL: actions@users.noreply.github.com
 
     steps:
       - name: Setup | Create access token
@@ -42,13 +40,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
-
-      - name: Setup | Configure Git Credentials
-        run: |
-          git config user.name ${{ env.GITHUB_ACTIONS_AUTHOR_NAME }}
-          git config user.email ${{ env.GITHUB_ACTIONS_AUTHOR_EMAIL }}
 
       - name: Setup | Install Python ${{ env.COMMON_PYTHON_VERSION }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
@@ -60,5 +52,15 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Deploy | Deploy docs to GitHub Pages
-        run: uv run --group=docs mkdocs gh-deploy --force
+      - name: Build | Build docs
+        run: uv run --group=docs zensical build --clean
+
+      - name: Deploy | Deploy to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@d92aa235d04922e8f08b40ce78cc5442fcfbfa2f # v4.8.0
+        with:
+          branch: gh-pages
+          folder: site
+          clean: true
+          clean-exclude: |
+            pr-preview
+          token: ${{ steps.app-token.outputs.token }}

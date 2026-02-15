@@ -4,7 +4,7 @@ project-excludes = [
     "tests",
 ]
 python-platform = "linux"
-python-version = "3.11.0"
+python-version = "3.11"
 
 [errors]
 missing-import = "error"

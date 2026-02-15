@@ -6,7 +6,7 @@ from typing import Any, Generic, Self, TypeAlias
 
 from waku.cqrs.contracts.pipeline import IPipelineBehavior
 from waku.cqrs.contracts.request import IRequest, RequestT, ResponseT
-from waku.cqrs.exceptions import PipelineBehaviorAlreadyRegistered
+from waku.cqrs.exceptions import MapFrozenError, PipelineBehaviorAlreadyRegistered
 from waku.cqrs.utils import get_request_response_type
 
 __all__ = [
@@ -40,12 +40,22 @@ PipelineBehaviorMapRegistry: TypeAlias = MutableMapping[type[RequestT], Pipeline
 class PipelineBehaviorMap:
     def __init__(self) -> None:
         self._registry: PipelineBehaviorMapRegistry[Any, Any] = {}
+        self._frozen = False
+
+    def freeze(self) -> None:
+        self._frozen = True
+
+    @property
+    def is_frozen(self) -> bool:
+        return self._frozen
 
     def bind(
         self,
         request_type: type[RequestT],
         behavior_types: list[type[IPipelineBehavior[RequestT, ResponseT]]],
     ) -> Self:
+        if self._frozen:
+            raise MapFrozenError
         if request_type not in self._registry:
             self._registry[request_type] = PipelineBehaviorMapEntry.for_request(request_type)
 
@@ -55,6 +65,8 @@ class PipelineBehaviorMap:
         return self
 
     def merge(self, other: PipelineBehaviorMap) -> Self:
+        if self._frozen:
+            raise MapFrozenError
         for request_type, entry in other._registry.items():
             self.bind(request_type, entry.behavior_types)
         return self

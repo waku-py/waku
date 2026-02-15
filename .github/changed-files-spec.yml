@@ -12,7 +12,7 @@ ci:
 docs:
   - 'docs/**'
   - '**/*.md'
-  - 'mkdocs.yml'
+  - 'zensical.toml'
 src:
   - 'src/**'
 tests:

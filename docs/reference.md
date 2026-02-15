@@ -1,8 +1,11 @@
 ---
 title: API Reference
 hide:
-- feedback
-- navigation
+  - feedback
+  - navigation
+tags:
+  - api
+  - reference
 ---
 
 # ::: waku
