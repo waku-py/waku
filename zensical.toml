@@ -163,6 +163,7 @@ show_symbol_type_toc = true
 # Theme
 [project.theme]
 language = "en"
+favicon = "assets/favicon.svg"
 logo = "assets/kanji-logo.svg"
 features = [
   "content.code.annotate",

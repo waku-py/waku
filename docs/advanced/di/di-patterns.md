@@ -1,12 +1,13 @@
 ---
 title: Advanced DI Patterns
+description: The general-purpose provider() helper, waku-to-Dishka bridge table, and raw Dishka patterns.
 ---
 
 # Advanced DI Patterns
 
 ## Introduction
 
-Waku's shorthand helpers — `singleton`, `scoped`, `transient`, `object_`, and `contextual` — cover
+waku's shorthand helpers — `singleton`, `scoped`, `transient`, `object_`, and `contextual` — cover
 the most common dependency registration patterns. This page goes further:
 
 - **[The `provider()` helper](#the-provider-helper)** — explicit control over scope, caching, and
@@ -48,7 +49,6 @@ def provider(
 ### When to use
 
 - You need a **specific scope + cache combination** that no shorthand provides (e.g., `Scope.APP` with `cache=False`).
-- Your source is a **factory function** that returns a configured object and you want to bind it to an explicit interface type.
 - You want **all parameters visible** in a single call for clarity.
 
 ### Example: factory function with explicit binding
@@ -64,7 +64,7 @@ class IHttpClient(Protocol):
     def get(self, url: str) -> str: ...
 
 
-class HttpClient:
+class HttpClient(IHttpClient):
     def __init__(self, base_url: str, timeout: int) -> None:
         self._base_url = base_url
         self._timeout = timeout
@@ -91,37 +91,12 @@ class InfraModule:
     pass
 ```
 
-!!! tip
-    All Waku helpers (including `provider()`) support **generator and async generator factories**.
-    Yield the dependency and put cleanup logic after the `yield` — the container handles
-    finalization when the scope exits:
+## Bridge table: waku helpers and Dishka equivalents
 
-    ```python
-    from collections.abc import AsyncIterator
-
-    from waku.di import singleton
-
-
-    async def create_pool() -> AsyncIterator[DatabasePool]:
-        pool = DatabasePool()
-        yield pool
-        await pool.close()
-
-
-    singleton(IDatabasePool, create_pool)
-    ```
-
-While `singleton(IHttpClient, create_http_client)` would produce the same result here,
-`provider()` makes all four parameters explicit — scope, provided type, cache, and conditional
-activation — which is useful when you need fine-grained control (e.g., `Scope.APP` with
-`cache=False`, or a non-standard scope).
-
-## Bridge table: Waku helpers and Dishka equivalents
-
-Every Waku helper is a thin wrapper around Dishka's `Provider` class. The table below shows what
+Every waku helper is a thin wrapper around Dishka's `Provider` class. The table below shows what
 each helper does under the hood.
 
-| Waku helper | Dishka equivalent |
+| waku helper | Dishka equivalent |
 |---|---|
 | `singleton(A, B)` | `provide(B, scope=Scope.APP, provides=A)` |
 | `singleton(A)` | `provide(A, scope=Scope.APP)` |
@@ -142,7 +117,7 @@ each helper does under the hood.
 ## Multiple interface registration
 
 When a single implementation should satisfy multiple interfaces, use `AnyOf` or `WithParents`.
-Both work as the source type in any Waku helper **and** as return type hints in factory
+Both work as the source type in any waku helper **and** as return type hints in factory
 functions or class-based providers.
 
 ### `AnyOf` — explicit interface list
@@ -294,24 +269,8 @@ class InfraProvider(Provider):
 
 Register the class-based provider in your module's `providers` list just like any helper result.
 
-Generator factories (sync and async) work in class-based providers the same way they work with
-Waku helpers — yield the dependency and put cleanup logic after the `yield`:
-
-```python linenums="1"
-from collections.abc import AsyncIterator
-
-from waku.di import Provider, Scope, provide
-
-
-class InfraProvider(Provider):
-    scope = Scope.APP
-
-    @provide
-    async def get_pool(self) -> AsyncIterator[DatabasePool]:
-        pool = DatabasePool()
-        yield pool
-        await pool.close()
-```
+Generator and async generator factories work the same way in class-based providers — yield the
+dependency and put cleanup after the `yield`.
 
 !!! tip
     See [Dishka: Class-based providers](https://dishka.readthedocs.io/en/stable/provider/index.html)
@@ -374,6 +333,8 @@ application need different instances of the same type (e.g., separate database c
 read and write):
 
 ```python linenums="1"
+from typing import Annotated
+
 from waku.di import FromComponent, Provider, Scope, provide
 
 
@@ -402,8 +363,8 @@ class WriteDbProvider(Provider):
 class UserRepository:
     def __init__(
         self,
-        read_conn: FromComponent[DatabaseConnection, READ_DB],
-        write_conn: FromComponent[DatabaseConnection, WRITE_DB],
+        read_conn: Annotated[DatabaseConnection, FromComponent(READ_DB)],
+        write_conn: Annotated[DatabaseConnection, FromComponent(WRITE_DB)],
     ) -> None:
         self._read_conn = read_conn
         self._write_conn = write_conn
@@ -415,7 +376,7 @@ class UserRepository:
 
 ### Custom scopes
 
-Waku uses two built-in scopes (`Scope.APP` and `Scope.REQUEST`). If your application needs
+waku uses two built-in scopes (`Scope.APP` and `Scope.REQUEST`). If your application needs
 additional scope levels — for example, a per-session or per-tenant scope — define custom scopes
 using Dishka's scope mechanism.
 

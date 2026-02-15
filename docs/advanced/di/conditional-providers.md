@@ -1,5 +1,6 @@
 ---
 title: Conditional Providers
+description: Activate or deactivate providers at startup based on markers, activator functions, or type presence.
 ---
 
 # Conditional Providers
@@ -10,7 +11,7 @@ In many applications, the correct implementation of a service depends on the run
 You might use Redis in production but an in-memory store in development, enable debug tooling
 only when a flag is set, or activate an adapter only when a companion service is registered.
 
-Waku supports **conditional providers** through the `when=` parameter available on every provider
+waku supports **conditional providers** through the `when=` parameter available on every provider
 helper (`singleton`, `scoped`, `transient`, `object_`, `many`). Combined with **markers** and
 **activator functions**, this lets you register multiple implementations of the same interface
 and let the framework choose the right one at startup.
@@ -76,60 +77,28 @@ def is_debug(config: AppConfig) -> bool:
 
 ## Providing config via context
 
-To make configuration available to activator functions, pass it through the `context` parameter
-of `WakuFactory` and register a `contextual` provider at the `APP` scope:
-
-```python linenums="1" title="app.py"
-from dishka import Scope
-
-from waku import WakuFactory, module
-from waku.di import activator, contextual, scoped
-
-from .activators import AppConfig, DEBUG, PRODUCTION, USE_REDIS, is_debug, is_production, is_redis
-from .services import ICache, InMemoryCache, RedisCache
-
-
-@module(
-    providers=[
-        contextual(AppConfig, scope=Scope.APP),
-        activator(is_redis, USE_REDIS),
-        activator(is_production, PRODUCTION),
-        activator(is_debug, DEBUG),
-        scoped(ICache, RedisCache, when=USE_REDIS),
-        scoped(ICache, InMemoryCache, when=~USE_REDIS),
-    ],
-)
-class AppModule:
-    pass
-
-
-app = WakuFactory(
-    AppModule,
-    context={AppConfig: AppConfig(use_redis=True, environment='production')},
-).create()
-```
+To make configuration available to activator functions, register a `contextual` provider at
+the `APP` scope and pass the actual instance through the `context` parameter of `WakuFactory`.
 
 When the container starts:
 
-1. `AppConfig` is resolved from the context dictionary.
+1. The container resolves `AppConfig` from the context dictionary.
 2. Each activator function receives the config and returns `True` or `False`.
 3. Providers whose `when=` marker evaluated to `True` become active; the rest are skipped.
 
+The example below demonstrates this pattern end-to-end.
+
 ## Full example: environment-based service selection
 
-Here is a self-contained example that selects a cache implementation based on configuration:
+A self-contained example that selects a cache implementation based on configuration:
 
 ```python linenums="1" title="conditional_cache.py"
 from dataclasses import dataclass
 from typing import Protocol
 
-from dishka import Scope
-
 from waku import WakuFactory, module
-from waku.di import Marker, activator, contextual, scoped
+from waku.di import Marker, Scope, activator, contextual, scoped
 
-
-# --- Configuration ---
 
 @dataclass
 class AppConfig:
@@ -143,27 +112,21 @@ def is_redis(config: AppConfig) -> bool:
     return config.use_redis
 
 
-# --- Domain contracts ---
-
 class ICache(Protocol):
     def get(self, key: str) -> str | None: ...
 
 
-# --- Implementations ---
-
 @dataclass
-class RedisCache:
+class RedisCache(ICache):
     def get(self, key: str) -> str | None:
         return f'redis:{key}'
 
 
 @dataclass
-class InMemoryCache:
+class InMemoryCache(ICache):
     def get(self, key: str) -> str | None:
         return f'memory:{key}'
 
-
-# --- Module ---
 
 @module(
     providers=[
@@ -173,16 +136,13 @@ class InMemoryCache:
         scoped(ICache, InMemoryCache, when=~USE_REDIS),
     ],
 )
-class CacheModule:
+class AppModule:
     pass
 
 
-# --- Bootstrap ---
-
 async def main() -> None:
-    # Production: Redis
     app = WakuFactory(
-        CacheModule,
+        AppModule,
         context={AppConfig: AppConfig(use_redis=True)},
     ).create()
 
@@ -190,9 +150,8 @@ async def main() -> None:
         cache = await container.get(ICache)
         assert isinstance(cache, RedisCache)
 
-    # Development: In-memory
     app = WakuFactory(
-        CacheModule,
+        AppModule,
         context={AppConfig: AppConfig(use_redis=False)},
     ).create()
 
@@ -244,8 +203,8 @@ async def main() -> None:
         assert isinstance(consumer.a, FeatureA)
 ```
 
-If `FeatureA` is removed from the providers list, the container will not register
-`FeatureAConsumer` and requesting it will raise `GraphMissingFactoryError` at validation time.
+If `FeatureA` is removed from the providers list, the container fails to build with
+`GraphMissingFactoryError` during graph validation.
 
 !!! warning
     Unlike `Marker`-based activation, `Has(Type)` is evaluated during container graph validation.
@@ -280,7 +239,6 @@ from waku.di import Marker, scoped
 DEBUG = Marker('debug')
 PRODUCTION = Marker('production')
 
-# Only active in production debug mode
 scoped(DebugProductionService, when=DEBUG & PRODUCTION)
 ```
 
@@ -291,7 +249,6 @@ Activate when **either** marker is active:
 ```python
 from waku.di import Has
 
-# Active if either FeatureA or FeatureB is registered
 scoped(SharedConsumer, when=Has(FeatureA) | Has(FeatureB))
 ```
 
@@ -299,20 +256,6 @@ scoped(SharedConsumer, when=Has(FeatureA) | Has(FeatureB))
     Composition operators work with both `Marker` and `Has`, and you can mix them freely.
     For example, `Marker('debug') & Has(MetricsService)` activates only when the debug marker
     is on **and** `MetricsService` is registered.
-
-## Supported provider helpers
-
-The `when=` parameter is accepted by all provider helpers:
-
-| Helper | Signature |
-|---|---|
-| `singleton(source, impl, *, when=)` | App-scoped, cached |
-| `scoped(source, impl, *, when=)` | Request-scoped, cached |
-| `transient(source, impl, *, when=)` | Request-scoped, not cached |
-| `object_(obj, *, provided_type=, when=)` | Pre-built instance |
-| `many(interface, *impls, *, when=)` | Collection provider |
-
-When `when=` is `None` (the default), the provider is always active.
 
 ## `activator()` reference
 
@@ -344,7 +287,6 @@ def is_debug_mode() -> bool:
     return True
 
 
-# One activator controls both markers
 activator(is_debug_mode, DEBUG, VERBOSE)
 ```
 

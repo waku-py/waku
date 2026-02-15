@@ -1,10 +1,11 @@
 ---
 title: Dependency Injection
+description: Conditional activation, collection providers, and low-level Dishka integration.
 ---
 
 # Dependency Injection
 
-Waku's [provider helpers](../../fundamentals/providers.md) cover most registration patterns.
+waku's [provider helpers](../../fundamentals/providers.md) cover most registration patterns.
 The pages in this section go further — conditional activation, collection providers, and
 low-level Dishka integration for scenarios the helpers don't cover.
 
@@ -26,6 +27,6 @@ low-level Dishka integration for scenarios the helpers don't cover.
 
     ---
 
-    The general-purpose `provider()` helper, Waku-to-Dishka bridge table, and raw Dishka patterns
+    The general-purpose `provider()` helper, waku-to-Dishka bridge table, and raw Dishka patterns
 
 </div>
