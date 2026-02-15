@@ -112,10 +112,11 @@ tasks:
     desc: Lint & typecheck python source files
     deps: [ lint, typecheck ]
 
-  codespell:
-    desc: Use Codespell to do spellchecking
+  spellcheck:
+    aliases: [ typos ]
+    desc: Run spellchecking with typos
     deps: [ .uv-locked ]
-    cmd: uv run pre-commit run codespell --all-files
+    cmd: uv run prek run typos --all-files
 
   pre-commit:
     aliases: [ prek, pre-commit-all ]
@@ -154,7 +155,7 @@ tasks:
     desc: Run the full set of checks
     cmds:
       - task: check
-      - task: codespell
+      - task: spellcheck
       - task: test:cov
 
   clean:
