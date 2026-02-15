@@ -1,5 +1,6 @@
 ---
 title: Overview
+description: A modular, type-safe Python framework for scalable, maintainable applications
 hide:
   - navigation
 ---
@@ -48,50 +49,53 @@ Inspired by [NestJS](https://nestjs.com/), powered by [Dishka](https://github.co
 
 ## Key Features
 
-<div class="grid" markdown>
+<div class="grid cards feature-cards" markdown>
 
-!!! abstract "Modular Architecture"
+-   :material-view-module: **Modular Architecture**
+
+    ---
 
     Group related code into [modules](fundamentals/modules.md) with explicit imports and exports
     for clear boundaries and responsibilities.
 
-!!! abstract "Dependency Injection"
+-   :material-needle: **Dependency Injection**
+
+    ---
 
     Built on [Dishka](https://github.com/reagento/dishka/) with flexible
     [provider patterns](fundamentals/providers.md) — singleton, scoped, transient — swap
     implementations easily.
 
-!!! abstract "Mediator & CQRS"
+-   :material-swap-horizontal: **Mediator & CQRS**
+
+    ---
 
     Handle commands, queries, and events with a [CQRS implementation](extensions/cqrs.md),
     pipeline chains, and centralized processing inspired by
     [MediatR](https://github.com/jbogard/MediatR).
 
-!!! abstract "Event Sourcing"
+-   :material-history: **Event Sourcing**
+
+    ---
 
     Full [event sourcing](extensions/eventsourcing/index.md) support with aggregates,
     projections, snapshots, upcasting, and the decider pattern.
 
-!!! abstract "Extensions & Lifecycle"
+-   :material-puzzle: **Extensions & Lifecycle**
+
+    ---
 
     Hook into the app lifecycle for logging, validation, and custom logic with
-    [extensions](extensions/lifecycle.md) and [lifespan management](fundamentals/lifespan.md).
+    [extensions](extensions/lifecycle.md) and [lifespan management](fundamentals/application.md#lifespan).
 
-!!! abstract "Framework Integrations"
+-   :material-connection: **Framework Integrations**
+
+    ---
 
     Works with FastAPI, Litestar, FastStream, Aiogram, and
     [more](fundamentals/integrations.md) — no vendor lock-in.
 
 </div>
-
-## Who is it for?
-
-| | Audience | Description |
-|---|---|---|
-| :fontawesome-solid-users: | **Enterprise teams** | Building modular, maintainable backend services or microservices |
-| :fontawesome-solid-compass-drafting: | **Architects & tech leads** | Seeking a structured framework with clear dependency boundaries and testability |
-| :fontawesome-brands-python: | **Python developers** | Frustrated with monolithic codebases and looking for better separation of concerns |
-| :fontawesome-solid-globe: | **Engineers from other ecosystems** | Java Spring, C# ASP.NET, TypeScript NestJS — familiar patterns in Python |
 
 ## Core Concepts
 
@@ -144,7 +148,7 @@ Inspired by [NestJS](https://nestjs.com/), powered by [Dishka](https://github.co
         asyncio.run(main())
     ```
 
-=== "With Protocols & exports"
+=== "With modules"
 
     ```python title="app.py" linenums="1"
     import asyncio
@@ -154,17 +158,17 @@ Inspired by [NestJS](https://nestjs.com/), powered by [Dishka](https://github.co
     from waku.di import scoped, singleton
 
 
-    class Logger(Protocol):
+    class ILogger(Protocol):
         async def log(self, message: str) -> None: ...
 
 
-    class ConsoleLogger:
+    class ConsoleLogger(ILogger):
         async def log(self, message: str) -> None:
             print(f'[LOG] {message}')
 
 
     class UserService:
-        def __init__(self, logger: Logger) -> None:
+        def __init__(self, logger: ILogger) -> None:
             self.logger = logger
 
         async def create_user(self, username: str) -> str:
@@ -174,8 +178,8 @@ Inspired by [NestJS](https://nestjs.com/), powered by [Dishka](https://github.co
 
 
     @module(
-        providers=[singleton(Logger, ConsoleLogger)],
-        exports=[Logger],
+        providers=[singleton(ILogger, ConsoleLogger)],
+        exports=[ILogger],
     )
     class InfrastructureModule:
         pass
@@ -228,5 +232,11 @@ Inspired by [NestJS](https://nestjs.com/), powered by [Dishka](https://github.co
     ---
 
     Source code, issues, and discussions
+
+-   :material-heart: **[Contributing](contributing/contributing.md)**
+
+    ---
+
+    Help improve waku
 
 </div>

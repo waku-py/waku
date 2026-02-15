@@ -7,7 +7,6 @@ from waku.di import object_
 Environment = Literal['dev', 'prod']
 
 
-# You may consider using `pydantic-settings` or similar libs for settings management
 @dataclass(kw_only=True)
 class AppSettings:
     environment: Environment

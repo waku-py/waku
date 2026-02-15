@@ -34,7 +34,7 @@ from waku.extensions import DEFAULT_EXTENSIONS
 # )
 ```
 
-When you create an application with `WakuFactory(RootModule)`, the default extensions
+When you create an application with `WakuFactory(AppModule)`, the default extensions
 are applied automatically.
 
 ### Constructor
@@ -248,7 +248,7 @@ Then pass the extension to `WakuFactory`:
 from waku.factory import WakuFactory
 
 app = WakuFactory(
-    RootModule,
+    AppModule,
     extensions=[extension],
 ).create()
 ```
@@ -262,7 +262,7 @@ to `WakuFactory`:
 from waku.factory import WakuFactory
 
 app = WakuFactory(
-    RootModule,
+    AppModule,
     extensions=(),  # no extensions — validation disabled
 ).create()
 ```
@@ -274,7 +274,7 @@ custom extensions list:
 from waku.factory import WakuFactory
 
 app = WakuFactory(
-    RootModule,
+    AppModule,
     extensions=[MyOtherExtension()],  # no ValidationExtension
 ).create()
 ```

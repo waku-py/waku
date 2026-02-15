@@ -5,15 +5,18 @@ site_description = "A Python framework for creating modular, loosely coupled, an
 site_url = "https://waku-py.github.io/waku/"
 repo_name = "waku-py/waku"
 repo_url = "https://github.com/waku-py/waku"
-copyright = '&copy; 2024-2026 <a href="https://github.com/waku-py" target="_blank" rel="noopener">waku-py</a>'
+copyright = """
+  &copy; 2024-2026 <a href="https://github.com/waku-py" target="_blank" rel="noopener">waku-py</a><br>
+  <a href="#__consent">Change cookie settings</a>
+"""
 docs_dir = "docs"
 nav = [
   { "Overview" = "index.md" },
   { "Getting Started" = "getting-started.md" },
   { "Fundamentals" = [
-    "fundamentals/providers.md",
+    "fundamentals/application.md",
     "fundamentals/modules.md",
-    "fundamentals/lifespan.md",
+    "fundamentals/providers.md",
     "fundamentals/integrations.md",
     "fundamentals/testing.md",
   ] },
@@ -65,6 +68,15 @@ data = 0
 note = """
   Thanks for your feedback! Help us improve this page by
   using our <a href="..." target="_blank" rel="noopener">feedback form</a>.
+"""
+
+[project.extra.consent]
+title = "Cookie consent"
+description = """
+    We use cookies to recognize your repeated visits and preferences, as well
+    as to measure the effectiveness of our documentation and whether users
+    find what they're searching for. With your consent, you're helping us to
+    make our documentation better.
 """
 
 [[project.extra.social]]

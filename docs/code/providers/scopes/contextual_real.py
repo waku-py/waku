@@ -24,13 +24,13 @@ class UserService:
         scoped(UserService),
     ],
 )
-class WebModule:
+class AppModule:
     pass
 
 
 # FastAPI application setup
 app = FastAPI()
-application = WakuFactory(WebModule).create()
+application = WakuFactory(AppModule).create()
 
 
 @app.get('/user-info')

@@ -53,7 +53,7 @@ Waku's event sourcing draws from established frameworks across ecosystems:
 - [Emmett](https://event-driven-io.github.io/emmett/) (TypeScript) — functional-first ES by Oskar Dudycz
 - [Marten](https://martendb.io/events/) (.NET) — projection lifecycle taxonomy (inline / async / live)
 - [Eventuous](https://eventuous.dev/) (.NET) — `IEventStore = IEventReader + IEventWriter` interface split
-- [Axon Framework](https://www.axoniq.io/axon-framework) (JVM) — aggregate testing fixtures (Given/When/Then)
+- [Axon Framework](https://www.axoniq.io/framework) (JVM) — aggregate testing fixtures (Given/When/Then)
 - [Greg Young](https://www.eventstore.com/blog/what-is-event-sourcing) — ES + CQRS formalization
 
 ---

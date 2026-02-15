@@ -1,5 +1,6 @@
 ---
 title: Testing
+description: Test utilities for creating isolated test applications and overriding providers.
 ---
 
 # Testing
@@ -39,7 +40,7 @@ async def create_test_app(
 ) -> AsyncIterator[WakuApplication]: ...
 ```
 
-`create_test_app` is an **async context manager** that yields a fully initialized `WakuApplication`.
+`create_test_app()` is an **async context manager** that yields a fully initialized `WakuApplication`.
 On exit, all lifecycle hooks (shutdown, destroy) run automatically.
 
 | Parameter | Description |
@@ -136,23 +137,24 @@ def override(
 ) -> Iterator[None]: ...
 ```
 
-`override` is a **sync** context manager that temporarily swaps providers and/or context values
+`override()` is a **sync** context manager that temporarily swaps providers and/or context values
 in a live `AsyncContainer`. When the `with` block exits, the original container state is restored.
 
 | Parameter | Description |
 |---|---|
-| `container` | The container to override. **Must be at APP scope** (`app.container`). |
+| `container` | The container to override. **Must be at `APP` scope** (`application.container`). |
 | `*providers` | Replacement providers. |
 | `context` | Context values to override or add. Existing context values not listed here are preserved. |
 
 !!! warning
-    `override()` only works on the root (APP scope) container. Passing a request-scoped container
+    `override()` only works on the root (`APP` scope) container. Passing a request-scoped container
     raises `ValueError`. Always use `application.container`, not a container obtained from
     `async with application.container()`.
 
 ### Replacing a provider
 
 ```python linenums="1" title="test_override_provider.py"
+from waku import WakuApplication
 from waku.di import singleton
 from waku.testing import override
 
@@ -184,6 +186,7 @@ When only context is overridden (no providers), the existing provider cache is p
 for better performance:
 
 ```python linenums="1" title="test_override_context.py"
+from waku import WakuApplication
 from waku.testing import override
 
 
@@ -210,9 +213,9 @@ from waku.testing import create_test_app
 
 
 @pytest.fixture(scope='session')
-async def app() -> AsyncIterator[WakuApplication]:
-    async with create_test_app(base=AppModule) as application:
-        yield application
+async def application() -> AsyncIterator[WakuApplication]:
+    async with create_test_app(base=AppModule) as app:
+        yield app
 ```
 
 ### Per-test overrides
@@ -226,45 +229,16 @@ from waku.di import singleton
 from waku.testing import override
 
 
-async def test_user_creation(app: WakuApplication) -> None:
-    with override(app.container, singleton(IUserRepo, FakeUserRepo)):
-        async with app.container() as request_container:
+async def test_user_creation(application: WakuApplication) -> None:
+    with override(application.container, singleton(IUserRepo, FakeUserRepo)):
+        async with application.container() as request_container:
             repo = await request_container.get(IUserRepo)
             assert isinstance(repo, FakeUserRepo)
 ```
-
-### anyio backend fixture
-
-Waku tests run on [anyio](https://anyio.readthedocs.io/) with pytest. To run async tests
-on both asyncio and uvloop, add a session-scoped `anyio_backend` fixture:
-
-```python linenums="1" title="conftest.py"
-import sys
-from typing import cast
-
-import pytest
-
-
-@pytest.fixture(
-    scope='session',
-    params=[
-        pytest.param(('asyncio', {'use_uvloop': True}), id='asyncio+uvloop', marks=[
-            pytest.mark.skipif(sys.platform.startswith('win'), reason='uvloop does not support Windows'),
-        ]),
-        pytest.param(('asyncio', {'use_uvloop': False}), id='asyncio'),
-    ],
-    autouse=True,
-)
-def anyio_backend(request: pytest.FixtureRequest) -> tuple[str, dict[str, object]]:
-    return cast('tuple[str, dict[str, object]]', request.param)
-```
-
-!!! note
-    With anyio, async test functions require no special markers — just define them as `async def`.
 
 ## Further reading
 
 - [Event Sourcing Testing](../extensions/eventsourcing/testing.md) — `DeciderSpec` Given/When/Then DSL
   for testing deciders and aggregates.
-- [Dishka testing documentation](https://dishka.readthedocs.io/en/stable/testing/index.html) —
+- [Dishka testing documentation](https://dishka.readthedocs.io/en/stable/advanced/testing/index.html) —
   alternative testing approaches provided by the underlying DI framework.
