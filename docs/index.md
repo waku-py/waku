@@ -1,8 +1,9 @@
 ---
 title: Overview
-description: A modular, type-safe Python framework for scalable, maintainable applications
+description: Python makes it easy to build a backend. waku makes it easy to keep growing one.
 hide:
   - navigation
+  - toc
 ---
 
 <style>
@@ -12,7 +13,7 @@ hide:
 <p align="center" markdown>
   ![waku logo](assets/logo.png){ width="480" .hero-logo }
 </p>
-<p class="hero-subtitle">枠 · modular, type-safe Python framework</p>
+<p class="hero-subtitle">枠 · structure for Python backends that grow</p>
 
 ---
 
@@ -30,8 +31,10 @@ hide:
 
 ---
 
-**A modular, type-safe Python framework for scalable, maintainable applications.**
-Inspired by [NestJS](https://nestjs.com/), powered by [Dishka](https://github.com/reagento/dishka/) IoC.
+**Python makes it easy to build a backend. waku makes it easy to keep growing one.**
+waku gives you modules with explicit boundaries, type-safe DI
+powered by [Dishka](https://github.com/reagento/dishka/), and integrated CQRS and event sourcing
+— so your codebase stays manageable as it scales.
 
 ## Installation
 
@@ -47,72 +50,70 @@ Inspired by [NestJS](https://nestjs.com/), powered by [Dishka](https://github.co
     pip install waku
     ```
 
-## Key Features
+## What you get
 
 <div class="grid cards feature-cards" markdown>
 
--   :material-view-module: **Modular Architecture**
+-   :material-view-module: **Module Boundaries**
 
     ---
 
-    Group related code into [modules](fundamentals/modules.md) with explicit imports and exports
-    for clear boundaries and responsibilities.
+    Stop fighting circular imports. Group code into [modules](fundamentals/modules.md) with
+    explicit imports and exports — each team owns their boundaries.
 
 -   :material-needle: **Dependency Injection**
 
     ---
 
-    Built on [Dishka](https://github.com/reagento/dishka/) with flexible
-    [provider patterns](fundamentals/providers.md) — singleton, scoped, transient — swap
-    implementations easily.
+    Built on [Dishka](https://github.com/reagento/dishka/) with
+    [singleton, scoped, and transient](fundamentals/providers.md) providers.
+    Swap implementations without touching business logic.
 
--   :material-swap-horizontal: **Mediator & CQRS**
+-   :material-swap-horizontal: **CQRS & Mediator**
 
     ---
 
-    Handle commands, queries, and events with a [CQRS implementation](extensions/cqrs.md),
-    pipeline chains, and centralized processing inspired by
-    [MediatR](https://github.com/jbogard/MediatR).
+    Separate reads from writes. [Commands, queries, and events](extensions/cqrs.md)
+    with pipeline behaviors for cross-cutting concerns — all in-process,
+    no message broker required.
 
 -   :material-history: **Event Sourcing**
 
     ---
 
-    Full [event sourcing](extensions/eventsourcing/index.md) support with aggregates,
-    projections, snapshots, upcasting, and the decider pattern.
+    Full [event sourcing](extensions/eventsourcing/index.md) support — aggregates,
+    projections, snapshots, upcasting, and the decider pattern with
+    built-in SQLAlchemy adapters.
 
--   :material-puzzle: **Extensions & Lifecycle**
+-   :material-puzzle: **Lifecycle & Extensions**
 
     ---
 
-    Hook into the app lifecycle for logging, validation, and custom logic with
-    [extensions](extensions/lifecycle.md) and [lifespan management](fundamentals/application.md#lifespan).
+    Hook into startup, shutdown, and module initialization with
+    [extensions](extensions/lifecycle.md). Add validation, logging, or custom
+    behaviors — decoupled from your business logic.
 
 -   :material-connection: **Framework Integrations**
 
     ---
 
     Works with FastAPI, Litestar, FastStream, Aiogram, and
-    [more](fundamentals/integrations.md) — no vendor lock-in.
+    [more](fundamentals/integrations.md). waku provides structure —
+    your framework provides the entrypoints.
 
 </div>
 
-## Core Concepts
+## How it works
 
-- **Modules** — classes decorated with `@module()` that define boundaries and dependency relationships
-- **Providers** — injectable services registered within modules
-- **Dependency Injection** — type-safe wiring powered by [Dishka](https://github.com/reagento/dishka/) IoC container
-- **WakuFactory** — the entry point that creates a `WakuApplication` from your root module
-- **Extensions** — lifecycle hooks for initialization, shutdown, and custom behaviors
-
-!!! info ""
-
-    waku is **framework-agnostic** — entrypoints (HTTP handlers, message consumers, etc.)
-    are provided by [integrations](fundamentals/integrations.md), not the core.
+`@module()` declares providers and boundaries. `WakuFactory` wires the module tree
+into a [Dishka](https://github.com/reagento/dishka/) container. Run the app as an
+async context manager — done.
 
 ## Quick Example
 
 === "Basic"
+
+    A service, a module, and a container — the minimal waku app:
 
     ```python title="app.py" linenums="1"
     import asyncio
@@ -148,7 +149,10 @@ Inspired by [NestJS](https://nestjs.com/), powered by [Dishka](https://github.co
         asyncio.run(main())
     ```
 
-=== "With modules"
+=== "With module boundaries"
+
+    Modules control visibility. `InfrastructureModule` exports `ILogger` —
+    `UserModule` imports it. Dependencies are explicit, not implicit.
 
     ```python title="app.py" linenums="1"
     import asyncio
@@ -219,24 +223,18 @@ Inspired by [NestJS](https://nestjs.com/), powered by [Dishka](https://github.co
 
     ---
 
-    Build your first application step by step
+    Install waku, build a modular app, and connect it to your framework
+
+-   :material-code-tags: **[Examples](https://github.com/waku-py/waku/tree/master/examples)**
+
+    ---
+
+    Working projects showing real usage patterns with FastAPI, Litestar, and more
 
 -   :material-api: **[API Reference](reference.md)**
 
     ---
 
-    Full API documentation
-
--   :fontawesome-brands-github: **[GitHub](https://github.com/waku-py/waku)**
-
-    ---
-
-    Source code, issues, and discussions
-
--   :material-heart: **[Contributing](contributing/contributing.md)**
-
-    ---
-
-    Help improve waku
+    Full module, class, and function reference
 
 </div>

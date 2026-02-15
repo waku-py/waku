@@ -1,16 +1,15 @@
 ---
+title: Getting Started
 hide:
   - navigation
-description: Step-by-step guide to building your first waku application
+description: Build a minimal waku app, then extend it into a multi-module project
 ---
 
 # Getting Started
 
-This guide walks you through building your first `waku` application, from a minimal example to a multi-module project.
+Build a minimal waku app, then extend it into a multi-module project with configuration and multiple services.
 
 ## Creating Your First `waku` Application
-
-Let's create a simple application that demonstrates `waku` core concepts.
 
 ### Step 1: Create the Basic Structure
 
@@ -24,7 +23,7 @@ project/
 
 ### Step 2: Define Your Services
 
-In `services.py`, let's define a simple service:
+Define a service in `services.py`:
 
 ```python title="services.py" linenums="1"
 class GreetingService:
@@ -34,7 +33,7 @@ class GreetingService:
 
 ### Step 3: Create Modules
 
-In `app.py`, let's define our modules and application setup:
+Define the modules and bootstrap the app in `app.py`:
 
 ```python title="app.py" linenums="1"
 import asyncio
@@ -75,7 +74,7 @@ if __name__ == '__main__':
 ```
 
 1. `providers` defines which providers this module creates and manages. `scoped` creates a new instance for each container context entrance.
-2. `exports` makes these providers available to other modules that import this one.
+2. `exports` makes providers available to other modules that import this one. Without an export, a provider is only injectable within its own module.
 3. `WakuFactory` creates an application instance with `AppModule` as the root module.
 4. `application.container()` creates a scoped session where providers are resolved. In real applications, wire this into your framework's lifespan — see [Framework Integrations](fundamentals/integrations.md).
 
@@ -98,7 +97,7 @@ Hello, waku!
 
 ## Creating a More Realistic Application
 
-Let's extend our example to demonstrate a more realistic scenario with multiple modules and configuration.
+Now add configuration, multiple modules, and cross-module dependencies.
 
 ### Step 1: Set Up the Project Structure
 
@@ -126,7 +125,7 @@ app/
 
 ### Step 2: Add Configuration Module
 
-Define an application settings class and configuration module for providing settings object to your application:
+Define settings and a configuration module:
 
 !!! tip
     Consider using [`pydantic-settings`](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) or similar libraries for settings management in production applications.
@@ -167,7 +166,7 @@ Define an application settings class and configuration module for providing sett
 
 ### Step 4: Create the Application Module
 
-Define the application module and bootstrap function for initializing your application:
+Define the root module and bootstrap function:
 
 ```python title="app/application.py" linenums="1"
 --8<-- "docs/code/getting_started/application.py"
@@ -201,17 +200,12 @@ Available languages: ['en', 'es', 'fr']
 
 ## Next steps
 
-Now that you have a basic understanding of `waku`, you can:
-
-1. Understand [Module System](fundamentals/modules.md) in depth
-2. Explore [Dependency Injection](fundamentals/providers.md) techniques
-3. Integrate with web frameworks like [FastAPI](fundamentals/integrations.md)
-4. Learn about [Extensions](extensions/lifecycle.md) for adding functionality to your application
-5. Explore more advanced features like [Mediator (CQRS)](extensions/cqrs.md)
-6. Learn about [Event Sourcing](extensions/eventsourcing/index.md) for building event-driven systems
-
-`waku` modular architecture allows your application to grow while maintaining clear separation of concerns and a clean,
-maintainable codebase.
+1. Understand the [Module System](fundamentals/modules.md) in depth
+2. Explore [Dependency Injection](fundamentals/providers.md) patterns
+3. Integrate with [FastAPI, Litestar, or other frameworks](fundamentals/integrations.md)
+4. Add [Extensions](extensions/lifecycle.md) for lifecycle hooks
+5. Use the [Mediator (CQRS)](extensions/cqrs.md) for command/query separation
+6. Build event-driven systems with [Event Sourcing](extensions/eventsourcing/index.md)
 
 !!! tip "Further reading"
     [The Software Architecture Chronicles](https://herbertograca.com/2017/07/03/the-software-architecture-chronicles/)
