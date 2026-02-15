@@ -151,7 +151,7 @@ Register aggregates, event types, and command handlers with the module system:
     The default `EventSourcingConfig()` uses an in-memory event store — perfect for
     prototyping. See [Event Store](event-store.md) for PostgreSQL setup.
 
-## What's Next
+## Next steps
 
 | Topic | Description |
 |-------|-------------|

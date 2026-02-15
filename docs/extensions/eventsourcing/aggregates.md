@@ -134,3 +134,10 @@ The repositories handle this automatically — `NoStream` for new aggregates,
 !!! tip
     Start with OOP aggregates for straightforward domains. Move to deciders when you need
     easily testable business rules or immutable state guarantees.
+
+## Further reading
+
+- **[Event Store](event-store.md)** — in-memory and PostgreSQL event persistence
+- **[Snapshots](snapshots.md)** — optimize loading for long-lived aggregates
+- **[Testing](testing.md)** — Given/When/Then DSL and OOP aggregate testing
+- **[Schema Evolution](schema-evolution.md)** — upcasting and event type registries

@@ -190,7 +190,7 @@ validation after the application is fully initialized.
     extensions=[*DEFAULT_EXTENSIONS, MyExtension()]
     ```
 
-## What's Next
+## Next steps
 
 For implementation details, code examples, and advanced patterns like combining multiple hooks
 in a single class, see [Custom Extensions](../advanced/custom-extensions.md).

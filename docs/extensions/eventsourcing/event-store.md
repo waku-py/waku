@@ -157,3 +157,10 @@ at runtime. The store calls each enricher's `enrich()` method in order before wr
 | `data` | `INotification` | The deserialized domain event |
 | `metadata` | `EventMetadata` | Correlation, causation, and extra metadata |
 | `schema_version` | `int` | Schema version (defaults to `1`) |
+
+## Further reading
+
+- **[Projections](projections.md)** — build read models from event streams
+- **[Schema Evolution](schema-evolution.md)** — upcasting and event versioning
+- **[Snapshots](snapshots.md)** — optimize loading for long-lived aggregates
+- **[Testing](testing.md)** — in-memory event store for integration tests

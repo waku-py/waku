@@ -238,7 +238,5 @@ async def test_user_creation(application: WakuApplication) -> None:
 
 ## Further reading
 
-- [Event Sourcing Testing](../extensions/eventsourcing/testing.md) — `DeciderSpec` Given/When/Then DSL
-  for testing deciders and aggregates.
-- [Dishka testing documentation](https://dishka.readthedocs.io/en/stable/advanced/testing/index.html) —
-  alternative testing approaches provided by the underlying DI framework.
+- **[Event Sourcing Testing](../extensions/eventsourcing/testing.md)** — `DeciderSpec` Given/When/Then DSL for testing deciders and aggregates
+- **[Dishka testing documentation](https://dishka.readthedocs.io/en/stable/advanced/testing/index.html)** — alternative testing approaches provided by the underlying DI framework

@@ -283,3 +283,10 @@ app = WakuFactory(
     Disabling validation removes the safety net that catches import/export wiring
     errors at startup. Only disable it when you have a specific reason, such as
     running a minimal test harness or during early prototyping.
+
+## Further reading
+
+- **[Modules](../fundamentals/modules.md)** — module system, imports, and export boundaries
+- **[Custom Extensions](../advanced/custom-extensions.md)** — writing your own extensions and hooks
+- **[Lifecycle Hooks](lifecycle.md)** — when validation runs in the application lifecycle
+- **[Testing](../fundamentals/testing.md)** — test utilities and working with validation in tests

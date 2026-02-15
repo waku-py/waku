@@ -647,3 +647,10 @@ from waku.cqrs.exceptions import (
     RequestHandlerNotFound,
 )
 ```
+
+## Further reading
+
+- **[Event Sourcing](eventsourcing/index.md)** — event-sourced aggregates, deciders, and projections
+- **[Lifecycle Hooks](lifecycle.md)** — extension hooks for application and module lifecycle
+- **[Validation](validation.md)** — startup validation and custom rules
+- **[Testing](../fundamentals/testing.md)** — test utilities and provider overrides

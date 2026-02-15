@@ -137,3 +137,10 @@ The resulting dict matches the current `AccountOpened` schema and deserializes c
 !!! warning
     Every upcaster's `from_version` must be **less than** the event's current `version`.
     Waku validates this at startup and raises `UpcasterChainError` if the constraint is violated.
+
+## Further reading
+
+- **[Event Store](event-store.md)** — where upcasting happens during deserialization
+- **[Aggregates](aggregates.md)** — aggregate patterns that produce versioned events
+- **[Projections](projections.md)** — read models that consume upcasted events
+- **[Testing](testing.md)** — testing upcasters and event evolution

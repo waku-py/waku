@@ -281,7 +281,7 @@ class UserRepository:
 
 ## Further reading
 
-- [Providers](../fundamentals/providers.md) — provider types and scopes
-- [Conditional Providers](conditional-providers.md) — `when=` parameter and markers
-- [Multi-bindings](multi-bindings.md) — collection providers with `many()`
-- [Dishka documentation](https://dishka.readthedocs.io/en/stable/) — the underlying DI framework
+- **[Providers](../fundamentals/providers.md)** — provider types and scopes
+- **[Conditional Providers](conditional-providers.md)** — `when=` parameter and markers
+- **[Multi-bindings](multi-bindings.md)** — collection providers with `many()`
+- **[Dishka documentation](https://dishka.readthedocs.io/en/stable/)** — the underlying DI framework

@@ -142,3 +142,10 @@ EventSourcingConfig(
 
 You can use `snapshot_store_factory` instead of `snapshot_store` when the store requires
 additional constructor arguments (e.g., `make_sqlalchemy_snapshot_store(table)`).
+
+## Further reading
+
+- **[Event Store](event-store.md)** — event persistence and stream mechanics
+- **[Schema Evolution](schema-evolution.md)** — handling state schema changes over time
+- **[Aggregates](aggregates.md)** — OOP aggregates and functional deciders
+- **[Testing](testing.md)** — in-memory stores for integration tests
