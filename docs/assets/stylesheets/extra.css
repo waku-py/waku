@@ -28,6 +28,10 @@
 .feature-cards > ul > li:nth-child(5) .twemoji { color: #42a5f5; }
 .feature-cards > ul > li:nth-child(6) .twemoji { color: #ec407a; }
 
+.di-cards > ul > li:nth-child(1) .twemoji { color: #26a69a; }
+.di-cards > ul > li:nth-child(2) .twemoji { color: #7e57c2; }
+.di-cards > ul > li:nth-child(3) .twemoji { color: #ffa726; }
+
 .mdx-columns ol,
 .mdx-columns ul {
   columns: 2;

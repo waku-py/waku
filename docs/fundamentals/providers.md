@@ -188,7 +188,5 @@ To inject dependencies with `waku`, you need to:
 ## Further reading
 
 - **[Modules](modules.md)** — module system, imports, and exports
-- **[Conditional Providers](../advanced/conditional-providers.md)** — activate providers based on markers
-- **[Multi-bindings](../advanced/multi-bindings.md)** — collection providers with `many()`
-- **[DI Patterns](../advanced/di-patterns.md)** — factory providers, aliases, and components
+- **[Advanced DI](../advanced/di/index.md)** — conditional providers, multi-bindings, and Dishka primitives
 - **[Dishka documentation](https://dishka.readthedocs.io/en/stable/index.html)** — the underlying DI framework

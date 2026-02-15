@@ -413,7 +413,7 @@ keeping a single collection point.
 
 ## Further reading
 
-- [Providers](../fundamentals/providers.md) — provider types and scopes
+- [Providers](../../fundamentals/providers.md) — provider types and scopes
 - [Conditional Providers](conditional-providers.md) — `when=` parameter and markers
-- [Modules](../fundamentals/modules.md) — module system and provider registration
+- [Modules](../../fundamentals/modules.md) — module system and provider registration
 - [Dishka collections](https://dishka.readthedocs.io/en/stable/advanced/collect.html) — underlying collection mechanism

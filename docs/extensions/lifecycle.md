@@ -14,7 +14,7 @@ base class.
 
 This page gives an overview of the full lifecycle, lists every available hook, and explains when
 each one fires. For implementation details and code examples, see
-[Custom Extensions](../advanced/custom-extensions.md).
+[Custom Extensions](custom-extensions.md).
 
 ## Full Lifecycle
 
@@ -193,4 +193,4 @@ validation after the application is fully initialized.
 ## Next steps
 
 For implementation details, code examples, and advanced patterns like combining multiple hooks
-in a single class, see [Custom Extensions](../advanced/custom-extensions.md).
+in a single class, see [Custom Extensions](custom-extensions.md).
