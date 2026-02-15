@@ -74,6 +74,120 @@ Each provider (except [`object_()`](#object) and [`contextual()`](#contextual)) 
 - `interface_or_source`: the type to register — or the interface type when a separate implementation is provided.
 - `implementation` *(optional)*: the implementation type or factory. When given, the first argument is treated as the interface.
 
+## Source types
+
+Every provider helper accepts classes and callables as the source of a dependency.
+The container inspects the source's type hints to determine what to inject.
+
+### Classes
+
+The most common source — the container calls the constructor and injects parameters:
+
+```python linenums="1"
+from waku.di import scoped
+
+
+class UserRepository:
+    def __init__(self, db: Database) -> None:
+        self._db = db
+
+
+scoped(IUserRepository, UserRepository)
+```
+
+### Factory functions
+
+Any callable with a return type annotation works as a source. The container
+injects the function's parameters and uses the return value:
+
+```python linenums="1"
+from waku.di import scoped
+
+
+def create_repository(db: Database) -> UserRepository:
+    return UserRepository(db)
+
+
+scoped(IUserRepository, create_repository)
+```
+
+### Async factory functions
+
+Async factories work the same way — the container awaits them during resolution:
+
+```python linenums="1"
+from waku.di import scoped
+
+
+async def create_repository(db: Database) -> UserRepository:
+    return UserRepository(db)
+
+
+scoped(IUserRepository, create_repository)
+```
+
+### Generator factories
+
+Generator factories support resource cleanup. Yield the dependency; code after
+`yield` runs when the scope exits:
+
+```python linenums="1"
+from collections.abc import Iterator
+
+from waku.di import scoped
+
+
+def create_session(pool: ConnectionPool) -> Iterator[Session]:
+    session = pool.acquire()
+    yield session
+    session.close()
+
+
+scoped(ISession, create_session)
+```
+
+Async generators follow the same pattern with `AsyncIterator`:
+
+```python linenums="1"
+from collections.abc import AsyncIterator
+
+from waku.di import singleton
+
+
+async def create_pool() -> AsyncIterator[DatabasePool]:
+    pool = DatabasePool()
+    yield pool
+    await pool.close()
+
+
+singleton(IDatabasePool, create_pool)
+```
+
+??? tip "Working with context managers"
+    Do not apply `@contextmanager` or `@asynccontextmanager` to generator
+    factories — Dishka manages the generator lifecycle directly and these
+    decorators interfere with that mechanism. Use plain generators as shown above.
+
+    To wrap an **existing context manager class**, enter it inside a generator factory:
+
+    ```python linenums="1"
+    from collections.abc import AsyncIterator
+
+    from waku.di import scoped
+
+
+    async def create_connection(config: DbConfig) -> AsyncIterator[Connection]:
+        async with Connection(config.dsn) as conn:
+            yield conn
+
+
+    scoped(IConnection, create_connection)
+    ```
+
+    For automatic enter/exit of all context manager dependencies without writing
+    individual wrappers, see [dishka#457](https://github.com/reagento/dishka/issues/457)
+    for a `@decorate`-based recipe.
+
 ## Scopes
 
 Provider helper names are inspired by
