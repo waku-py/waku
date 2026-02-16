@@ -32,9 +32,12 @@ hide:
 ---
 
 **Python makes it easy to build a backend. waku makes it easy to keep growing one.**
-waku gives you modules with explicit boundaries, type-safe DI
-powered by [Dishka](https://github.com/reagento/dishka/), and integrated CQRS and event sourcing
-— so your codebase stays manageable as it scales.
+
+As your project scales, problems creep in: services import each other freely,
+swapping a database means editing dozens of files, and nobody can tell which module
+depends on what. waku gives you modules with explicit boundaries, type-safe DI
+powered by [Dishka](https://github.com/reagento/dishka/), and integrated CQRS
+and event sourcing — so your codebase stays manageable as it scales.
 
 ## Installation
 
@@ -59,7 +62,7 @@ powered by [Dishka](https://github.com/reagento/dishka/), and integrated CQRS an
     ---
 
     Stop fighting circular imports. Group code into [modules](fundamentals/modules.md) with
-    explicit imports and exports — each team owns their boundaries.
+    explicit imports and exports — keep your dependency graph visible.
 
 -   :material-needle: **Dependency Injection**
 
@@ -105,9 +108,9 @@ powered by [Dishka](https://github.com/reagento/dishka/), and integrated CQRS an
 
 ## How it works
 
-`@module()` declares providers and boundaries. `WakuFactory` wires the module tree
-into a [Dishka](https://github.com/reagento/dishka/) container. Run the app as an
-async context manager — done.
+Group related providers into **modules** with explicit imports and exports.
+`WakuFactory` wires the module tree into a DI container. Plug it into your
+framework — FastAPI, Litestar, or anything else — and you're done.
 
 ## Quick Example
 

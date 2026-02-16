@@ -39,9 +39,12 @@
 -----
 
 > **Python makes it easy to build a backend. waku makes it easy to keep growing one.**
-> waku gives you modules with explicit boundaries, type-safe DI
-> powered by [Dishka](https://github.com/reagento/dishka/), and integrated CQRS and event sourcing
-> — so your codebase stays manageable as it scales.
+>
+> As your project scales, problems creep in: services import each other freely,
+> swapping a database means editing dozens of files, and nobody can tell which module
+> depends on what. waku gives you modules with explicit boundaries, type-safe DI
+> powered by [Dishka](https://github.com/reagento/dishka/), and integrated CQRS
+> and event sourcing — so your codebase stays manageable as it scales.
 
 > [!TIP]
 > Check out the full [**documentation**](https://waku-py.github.io/waku/) and our [**examples**](https://github.com/waku-py/waku/tree/master/examples) to get started.
@@ -52,13 +55,13 @@ Python backends start clean and end up as tangles of circular imports, implicit 
 
 ## What waku gives you
 
-- 🧩 [**Module boundaries**](https://waku-py.github.io/waku/core/modules/): Group related code into modules with explicit imports and exports. No more guessing where things live or fighting circular dependencies.
-- 💉 [**Dependency injection**](https://waku-py.github.io/waku/core/providers/): Built on [Dishka](https://github.com/reagento/dishka/) — singleton, scoped, and transient providers with full type safety. Swap implementations without touching business logic.
-- 📨 [**CQRS & mediator**](https://waku-py.github.io/waku/extensions/cqrs/): Separate reads from writes. Commands, queries, and events with pipeline behaviors for cross-cutting concerns — all in-process, no message broker required.
-- 📜 [**Event sourcing**](https://waku-py.github.io/waku/extensions/eventsourcing/): Aggregates, projections, snapshots, upcasting, and the decider pattern with built-in SQLAlchemy adapters.
-- 🔌 [**Framework integrations**](https://waku-py.github.io/waku/core/integrations/): Works with FastAPI, Litestar, FastStream, Aiogram, and more. waku provides structure — your framework provides the entrypoints.
-- 🧪 [**Testing built in**](https://waku-py.github.io/waku/): Override any provider in tests with `override()`, or spin up a minimal app with `create_test_app()`.
-- 🧰 [**Lifecycle & extensions**](https://waku-py.github.io/waku/extensions/): Hook into application startup, shutdown, and module initialization. Add validation, logging, or custom behaviors — decoupled from your business logic.
+- 🧩 [**Module boundaries**](https://waku-py.github.io/waku/fundamentals/modules/): Group related code into modules with explicit imports and exports — keep your dependency graph visible.
+- 💉 [**Dependency injection**](https://waku-py.github.io/waku/fundamentals/providers/): Built on [Dishka](https://github.com/reagento/dishka/) — singleton, scoped, and transient providers with full type safety. Swap implementations without touching business logic.
+- 📨 [**CQRS & mediator**](https://waku-py.github.io/waku/features/cqrs/): Separate reads from writes. Commands, queries, and events with pipeline behaviors for cross-cutting concerns — all in-process, no message broker required.
+- 📜 [**Event sourcing**](https://waku-py.github.io/waku/features/eventsourcing/): Aggregates, projections, snapshots, upcasting, and the decider pattern with built-in SQLAlchemy adapters.
+- 🔌 [**Framework integrations**](https://waku-py.github.io/waku/fundamentals/integrations/): Works with FastAPI, Litestar, FastStream, Aiogram, and more. waku provides structure — your framework provides the entrypoints.
+- 🧪 [**Testing built in**](https://waku-py.github.io/waku/fundamentals/testing/): Override any provider in tests with `override()`, or spin up a minimal app with `create_test_app()`.
+- 🧰 [**Lifecycle & extensions**](https://waku-py.github.io/waku/advanced/extensions/): Hook into application startup, shutdown, and module initialization. Add validation, logging, or custom behaviors — decoupled from your business logic.
 
 ## Quick Start
 
@@ -177,28 +180,28 @@ if __name__ == '__main__':
 
 ### Next Steps
 
-- Learn about [module imports and exports](https://waku-py.github.io/waku/core/modules/)
-- Try different [provider scopes](https://waku-py.github.io/waku/core/providers/)
-- Add [CQRS](https://waku-py.github.io/waku/extensions/cqrs/) for clean command handling
-- Connect with your [favorite framework](https://waku-py.github.io/waku/core/integrations/)
+- Learn about [module imports and exports](https://waku-py.github.io/waku/fundamentals/modules/)
+- Try different [provider scopes](https://waku-py.github.io/waku/fundamentals/providers/)
+- Add [CQRS](https://waku-py.github.io/waku/features/cqrs/) for clean command handling
+- Connect with your [favorite framework](https://waku-py.github.io/waku/fundamentals/integrations/)
 - Browse the [examples directory](https://github.com/waku-py/waku/tree/master/examples) for inspiration
 
 ## Documentation
 
 - [Getting Started](https://waku-py.github.io/waku/getting-started/)
-- [Module System](https://waku-py.github.io/waku/core/modules/)
-- [Providers](https://waku-py.github.io/waku/core/providers/)
-- [Extensions](https://waku-py.github.io/waku/extensions/)
-- [CQRS](https://waku-py.github.io/waku/extensions/cqrs/)
-- [Event Sourcing](https://waku-py.github.io/waku/extensions/eventsourcing/)
+- [Module System](https://waku-py.github.io/waku/fundamentals/modules/)
+- [Providers](https://waku-py.github.io/waku/fundamentals/providers/)
+- [Extensions](https://waku-py.github.io/waku/advanced/extensions/)
+- [CQRS](https://waku-py.github.io/waku/features/cqrs/)
+- [Event Sourcing](https://waku-py.github.io/waku/features/eventsourcing/)
 - [API Reference](https://waku-py.github.io/waku/reference/)
 - [Dishka Documentation](https://dishka.readthedocs.io/en/stable/index.html)
 - [DeepWiki](https://deepwiki.com/waku-py/waku)
 
 ## Contributing
 
-- [Contributing Guide](https://waku-py.github.io/waku/contributing/)
-- [Development Setup](https://waku-py.github.io/waku/contributing/#development-setup)
+- [Contributing Guide](https://waku-py.github.io/waku/contributing/contributing/)
+- [Development Setup](https://waku-py.github.io/waku/contributing/contributing/#development-setup)
 
 ### Top contributors
 

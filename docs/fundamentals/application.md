@@ -1,5 +1,6 @@
 ---
 title: Application
+description: Bootstrapping, lifecycle management, and container access for waku applications.
 ---
 
 # Application
@@ -51,8 +52,8 @@ app = WakuFactory(AppModule).create()
 
 ### Bootstrap Function
 
-It is recommended to wrap `WakuFactory` in a dedicated **bootstrap function** rather than
-calling the factory inline. This gives you a single entry point for application creation that
+Wrap `WakuFactory` in a dedicated **bootstrap function** rather than
+calling the factory inline. This gives you a single entrypoint for application creation that
 you then pass down to framework-specific factory methods (API server, CLI, message broker, etc.):
 
 ```python linenums="1" title="app/application.py"
@@ -83,7 +84,7 @@ def bootstrap_application(settings: Settings) -> WakuApplication:
     ).create()
 ```
 
-Each entry point calls the bootstrap function and passes the resulting application to
+Each entrypoint calls the bootstrap function and passes the resulting application to
 its own framework bootstrap:
 
 ```python linenums="1" title="app/__main__.py"
@@ -138,13 +139,26 @@ flowchart TD
     E2 --> E3["Lifespan functions exit"]
 ```
 
+### Execution order
+
+**Startup (entering `async with app`):**
+
+1. Extension init hooks run (`OnModuleInit`, `OnApplicationInit`, `AfterApplicationInit`)
+2. Lifespan functions are entered in the order they were provided
+3. The DI container context is entered
+
+**Shutdown (exiting `async with app`):**
+
+1. Extension shutdown hooks run (`OnModuleDestroy`, `OnApplicationShutdown`)
+2. The DI container context is exited
+3. Lifespan functions are exited in **reverse** order (LIFO)
+
 For details on extension hooks, see [Lifecycle Hooks](../advanced/extensions/index.md).
 
 ### Lifespan
 
-Lifespan functions run setup and teardown logic **before** the DI container enters and **after** it exits.
-Use them for work that must happen outside the container lifecycle — database migrations, service
-discovery registration, signal handlers, or background schedulers.
+Lifespan functions handle setup and teardown that must happen outside the container lifecycle —
+database migrations, service discovery registration, signal handlers, or background schedulers.
 
 !!! tip
     For long-lived resources like connection pools, HTTP clients, or cache connections, prefer
@@ -192,24 +206,6 @@ app = WakuFactory(
     lifespan=[run_migrations],
 ).create()
 ```
-
-### Execution order
-
-**Startup (entering `async with app`):**
-
-1. Extension init hooks run (`OnModuleInit`, `OnApplicationInit`, `AfterApplicationInit`)
-2. Lifespan functions are entered in the order they were provided
-3. The DI container context is entered
-
-**Shutdown (exiting `async with app`):**
-
-1. Extension shutdown hooks run (`OnModuleDestroy`, `OnApplicationShutdown`)
-2. The DI container context is exited
-3. Lifespan functions are exited in **reverse** order (LIFO)
-
-When multiple lifespan functions are provided, they execute in order on startup and in reverse
-order on shutdown. This mirrors the semantics of nested `async with` blocks — resources set up
-earlier are torn down later.
 
 ## Container Access
 

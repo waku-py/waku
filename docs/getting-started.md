@@ -9,7 +9,65 @@ description: Build a minimal waku app, then extend it into a multi-module projec
 
 Build a minimal waku app, then extend it into a multi-module project with configuration and multiple services.
 
-## Creating Your First `waku` Application
+## Why modules?
+
+=== "Without waku"
+
+    A typical Python service — every dependency is a hardcoded import:
+
+    ```python title="services.py"
+    from db import get_session
+    from config import settings
+    from notifications import send_email
+
+
+    class UserService:
+        def create_user(self, name: str) -> User:
+            session = get_session()              # (1)!
+            user = User(name=name)
+            session.add(user)
+            session.commit()
+            if settings.SEND_WELCOME_EMAIL:      # (2)!
+                send_email(user.email, '...')     # (3)!
+            return user
+    ```
+
+    1. Direct import — how do you test this without a real database?
+    2. Global config access — how do you swap settings per environment?
+    3. Hidden cross-module dependency — nothing prevents `notifications` from importing `UserService` back.
+
+=== "With waku"
+
+    Same functionality — dependencies are injected, boundaries are explicit:
+
+    ```python title="users/services.py"
+    class UserService:
+        def __init__(self, session: AsyncSession, notifier: INotifier) -> None:
+            self.session = session
+            self.notifier = notifier
+
+        async def create_user(self, name: str) -> User:
+            user = User(name=name)
+            self.session.add(user)
+            await self.notifier.notify(user.email, '...')
+            return user
+    ```
+
+    ```python title="users/module.py"
+    @module(
+        providers=[scoped(UserService)],               # (1)!
+        imports=[DatabaseModule, NotificationModule],   # (2)!
+        exports=[UserService],                         # (3)!
+    )
+    class UserModule:
+        pass
+    ```
+
+    1. [Providers](fundamentals/providers.md) are declared, not imported — swap the DB by changing one provider.
+    2. [Module imports](fundamentals/modules.md) make dependencies explicit — circular dependencies are caught at startup by [validation](features/validation.md).
+    3. [Exports](fundamentals/modules.md#module) control what other modules can access — the module's public API.
+
+## Creating Your First waku Application
 
 ### Step 1: Create the Basic Structure
 
@@ -35,51 +93,61 @@ class GreetingService:
 
 Define the modules and bootstrap the app in `app.py`:
 
-```python title="app.py" linenums="1"
-import asyncio
+=== "Standalone"
 
-from waku import WakuApplication, WakuFactory, module
-from waku.di import scoped
+    ```python title="app.py" linenums="1"
+    import asyncio
 
-from services import GreetingService
+    from waku import WakuApplication, WakuFactory, module
+    from waku.di import scoped
 
-
-@module(
-    providers=[scoped(GreetingService)],  # (1)!
-    exports=[GreetingService],  # (2)!
-)
-class GreetingModule:
-    pass
+    from services import GreetingService
 
 
-@module(imports=[GreetingModule])
-class AppModule:
-    pass
+    @module(
+        providers=[scoped(GreetingService)],  # (1)!
+        exports=[GreetingService],  # (2)!
+    )
+    class GreetingModule:
+        pass
 
 
-def bootstrap() -> WakuApplication:  # (3)!
-    return WakuFactory(AppModule).create()
+    @module(imports=[GreetingModule])
+    class AppModule:
+        pass
 
 
-async def main() -> None:
-    application = bootstrap()
-
-    async with application, application.container() as container:  # (4)!
-        svc = await container.get(GreetingService)
-        print(await svc.greet('waku'))
+    def bootstrap() -> WakuApplication:  # (3)!
+        return WakuFactory(AppModule).create()
 
 
-if __name__ == '__main__':
-    asyncio.run(main())
-```
+    async def main() -> None:
+        application = bootstrap()
 
-1. `providers` defines which providers this module creates and manages. `scoped` creates a new instance for each container context entrance.
-2. `exports` makes providers available to other modules that import this one. Without an export, a provider is only injectable within its own module.
-3. `WakuFactory` creates an application instance with `AppModule` as the root module.
-4. `application.container()` creates a scoped session where providers are resolved. In real applications, wire this into your framework's lifespan — see [Framework Integrations](fundamentals/integrations.md).
+        async with application, application.container() as container:  # (4)!
+            svc = await container.get(GreetingService)
+            print(await svc.greet('waku'))
 
-!!! info
-    For more information on providers and scopes, see [Providers](fundamentals/providers.md#scopes).
+
+    if __name__ == '__main__':
+        asyncio.run(main())
+    ```
+
+    1. [`providers`](fundamentals/providers.md) defines which providers this module creates and manages. `scoped` creates a new instance for each container context entrance.
+    2. [`exports`](fundamentals/modules.md#module) makes providers available to other modules that import this one. Without an export, a provider is only injectable within its own module.
+    3. `WakuFactory` is the [composition root](fundamentals/application.md#wakufactory) — define your module tree once, reuse it across API server, CLI, and workers.
+    4. This is for standalone scripts and demos. In real applications, your framework handles container scoping — see the FastAPI tab.
+
+=== "With FastAPI"
+
+    ```python title="main.py" linenums="1"
+    --8<-- "docs/code/integrations/fastapi_example.py"
+    ```
+
+    1. Manages waku lifecycle (extension hooks, startup/shutdown) through FastAPI's lifespan. Dishka handles per-request container scoping automatically.
+    2. [`setup_dishka`](fundamentals/integrations.md) connects the DI container to FastAPI — dependencies resolve automatically per request.
+    3. `@inject` from Dishka's FastAPI integration enables automatic dependency resolution for this handler.
+    4. `Injected[Type]` marks a parameter for injection. See [Framework Integrations](fundamentals/integrations.md) for other frameworks.
 
 ### Step 4: Run Your Application
 
@@ -97,7 +165,7 @@ Hello, waku!
 
 ## Creating a More Realistic Application
 
-Now add configuration, multiple modules, and cross-module dependencies.
+Now add [configuration](fundamentals/modules.md#dynamic-module), [multiple modules](fundamentals/modules.md), and cross-module dependencies.
 
 ### Step 1: Set Up the Project Structure
 
@@ -133,6 +201,11 @@ Define settings and a configuration module:
 ```python title="app/settings.py" linenums="1"
 --8<-- "docs/code/getting_started/settings.py"
 ```
+
+`is_global=True` makes this module's exports available to every module in the app
+without explicit imports. Without it, every module that needs settings would have to
+add `imports=[ConfigModule]`.
+Learn more: [Global Modules](fundamentals/modules.md#global-modules).
 
 ### Step 3: Create Modules
 
@@ -172,11 +245,19 @@ Define the root module and bootstrap function:
 --8<-- "docs/code/getting_started/application.py"
 ```
 
+`ConfigModule.register(env='dev')` is a [dynamic module](fundamentals/modules.md#dynamic-module) —
+it lets you pass parameters at import time, so the module controls how the value becomes a provider.
+The other modules are imported directly — they don't need parameters.
+
+!!! tip
+    The bootstrap function is the [composition root](fundamentals/application.md#bootstrap-function) — one place to wire the entire module tree. Every entrypoint (API, CLI, worker) calls it.
+
 ### Step 5: Create the Main Entrypoint
 
 !!! tip
-    In real-world scenarios, you would use a framework like FastAPI or Litestar
-    for your entry points. See [Framework Integrations](fundamentals/integrations.md).
+    In production, you would use [FastAPI, Litestar, or another framework](fundamentals/integrations.md)
+    instead of a standalone script. The double context manager (`async with app, app.container()`)
+    disappears — your framework's integration handles container scoping per request.
 
 ```python linenums="1" title="app/__main__.py"
 --8<-- "docs/code/getting_started/main.py"
@@ -211,4 +292,4 @@ Available languages: ['en', 'es', 'fr']
     [The Software Architecture Chronicles](https://herbertograca.com/2017/07/03/the-software-architecture-chronicles/)
     by Herberto Graça [distills](https://herbertograca.com/2017/11/16/explicit-architecture-01-ddd-hexagonal-onion-clean-cqrs-how-i-put-it-all-together/)
     all popular software architectural styles into a single approach — a great resource for understanding
-    the principles behind `waku`.
+    the principles behind waku.
