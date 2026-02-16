@@ -1,27 +1,18 @@
 # Documentation
 
-## How to help
+## Ways to Contribute
 
-You will be of invaluable help if you contribute to the documentation.
+- Report inaccuracies, errors, or typos via [issues](https://github.com/waku-py/waku/issues) or [discussions](https://github.com/waku-py/waku/discussions)
+- Suggest edits to existing sections
+- Add missing content
 
-Such a contribution can be:
+## Local Development
 
-- Indications of inaccuracies, errors, typos
-- Suggestions for editing specific sections
-- Making additions
+1. Follow the [development setup](contributing.md#development-setup)
+2. Start the live preview server:
 
-You can report all this in [discussions](https://github.com/waku-py/waku/discussions) on GitHub or by opening
-an [issue](https://github.com/waku-py/waku/issues).
-
-## How to get started
-
-1. Follow the steps for development setup in the [contributing guide](contributing.md#development-setup)
-2. Start the local documentation server for live preview of changes
-
-    ```shell
+    ```bash
     zensical serve
     ```
 
-3. Go to the `docs/` directory and make your changes
-
-After making all the changes, you can issue a `PR` with them - and we will gladly accept it!
+3. Edit files in `docs/` — changes reload automatically

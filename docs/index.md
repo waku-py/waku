@@ -11,9 +11,9 @@ hide:
 </style>
 
 <p align="center" markdown>
-  ![waku logo](assets/logo.png){ width="480" .hero-logo }
+  ![waku logo](assets/logo.png){ width="480" }
 </p>
-<p class="hero-subtitle">枠 · structure for Python backends that grow</p>
+<p class="hero-subtitle">枠 · framework for Python backends that grow</p>
 
 ---
 

@@ -12,11 +12,6 @@
   letter-spacing: 0.03em;
 }
 
-.hero-logo {
-  border-radius: 0.5rem;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
-}
-
 .md-typeset table:not([class]) td code {
   white-space: nowrap;
 }
@@ -46,6 +41,14 @@
 
 .mdx-columns li {
   break-inside: avoid;
+}
+
+[data-md-color-scheme="default"] img[alt="waku logo"] {
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.5)) drop-shadow(0 0 12px rgba(0, 0, 0, 0.25)) drop-shadow(0 0 30px rgba(0, 0, 0, 0.15));
+}
+
+[data-md-color-scheme="slate"] img[alt="waku logo"] {
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.4)) drop-shadow(0 0 12px rgba(255, 255, 255, 0.15));
 }
 
 .md-typeset .mermaid {
