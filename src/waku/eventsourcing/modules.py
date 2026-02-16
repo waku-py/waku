@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import typing
 import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Self, TypeAlias
 
-from typing_extensions import get_original_bases, override
+from typing_extensions import override
 
 from waku.di import Provider, WithParents, many, object_, scoped
+from waku.eventsourcing._generics import resolve_generic_args
 from waku.eventsourcing.contracts.aggregate import IDecider
 from waku.eventsourcing.contracts.event import IMetadataEnricher
 from waku.eventsourcing.decider.repository import DeciderRepository
@@ -15,8 +15,7 @@ from waku.eventsourcing.exceptions import RegistryFrozenError, UpcasterChainErro
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore, IProjection
 from waku.eventsourcing.serialization.interfaces import IEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
-from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, ISnapshotStrategy
-from waku.eventsourcing.snapshot.serialization import ISnapshotStateSerializer
+from waku.eventsourcing.snapshot.interfaces import ISnapshotStateSerializer, ISnapshotStore, ISnapshotStrategy
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.eventsourcing.upcasting.chain import UpcasterChain
@@ -72,26 +71,12 @@ class DeciderBinding:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EventSourcingConfig:
-    store: type[IEventStore] | None = None
-    event_serializer: type[IEventSerializer] | None = None
-    snapshot_store: type[ISnapshotStore] | None = None
-    snapshot_state_serializer: type[ISnapshotStateSerializer] | None = None
-    checkpoint_store: type[ICheckpointStore] | None = None
-    store_factory: Callable[..., IEventStore] | None = None
-    snapshot_store_factory: Callable[..., ISnapshotStore] | None = None
-    checkpoint_store_factory: Callable[..., ICheckpointStore] | None = None
+    store: type[IEventStore] | Callable[..., IEventStore] | None = None
+    event_serializer: type[IEventSerializer] | Callable[..., IEventSerializer] | None = None
+    snapshot_store: type[ISnapshotStore] | Callable[..., ISnapshotStore] | None = None
+    snapshot_state_serializer: type[ISnapshotStateSerializer] | Callable[..., ISnapshotStateSerializer] | None = None
+    checkpoint_store: type[ICheckpointStore] | Callable[..., ICheckpointStore] | None = None
     enrichers: Sequence[type[IMetadataEnricher]] = ()
-
-    def __post_init__(self) -> None:
-        if self.store is not None and self.store_factory is not None:
-            msg = 'Cannot set both store and store_factory'
-            raise ValueError(msg)
-        if self.snapshot_store is not None and self.snapshot_store_factory is not None:
-            msg = 'Cannot set both snapshot_store and snapshot_store_factory'
-            raise ValueError(msg)
-        if self.checkpoint_store is not None and self.checkpoint_store_factory is not None:
-            msg = 'Cannot set both checkpoint_store and checkpoint_store_factory'
-            raise ValueError(msg)
 
 
 @dataclass(slots=True)
@@ -133,26 +118,21 @@ class EventSourcingModule:
         config_ = config or EventSourcingConfig()
         providers: list[Provider] = []
 
-        if config_.store_factory is not None:
-            providers.append(scoped(IEventStore, config_.store_factory))
+        if config_.store is not None:
+            providers.append(scoped(IEventStore, config_.store))
         else:
-            store_type = config_.store or InMemoryEventStore
-            providers.append(scoped(WithParents[IEventStore], store_type))  # ty:ignore[not-subscriptable]
+            providers.append(scoped(WithParents[IEventStore], InMemoryEventStore))  # ty:ignore[not-subscriptable]
 
         if config_.event_serializer is not None:
             providers.append(scoped(IEventSerializer, config_.event_serializer))
 
-        if config_.snapshot_store_factory is not None:
-            providers.append(scoped(ISnapshotStore, config_.snapshot_store_factory))
-        elif config_.snapshot_store is not None:
+        if config_.snapshot_store is not None:
             providers.append(scoped(ISnapshotStore, config_.snapshot_store))
 
         if config_.snapshot_state_serializer is not None:
             providers.append(scoped(ISnapshotStateSerializer, config_.snapshot_state_serializer))
 
-        if config_.checkpoint_store_factory is not None:
-            providers.append(scoped(ICheckpointStore, config_.checkpoint_store_factory))
-        elif config_.checkpoint_store is not None:
+        if config_.checkpoint_store is not None:
             providers.append(scoped(ICheckpointStore, config_.checkpoint_store))
 
         providers.append(many(IMetadataEnricher, *config_.enrichers))
@@ -238,12 +218,9 @@ class EventSourcingExtension(OnModuleConfigure):
 
     @staticmethod
     def _resolve_decider_interface(repo_type: type[Any]) -> type[Any]:
-        for base in get_original_bases(repo_type):
-            origin = typing.get_origin(base)
-            if origin is not None and isinstance(origin, type) and issubclass(origin, DeciderRepository):
-                args = typing.get_args(base)
-                if len(args) == 3:  # noqa: PLR2004
-                    return IDecider[args[0], args[1], args[2]]  # type: ignore[valid-type]
+        args = resolve_generic_args(repo_type, DeciderRepository)
+        if args and len(args) == 3:  # noqa: PLR2004
+            return IDecider[args[0], args[1], args[2]]  # type: ignore[valid-type]
         return IDecider
 
 

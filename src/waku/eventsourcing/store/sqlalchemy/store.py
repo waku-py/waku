@@ -12,7 +12,7 @@ from sqlalchemy import (  # Dishka needs runtime access
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002  # Dishka needs runtime access
 
 from waku.eventsourcing.contracts.event import EventMetadata, IMetadataEnricher, StoredEvent
-from waku.eventsourcing.contracts.stream import StreamPosition
+from waku.eventsourcing.contracts.stream import StreamId, StreamPosition
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, StreamNotFoundError
 from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.serialization.interfaces import IEventSerializer  # noqa: TC001  # Dishka needs runtime access
@@ -25,7 +25,7 @@ from waku.eventsourcing.upcasting.chain import UpcasterChain  # noqa: TC001  # D
 
 if TYPE_CHECKING:
     from waku.eventsourcing.contracts.event import EventEnvelope
-    from waku.eventsourcing.contracts.stream import ExpectedVersion, StreamId
+    from waku.eventsourcing.contracts.stream import ExpectedVersion
 
 __all__ = [
     'SqlAlchemyEventStore',
@@ -125,7 +125,7 @@ class SqlAlchemyEventStore(IEventStore):
 
     async def _ensure_stream_exists(self, stream_id: StreamId) -> None:
         if not await self.stream_exists(stream_id):
-            raise StreamNotFoundError(str(stream_id))
+            raise StreamNotFoundError(stream_id)
 
     async def read_all(
         self,
@@ -162,12 +162,11 @@ class SqlAlchemyEventStore(IEventStore):
         if not events:
             return await self._resolve_current_version(stream_id, expected_version)
 
-        key = str(stream_id)
-        current_version = await self._resolve_stream_state(key, stream_id.stream_type, expected_version)
+        current_version = await self._resolve_stream_state(stream_id, expected_version)
         new_version = current_version + len(events)
 
-        await self._update_stream_version(key, current_version, new_version)
-        stored_events = await self._insert_events(key, events, start_position=current_version + 1)
+        await self._update_stream_version(stream_id, current_version, new_version)
+        stored_events = await self._insert_events(stream_id, events, start_position=current_version + 1)
 
         await self._session.flush()
 
@@ -184,26 +183,26 @@ class SqlAlchemyEventStore(IEventStore):
         key = str(stream_id)
         stream_row = await self._get_stream(key)
         current_version = stream_row.version if stream_row is not None else -1
-        check_expected_version(key, expected_version, current_version, exists=stream_row is not None)
+        check_expected_version(stream_id, expected_version, current_version, exists=stream_row is not None)
         return current_version
 
     async def _resolve_stream_state(
         self,
-        key: str,
-        stream_type: str,
+        stream_id: StreamId,
         expected_version: ExpectedVersion,
     ) -> int:
+        key = str(stream_id)
         stream_row = await self._get_stream(key)
         current_version = stream_row.version if stream_row is not None else -1
         exists = stream_row is not None
 
-        check_expected_version(key, expected_version, current_version, exists=exists)
+        check_expected_version(stream_id, expected_version, current_version, exists=exists)
 
         if not exists:
             await self._session.execute(
                 self._streams.insert().values(
                     stream_id=key,
-                    stream_type=stream_type,
+                    stream_type=stream_id.stream_type,
                     version=-1,
                 )
             )
@@ -212,10 +211,11 @@ class SqlAlchemyEventStore(IEventStore):
 
     async def _update_stream_version(
         self,
-        key: str,
+        stream_id: StreamId,
         expected_version: int,
         new_version: int,
     ) -> None:
+        key = str(stream_id)
         result = await self._session.execute(
             self._streams
             .update()
@@ -229,15 +229,16 @@ class SqlAlchemyEventStore(IEventStore):
             )
         )
         if result.rowcount != 1:  # type: ignore[attr-defined]
-            raise ConcurrencyConflictError(key, expected_version, new_version)
+            raise ConcurrencyConflictError(stream_id, expected_version, new_version)
 
     async def _insert_events(
         self,
-        key: str,
+        stream_id: StreamId,
         events: Sequence[EventEnvelope],
         *,
         start_position: int,
     ) -> list[StoredEvent]:
+        key = str(stream_id)
         rows: list[dict[str, Any]] = []
         envelopes_data: list[tuple[uuid.UUID, str, datetime, object, EventMetadata]] = []
 
@@ -271,7 +272,7 @@ class SqlAlchemyEventStore(IEventStore):
         return [
             StoredEvent(
                 event_id=envelopes_data[i][0],
-                stream_id=key,
+                stream_id=stream_id,
                 event_type=envelopes_data[i][1],
                 position=rows[i]['position'],
                 global_position=global_positions[i],
@@ -299,7 +300,7 @@ class SqlAlchemyEventStore(IEventStore):
         domain_event = self._serializer.deserialize(data, row.event_type)
         return StoredEvent(
             event_id=row.event_id,
-            stream_id=row.stream_id,
+            stream_id=StreamId.from_value(row.stream_id),
             event_type=row.event_type,
             position=row.position,
             global_position=row.global_position,

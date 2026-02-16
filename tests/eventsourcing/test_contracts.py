@@ -53,6 +53,20 @@ def test_stream_id_str_returns_value() -> None:
     assert str(stream_id) == 'user-789'
 
 
+def test_stream_id_from_value_roundtrip() -> None:
+    original = StreamId.for_aggregate('Order', 'abc-456')
+    parsed = StreamId.from_value(str(original))
+    assert parsed == original
+
+
+def test_stream_id_from_value_invalid_format_raises() -> None:
+    with pytest.raises(ValueError, match='Invalid stream ID format'):
+        StreamId.from_value('nodash')
+
+    with pytest.raises(ValueError, match='Invalid stream ID format'):
+        StreamId.from_value('')
+
+
 def test_stream_id_empty_stream_type_raises_value_error() -> None:
     with pytest.raises(ValueError, match='StreamId stream_type cannot be empty'):
         StreamId(stream_type='', stream_key='123')
@@ -111,7 +125,7 @@ def test_stored_event_construction() -> None:
     meta = EventMetadata(correlation_id='corr-1', causation_id='cause-1')
     stored = StoredEvent(
         event_id=event_id,
-        stream_id='order-1',
+        stream_id=StreamId(stream_type='order', stream_key='1'),
         event_type='OrderCreated',
         position=0,
         global_position=42,
@@ -120,7 +134,7 @@ def test_stored_event_construction() -> None:
         metadata=meta,
     )
     assert stored.event_id == event_id
-    assert stored.stream_id == 'order-1'
+    assert stored.stream_id == StreamId(stream_type='order', stream_key='1')
     assert stored.event_type == 'OrderCreated'
     assert stored.position == 0
     assert stored.global_position == 42
@@ -137,15 +151,17 @@ def test_event_sourcing_error_is_waku_error_subclass() -> None:
 
 
 def test_stream_not_found_error_carries_stream_id() -> None:
-    error = StreamNotFoundError(stream_id='order-1')
-    assert error.stream_id == 'order-1'
+    stream_id = StreamId.for_aggregate('order', '1')
+    error = StreamNotFoundError(stream_id=stream_id)
+    assert error.stream_id == stream_id
     assert 'order-1' in str(error)
     assert isinstance(error, EventSourcingError)
 
 
 def test_concurrency_conflict_error_carries_attrs() -> None:
-    error = ConcurrencyConflictError(stream_id='order-1', expected_version=3, actual_version=5)
-    assert error.stream_id == 'order-1'
+    stream_id = StreamId.for_aggregate('order', '1')
+    error = ConcurrencyConflictError(stream_id=stream_id, expected_version=3, actual_version=5)
+    assert error.stream_id == stream_id
     assert error.expected_version == 3
     assert error.actual_version == 5
     assert 'order-1' in str(error)

@@ -9,6 +9,7 @@ from app.events import AccountOpened, MoneyDeposited, MoneyWithdrawn
 class BankAccount(EventSourcedAggregate):
     def __init__(self) -> None:
         super().__init__()
+        self.account_id: str = ''
         self.owner: str = ''
         self.balance: int = 0
 
@@ -30,7 +31,8 @@ class BankAccount(EventSourcedAggregate):
     @override
     def _apply(self, event: INotification) -> None:
         match event:
-            case AccountOpened(owner=owner):
+            case AccountOpened(account_id=account_id, owner=owner):
+                self.account_id = account_id
                 self.owner = owner
             case MoneyDeposited(amount=amount):
                 self.balance += amount

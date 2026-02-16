@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from waku.cqrs.contracts.notification import INotification
+    from waku.eventsourcing.contracts.stream import StreamId
 
 
 __all__ = [
@@ -42,7 +43,7 @@ class EventEnvelope:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class StoredEvent:
     event_id: uuid.UUID
-    stream_id: str
+    stream_id: StreamId
     event_type: str
     position: int
     global_position: int

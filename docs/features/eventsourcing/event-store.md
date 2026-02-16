@@ -150,7 +150,7 @@ at runtime. The store calls each enricher's `enrich()` method in order before wr
 | Field | Type | Description |
 |-------|------|-------------|
 | `event_id` | `uuid.UUID` | Unique event identifier |
-| `stream_id` | `str` | The stream this event belongs to |
+| `stream_id` | `StreamId` | The stream this event belongs to |
 | `event_type` | `str` | Registered event type name |
 | `position` | `int` | Position within the stream (0-based) |
 | `global_position` | `int` | Monotonically increasing position across all streams |

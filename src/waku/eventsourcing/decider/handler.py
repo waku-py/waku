@@ -45,13 +45,19 @@ class DeciderCommandHandler(
             state, version = await self._repository.load(aggregate_id)
 
         events = self._decider.decide(command, state)
-        new_version = await self._repository.save(aggregate_id, events, version)
-
-        for event in events:
-            await self._publisher.publish(event)
 
         for event in events:
             state = self._decider.evolve(state, event)
+
+        new_version = await self._repository.save(
+            aggregate_id,
+            events,
+            version,
+            current_state=state,
+        )
+
+        for event in events:
+            await self._publisher.publish(event)
 
         return self._to_response(state, new_version)
 

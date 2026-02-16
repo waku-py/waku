@@ -99,7 +99,7 @@ is provided.
 
 ```python
 class ISnapshotStore(abc.ABC):
-    async def load(self, stream_id: str, /) -> Snapshot | None: ...
+    async def load(self, stream_id: StreamId, /) -> Snapshot | None: ...
     async def save(self, snapshot: Snapshot, /) -> None: ...
 ```
 
@@ -107,7 +107,7 @@ The `Snapshot` dataclass carries the serialized state:
 
 | Field | Type | Description |
 |---|---|---|
-| `stream_id` | `str` | Stream identifier (e.g., `BankAccount-acc-1`) |
+| `stream_id` | `StreamId` | Stream identifier (e.g., `StreamId.for_aggregate('BankAccount', 'acc-1')`) |
 | `state` | `dict[str, Any]` | Serialized aggregate state |
 | `version` | `int` | Stream version at snapshot time |
 | `state_type` | `str` | State class name (for type safety on load) |
@@ -136,13 +136,13 @@ Register the snapshot store and serializer through `EventSourcingConfig`:
 
 ```python
 EventSourcingConfig(
-    snapshot_store=SqlAlchemySnapshotStore,  # or snapshot_store_factory=...
+    snapshot_store=SqlAlchemySnapshotStore,  # class or factory callable
     snapshot_state_serializer=JsonSnapshotStateSerializer,
 )
 ```
 
-You can use `snapshot_store_factory` instead of `snapshot_store` when the store requires
-additional constructor arguments (e.g., `make_sqlalchemy_snapshot_store(table)`).
+You can pass a factory callable instead of a class when the store requires
+additional constructor arguments (e.g., `snapshot_store=make_sqlalchemy_snapshot_store(table)`).
 
 ## Further reading
 

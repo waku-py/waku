@@ -32,6 +32,14 @@ class StreamId:
     def for_aggregate(cls, aggregate_type: str, aggregate_id: str) -> StreamId:
         return cls(stream_type=aggregate_type, stream_key=aggregate_id)
 
+    @classmethod
+    def from_value(cls, value: str) -> StreamId:
+        stream_type, sep, stream_key = value.partition('-')
+        if not sep or not stream_type or not stream_key:
+            msg = f"Invalid stream ID format: {value!r}. Expected '{{stream_type}}-{{stream_key}}'"
+            raise ValueError(msg)
+        return cls(stream_type=stream_type, stream_key=stream_key)
+
     @property
     def value(self) -> str:
         return f'{self.stream_type}-{self.stream_key}'

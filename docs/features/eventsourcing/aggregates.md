@@ -88,7 +88,8 @@ A decider implements three methods from the `IDecider` protocol:
 ```
 
 `DeciderRepository` requires three type parameters: `[State, Command, Event]`.
-Unlike OOP repositories, `aggregate_name` must be explicitly set.
+Like OOP repositories, `aggregate_name` is auto-resolved from the state type parameter
+(e.g., `BankAccountState` → `"BankAccount"`). You can override it with an explicit class variable.
 
 ### Command Handler
 

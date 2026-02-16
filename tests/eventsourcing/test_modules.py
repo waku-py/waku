@@ -129,14 +129,6 @@ async def test_event_type_descriptor_with_custom_name_and_aliases() -> None:
         assert registry.resolve('item_renamed_v0') is ItemRenamed
 
 
-def test_config_rejects_both_store_and_store_factory() -> None:
-    class CustomStore(InMemoryEventStore):
-        pass
-
-    with pytest.raises(ValueError, match='Cannot set both store and store_factory'):
-        EventSourcingConfig(store=CustomStore, store_factory=lambda: None)  # type: ignore[arg-type,return-value]
-
-
 class SearchIndexProjection(ICatchUpProjection):
     projection_name = 'search_index'
 

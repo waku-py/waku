@@ -144,7 +144,7 @@ async def test_read_all_applies_upcasting(pg_session: AsyncSession, event_tables
     )
     events = await v2_store.read_all()
 
-    order_events = [e for e in events if e.event_type == 'OrderCreated' and e.stream_id == str(stream_id)]
+    order_events = [e for e in events if e.event_type == 'OrderCreated' and e.stream_id == stream_id]
     assert len(order_events) == 1
     assert isinstance(order_events[0].data, OrderCreatedV2)
     assert order_events[0].data.full_name == 'Charlie'

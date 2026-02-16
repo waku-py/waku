@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import abc
-import typing
 from typing import TYPE_CHECKING, ClassVar, Generic, TypeVar
 
-from typing_extensions import get_original_bases
-
+from waku.eventsourcing._generics import resolve_generic_args
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
@@ -35,21 +33,8 @@ class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
 
     @classmethod
     def _resolve_aggregate_type(cls) -> type[AggregateT] | None:
-        for klass in cls.__mro__:
-            for base in get_original_bases(klass):
-                origin = typing.get_origin(base)
-                if origin is None or not isinstance(origin, type):
-                    continue
-                try:
-                    is_repo = issubclass(origin, EventSourcedRepository)
-                except TypeError:
-                    continue
-                if not is_repo:
-                    continue
-                args = typing.get_args(base)
-                if args and isinstance(args[0], type):
-                    return args[0]
-        return None
+        args = resolve_generic_args(cls, EventSourcedRepository)
+        return args[0] if args else None  # ty: ignore[invalid-return-type]
 
     def __init__(self, event_store: IEventStore) -> None:
         self._event_store = event_store

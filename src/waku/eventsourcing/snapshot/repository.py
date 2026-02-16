@@ -7,12 +7,10 @@ from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.exceptions import SnapshotTypeMismatchError, StreamNotFoundError
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.snapshot.interfaces import (  # Dishka needs runtime access
+    ISnapshotStateSerializer,
     ISnapshotStore,
     ISnapshotStrategy,
     Snapshot,
-)
-from waku.eventsourcing.snapshot.serialization import (
-    ISnapshotStateSerializer,  # noqa: TC001  # Dishka needs runtime access
 )
 from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Dishka needs runtime access
 
@@ -36,17 +34,17 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
         self._snapshot_store = snapshot_store
         self._snapshot_strategy = snapshot_strategy
         self._state_serializer = state_serializer
-        self._last_snapshot_version: int = -1
+        self._last_snapshot_versions: dict[str, int] = {}
 
     async def load(self, aggregate_id: str) -> AggregateT:
         stream_id = self._stream_id(aggregate_id)
-        snapshot = await self._snapshot_store.load(str(stream_id))
+        snapshot = await self._snapshot_store.load(stream_id)
 
         if snapshot is not None:
-            expected_type = type(self.create_aggregate()).__name__
+            expected_type = self.aggregate_name
             if snapshot.state_type != expected_type:
-                raise SnapshotTypeMismatchError(str(stream_id), expected_type, snapshot.state_type)
-            self._last_snapshot_version = snapshot.version
+                raise SnapshotTypeMismatchError(stream_id, expected_type, snapshot.state_type)
+            self._last_snapshot_versions[aggregate_id] = snapshot.version
             aggregate = self._restore_from_snapshot(snapshot)
             start = snapshot.version + 1
             try:
@@ -60,7 +58,7 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
             else:
                 aggregate.mark_persisted(version)
         else:
-            self._last_snapshot_version = -1
+            self._last_snapshot_versions[aggregate_id] = -1
             aggregate = await super().load(aggregate_id)
 
         return aggregate
@@ -73,8 +71,9 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
         new_version, events = await super().save(aggregate_id, aggregate)
 
         if events:
-            stream_id = str(self._stream_id(aggregate_id))
-            events_since_snapshot = new_version - self._last_snapshot_version
+            stream_id = self._stream_id(aggregate_id)
+            last_snapshot_version = self._last_snapshot_versions.get(aggregate_id, -1)
+            events_since_snapshot = new_version - last_snapshot_version
 
             if self._snapshot_strategy.should_snapshot(new_version, events_since_snapshot):
                 state_obj = self._snapshot_state(aggregate)
@@ -86,7 +85,7 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
                     state_type=type(aggregate).__name__,
                 )
                 await self._snapshot_store.save(new_snapshot)
-                self._last_snapshot_version = new_version
+                self._last_snapshot_versions[aggregate_id] = new_version
 
         return new_version, events
 

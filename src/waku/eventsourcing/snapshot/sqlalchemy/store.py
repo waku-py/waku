@@ -10,6 +10,7 @@ from sqlalchemy import (  # Dishka needs runtime access
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002  # Dishka needs runtime access
 
+from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, Snapshot
 
 if TYPE_CHECKING:
@@ -26,14 +27,15 @@ class SqlAlchemySnapshotStore(ISnapshotStore):
         self._session = session
         self._snapshots = snapshots_table
 
-    async def load(self, stream_id: str, /) -> Snapshot | None:
-        query = select(self._snapshots).where(self._snapshots.c.stream_id == stream_id)
+    async def load(self, stream_id: StreamId, /) -> Snapshot | None:
+        key = str(stream_id)
+        query = select(self._snapshots).where(self._snapshots.c.stream_id == key)
         result = await self._session.execute(query)
         row: Any = result.one_or_none()
         if row is None:
             return None
         return Snapshot(
-            stream_id=row.stream_id,
+            stream_id=StreamId.from_value(row.stream_id),
             state=row.state,
             version=row.version,
             state_type=row.state_type,
@@ -41,7 +43,7 @@ class SqlAlchemySnapshotStore(ISnapshotStore):
 
     async def save(self, snapshot: Snapshot, /) -> None:
         stmt = pg_insert(self._snapshots).values(
-            stream_id=snapshot.stream_id,
+            stream_id=str(snapshot.stream_id),
             state=snapshot.state,
             version=snapshot.version,
             state_type=snapshot.state_type,

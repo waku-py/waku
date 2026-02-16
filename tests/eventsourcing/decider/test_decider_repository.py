@@ -3,11 +3,12 @@ from __future__ import annotations
 import pytest
 
 from waku.eventsourcing.contracts.stream import StreamId
+from waku.eventsourcing.decider.repository import DeciderRepository
 from waku.eventsourcing.exceptions import AggregateNotFoundError, ConcurrencyConflictError
 from waku.eventsourcing.store.in_memory import InMemoryEventStore  # noqa: TC001  # needed for fixture type
 
 from tests.eventsourcing.decider.conftest import CounterRepository  # noqa: TC002  # needed for fixture type
-from tests.eventsourcing.test_decider import CounterState, Incremented
+from tests.eventsourcing.test_decider import CounterState, Increment, Incremented
 
 
 async def test_load_empty_stream_raises_aggregate_not_found_error(
@@ -93,3 +94,17 @@ async def test_stream_id_uses_aggregate_name(
 
     stream_id = StreamId.for_aggregate('Counter', 'abc-123')
     assert await event_store.stream_exists(stream_id)
+
+
+def test_auto_resolves_aggregate_name_from_state_type() -> None:
+    class AutoRepo(DeciderRepository[CounterState, Increment, Incremented]):
+        pass
+
+    assert AutoRepo.aggregate_name == 'Counter'
+
+
+def test_explicit_aggregate_name_takes_precedence() -> None:
+    class ExplicitRepo(DeciderRepository[CounterState, Increment, Incremented]):
+        aggregate_name = 'MyCounter'
+
+    assert ExplicitRepo.aggregate_name == 'MyCounter'

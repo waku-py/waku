@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from waku.eventsourcing.contracts.event import EventMetadata, StoredEvent
+from waku.eventsourcing.contracts.stream import StreamId
 
 
 @dataclass(frozen=True)
@@ -15,7 +16,7 @@ class SomeEvent:
 def test_stored_event_schema_version_defaults_to_one() -> None:
     event = StoredEvent(
         event_id=uuid.uuid4(),
-        stream_id='stream-1',
+        stream_id=StreamId(stream_type='stream', stream_key='1'),
         event_type='SomeEvent',
         position=0,
         global_position=0,
@@ -29,7 +30,7 @@ def test_stored_event_schema_version_defaults_to_one() -> None:
 def test_stored_event_schema_version_can_be_set() -> None:
     event = StoredEvent(
         event_id=uuid.uuid4(),
-        stream_id='stream-1',
+        stream_id=StreamId(stream_type='stream', stream_key='1'),
         event_type='SomeEvent',
         position=0,
         global_position=0,

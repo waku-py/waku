@@ -34,7 +34,7 @@ class OpenAccountHandler(EventSourcedCommandHandler[OpenAccountCommand, OpenAcco
 
     @override
     def _to_response(self, aggregate: BankAccount) -> OpenAccountResult:
-        return OpenAccountResult(account_id=aggregate.owner)
+        return OpenAccountResult(account_id=aggregate.account_id)
 
 
 @dataclass(frozen=True, kw_only=True)

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from waku.eventsourcing.contracts.stream import AnyVersion, Exact, NoStream, StreamExists
+from waku.eventsourcing.contracts.stream import AnyVersion, Exact, NoStream, StreamExists, StreamId
 from waku.eventsourcing.exceptions import ConcurrencyConflictError
 
 __all__ = ['check_expected_version']
 
 
 def check_expected_version(
-    stream_id: str,
+    stream_id: StreamId,
     expected: Exact | NoStream | StreamExists | AnyVersion,
     current_version: int,
     *,

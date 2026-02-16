@@ -176,7 +176,7 @@ from waku.eventsourcing import EventSourcingConfig
 from waku.eventsourcing.projection.sqlalchemy import make_sqlalchemy_checkpoint_store
 
 es_config = EventSourcingConfig(
-    checkpoint_store_factory=make_sqlalchemy_checkpoint_store(checkpoints_table),
+    checkpoint_store=make_sqlalchemy_checkpoint_store(checkpoints_table),
 )
 ```
 

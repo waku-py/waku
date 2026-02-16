@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from typing_extensions import override
 
+from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import AggregateNotFoundError, SnapshotTypeMismatchError
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, Snapshot
@@ -88,7 +89,7 @@ async def test_load_with_snapshot_partial_replay(
     await repository.save('acc-1', account)
 
     snapshot_store.load.return_value = Snapshot(
-        stream_id='BankAccount-acc-1',
+        stream_id=StreamId.for_aggregate('BankAccount', 'acc-1'),
         state={'name': 'Alice', 'balance': 100},
         version=1,
         state_type='BankAccount',
@@ -117,7 +118,7 @@ async def test_save_triggers_snapshot_at_threshold(
 
     snapshot_store.save.assert_called_once()
     saved_snapshot: Snapshot = snapshot_store.save.call_args[0][0]
-    assert saved_snapshot.stream_id == 'BankAccount-acc-1'
+    assert saved_snapshot.stream_id == StreamId.for_aggregate('BankAccount', 'acc-1')
     assert saved_snapshot.state == {'name': 'Alice', 'balance': 300}
     assert saved_snapshot.version == 2
 
@@ -150,7 +151,7 @@ async def test_multiple_saves_without_reload_triggers_snapshot_at_cumulative_thr
 
     snapshot_store.save.assert_called_once()
     saved_snapshot: Snapshot = snapshot_store.save.call_args[0][0]
-    assert saved_snapshot.stream_id == 'BankAccount-acc-1'
+    assert saved_snapshot.stream_id == StreamId.for_aggregate('BankAccount', 'acc-1')
     assert saved_snapshot.state == {'name': 'Alice', 'balance': 300}
     assert saved_snapshot.version == 2
 
@@ -160,7 +161,7 @@ async def test_load_with_mismatched_snapshot_type_raises(
     snapshot_store: AsyncMock,
 ) -> None:
     snapshot_store.load.return_value = Snapshot(
-        stream_id='BankAccount-acc-1',
+        stream_id=StreamId.for_aggregate('BankAccount', 'acc-1'),
         state={'name': 'Alice', 'balance': 100},
         version=1,
         state_type='WrongType',

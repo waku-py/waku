@@ -47,7 +47,7 @@ class InMemoryEventStore(IEventStore):
         async with self._lock:
             key = str(stream_id)
             if key not in self._streams:
-                raise StreamNotFoundError(key)
+                raise StreamNotFoundError(stream_id)
             events = self._streams[key]
             match start:
                 case StreamPosition.START:
@@ -96,7 +96,7 @@ class InMemoryEventStore(IEventStore):
             stream = self._streams.get(key)
             current_version = len(stream) - 1 if stream is not None else -1
 
-            check_expected_version(key, expected_version, current_version, exists=stream is not None)
+            check_expected_version(stream_id, expected_version, current_version, exists=stream is not None)
 
             if not events:
                 return current_version
@@ -110,7 +110,7 @@ class InMemoryEventStore(IEventStore):
                 position = len(stream)
                 stored = StoredEvent(
                     event_id=uuid.uuid4(),
-                    stream_id=key,
+                    stream_id=stream_id,
                     event_type=self._registry.get_name(
                         type(envelope.domain_event)  # pyrefly: ignore[bad-argument-type]
                     ),

@@ -64,7 +64,7 @@ es_ext.bind_aggregate(
 | Field        | Type                       | Default                  | Description                                       |
 |--------------|----------------------------|--------------------------|---------------------------------------------------|
 | `event_type` | `type[INotification]`      | *(required, positional)* | The Python event class                            |
-| `name`       | `str                       | None`                    | `None` (uses class name)                          | Custom serialization name |
+| `name`       | `str | None`               | `None` (uses class name) | Custom serialization name                         |
 | `aliases`    | `Sequence[str]`            | `()`                     | Alternative names accepted during deserialization |
 | `version`    | `int`                      | `1`                      | Current schema version                            |
 | `upcasters`  | `Sequence[IEventUpcaster]` | `()`                     | Upcasters for migrating old versions              |

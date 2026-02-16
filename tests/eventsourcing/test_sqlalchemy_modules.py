@@ -75,7 +75,7 @@ async def test_postgres_module_wiring_end_to_end(pg_engine: AsyncEngine) -> None
     )
 
     config = EventSourcingConfig(
-        store_factory=make_sqlalchemy_event_store(tables),
+        store=make_sqlalchemy_event_store(tables),
         event_serializer=JsonEventSerializer,
     )
 
@@ -127,7 +127,7 @@ async def test_upcasting_end_to_end_through_di(pg_engine: AsyncEngine) -> None:
         event_types=[NoteCreated],
     )
     config_v1 = EventSourcingConfig(
-        store_factory=make_sqlalchemy_event_store(tables),
+        store=make_sqlalchemy_event_store(tables),
         event_serializer=JsonEventSerializer,
     )
 
@@ -167,7 +167,7 @@ async def test_upcasting_end_to_end_through_di(pg_engine: AsyncEngine) -> None:
         ],
     )
     config_v2 = EventSourcingConfig(
-        store_factory=make_sqlalchemy_event_store(tables),
+        store=make_sqlalchemy_event_store(tables),
         event_serializer=JsonEventSerializer,
     )
 

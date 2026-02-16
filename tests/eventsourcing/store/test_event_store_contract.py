@@ -333,7 +333,7 @@ async def test_projection_receives_events(store_factory: EventStoreFactory) -> N
 
     assert len(projected) == 1
     assert projected[0].event_type == 'OrderCreated'
-    assert projected[0].stream_id == 'Order-1'
+    assert projected[0].stream_id == StreamId.for_aggregate('Order', '1')
 
 
 async def test_projection_failure_propagates(store_factory: EventStoreFactory) -> None:

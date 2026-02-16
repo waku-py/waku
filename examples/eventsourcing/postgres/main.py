@@ -195,7 +195,7 @@ async def create_session(engine_: AsyncEngine) -> AsyncIterator[AsyncSession]:
 
 
 es_config = EventSourcingConfig(
-    store_factory=make_sqlalchemy_event_store(tables),
+    store=make_sqlalchemy_event_store(tables),
     event_serializer=JsonEventSerializer,
 )
 

@@ -6,4 +6,4 @@ from app.state import BankAccountState
 
 
 class BankAccountDeciderRepository(DeciderRepository[BankAccountState, BankCommand, INotification]):
-    aggregate_name = 'BankAccount'
+    pass

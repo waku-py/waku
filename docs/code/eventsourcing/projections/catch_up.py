@@ -23,7 +23,7 @@ class AccountSummaryProjection(ICatchUpProjection):
 
     async def project(self, events: Sequence[StoredEvent], /) -> None:
         for event in events:
-            stream_key = event.stream_id.split('-', 1)[1]
+            stream_key = event.stream_id.stream_key
             summary = self.summaries.setdefault(stream_key, AccountSummary())
 
             match event.data:

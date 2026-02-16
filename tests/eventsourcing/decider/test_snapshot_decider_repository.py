@@ -4,7 +4,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.decider.repository import SnapshotDeciderRepository
+from waku.eventsourcing.exceptions import SnapshotTypeMismatchError
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, Snapshot
 from waku.eventsourcing.snapshot.serialization import JsonSnapshotStateSerializer
@@ -86,7 +88,7 @@ async def test_load_with_snapshot_applies_delta_replay(
     )
 
     snapshot_store.load.return_value = Snapshot(
-        stream_id='Counter-c-2',
+        stream_id=StreamId.for_aggregate('Counter', 'c-2'),
         state={'value': 3},
         version=1,
         state_type='CounterState',
@@ -110,7 +112,7 @@ async def test_save_triggers_snapshot_when_strategy_says_yes(
 
     snapshot_store.save.assert_called_once()
     saved_snapshot: Snapshot = snapshot_store.save.call_args[0][0]
-    assert saved_snapshot.stream_id == 'Counter-c-3'
+    assert saved_snapshot.stream_id == StreamId.for_aggregate('Counter', 'c-3')
     assert saved_snapshot.version == 2
     assert saved_snapshot.state == {'value': 6}
 
@@ -140,5 +142,20 @@ async def test_snapshot_stores_correct_metadata(
 
     saved_snapshot: Snapshot = snapshot_store.save.call_args[0][0]
     assert saved_snapshot.state_type == 'CounterState'
-    assert saved_snapshot.stream_id == 'Counter-c-5'
+    assert saved_snapshot.stream_id == StreamId.for_aggregate('Counter', 'c-5')
     assert saved_snapshot.version == 2
+
+
+async def test_load_with_mismatched_snapshot_type_raises(
+    repository: CounterSnapshotRepository,
+    snapshot_store: AsyncMock,
+) -> None:
+    snapshot_store.load.return_value = Snapshot(
+        stream_id=StreamId.for_aggregate('Counter', 'c-1'),
+        state={'value': 5},
+        version=1,
+        state_type='WrongState',
+    )
+
+    with pytest.raises(SnapshotTypeMismatchError, match='WrongState'):
+        await repository.load('c-1')
