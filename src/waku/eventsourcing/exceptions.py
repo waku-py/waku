@@ -11,6 +11,7 @@ __all__ = [
     'AggregateNotFoundError',
     'ConcurrencyConflictError',
     'ConflictingEventTypeError',
+    'DuplicateAggregateNameError',
     'DuplicateEventTypeError',
     'EventSourcingError',
     'ProjectionError',
@@ -49,6 +50,14 @@ class AggregateNotFoundError(EventSourcingError):
         self.aggregate_type = aggregate_type
         self.aggregate_id = aggregate_id
         super().__init__(f'{aggregate_type} with id {aggregate_id!r} not found')
+
+
+class DuplicateAggregateNameError(EventSourcingError):
+    def __init__(self, aggregate_name: str, repositories: list[type]) -> None:
+        self.aggregate_name = aggregate_name
+        self.repositories = repositories
+        repo_names = ', '.join(r.__name__ for r in repositories)
+        super().__init__(f'Duplicate aggregate name {aggregate_name!r} used by multiple repositories: {repo_names}')
 
 
 class UnknownEventTypeError(EventSourcingError):

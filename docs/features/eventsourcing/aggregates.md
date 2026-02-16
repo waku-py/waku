@@ -136,6 +136,42 @@ The repositories handle this automatically — `NoStream` for new aggregates,
     Start with OOP aggregates for straightforward domains. Move to deciders when you need
     easily testable business rules or immutable state guarantees.
 
+## Aggregate Naming
+
+Both repository types auto-resolve `aggregate_name` from their type parameters. This name
+determines the event stream prefix (e.g., `BankAccount-acc-1`).
+
+### Resolution rules
+
+| Pattern | Source | Example |
+|---------|--------|---------|
+| OOP | Aggregate class name, as-is | `EventSourcedRepository[BankAccount]` → `"BankAccount"` |
+| Decider | State class name, `State` suffix stripped | `DeciderRepository[BankAccountState, ...]` → `"BankAccount"` |
+
+For deciders, the canonical naming convention is `{AggregateName}State` (e.g., `CounterState`,
+`BankAccountState`). The `State` suffix is automatically removed to derive the stream prefix.
+If the state class has no `State` suffix, the full name is used as-is.
+
+### Explicit override
+
+Set `aggregate_name` as a class variable to override auto-resolution:
+
+```python
+class LegacyAccountRepo(EventSourcedRepository[BankAccount]):
+    aggregate_name = 'Account'
+```
+
+### Uniqueness
+
+`aggregate_name` must be unique across all repositories in the application.
+Duplicate names are detected at startup and raise `DuplicateAggregateNameError`.
+Two repositories with the same `aggregate_name` would write to the same event streams,
+causing data corruption.
+
+!!! warning
+    The stream ID format uses a hyphen separator (`BankAccount-acc-1`), so `aggregate_name`
+    must not contain hyphens. This is validated at `StreamId` construction time.
+
 ## Further reading
 
 - **[Event Store](event-store.md)** — in-memory and PostgreSQL event persistence

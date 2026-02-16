@@ -41,9 +41,8 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
         snapshot = await self._snapshot_store.load(stream_id)
 
         if snapshot is not None:
-            expected_type = self.aggregate_name
-            if snapshot.state_type != expected_type:
-                raise SnapshotTypeMismatchError(stream_id, expected_type, snapshot.state_type)
+            if snapshot.state_type != self.aggregate_name:
+                raise SnapshotTypeMismatchError(stream_id, self.aggregate_name, snapshot.state_type)
             self._last_snapshot_versions[aggregate_id] = snapshot.version
             aggregate = self._restore_from_snapshot(snapshot)
             start = snapshot.version + 1
@@ -82,7 +81,7 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
                     stream_id=stream_id,
                     state=state_data,
                     version=new_version,
-                    state_type=type(aggregate).__name__,
+                    state_type=self.aggregate_name,
                 )
                 await self._snapshot_store.save(new_snapshot)
                 self._last_snapshot_versions[aggregate_id] = new_version

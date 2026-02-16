@@ -24,6 +24,9 @@ class StreamId:
         if not self.stream_type:
             msg = 'StreamId stream_type cannot be empty'
             raise ValueError(msg)
+        if '-' in self.stream_type:
+            msg = f'StreamId stream_type must not contain hyphens: {self.stream_type!r}'
+            raise ValueError(msg)
         if not self.stream_key:
             msg = 'StreamId stream_key cannot be empty'
             raise ValueError(msg)

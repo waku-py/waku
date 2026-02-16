@@ -19,6 +19,7 @@ from waku.eventsourcing.contracts import (
 from waku.eventsourcing.exceptions import (
     AggregateNotFoundError,
     ConcurrencyConflictError,
+    DuplicateAggregateNameError,
     EventSourcingError,
     ProjectionError,
     ProjectionStoppedError,
@@ -70,6 +71,11 @@ def test_stream_id_from_value_invalid_format_raises() -> None:
 def test_stream_id_empty_stream_type_raises_value_error() -> None:
     with pytest.raises(ValueError, match='StreamId stream_type cannot be empty'):
         StreamId(stream_type='', stream_key='123')
+
+
+def test_stream_id_hyphen_in_stream_type_raises_value_error() -> None:
+    with pytest.raises(ValueError, match='must not contain hyphens'):
+        StreamId(stream_type='bank-account', stream_key='123')
 
 
 def test_stream_id_empty_stream_key_raises_value_error() -> None:
@@ -205,3 +211,17 @@ def test_retry_exhausted_error_carries_attrs() -> None:
     assert 'analytics' in str(error)
     assert '3' in str(error)
     assert 'timeout' in str(error)
+
+
+def test_duplicate_aggregate_name_error_carries_attrs() -> None:
+    class RepoA: ...
+
+    class RepoB: ...
+
+    error = DuplicateAggregateNameError('Order', [RepoA, RepoB])
+    assert error.aggregate_name == 'Order'
+    assert error.repositories == [RepoA, RepoB]
+    assert 'Order' in str(error)
+    assert 'RepoA' in str(error)
+    assert 'RepoB' in str(error)
+    assert isinstance(error, EventSourcingError)

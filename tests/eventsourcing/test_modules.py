@@ -10,7 +10,7 @@ from typing_extensions import override
 from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.event import EventMetadata, IMetadataEnricher
-from waku.eventsourcing.exceptions import UpcasterChainError
+from waku.eventsourcing.exceptions import DuplicateAggregateNameError, UpcasterChainError
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule, EventType
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, IProjection
 from waku.eventsourcing.repository import EventSourcedRepository
@@ -454,3 +454,46 @@ async def test_empty_upcaster_chain_always_registered() -> None:
         chain = await container.get(UpcasterChain)
         result = chain.upcast('ItemCreated', {'name': 'Widget'}, schema_version=1)
         assert result == {'name': 'Widget'}
+
+
+class DuplicateItemRepository(EventSourcedRepository[Item]):
+    aggregate_name = 'Item'
+
+
+async def test_duplicate_aggregate_name_across_modules_raises() -> None:
+    ext_a = EventSourcingExtension().bind_aggregate(repository=ItemRepository)
+    ext_b = EventSourcingExtension().bind_aggregate(repository=DuplicateItemRepository)
+
+    @module(
+        imports=[EventSourcingModule.register()],
+        extensions=[ext_a],
+    )
+    class ModuleA:
+        pass
+
+    @module(extensions=[ext_b])
+    class ModuleB:
+        pass
+
+    with pytest.raises(DuplicateAggregateNameError, match='Item'):
+        async with create_test_app(imports=[ModuleA, ModuleB]):
+            pass
+
+
+async def test_different_aggregate_names_across_modules_passes() -> None:
+    ext_a = EventSourcingExtension().bind_aggregate(repository=ItemRepository)
+    ext_b = EventSourcingExtension().bind_aggregate(repository=ItemLogRepository)
+
+    @module(
+        imports=[EventSourcingModule.register()],
+        extensions=[ext_a],
+    )
+    class ModuleA:
+        pass
+
+    @module(extensions=[ext_b])
+    class ModuleB:
+        pass
+
+    async with create_test_app(imports=[ModuleA, ModuleB]):
+        pass

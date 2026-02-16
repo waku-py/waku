@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from waku.eventsourcing.contracts.aggregate import StateT
     from waku.eventsourcing.contracts.stream import StreamId
 
 __all__ = [
@@ -13,8 +14,6 @@ __all__ = [
     'ISnapshotStrategy',
     'Snapshot',
 ]
-
-StateT = TypeVar('StateT')
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

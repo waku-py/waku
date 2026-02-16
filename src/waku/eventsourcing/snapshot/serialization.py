@@ -1,18 +1,19 @@
 from __future__ import annotations
 
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from typing_extensions import override
 
 from waku.eventsourcing.serialization._retort import shared_retort, validate_dataclass_instance
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStateSerializer
 
+if TYPE_CHECKING:
+    from waku.eventsourcing.contracts.aggregate import StateT
+
 __all__ = [
     'ISnapshotStateSerializer',
     'JsonSnapshotStateSerializer',
 ]
-
-StateT = TypeVar('StateT')
 
 
 class JsonSnapshotStateSerializer(ISnapshotStateSerializer):

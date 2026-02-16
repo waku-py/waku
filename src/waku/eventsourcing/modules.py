@@ -11,7 +11,7 @@ from waku.eventsourcing._generics import resolve_generic_args
 from waku.eventsourcing.contracts.aggregate import IDecider
 from waku.eventsourcing.contracts.event import IMetadataEnricher
 from waku.eventsourcing.decider.repository import DeciderRepository
-from waku.eventsourcing.exceptions import RegistryFrozenError, UpcasterChainError
+from waku.eventsourcing.exceptions import DuplicateAggregateNameError, RegistryFrozenError, UpcasterChainError
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore, IProjection
 from waku.eventsourcing.serialization.interfaces import IEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
@@ -201,6 +201,12 @@ class EventSourcingExtension(OnModuleConfigure):
     def registry(self) -> EventSourcingRegistry:
         return self._registry
 
+    def aggregate_names(self) -> Iterator[tuple[str, type]]:
+        for binding in self._bindings:
+            yield binding.repository.aggregate_name, binding.repository
+        for binding in self._decider_bindings:
+            yield binding.repository.aggregate_name, binding.repository
+
     def on_module_configure(self, metadata: ModuleMetadata) -> None:
         for binding in self._bindings:
             repo_type = binding.repository
@@ -236,11 +242,18 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
         context: Mapping[Any, Any] | None,
     ) -> None:
         aggregated = EventSourcingRegistry()
+        all_aggregate_names: dict[str, list[type]] = {}
 
         for module_type, ext in registry.find_extensions(EventSourcingExtension):
             aggregated.merge(ext.registry)
             for provider in ext.registry.handler_providers():
                 registry.add_provider(module_type, provider)
+            for name, repo_type in ext.aggregate_names():
+                all_aggregate_names.setdefault(name, []).append(repo_type)
+
+        for name, repos in all_aggregate_names.items():
+            if len(repos) > 1:
+                raise DuplicateAggregateNameError(name, repos)
 
         for provider in aggregated.collector_providers():
             registry.add_provider(owning_module, provider)

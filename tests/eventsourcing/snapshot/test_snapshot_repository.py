@@ -184,3 +184,64 @@ async def test_save_with_no_events_returns_current_version(
 
     assert version == 0
     assert events == []
+
+
+class RenamedBankAccountRepo(SnapshotEventSourcedRepository[BankAccount]):
+    aggregate_name = 'Account'
+
+    @override
+    def _snapshot_state(self, aggregate: BankAccount) -> object:
+        return AccountState(name=aggregate.name, balance=aggregate.balance)
+
+    @override
+    def _restore_from_snapshot(self, snapshot: Snapshot) -> BankAccount:
+        aggregate = BankAccount()
+        aggregate.name = snapshot.state['name']
+        aggregate.balance = snapshot.state['balance']
+        return aggregate
+
+
+async def test_snapshot_state_type_matches_aggregate_name(
+    event_store: InMemoryEventStore,
+    state_serializer: JsonSnapshotStateSerializer,
+) -> None:
+    snapshot_store = AsyncMock(spec=ISnapshotStore)
+    strategy = EventCountStrategy(threshold=3)
+    repo = RenamedBankAccountRepo(event_store, snapshot_store, strategy, state_serializer)
+
+    snapshot_store.load.return_value = Snapshot(
+        stream_id=StreamId.for_aggregate('Account', 'acc-1'),
+        state={'name': 'Alice', 'balance': 100},
+        version=1,
+        state_type='Account',
+    )
+
+    account = BankAccount()
+    account.open('Alice')
+    account.deposit(100)
+    account.deposit(50)
+    await repo.save('acc-1', account)
+
+    loaded = await repo.load('acc-1')
+    assert loaded.name == 'Alice'
+    assert loaded.balance == 150
+
+
+async def test_snapshot_save_writes_aggregate_name_as_state_type(
+    event_store: InMemoryEventStore,
+    state_serializer: JsonSnapshotStateSerializer,
+) -> None:
+    snapshot_store = AsyncMock(spec=ISnapshotStore)
+    snapshot_store.load.return_value = None
+    strategy = EventCountStrategy(threshold=3)
+    repo = RenamedBankAccountRepo(event_store, snapshot_store, strategy, state_serializer)
+
+    account = BankAccount()
+    account.open('Alice')
+    account.deposit(100)
+    account.deposit(200)
+    await repo.save('acc-1', account)
+
+    snapshot_store.save.assert_called_once()
+    saved_snapshot: Snapshot = snapshot_store.save.call_args[0][0]
+    assert saved_snapshot.state_type == 'Account'

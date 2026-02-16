@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import abc
 import typing
-from typing import ClassVar, Generic, TypeVar
+from typing import ClassVar, Final, Generic
 
-from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing._generics import resolve_generic_args
-from waku.eventsourcing.contracts.aggregate import IDecider  # noqa: TC001  # Dishka needs runtime access
+from waku.eventsourcing.contracts.aggregate import (  # Dishka needs runtime access
+    CommandT,
+    EventT,
+    IDecider,
+    StateT,
+)
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
 from waku.eventsourcing.exceptions import AggregateNotFoundError, SnapshotTypeMismatchError, StreamNotFoundError
@@ -18,11 +22,12 @@ from waku.eventsourcing.snapshot.interfaces import (  # Dishka needs runtime acc
 )
 from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Dishka needs runtime access
 
-__all__ = ['DeciderRepository', 'SnapshotDeciderRepository']
+__all__ = [
+    'DeciderRepository',
+    'SnapshotDeciderRepository',
+]
 
-StateT = TypeVar('StateT')
-CommandT = TypeVar('CommandT')
-EventT = TypeVar('EventT', bound=INotification)
+_STATE_SUFFIX: Final = 'State'
 
 
 class DeciderRepository(abc.ABC, Generic[StateT, CommandT, EventT]):
@@ -34,8 +39,8 @@ class DeciderRepository(abc.ABC, Generic[StateT, CommandT, EventT]):
             state_cls = cls._resolve_state_type()
             if state_cls is not None:
                 name = state_cls.__name__
-                if name.endswith('State') and len(name) > len('State'):
-                    name = name.removesuffix('State')
+                if name.endswith(_STATE_SUFFIX) and len(name) > len(_STATE_SUFFIX):
+                    name = name.removesuffix(_STATE_SUFFIX)
                 cls.aggregate_name = name
             else:
                 msg = f'{cls.__name__} must define aggregate_name or parametrize Generic with a concrete state type'
@@ -103,16 +108,20 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
         self._state_serializer = state_serializer
         self._last_snapshot_versions: dict[str, int] = {}
 
+    @property
+    def _snapshot_type_name(self) -> str:
+        return type(self._decider.initial_state()).__name__
+
     async def load(self, aggregate_id: str) -> tuple[StateT, int]:
         stream_id = self._stream_id(aggregate_id)
         snapshot = await self._snapshot_store.load(stream_id)
 
         if snapshot is not None:
-            state_type = type(self._decider.initial_state())
-            if snapshot.state_type != state_type.__name__:
-                raise SnapshotTypeMismatchError(stream_id, state_type.__name__, snapshot.state_type)
+            expected_state_type = type(self._decider.initial_state())
+            if snapshot.state_type != self._snapshot_type_name:
+                raise SnapshotTypeMismatchError(stream_id, self._snapshot_type_name, snapshot.state_type)
             self._last_snapshot_versions[aggregate_id] = snapshot.version
-            state = self._state_serializer.deserialize(snapshot.state, state_type)
+            state = self._state_serializer.deserialize(snapshot.state, expected_state_type)
             try:
                 stored_events = await self._event_store.read_stream(stream_id, start=snapshot.version + 1)
             except StreamNotFoundError:
@@ -148,7 +157,7 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
                     stream_id=self._stream_id(aggregate_id),
                     state=state_data,
                     version=new_version,
-                    state_type=type(state).__name__,
+                    state_type=self._snapshot_type_name,
                 )
                 await self._snapshot_store.save(new_snapshot)
                 self._last_snapshot_versions[aggregate_id] = new_version
