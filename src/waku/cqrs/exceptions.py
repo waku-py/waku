@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 __all__ = [
     'EventHandlerAlreadyRegistered',
     'ImproperlyConfiguredError',
+    'MapFrozenError',
     'MediatorError',
     'PipelineBehaviorAlreadyRegistered',
     'RequestHandlerAlreadyRegistered',
@@ -23,6 +24,11 @@ __all__ = [
 
 class MediatorError(WakuError):
     """Base exception for all cqrs-related errors."""
+
+
+class MapFrozenError(MediatorError):
+    def __init__(self) -> None:
+        super().__init__('Cannot modify map after it is frozen')
 
 
 class ImproperlyConfiguredError(MediatorError):

@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:17
+    ports:
+      - "15432:5432"
+    environment:
+      POSTGRES_DB: waku_es
+      POSTGRES_USER: waku
+      POSTGRES_PASSWORD: waku
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U waku -d waku_es"]
+      interval: 2s
+      timeout: 5s
+      retries: 5

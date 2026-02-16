@@ -1,0 +1,154 @@
+---
+name: Preview docs
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, closed]
+    branches:
+      - master
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: preview-docs-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  COMMON_PYTHON_VERSION: '3.14'
+  PREVIEW_PATH: pr-preview/pr-${{ github.event.pull_request.number }}
+
+jobs:
+  eval-changes:
+    name: Evaluate changes
+    if: >-
+      github.event.action != 'closed'
+      && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 100
+
+      - name: Evaluate | Check file types for changes
+        id: changed-files
+        uses: tj-actions/changed-files@8cba46e29c11878d930bca7870bb54394d3e8b21 # v47.0.2
+        with:
+          files_yaml_from_source_file: .github/changed-files-spec.yml
+
+    outputs:
+      docs-or-src-changed: >-
+        ${{
+          steps.changed-files.outputs.docs_any_changed == 'true'
+          || steps.changed-files.outputs.src_any_changed == 'true'
+        }}
+
+  deploy-preview:
+    name: Deploy preview
+    needs: eval-changes
+    if: >-
+      needs.eval-changes.outputs.docs-or-src-changed == 'true'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup | Create access token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2
+        id: app-token
+        with:
+          app-id: ${{ vars.VERSION_BUMPER_APPID }}
+          private-key: ${{ secrets.VERSION_BUMPER_SECRET }}
+
+      - name: Setup | Checkout Repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Setup | Install Python ${{ env.COMMON_PYTHON_VERSION }}
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: ${{ env.COMMON_PYTHON_VERSION }}
+
+      - name: Setup | Install UV
+        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7
+        with:
+          enable-cache: true
+
+      - name: Build | Build docs
+        run: uv run --group=docs zensical build --clean
+
+      - name: Deploy | Deploy preview to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@d92aa235d04922e8f08b40ce78cc5442fcfbfa2f # v4.8.0
+        with:
+          branch: gh-pages
+          folder: site
+          target-folder: ${{ env.PREVIEW_PATH }}
+          clean: true
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Comment | Post preview URL on PR
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        with:
+          script: |
+            const previewUrl = `https://waku-py.github.io/waku/${{ env.PREVIEW_PATH }}/`;
+            const marker = '<!-- docs-preview-comment -->';
+            const body = `${marker}\n📖 **Docs preview:** ${previewUrl}`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  cleanup-preview:
+    name: Cleanup preview
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup | Create access token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2
+        id: app-token
+        with:
+          app-id: ${{ vars.VERSION_BUMPER_APPID }}
+          private-key: ${{ secrets.VERSION_BUMPER_SECRET }}
+
+      - name: Cleanup | Checkout gh-pages branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: gh-pages
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Cleanup | Remove preview directory
+        run: |
+          set -e
+          if [ -d "${{ env.PREVIEW_PATH }}" ]; then
+            git config user.name "github-actions"
+            git config user.email "actions@users.noreply.github.com"
+            git rm -rf "${{ env.PREVIEW_PATH }}"
+            git commit -m "docs: remove preview for PR #${{ github.event.pull_request.number }}"
+            git push
+          else
+            echo "Preview directory not found, nothing to clean up"
+          fi

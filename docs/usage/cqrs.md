@@ -1,3 +1,0 @@
----
-title: Mediator (CQRS)
----

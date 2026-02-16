@@ -41,7 +41,7 @@ tasks:
     silent: true
     cmds:
       - task: deps:sync
-      - uv run prek install --install-hooks
+      - uv run prek install --install-hooks --overwrite
       - echo "✅ Development environment setup complete"
 
   deps:sync:
@@ -59,8 +59,7 @@ tasks:
     deps: [ .uv ]
     silent: true
     cmds:
-      - uv run uv-upgrade --no-sync
-      - task: deps:sync
+      - uvx uv-upx upgrade run --profile with_pinned
       - uv run prek auto-update
       - uv run prek install --install-hooks --overwrite
       - echo "✅ Dependencies upgraded"
@@ -113,10 +112,11 @@ tasks:
     desc: Lint & typecheck python source files
     deps: [ lint, typecheck ]
 
-  codespell:
-    desc: Use Codespell to do spellchecking
+  spellcheck:
+    aliases: [ typos ]
+    desc: Run spellchecking with typos
     deps: [ .uv-locked ]
-    cmd: uv run pre-commit run codespell --all-files
+    cmd: uv run prek run typos --all-files
 
   pre-commit:
     aliases: [ prek, pre-commit-all ]
@@ -155,7 +155,7 @@ tasks:
     desc: Run the full set of checks
     cmds:
       - task: check
-      - task: codespell
+      - task: spellcheck
       - task: test:cov
 
   clean:

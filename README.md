@@ -1,4 +1,6 @@
-# waku
+<p align="center">
+    <img src="docs/assets/logo.png" alt="waku logo" width="480">
+</p>
 
 <p align="center" markdown="1">
     <sup><i>waku</i> [<b>枠</b> or <b>わく</b>] <i>means framework in Japanese.</i></sup>
@@ -27,42 +29,36 @@
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff/)
 [![ty](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json)](https://github.com/astral-sh/ty)
 [![mypy - checked](https://www.mypy-lang.org/static/mypy_badge.svg)](https://mypy-lang.org/)
-[![basedpyright - checked](https://img.shields.io/badge/basedpyright-checked-42b983?color=ffc105)](https://docs.basedpyright.com)
 
 <!-- Social -->
 [![Telegram](https://img.shields.io/badge/-telegram-black?color=blue&logo=telegram&label=RU)](https://t.me/wakupy)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/waku-py/waku)
 
 </div>
 
 -----
 
-> **waku** is a modular, type-safe Python framework for scalable, maintainable applications.
-> Inspired by [NestJS](https://nestjs.com/), powered by [Dishka](https://github.com/reagento/dishka/) IoC.
+> **Python makes it easy to build a backend. waku makes it easy to keep growing one.**
+> waku gives you modules with explicit boundaries, type-safe DI
+> powered by [Dishka](https://github.com/reagento/dishka/), and integrated CQRS and event sourcing
+> — so your codebase stays manageable as it scales.
 
-<!-- Separate quote blocks -->
+> [!TIP]
+> Check out the full [**documentation**](https://waku-py.github.io/waku/) and our [**examples**](https://github.com/waku-py/waku/tree/master/examples) to get started.
 
-> [!WARNING]
-> `waku` is going through a major rewrite, so docs aren't fully up-to-date yet.
-> Stick to this **README** and our [**examples**](https://github.com/waku-py/waku/tree/master/examples) for now.
->
-> For more details, check out our [`waku` deepwiki](https://deepwiki.com/waku-py/waku/) page.
+## The Problem
 
-## Why `waku`?
+Python backends start clean and end up as tangles of circular imports, implicit dependencies, and modules that know too much about each other. Testing becomes painful, onboarding becomes slow, and refactoring becomes risky.
 
-- 🧩 [Modular architecture](https://waku-py.github.io/waku/usage/modules/): Group related code with explicit imports/exports for clear boundaries and responsibilities.
-- 💉 [First-class Dependency Injection](https://waku-py.github.io/waku/usage/providers/): Built on [Dishka](https://github.com/reagento/dishka/) with flexible provider patterns (singleton, scoped, transient); swap implementations easily.
-- 📨 [Event-driven & CQRS](https://waku-py.github.io/waku/usage/cqrs/): Handle commands, queries, and events with a comprehensive CQRS implementation, pipeline chains, and centralized processing inspired by [MediatR (C#)](https://github.com/jbogard/MediatR).
-- 🔌 [Framework-agnostic & Integrations](https://waku-py.github.io/waku/integrations/): Works with FastAPI, Litestar, FastStream, Aiogram, and more - no vendor lock-in.
-- 🧰 [Extensions & Lifecycle Hooks](https://waku-py.github.io/waku/usage/extensions/): Hook into the app lifecycle for logging, validation, and custom logic; [precise startup/shutdown management](https://waku-py.github.io/waku/usage/lifespan/).
-- 🛡️ Production-ready: Type-safe APIs, robust validation, and scalable testing support.
+## What waku gives you
 
-## Who is it for?
-
-- 👥 **Enterprise development teams** building modular, maintainable backend services or microservices
-- 🏗️ **Architects and tech leads** seeking a structured framework with clear dependency boundaries and testability
-- 🐍 **Python developers** frustrated with monolithic codebases and looking for better separation of concerns
-- 🌏 **Engineers from other ecosystems** (Java Spring, C# ASP.NET, TypeScript NestJS) wanting familiar patterns in Python
-- 📈 **Projects requiring scalability** both in codebase organization and team collaboration
+- 🧩 [**Module boundaries**](https://waku-py.github.io/waku/core/modules/): Group related code into modules with explicit imports and exports. No more guessing where things live or fighting circular dependencies.
+- 💉 [**Dependency injection**](https://waku-py.github.io/waku/core/providers/): Built on [Dishka](https://github.com/reagento/dishka/) — singleton, scoped, and transient providers with full type safety. Swap implementations without touching business logic.
+- 📨 [**CQRS & mediator**](https://waku-py.github.io/waku/extensions/cqrs/): Separate reads from writes. Commands, queries, and events with pipeline behaviors for cross-cutting concerns — all in-process, no message broker required.
+- 📜 [**Event sourcing**](https://waku-py.github.io/waku/extensions/eventsourcing/): Aggregates, projections, snapshots, upcasting, and the decider pattern with built-in SQLAlchemy adapters.
+- 🔌 [**Framework integrations**](https://waku-py.github.io/waku/core/integrations/): Works with FastAPI, Litestar, FastStream, Aiogram, and more. waku provides structure — your framework provides the entrypoints.
+- 🧪 [**Testing built in**](https://waku-py.github.io/waku/): Override any provider in tests with `override()`, or spin up a minimal app with `create_test_app()`.
+- 🧰 [**Lifecycle & extensions**](https://waku-py.github.io/waku/extensions/): Hook into application startup, shutdown, and module initialization. Add validation, logging, or custom behaviors — decoupled from your business logic.
 
 ## Quick Start
 
@@ -74,23 +70,9 @@ uv add waku
 pip install waku
 ```
 
-### Understanding the Basics
+### Minimal Example
 
-Waku is built around a few core concepts:
-
-- 🧩 **Modules:** Classes decorated with `@module()` that define boundaries for application components and establish clear dependency relationships.
-- 🧑‍🔧 **Providers:** Injectable services and logic registered within modules.
-- 💉 **Dependency Injection:** Type-safe, flexible wiring powered by [Dishka](https://github.com/reagento/dishka/) IoC container.
-- 🏭 **WakuFactory:** The entry point that creates a `WakuApplication` instance from your root module.
-- 🔄 **Application Lifecycle:** Initialization and shutdown phases, enhanced with extension hooks.
-
-This structure keeps your code clean and your dependencies explicit.
-
-> `waku` is **framework-agnostic** - entrypoints (such as HTTP handlers) are provided by integrations, not the core.
-
-### Basic Example
-
-Here's a minimal example showing the core concepts:
+Define a service, register it in a module, and resolve it from the container:
 
 ```python
 import asyncio
@@ -99,31 +81,25 @@ from waku import WakuFactory, module
 from waku.di import scoped
 
 
-# 1. Define a provider (service)
 class GreetingService:
     async def greet(self, name: str) -> str:
         return f'Hello, {name}!'
 
 
-# 2. Create a module and register the provider
 @module(providers=[scoped(GreetingService)])
 class GreetingModule:
     pass
 
 
-# 3. Create a root module that imports other modules
 @module(imports=[GreetingModule])
 class AppModule:
     pass
 
 
 async def main() -> None:
-    # 4. Bootstrap the application with WakuFactory
     app = WakuFactory(AppModule).create()
 
-    # 5. Use the application with a properly scoped container
     async with app, app.container() as c:
-        # 6. Resolve and use dependencies
         svc = await c.get(GreetingService)
         print(await svc.greet('waku'))
 
@@ -133,9 +109,9 @@ if __name__ == '__main__':
 
 ```
 
-### More Realistic Example
+### Module Boundaries in Action
 
-Let's add protocols and module exports:
+Modules control visibility. `InfrastructureModule` exports `ILogger` — `UserModule` imports it. Dependencies are explicit, not implicit:
 
 ```python
 import asyncio
@@ -145,20 +121,17 @@ from waku import WakuFactory, module
 from waku.di import scoped, singleton
 
 
-# Define a protocol for loose coupling
-class Logger(Protocol):
+class ILogger(Protocol):
     async def log(self, message: str) -> None: ...
 
 
-# Implementation of the logger
-class ConsoleLogger:
+class ConsoleLogger(ILogger):
     async def log(self, message: str) -> None:
         print(f'[LOG] {message}')
 
 
-# Service that depends on the logger
 class UserService:
-    def __init__(self, logger: Logger) -> None:
+    def __init__(self, logger: ILogger) -> None:
         self.logger = logger
 
     async def create_user(self, username: str) -> str:
@@ -167,25 +140,22 @@ class UserService:
         return user_id
 
 
-# Infrastructure module provides core services
 @module(
-    providers=[singleton(ConsoleLogger, provided_type=Logger)],
-    exports=[Logger],  # Export to make available to other modules
+    providers=[singleton(ILogger, ConsoleLogger)],
+    exports=[ILogger],
 )
 class InfrastructureModule:
     pass
 
 
-# Feature module for user management
 @module(
-    imports=[InfrastructureModule],  # Import dependencies from other modules
+    imports=[InfrastructureModule],
     providers=[scoped(UserService)],
 )
 class UserModule:
     pass
 
 
-# Application root module
 @module(imports=[UserModule])
 class AppModule:
     pass
@@ -207,25 +177,23 @@ if __name__ == '__main__':
 
 ### Next Steps
 
-Want to learn more? Here's where to go next:
-
-- Get familiar with [module exports and imports](https://waku-py.github.io/waku/usage/modules/)
-- Try different [provider scopes](https://waku-py.github.io/waku/usage/providers/)
-- Add [CQRS](https://waku-py.github.io/waku/usage/cqrs/) for clean command handling
-- Use [extension hooks](https://waku-py.github.io/waku/usage/extensions/) to customize your app
-- Connect with your [favorite framework](https://waku-py.github.io/waku/integrations/)
-
-Check our [Getting Started](https://waku-py.github.io/waku/getting-started) guide and browse the [examples directory](https://github.com/waku-py/waku/tree/master/examples) for inspiration.
+- Learn about [module imports and exports](https://waku-py.github.io/waku/core/modules/)
+- Try different [provider scopes](https://waku-py.github.io/waku/core/providers/)
+- Add [CQRS](https://waku-py.github.io/waku/extensions/cqrs/) for clean command handling
+- Connect with your [favorite framework](https://waku-py.github.io/waku/core/integrations/)
+- Browse the [examples directory](https://github.com/waku-py/waku/tree/master/examples) for inspiration
 
 ## Documentation
 
 - [Getting Started](https://waku-py.github.io/waku/getting-started/)
-- [Module System](https://waku-py.github.io/waku/usage/modules/)
-- [Providers](https://waku-py.github.io/waku/usage/providers/)
-- [Extensions](https://waku-py.github.io/waku/usage/extensions/)
-- [CQRS](https://waku-py.github.io/waku/usage/cqrs/)
+- [Module System](https://waku-py.github.io/waku/core/modules/)
+- [Providers](https://waku-py.github.io/waku/core/providers/)
+- [Extensions](https://waku-py.github.io/waku/extensions/)
+- [CQRS](https://waku-py.github.io/waku/extensions/cqrs/)
+- [Event Sourcing](https://waku-py.github.io/waku/extensions/eventsourcing/)
 - [API Reference](https://waku-py.github.io/waku/reference/)
-- [Dishka Documentation](https://dishka.readthedocs.io/en/stable/index.html/)
+- [Dishka Documentation](https://dishka.readthedocs.io/en/stable/index.html)
+- [DeepWiki](https://deepwiki.com/waku-py/waku)
 
 ## Contributing
 
@@ -240,10 +208,10 @@ Check our [Getting Started](https://waku-py.github.io/waku/getting-started) guid
 
 ## Roadmap
 
-- [ ] Create logo
-- [ ] Improve inner architecture
-- [ ] Improve documentation
-- [ ] Add new and improve existing validation rules
+- [x] Create logo
+- [x] Improve inner architecture
+- [x] Improve documentation
+- [x] Add new and improve existing validation rules
 - [ ] Provide example projects for common architectures
 
 ## Support
@@ -259,5 +227,9 @@ This project is licensed under the terms of the [MIT License](https://github.com
 ## Acknowledgements
 
 - [Dishka](https://github.com/reagento/dishka/) – Dependency Injection framework powering `waku` IoC container.
-- [NestJS](https://nestjs.com/) – Primary inspiration for modular architecture, design patterns and some implementation details.
-- [MediatR (C#)](https://github.com/jbogard/MediatR) – Inspiration and implementation details for the CQRS subsystem.
+- [NestJS](https://nestjs.com/) – Inspiration for modular architecture and design patterns.
+- [MediatR (C#)](https://github.com/jbogard/MediatR) – Inspiration for the CQRS subsystem.
+- [Emmett](https://event-driven-io.github.io/emmett/) – Functional-first event sourcing patterns.
+- [Marten](https://martendb.io/events/) – Projection lifecycle taxonomy.
+- [Eventuous](https://eventuous.dev/) – Event store interface design.
+- [Jérémie Chassaing](https://thinkbeforecoding.com/post/2021/12/17/functional-event-sourcing-decider) – Decider pattern formalization.

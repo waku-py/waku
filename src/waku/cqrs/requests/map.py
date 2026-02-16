@@ -7,7 +7,7 @@ from typing import Generic, Self, TypeAlias
 from typing_extensions import TypeVar
 
 from waku.cqrs.contracts.request import IRequest, RequestT, Response, ResponseT
-from waku.cqrs.exceptions import RequestHandlerAlreadyRegistered
+from waku.cqrs.exceptions import MapFrozenError, RequestHandlerAlreadyRegistered
 from waku.cqrs.requests.handler import RequestHandler
 from waku.cqrs.utils import get_request_response_type
 
@@ -35,12 +35,22 @@ RequestMapRegistry: TypeAlias = MutableMapping[
 class RequestMap:
     def __init__(self) -> None:
         self._registry: RequestMapRegistry = {}
+        self._frozen = False
+
+    def freeze(self) -> None:
+        self._frozen = True
+
+    @property
+    def is_frozen(self) -> bool:
+        return self._frozen
 
     def bind(
         self,
         request_type: type[RequestT],
         handler_type: type[RequestHandler[RequestT, ResponseT]],
     ) -> Self:
+        if self._frozen:
+            raise MapFrozenError
         if request_type in self._registry:
             raise RequestHandlerAlreadyRegistered(request_type, handler_type)
         response_type = get_request_response_type(request_type)
@@ -49,6 +59,8 @@ class RequestMap:
         return self
 
     def merge(self, other: RequestMap) -> Self:
+        if self._frozen:
+            raise MapFrozenError
         for request_type, entry in other._registry.items():
             self.bind(request_type, entry.handler_type)  # ty: ignore[invalid-argument-type]
         return self

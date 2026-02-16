@@ -1,0 +1,94 @@
+.md-header__topic > .md-ellipsis {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-family: var(--md-code-font-family);
+}
+
+.hero-subtitle {
+  text-align: center;
+  font-size: 1rem;
+  margin: -0.5rem 0 0;
+  opacity: 0.6;
+  letter-spacing: 0.03em;
+}
+
+.md-typeset table:not([class]) td code {
+  white-space: nowrap;
+}
+
+.feature-cards > ul > li:nth-child(1) .twemoji { color: #5c6bc0; }
+.feature-cards > ul > li:nth-child(2) .twemoji { color: #26a69a; }
+.feature-cards > ul > li:nth-child(3) .twemoji { color: #7e57c2; }
+.feature-cards > ul > li:nth-child(4) .twemoji { color: #ffa726; }
+.feature-cards > ul > li:nth-child(5) .twemoji { color: #42a5f5; }
+.feature-cards > ul > li:nth-child(6) .twemoji { color: #ec407a; }
+
+.di-cards > ul > li:nth-child(1) .twemoji { color: #26a69a; }
+.di-cards > ul > li:nth-child(2) .twemoji { color: #7e57c2; }
+.di-cards > ul > li:nth-child(3) .twemoji { color: #ffa726; }
+
+.mdx-columns ol,
+.mdx-columns ul {
+  columns: 2;
+}
+
+@media screen and (max-width: 29.9844em) {
+  .md-typeset .mdx-columns ol,
+  .md-typeset .mdx-columns ul {
+    columns: initial;
+  }
+}
+
+.mdx-columns li {
+  break-inside: avoid;
+}
+
+[data-md-color-scheme="default"] img[alt="waku logo"] {
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.5)) drop-shadow(0 0 12px rgba(0, 0, 0, 0.25)) drop-shadow(0 0 30px rgba(0, 0, 0, 0.15));
+}
+
+[data-md-color-scheme="slate"] img[alt="waku logo"] {
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.4)) drop-shadow(0 0 12px rgba(255, 255, 255, 0.15));
+}
+
+.md-typeset .mermaid {
+  text-align: center;
+}
+
+.hook-sync::before,
+.hook-async::before {
+  font-size: 0.5em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.15em 0.55em;
+  border-radius: 1em;
+  vertical-align: middle;
+  position: relative;
+  top: -0.15em;
+  margin-right: 0.5em;
+  color: #fff;
+}
+
+.hook-sync::before {
+  content: "sync";
+  background-color: #42a5f5;
+}
+
+.hook-async::before {
+  content: "async";
+  background-color: #ff7043;
+}
+
+
+abbr[title*="modular, type-safe"] {
+  font-family: var(--md-code-font-family);
+  font-size: 0.85em;
+  padding: 0.05em 0.35em;
+  border-radius: 0.25em;
+  border-bottom: none;
+  text-decoration: none;
+  cursor: help;
+  background-color: var(--md-primary-fg-color);
+  color: var(--md-primary-bg-color);
+}
