@@ -14,8 +14,10 @@ from waku.eventsourcing.contracts.aggregate import (  # Dishka needs runtime acc
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
 from waku.eventsourcing.exceptions import AggregateNotFoundError, SnapshotTypeMismatchError, StreamNotFoundError
+from waku.eventsourcing.serialization.interfaces import (
+    ISnapshotStateSerializer,  # noqa: TC001  # Dishka needs runtime access
+)
 from waku.eventsourcing.snapshot.interfaces import (  # Dishka needs runtime access
-    ISnapshotStateSerializer,
     ISnapshotStore,
     ISnapshotStrategy,
     Snapshot,
@@ -107,21 +109,17 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
         self._snapshot_strategy = snapshot_strategy
         self._state_serializer = state_serializer
         self._last_snapshot_versions: dict[str, int] = {}
-
-    @property
-    def _snapshot_type_name(self) -> str:
-        return type(self._decider.initial_state()).__name__
+        self._state_type: type[StateT] = type(self._decider.initial_state())
 
     async def load(self, aggregate_id: str) -> tuple[StateT, int]:
         stream_id = self._stream_id(aggregate_id)
         snapshot = await self._snapshot_store.load(stream_id)
 
         if snapshot is not None:
-            expected_state_type = type(self._decider.initial_state())
-            if snapshot.state_type != self._snapshot_type_name:
-                raise SnapshotTypeMismatchError(stream_id, self._snapshot_type_name, snapshot.state_type)
+            if snapshot.state_type != self._state_type.__name__:
+                raise SnapshotTypeMismatchError(stream_id, self._state_type.__name__, snapshot.state_type)
             self._last_snapshot_versions[aggregate_id] = snapshot.version
-            state = self._state_serializer.deserialize(snapshot.state, expected_state_type)
+            state = self._state_serializer.deserialize(snapshot.state, self._state_type)
             try:
                 stored_events = await self._event_store.read_stream(stream_id, start=snapshot.version + 1)
             except StreamNotFoundError:
@@ -157,7 +155,7 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
                     stream_id=self._stream_id(aggregate_id),
                     state=state_data,
                     version=new_version,
-                    state_type=self._snapshot_type_name,
+                    state_type=self._state_type.__name__,
                 )
                 await self._snapshot_store.save(new_snapshot)
                 self._last_snapshot_versions[aggregate_id] = new_version

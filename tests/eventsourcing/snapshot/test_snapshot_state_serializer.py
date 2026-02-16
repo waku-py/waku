@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from waku.eventsourcing.snapshot.serialization import JsonSnapshotStateSerializer
+from waku.eventsourcing.serialization.json import JsonSnapshotStateSerializer
 
 
 @dataclass(frozen=True)

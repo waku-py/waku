@@ -5,11 +5,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from waku.eventsourcing.contracts.aggregate import StateT
     from waku.eventsourcing.contracts.stream import StreamId
 
 __all__ = [
-    'ISnapshotStateSerializer',
     'ISnapshotStore',
     'ISnapshotStrategy',
     'Snapshot',
@@ -35,11 +33,3 @@ class ISnapshotStore(abc.ABC):
 class ISnapshotStrategy(abc.ABC):
     @abc.abstractmethod
     def should_snapshot(self, version: int, events_since_snapshot: int) -> bool: ...
-
-
-class ISnapshotStateSerializer(abc.ABC):
-    @abc.abstractmethod
-    def serialize(self, state: object, /) -> dict[str, Any]: ...
-
-    @abc.abstractmethod
-    def deserialize(self, data: dict[str, Any], state_type: type[StateT], /) -> StateT: ...

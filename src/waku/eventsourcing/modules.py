@@ -13,9 +13,9 @@ from waku.eventsourcing.contracts.event import IMetadataEnricher
 from waku.eventsourcing.decider.repository import DeciderRepository
 from waku.eventsourcing.exceptions import DuplicateAggregateNameError, RegistryFrozenError, UpcasterChainError
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore, IProjection
-from waku.eventsourcing.serialization.interfaces import IEventSerializer
+from waku.eventsourcing.serialization.interfaces import IEventSerializer, ISnapshotStateSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
-from waku.eventsourcing.snapshot.interfaces import ISnapshotStateSerializer, ISnapshotStore, ISnapshotStrategy
+from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, ISnapshotStrategy
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.eventsourcing.upcasting.chain import UpcasterChain

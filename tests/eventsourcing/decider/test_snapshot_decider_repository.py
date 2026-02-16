@@ -7,9 +7,9 @@ import pytest
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.decider.repository import SnapshotDeciderRepository
 from waku.eventsourcing.exceptions import SnapshotTypeMismatchError
+from waku.eventsourcing.serialization.json import JsonSnapshotStateSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, Snapshot
-from waku.eventsourcing.snapshot.serialization import JsonSnapshotStateSerializer
 from waku.eventsourcing.snapshot.strategy import EventCountStrategy
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 

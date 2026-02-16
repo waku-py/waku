@@ -6,8 +6,10 @@ from typing import TYPE_CHECKING, Generic, TypeVar
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.exceptions import SnapshotTypeMismatchError, StreamNotFoundError
 from waku.eventsourcing.repository import EventSourcedRepository
+from waku.eventsourcing.serialization.interfaces import (
+    ISnapshotStateSerializer,  # noqa: TC001  # Dishka needs runtime access
+)
 from waku.eventsourcing.snapshot.interfaces import (  # Dishka needs runtime access
-    ISnapshotStateSerializer,
     ISnapshotStore,
     ISnapshotStrategy,
     Snapshot,
