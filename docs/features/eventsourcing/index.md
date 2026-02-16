@@ -1,5 +1,6 @@
 ---
 title: Event Sourcing
+description: Complete event sourcing toolkit — aggregates, projections, snapshots, and schema evolution with full DI integration.
 ---
 
 # Event Sourcing
@@ -10,7 +11,7 @@ Traditional systems store only the current state — each update overwrites what
 Event sourcing takes a different approach: every state change is captured as an immutable
 **domain event** in an append-only log. The current state is derived by replaying these events:
 
-```
+```text
 state = fold(initial_state, events)
 ```
 
@@ -36,7 +37,7 @@ and a natural integration point for reactive systems that respond to events as t
 waku's functional aggregate style is based on the **Decider pattern** formalized by
 [Jérémie Chassaing](https://thinkbeforecoding.com/post/2021/12/17/functional-event-sourcing-decider):
 
-```
+```text
 Decider[Command, State, Event]:
     decide(command, state) → list[Event]
     evolve(state, event) → State
@@ -56,10 +57,23 @@ waku's event sourcing draws from established frameworks across ecosystems:
 - [Axon Framework](https://www.axoniq.io/framework) (JVM) — aggregate testing fixtures (Given/When/Then)
 - [Greg Young](https://www.eventstore.com/blog/what-is-event-sourcing) — ES + CQRS formalization
 
----
+### Why waku
 
-The `waku.eventsourcing` extension provides a complete event sourcing toolkit that integrates with
-waku's module system and dependency injection.
+- **Two aggregate styles, one infrastructure.** Choose mutable OOP aggregates for simple domains
+  or immutable functional [deciders](aggregates.md) for complex business rules — both share the same
+  event store, projections, and module wiring.
+- **Given/When/Then testing DSL.** [DeciderSpec](testing.md) makes decider tests read like specifications:
+
+    ```python
+    DeciderSpec.for_(decider).given([AccountOpened(...)]).when(Deposit(...)).then([MoneyDeposited(...)])
+    ```
+
+- **Lazy schema evolution.** Events are stored in their original form — [upcasters](schema-evolution.md)
+  transform old schemas on read, so you never run batch migrations.
+- **Full DI integration.** Projections, enrichers, stores, and serializers are all resolved through
+  Dishka — swap implementations without touching business logic.
+
+---
 
 ## Installation
 
@@ -91,9 +105,11 @@ graph TD
     Handler -->|publish| Mediator
 ```
 
-The extension follows the standard event sourcing architecture:
+The extension builds on waku's [CQRS module](../cqrs/index.md) — commands, handlers, and the
+mediator are all part of the CQRS layer. Event sourcing adds aggregates, an event store, and
+projections on top:
 
-1. **Commands** enter through the mediator
+1. **Commands** enter through the [mediator](../cqrs/index.md)
 2. **Command handlers** load aggregates from the repository
 3. **Aggregates** validate business rules and raise domain events
 4. The **repository** persists events to the event store
@@ -161,3 +177,7 @@ Register aggregates, event types, and command handlers with the module system:
 | [Snapshots](snapshots.md) | Optimize loading for long-lived aggregates |
 | [Schema Evolution](schema-evolution.md) | Upcasting and event type registries |
 | [Testing](testing.md) | Given/When/Then DSL for decider testing |
+
+## Further reading
+
+- **[CQRS](../cqrs/index.md)** — commands, queries, events, and the mediator that event sourcing builds on

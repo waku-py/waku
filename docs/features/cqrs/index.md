@@ -243,11 +243,16 @@ async def main() -> None:
 | `EventHandlerAlreadyRegistered` | The same handler class is bound to the same event type twice |
 | `PipelineBehaviorAlreadyRegistered` | The same behavior class is bound to the same request type twice |
 
+## Next steps
+
+| Topic | Description |
+|-------|-------------|
+| [Requests](requests.md) | Commands, queries, and request handlers |
+| [Events](events.md) | Event definitions, handlers, and publishers |
+| [Pipeline Behaviors](pipeline.md) | Cross-cutting middleware for request handling |
+
 ## Further reading
 
-- **[Requests](requests.md)** — commands, queries, and request handlers
-- **[Events](events.md)** — event definitions, handlers, and publishers
-- **[Pipeline Behaviors](pipeline.md)** — cross-cutting middleware for request handling
 - **[Event Sourcing](../eventsourcing/index.md)** — event-sourced aggregates, deciders, and projections
 - **[Extension System](../../advanced/extensions/index.md)** — lifecycle hooks for application and module lifecycle
 - **[Validation](../validation.md)** — startup validation and custom rules

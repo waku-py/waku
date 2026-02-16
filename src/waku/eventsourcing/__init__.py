@@ -1,4 +1,4 @@
-from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
+from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate, IDecider
 from waku.eventsourcing.contracts.event import EventEnvelope, EventMetadata, IMetadataEnricher, StoredEvent
 from waku.eventsourcing.contracts.stream import (
     AnyVersion,
@@ -74,6 +74,7 @@ __all__ = [
     'Exact',
     'ExpectedVersion',
     'FnUpcaster',
+    'IDecider',
     'IEventUpcaster',
     'IMetadataEnricher',
     'NoStream',

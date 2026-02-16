@@ -1,5 +1,6 @@
 ---
 title: Testing
+description: Given/When/Then DSL for decider testing and integration test utilities.
 ---
 
 # Testing
@@ -49,15 +50,8 @@ The pattern for testing OOP aggregates: create the aggregate, optionally call `l
 
 For integration tests, use `InMemoryEventStore` (the default) — no database needed. Combine it with `waku.testing.create_test_app()` to create minimal test applications.
 
-```python
-from waku.testing import create_test_app
-
-async def test_full_flow() -> None:
-    async with create_test_app(base=AppModule) as app:
-        async with app.container() as container:
-            mediator = await container.get(IMediator)
-            result = await mediator.send(OpenAccountCommand(account_id='acc-1', owner='dex'))
-            assert result.account_id == 'acc-1'
+```python linenums="1"
+--8<-- "docs/code/eventsourcing/testing/integration_test.py"
 ```
 
 !!! tip

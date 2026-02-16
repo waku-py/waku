@@ -1,5 +1,6 @@
 ---
 title: Projections
+description: Inline and catch-up projections for building read models from event streams.
 ---
 
 # Projections
@@ -149,6 +150,39 @@ across multiple processes. This prevents duplicate processing and checkpoint con
 
 - **SQLAlchemy [advisory lock](https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS)** — uses PostgreSQL advisory locks for lightweight
   multi-process coordination.
+
+## Checkpoint Store
+
+`ICheckpointStore` tracks each catch-up projection's last processed position so it resumes
+from where it left off after restarts.
+
+```python
+class ICheckpointStore(abc.ABC):
+    async def load(self, projection_name: str, /) -> Checkpoint | None: ...
+    async def save(self, checkpoint: Checkpoint, /) -> None: ...
+```
+
+The `Checkpoint` dataclass carries the projection name, last processed global position, and timestamp.
+
+Built-in implementations:
+
+- `InMemoryCheckpointStore` — dictionary-backed, suitable for single-process deployments and testing
+- `SqlAlchemyCheckpointStore` — PostgreSQL-backed via SQLAlchemy async session
+
+Configure the checkpoint store through `EventSourcingConfig`:
+
+```python
+from waku.eventsourcing import EventSourcingConfig
+from waku.eventsourcing.projection.sqlalchemy import make_sqlalchemy_checkpoint_store
+
+es_config = EventSourcingConfig(
+    checkpoint_store_factory=make_sqlalchemy_checkpoint_store(checkpoints_table),
+)
+```
+
+`make_sqlalchemy_checkpoint_store()` works the same way as `make_sqlalchemy_event_store()` — it
+returns a factory that Dishka uses to construct the store with its `AsyncSession` dependency
+injected automatically.
 
 ## Further reading
 

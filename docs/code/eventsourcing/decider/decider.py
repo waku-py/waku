@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from app.state import BankAccountState
+from waku.eventsourcing import IDecider
+
 from app.events import AccountOpened, MoneyDeposited
+from app.state import BankAccountState
 
 if TYPE_CHECKING:
     from waku.cqrs import INotification
@@ -26,7 +28,7 @@ BankCommand = OpenAccount | DepositMoney
 BankEvent = AccountOpened | MoneyDeposited
 
 
-class BankAccountDecider:
+class BankAccountDecider(IDecider[BankAccountState, BankCommand, BankEvent]):
     def initial_state(self) -> BankAccountState:
         return BankAccountState()
 

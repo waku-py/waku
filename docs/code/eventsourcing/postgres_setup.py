@@ -1,3 +1,4 @@
+import os
 from collections.abc import AsyncIterator
 
 from sqlalchemy import MetaData
@@ -5,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 
 from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
 
-DATABASE_URL = 'postgresql+psycopg://user:password@localhost:5432/mydb'
+DATABASE_URL = os.environ['DATABASE_URL']
 
 metadata = MetaData()
 tables = bind_event_store_tables(metadata)

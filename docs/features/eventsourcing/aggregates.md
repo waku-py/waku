@@ -1,12 +1,12 @@
 ---
 title: Aggregates
+description: OOP aggregates and functional deciders for event-sourced domain modeling.
 ---
 
 # Aggregates
 
 waku supports two approaches to modeling event-sourced aggregates: **OOP aggregates** (mutable, class-based)
-and **functional deciders** (immutable, function-based). Both share the same event store and module
-wiring infrastructure.
+and **functional deciders** (immutable, function-based).
 
 ## OOP Aggregates
 

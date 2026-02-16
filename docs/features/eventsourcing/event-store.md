@@ -1,5 +1,6 @@
 ---
 title: Event Store
+description: In-memory and PostgreSQL event persistence with optimistic concurrency and metadata enrichment.
 ---
 
 # Event Store
@@ -93,7 +94,7 @@ It returns a callable that Dishka uses to construct the store with its remaining
 
 ### Step 3: Create Tables
 
-Run the table creation as part of your application startup:
+Create the tables during application startup — typically in a lifespan handler or migration script:
 
 ```python
 async with engine.begin() as conn:
