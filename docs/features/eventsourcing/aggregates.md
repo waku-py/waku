@@ -8,18 +8,19 @@ description: OOP aggregates and functional deciders for event-sourced domain mod
 waku supports two approaches to modeling event-sourced aggregates: **OOP aggregates** (mutable, class-based)
 and **functional deciders** (immutable, function-based).
 
-## OOP Aggregates
+## Domain Events
 
-The classic approach — extend `EventSourcedAggregate`, raise events through command methods,
-and apply them to mutate internal state.
-
-### Defining Events
-
-Events are frozen dataclasses implementing `INotification`:
+Both approaches share the same event definitions — frozen dataclasses implementing `INotification`:
 
 ```python linenums="1"
 --8<-- "docs/code/eventsourcing/quickstart/events.py"
 ```
+
+## OOP Aggregates
+
+The classic approach — extend `EventSourcedAggregate`, raise events through command methods,
+and apply them to mutate internal state. This walkthrough builds a complete bank account
+example from aggregate to running application.
 
 ### Defining the Aggregate
 
@@ -57,6 +58,26 @@ Override `_is_creation_command()` to return `True` for commands that create new 
 For all other commands, the handler loads the aggregate from the store.
 
 `EventSourcedVoidCommandHandler` is available for commands that don't return a response.
+
+### Module Wiring
+
+Register aggregates, event types, and command handlers with the module system:
+
+```python linenums="1"
+--8<-- "docs/code/eventsourcing/quickstart/modules.py"
+```
+
+### Run
+
+Wire everything together and send commands through the mediator:
+
+```python linenums="1"
+--8<-- "docs/code/eventsourcing/quickstart/main.py"
+```
+
+!!! tip
+    The default `EventSourcingConfig()` uses an in-memory event store — perfect for
+    prototyping. See [Event Store](event-store.md) for PostgreSQL setup.
 
 ## Functional Deciders
 
@@ -174,6 +195,7 @@ causing data corruption.
 
 ## Further reading
 
+- **[Event Sourcing](index.md)** — overview, architecture, and installation
 - **[Event Store](event-store.md)** — in-memory and PostgreSQL event persistence
 - **[Snapshots](snapshots.md)** — optimize loading for long-lived aggregates
 - **[Testing](testing.md)** — Given/When/Then DSL and OOP aggregate testing

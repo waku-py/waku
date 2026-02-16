@@ -11,7 +11,7 @@ Traditional systems store only the current state — each update overwrites what
 Event sourcing takes a different approach: every state change is captured as an immutable
 **domain event** in an append-only log. The current state is derived by replaying these events:
 
-```text
+```python
 state = fold(initial_state, events)
 ```
 
@@ -37,7 +37,7 @@ and a natural integration point for reactive systems that respond to events as t
 waku's functional aggregate style is based on the **Decider pattern** formalized by
 [Jérémie Chassaing](https://thinkbeforecoding.com/post/2021/12/17/functional-event-sourcing-decider):
 
-```text
+```python
 Decider[Command, State, Event]:
     decide(command, state) → list[Event]
     evolve(state, event) → State
@@ -115,57 +115,9 @@ projections on top:
 4. The **repository** persists events to the event store
 5. **Projections** update read models as events are appended
 
-## Quick Start
-
-### 1. Define Domain Events
-
-Events are frozen dataclasses implementing `INotification`:
-
-```python linenums="1"
---8<-- "docs/code/eventsourcing/quickstart/events.py"
-```
-
-### 2. Define the Aggregate
-
-An aggregate applies events to mutate its state:
-
-```python linenums="1"
---8<-- "docs/code/eventsourcing/quickstart/aggregate.py"
-```
-
-### 3. Define the Repository
-
-The repository handles loading from and saving to the event store:
-
-```python linenums="1"
---8<-- "docs/code/eventsourcing/quickstart/repository.py"
-```
-
-### 4. Define Commands and Handlers
-
-Command handlers coordinate the aggregate lifecycle:
-
-```python linenums="1"
---8<-- "docs/code/eventsourcing/quickstart/commands.py"
-```
-
-### 5. Wire the Modules
-
-Register aggregates, event types, and command handlers with the module system:
-
-```python linenums="1"
---8<-- "docs/code/eventsourcing/quickstart/modules.py"
-```
-
-### 6. Run
-
-```python linenums="1"
---8<-- "docs/code/eventsourcing/quickstart/main.py"
-```
-
-!!! tip
-    The default `EventSourcingConfig()` uses an in-memory event store — perfect for
-    prototyping. See [Event Store](event-store.md) for PostgreSQL setup.
+!!! tip "Get started"
+    See [Aggregates](aggregates.md) for a complete walkthrough — from defining events
+    to wiring modules — for both OOP and functional decider styles.
 
 ## Next steps
 
@@ -177,7 +129,3 @@ Register aggregates, event types, and command handlers with the module system:
 | [Snapshots](snapshots.md) | Optimize loading for long-lived aggregates |
 | [Schema Evolution](schema-evolution.md) | Upcasting and event type registries |
 | [Testing](testing.md) | Given/When/Then DSL for decider testing |
-
-## Further reading
-
-- **[CQRS](../cqrs/index.md)** — commands, queries, events, and the mediator that event sourcing builds on

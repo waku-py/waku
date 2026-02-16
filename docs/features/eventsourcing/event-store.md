@@ -28,11 +28,19 @@ The store interface is split into two protocols:
 ```python
 class IEventReader(abc.ABC):
     async def read_stream(
-        self, stream_id: StreamId, /, *, start: int | StreamPosition = StreamPosition.START, count: int | None = None,
+        self,
+        stream_id: StreamId,
+        /,
+        *,
+        start: int | StreamPosition = StreamPosition.START,
+        count: int | None = None,
     ) -> list[StoredEvent]: ...
 
     async def read_all(
-        self, *, after_position: int = -1, count: int | None = None,
+        self,
+        *,
+        after_position: int = -1,
+        count: int | None = None,
     ) -> list[StoredEvent]: ...
 
     async def stream_exists(self, stream_id: StreamId, /) -> bool: ...
@@ -40,7 +48,12 @@ class IEventReader(abc.ABC):
 
 class IEventWriter(abc.ABC):
     async def append_to_stream(
-        self, stream_id: StreamId, /, events: Sequence[EventEnvelope], *, expected_version: ExpectedVersion,
+        self,
+        stream_id: StreamId,
+        /,
+        events: Sequence[EventEnvelope],
+        *,
+        expected_version: ExpectedVersion,
     ) -> int: ...
 
 
