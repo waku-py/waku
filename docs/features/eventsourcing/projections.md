@@ -4,7 +4,7 @@ title: Projections
 
 # Projections
 
-Projections build read models from event streams. Waku provides two types:
+Projections build read models from event streams. waku provides two types:
 
 - **Inline projections** run synchronously during `append_to_stream`, guaranteeing immediate consistency between writes and reads.
 - **Catch-up projections** process events asynchronously in a background loop, eventually catching up with the event store.

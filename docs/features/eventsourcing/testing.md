@@ -4,7 +4,7 @@ title: Testing
 
 # Testing
 
-Waku provides testing utilities for event-sourced aggregates and deciders. The `DeciderSpec` DSL enables expressive Given/When/Then tests for functional deciders.
+waku provides testing utilities for event-sourced aggregates and deciders. The `DeciderSpec` DSL enables expressive Given/When/Then tests for functional deciders.
 
 ## DeciderSpec DSL
 

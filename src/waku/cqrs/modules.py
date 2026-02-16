@@ -14,11 +14,11 @@ from waku.cqrs.interfaces import IMediator
 from waku.cqrs.registry import MediatorRegistry
 from waku.cqrs.requests.handler import RequestHandler
 from waku.di import Provider, WithParents, many, object_, scoped
-from waku.extensions import OnModuleDiscover, OnModuleRegistration
+from waku.extensions import OnModuleConfigure, OnModuleRegistration
 from waku.modules import DynamicModule, ModuleMetadataRegistry, module
 
 if TYPE_CHECKING:
-    from waku.modules import ModuleType
+    from waku.modules import ModuleMetadata, ModuleType
 
 __all__ = [
     'MediatorConfig',
@@ -96,9 +96,13 @@ class MediatorModule:
         return (many(IPipelineBehavior[Any, Any], *config.pipeline_behaviors),)
 
 
-class MediatorExtension(OnModuleDiscover):
+class MediatorExtension(OnModuleConfigure):
     def __init__(self) -> None:
         self._registry = MediatorRegistry()
+
+    @override
+    def on_module_configure(self, metadata: 'ModuleMetadata') -> None:
+        pass
 
     def bind_request(
         self,

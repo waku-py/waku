@@ -4,7 +4,7 @@ title: Schema Evolution
 
 # Schema Evolution
 
-As your domain evolves, event schemas change. Waku provides an event type registry for
+As your domain evolves, event schemas change. waku provides an event type registry for
 serialization and an upcasting chain for migrating old events to current schemas.
 
 ## Event Serialization
@@ -136,7 +136,7 @@ The resulting dict matches the current `AccountOpened` schema and deserializes c
 
 !!! warning
     Every upcaster's `from_version` must be **less than** the event's current `version`.
-    Waku validates this at startup and raises `UpcasterChainError` if the constraint is violated.
+    waku validates this at startup and raises `UpcasterChainError` if the constraint is violated.
 
 ## Further reading
 

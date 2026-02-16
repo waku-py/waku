@@ -203,9 +203,9 @@ Available languages: ['en', 'es', 'fr']
 1. Understand the [Module System](fundamentals/modules.md) in depth
 2. Explore [Dependency Injection](fundamentals/providers.md) patterns
 3. Integrate with [FastAPI, Litestar, or other frameworks](fundamentals/integrations.md)
-4. Add [Extensions](extensions/lifecycle.md) for lifecycle hooks
-5. Use the [Mediator (CQRS)](extensions/cqrs.md) for command/query separation
-6. Build event-driven systems with [Event Sourcing](extensions/eventsourcing/index.md)
+4. Add [Extensions](advanced/extensions/index.md) for lifecycle hooks
+5. Use the [Mediator (CQRS)](features/cqrs/index.md) for command/query separation
+6. Build event-driven systems with [Event Sourcing](features/eventsourcing/index.md)
 
 !!! tip "Further reading"
     [The Software Architecture Chronicles](https://herbertograca.com/2017/07/03/the-software-architecture-chronicles/)

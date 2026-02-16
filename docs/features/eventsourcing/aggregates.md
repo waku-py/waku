@@ -4,7 +4,7 @@ title: Aggregates
 
 # Aggregates
 
-Waku supports two approaches to modeling event-sourced aggregates: **OOP aggregates** (mutable, class-based)
+waku supports two approaches to modeling event-sourced aggregates: **OOP aggregates** (mutable, class-based)
 and **functional deciders** (immutable, function-based). Both share the same event store and module
 wiring infrastructure.
 

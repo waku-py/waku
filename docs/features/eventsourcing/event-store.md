@@ -5,7 +5,7 @@ title: Event Store
 # Event Store
 
 The event store is the persistence layer for event sourcing. It handles appending new events to
-streams and reading them back. Waku provides an in-memory implementation for development and a
+streams and reading them back. waku provides an in-memory implementation for development and a
 SQLAlchemy-based PostgreSQL adapter for production.
 
 ## IEventStore Interface

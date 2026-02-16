@@ -22,7 +22,7 @@ and a natural integration point for reactive systems that respond to events as t
 - **Events are the source of truth.** The event log is the primary data store. State (read models,
   projections) is derived, not stored directly.
 - **Aggregates guard invariants.** An aggregate receives a command, validates business rules against
-  its current state, and produces new events. Waku supports both mutable OOP aggregates and
+  its current state, and produces new events. waku supports both mutable OOP aggregates and
   immutable functional [deciders](aggregates.md#functional-deciders).
 - **Optimistic concurrency** prevents conflicting writes. Each stream tracks a version number;
   concurrent updates to the same aggregate are detected and rejected.
@@ -33,7 +33,7 @@ and a natural integration point for reactive systems that respond to events as t
 
 ### The Decider Pattern
 
-Waku's functional aggregate style is based on the **Decider pattern** formalized by
+waku's functional aggregate style is based on the **Decider pattern** formalized by
 [Jérémie Chassaing](https://thinkbeforecoding.com/post/2021/12/17/functional-event-sourcing-decider):
 
 ```
@@ -48,7 +48,7 @@ OOP and functional approaches.
 
 ### Inspiration
 
-Waku's event sourcing draws from established frameworks across ecosystems:
+waku's event sourcing draws from established frameworks across ecosystems:
 
 - [Emmett](https://event-driven-io.github.io/emmett/) (TypeScript) — functional-first ES by Oskar Dudycz
 - [Marten](https://martendb.io/events/) (.NET) — projection lifecycle taxonomy (inline / async / live)

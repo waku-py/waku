@@ -61,7 +61,7 @@ class AppModule:
 ```
 
 !!! note
-    Encapsulation is enforced by [validators](../extensions/validation.md), which you can disable at runtime if needed.
+    Encapsulation is enforced by [validators](../features/validation.md), which you can disable at runtime if needed.
     However, **disabling them entirely is not recommended**, as they help maintain modularity.
 
 ## Module Re-exporting
@@ -208,6 +208,6 @@ constructor.
 ## Further reading
 
 - **[Providers](providers.md)** — provider types and scopes for dependency injection
-- **[Lifecycle Hooks](../extensions/lifecycle.md)** — module and application extension hooks
-- **[Custom Extensions](../extensions/custom-extensions.md)** — writing your own module extensions
-- **[Validation](../extensions/validation.md)** — encapsulation rules and how to configure them
+- **[Lifecycle Hooks](../advanced/extensions/index.md)** — module and application extension hooks
+- **[Custom Extensions](../advanced/extensions/custom-extensions.md)** — writing your own module extensions
+- **[Validation](../features/validation.md)** — encapsulation rules and how to configure them

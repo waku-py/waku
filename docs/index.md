@@ -73,7 +73,7 @@ powered by [Dishka](https://github.com/reagento/dishka/), and integrated CQRS an
 
     ---
 
-    Separate reads from writes. [Commands, queries, and events](extensions/cqrs.md)
+    Separate reads from writes. [Commands, queries, and events](features/cqrs/index.md)
     with pipeline behaviors for cross-cutting concerns — all in-process,
     no message broker required.
 
@@ -81,7 +81,7 @@ powered by [Dishka](https://github.com/reagento/dishka/), and integrated CQRS an
 
     ---
 
-    Full [event sourcing](extensions/eventsourcing/index.md) support — aggregates,
+    Full [event sourcing](features/eventsourcing/index.md) support — aggregates,
     projections, snapshots, upcasting, and the decider pattern with
     built-in SQLAlchemy adapters.
 
@@ -90,7 +90,7 @@ powered by [Dishka](https://github.com/reagento/dishka/), and integrated CQRS an
     ---
 
     Hook into startup, shutdown, and module initialization with
-    [extensions](extensions/lifecycle.md). Add validation, logging, or custom
+    [extensions](advanced/extensions/index.md). Add validation, logging, or custom
     behaviors — decoupled from your business logic.
 
 -   :material-connection: **Framework Integrations**

@@ -1,18 +1,17 @@
 ---
 title: Validation
+description: Startup validation rules that catch module wiring errors before your application serves requests.
 ---
 
 # Validation
 
-## Introduction
-
-Waku validates module configuration at startup to catch wiring errors early, before
+waku validates module configuration at startup to catch wiring errors early, before
 your application begins serving requests. Misconfigured imports, missing exports, or
 inaccessible dependencies are detected and reported immediately — either as hard
 failures or warnings — so you never encounter cryptic runtime resolution errors in
 production.
 
-Validation runs as an `AfterApplicationInit` hook, meaning it executes after the
+Validation runs as an [`AfterApplicationInit`](../advanced/extensions/custom-extensions.md#afterapplicationinit) hook, meaning it executes after the
 dependency injection container is fully built. At that point, every module, provider,
 and import/export relationship is finalized and available for inspection.
 
@@ -24,18 +23,18 @@ and import/export relationship is finalized and available for inspection.
 
 ### Default Setup
 
+`WakuFactory` includes `ValidationExtension` in `DEFAULT_EXTENSIONS` automatically — no
+configuration needed:
+
 ```python linenums="1"
-from waku.extensions import DEFAULT_EXTENSIONS
+from waku import WakuFactory, module
 
-# DEFAULT_EXTENSIONS includes:
-# ValidationExtension(
-#     [DependenciesAccessibleRule()],
-#     strict=True,
-# )
+@module()
+class AppModule: ...
+
+# ValidationExtension with DependenciesAccessibleRule (strict=True) is applied automatically
+app = WakuFactory(AppModule).create()
 ```
-
-When you create an application with `WakuFactory(AppModule)`, the default extensions
-are applied automatically.
 
 ### Constructor
 
@@ -56,27 +55,29 @@ extension = ValidationExtension(
 
 ### Strict vs. Lenient Mode
 
-**`strict=True`** (default) — raises an `ExceptionGroup` containing all
-`ValidationError` instances. The application fails to start.
+=== "Strict (default)"
 
-```python linenums="1"
-# Strict mode: application won't start if rules are violated
-extension = ValidationExtension(
-    rules=[DependenciesAccessibleRule()],
-    strict=True,
-)
-```
+    Raises an `ExceptionGroup` containing all `ValidationError` instances.
+    The application fails to start.
 
-**`strict=False`** — emits each violation as a Python warning via `warnings.warn`.
-The application starts normally, but violations are logged.
+    ```python
+    extension = ValidationExtension(
+        rules=[DependenciesAccessibleRule()],
+        strict=True,
+    )
+    ```
 
-```python linenums="1"
-# Lenient mode: log warnings but allow startup
-extension = ValidationExtension(
-    rules=[DependenciesAccessibleRule()],
-    strict=False,
-)
-```
+=== "Lenient"
+
+    Emits each violation as a Python warning via `warnings.warn`.
+    The application starts normally, but violations are logged.
+
+    ```python
+    extension = ValidationExtension(
+        rules=[DependenciesAccessibleRule()],
+        strict=False,
+    )
+    ```
 
 !!! tip
     Use `strict=False` during migration or prototyping when you want visibility into
@@ -106,28 +107,38 @@ If none of these strategies match, the dependency is flagged as inaccessible.
 
 ### Example Violation
 
-Consider two modules where `OrderModule` depends on `PaymentService` but does not
-import the module that provides it:
+Consider two modules where `OrderService` depends on `PaymentService`, but
+`OrderModule` does not import the module that provides it:
 
 ```python linenums="1"
-from waku.modules import module
+from waku import module
+from waku.di import scoped
 
-@module(providers=[payment_provider], exports=[PaymentService])
+
+class PaymentService:
+    def process(self, amount: float) -> None: ...
+
+
+class OrderService:
+    def __init__(self, payments: PaymentService) -> None:
+        self._payments = payments
+
+
+@module(
+    providers=[scoped(PaymentService)],
+    exports=[PaymentService],
+)
 class PaymentModule: ...
 
 @module(
-    providers=[order_provider],  # order_provider depends on PaymentService
-    imports=[],                  # PaymentModule is missing!
+    providers=[scoped(OrderService)],  # OrderService depends on PaymentService
+    imports=[],                         # PaymentModule is missing!
 )
 class OrderModule: ...
 ```
 
-At startup, the `DependenciesAccessibleRule` detects that `PaymentService` is not
-accessible to `OrderModule` and produces a `DependencyInaccessibleError`.
-
-### Error Message Format
-
-The error message provides a clear diagnosis and actionable resolution steps:
+At startup, `DependenciesAccessibleRule` detects that `PaymentService` is not
+accessible to `OrderModule` and produces a `DependencyInaccessibleError`:
 
 ```
 Dependency Error: "<class 'PaymentService'>" is not accessible
@@ -147,57 +158,50 @@ Note: Dependencies can only be accessed from:
 
 ### How to Fix
 
-Choose the approach that best fits your architecture:
+The error message tells you exactly what's missing. In this case, `OrderModule` needs
+access to `PaymentService`. You have two options:
 
-| Approach | When to Use |
-|----------|-------------|
-| Add the missing import and export | The dependency is intentionally scoped to a specific module |
-| Set `is_global=True` on the providing module | The dependency is a shared service used across many modules |
-| Move the dependency | The provider belongs in a different module closer to its consumers |
+**Import the module that provides it** — if `PaymentService` is scoped to specific
+consumers:
 
-```python linenums="1"
-# Fix 1: Add the import
+```python hl_lines="3"
 @module(
-    providers=[order_provider],
-    imports=[PaymentModule],  # now OrderModule can access PaymentService
+    providers=[scoped(OrderService)],
+    imports=[PaymentModule],
 )
 class OrderModule: ...
+```
 
-# Fix 2: Make the providing module global
-@module(providers=[payment_provider], exports=[PaymentService], is_global=True)
+**Make `PaymentModule` global** — if `PaymentService` is a shared service used across
+many modules:
+
+```python hl_lines="4"
+@module(
+    providers=[scoped(PaymentService)],
+    exports=[PaymentService],
+    is_global=True,
+)
 class PaymentModule: ...
 ```
+
+!!! warning
+    [Global modules](../fundamentals/modules.md#global-modules) reduce boilerplate but
+    weaken encapsulation. Reserve them for truly cross-cutting infrastructure — database
+    connections, configuration, logging. Feature modules should use explicit imports to
+    keep their dependency graph visible.
 
 ## Custom Validation Rules
 
 You can implement your own rules to enforce project-specific conventions at startup.
+Custom rules are [extensions](../advanced/extensions/custom-extensions.md) — they
+hook into the application lifecycle just like the built-in `ValidationExtension`.
 
 ### The `ValidationRule` Protocol
 
-```python linenums="1"
-from waku.validation import ValidationRule, ValidationError
-from waku.validation._extension import ValidationContext
-
-
-class ValidationRule(Protocol):
-    def validate(self, context: ValidationContext) -> list[ValidationError]: ...
-```
-
-The `ValidationContext` provides access to the fully initialized application:
-
-```python linenums="1"
-from dataclasses import dataclass
-from waku.application import WakuApplication
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ValidationContext:
-    app: WakuApplication  # access container, registry, and all modules
-```
-
-Through `context.app`, you can inspect `context.app.registry` (the `ModuleRegistry`
-with all registered modules) and `context.app.container` (the Dishka
-`AsyncContainer`).
+Every rule implements a single method — `validate(context) -> list[ValidationError]`.
+The `ValidationContext` provides access to the fully initialized `WakuApplication`,
+including its module registry (`context.app.registry`) and DI container
+(`context.app.container`).
 
 ### Example: Custom Rule
 
@@ -205,16 +209,14 @@ The following rule enforces that every non-root module has at least one export,
 preventing modules that provide services but forget to expose them:
 
 ```python linenums="1"
-from waku.validation import ValidationError, ValidationRule
-from waku.validation._extension import ValidationContext
+from waku.validation import ValidationError
+from waku.validation import ValidationContext
 
 
 class ModulesMustExportRule:
-    """Ensure every non-root module exports at least one type."""
-
     def validate(self, context: ValidationContext) -> list[ValidationError]:
         errors: list[ValidationError] = []
-        modules = list(context.app.registry.modules)
+        modules = context.app.registry.modules
 
         for mod in modules[1:]:  # skip root module
             if not mod.exports:
@@ -287,6 +289,6 @@ app = WakuFactory(
 ## Further reading
 
 - **[Modules](../fundamentals/modules.md)** — module system, imports, and export boundaries
-- **[Custom Extensions](custom-extensions.md)** — writing your own extensions and hooks
-- **[Lifecycle Hooks](lifecycle.md)** — when validation runs in the application lifecycle
+- **[Custom Extensions](../advanced/extensions/custom-extensions.md)** — writing your own extensions and hooks
+- **[Lifecycle Hooks](../advanced/extensions/index.md)** — when validation runs in the application lifecycle
 - **[Testing](../fundamentals/testing.md)** — test utilities and working with validation in tests

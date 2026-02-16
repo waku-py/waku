@@ -389,4 +389,5 @@ using Dishka's scope mechanism.
 - **[Providers](../../fundamentals/providers.md)** — provider types and scopes
 - **[Conditional Providers](conditional-providers.md)** — `when=` parameter and markers
 - **[Multi-bindings](multi-bindings.md)** — collection providers with `many()`
+- **[Extension System](../extensions/index.md)** — lifecycle hooks and registration-time provider aggregation
 - **[Dishka documentation](https://dishka.readthedocs.io/en/stable/)** — the underlying DI framework

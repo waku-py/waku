@@ -26,7 +26,7 @@ class ISnapshotStrategy(abc.ABC):
     def should_snapshot(self, version: int, events_since_snapshot: int) -> bool: ...
 ```
 
-Waku ships with `EventCountStrategy(threshold=N)`, which triggers a snapshot every N events
+waku ships with `EventCountStrategy(threshold=N)`, which triggers a snapshot every N events
 since the last snapshot. The default threshold is `100`.
 
 ## Snapshot Repository

@@ -36,7 +36,7 @@ app = WakuFactory(AppModule).create()
 | `root_module_type` | `ModuleType`                     | The root module class (positional-only). Serves as the composition root of the application graph.  |
 | `context`          | `dict[Any, Any]                  | None`         | APP-level context dict for [contextual providers](providers.md#contextual). See [Container Access](#container-access). |
 | `lifespan`         | `Sequence[LifespanFunc]`         | [Lifespan](#lifespan) functions for setup/teardown of long-lived resources.                       |
-| `extensions`       | `Sequence[ApplicationExtension]` | Application-level [extensions](../extensions/lifecycle.md). Defaults to `DEFAULT_EXTENSIONS`.     |
+| `extensions`       | `Sequence[ApplicationExtension]` | Application-level [extensions](../advanced/extensions/index.md). Defaults to `DEFAULT_EXTENSIONS`.     |
 | `container_config` | `ContainerConfig                 | None`        | Container configuration (see below).                                                              |
 
 ### ContainerConfig
@@ -138,7 +138,7 @@ flowchart TD
     E2 --> E3["Lifespan functions exit"]
 ```
 
-For details on extension hooks, see [Lifecycle Hooks](../extensions/lifecycle.md).
+For details on extension hooks, see [Lifecycle Hooks](../advanced/extensions/index.md).
 
 ### Lifespan
 
@@ -299,7 +299,7 @@ async def handle_request(request_id: str) -> None:
 
 ## Further reading
 
-- **[Lifecycle Hooks](../extensions/lifecycle.md)** — extension hooks that run during application startup and shutdown
+- **[Lifecycle Hooks](../advanced/extensions/index.md)** — extension hooks that run during application startup and shutdown
 - **[Modules](modules.md)** — module system and the `@module()` decorator
 - **[Framework Integrations](integrations.md)** — connecting waku to FastAPI, Litestar, and other frameworks
 - **[Testing](testing.md)** — test utilities and provider overrides

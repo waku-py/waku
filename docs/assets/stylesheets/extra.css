@@ -55,6 +55,32 @@
   text-align: center;
 }
 
+.hook-sync::before,
+.hook-async::before {
+  font-size: 0.5em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.15em 0.55em;
+  border-radius: 1em;
+  vertical-align: middle;
+  position: relative;
+  top: -0.15em;
+  margin-right: 0.5em;
+  color: #fff;
+}
+
+.hook-sync::before {
+  content: "sync";
+  background-color: #42a5f5;
+}
+
+.hook-async::before {
+  content: "async";
+  background-color: #ff7043;
+}
+
+
 abbr[title*="modular, type-safe"] {
   font-family: var(--md-code-font-family);
   font-size: 0.85em;
