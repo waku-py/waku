@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name = "waku"
 version = "0.29.0"
-description = "Framework for building modular and loosely coupled applications"
+description = "Python framework for backends that grow"
 readme = "README.md"
 license = "MIT"
 keywords = ["architecture", "modular", "decoupled", "framework", "dishka", "ioc", "di", "cqrs", "eventstore", "eventsourcing"]
@@ -239,6 +239,7 @@ exclude = [
   "benchmarks",
   "docs/code/eventsourcing",
   "docs/code/getting_started",
+  "docs/code/integrations",
   "docs/code/providers",
 ]
 exclude_gitignore = true
@@ -272,6 +273,7 @@ python-version = "3.11"
 exclude = [
   "docs/code/eventsourcing",
   "docs/code/getting_started",
+  "docs/code/integrations",
   "docs/code/providers",
 ]
 

@@ -1,5 +1,6 @@
 ---
 title: Framework Integrations
+description: Connecting waku to FastAPI, Litestar, and other frameworks via Dishka integrations.
 ---
 
 # Framework Integrations
@@ -36,47 +37,7 @@ The integration pattern is the same for every framework:
 3. Use `@inject` and `Injected[Type]` in your handlers
 
 ```python title="main.py" linenums="1"
-import contextlib
-from collections.abc import AsyncIterator
-
-import uvicorn
-from dishka.integrations.fastapi import inject, setup_dishka
-from fastapi import FastAPI
-
-from waku import WakuFactory, module
-from waku.di import Injected, scoped
-
-
-class GreetingService:
-    async def greet(self, name: str) -> str:
-        return f'Hello, {name}!'
-
-
-@module(providers=[scoped(GreetingService)])
-class AppModule:
-    pass
-
-
-@contextlib.asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    async with app.state.waku:  # (1)!
-        yield
-
-
-app = FastAPI(lifespan=lifespan)
-waku_app = WakuFactory(AppModule).create()
-app.state.waku = waku_app
-setup_dishka(waku_app.container, app)  # (2)!
-
-
-@app.get('/')
-@inject  # (3)!
-async def hello(greeting: Injected[GreetingService]) -> dict[str, str]:  # (4)!
-    return {'message': await greeting.greet('waku')}
-
-
-if __name__ == '__main__':
-    uvicorn.run(app)
+--8<-- "docs/code/integrations/fastapi_example.py"
 ```
 
 1. Manage waku lifecycle through FastAPI's lifespan — this runs extension hooks and shutdown logic.
