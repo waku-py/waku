@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.29.0 (2026-02-16)
+
+### ✨ Features
+
+- **ext**: Add event sourcing extension
+  ([`e69f220`](https://github.com/waku-py/waku/commit/e69f220e6bc5dae71a59ccb1428e4c3f563e9283))
+
+
 ## v0.28.1 (2026-02-13)
 
 ### 🪲 Bug Fixes
