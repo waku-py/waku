@@ -10,7 +10,12 @@ from typing_extensions import override
 from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.event import EventMetadata, IMetadataEnricher
-from waku.eventsourcing.exceptions import DuplicateAggregateNameError, SnapshotConfigNotFoundError, UpcasterChainError
+from waku.eventsourcing.exceptions import (
+    DuplicateAggregateNameError,
+    SnapshotConfigNotFoundError,
+    SnapshotMigrationChainError,
+    UpcasterChainError,
+)
 from waku.eventsourcing.modules import (
     EventSourcingConfig,
     EventSourcingExtension,
@@ -558,6 +563,15 @@ class _NoOpSnapshotMigration(ISnapshotMigration):
         return state
 
 
+class _V2ToV3SnapshotMigration(ISnapshotMigration):
+    from_version = 2
+    to_version = 3
+
+    @override
+    def migrate(self, state: dict[str, Any], /) -> dict[str, Any]:
+        return state
+
+
 async def test_snapshot_config_registry_with_schema_version_and_migrations() -> None:
     es_ext = EventSourcingExtension().bind_aggregate(
         repository=ItemRepository,
@@ -581,3 +595,68 @@ async def test_snapshot_config_registry_with_schema_version_and_migrations() -> 
 
         assert config.schema_version == 2
         assert isinstance(config.migration_chain, SnapshotMigrationChain)
+
+
+async def test_snapshot_migration_target_rejects_schema_version_without_migrations() -> None:
+    es_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemRepository,
+        snapshot=SnapshotOptions(
+            strategy=EventCountStrategy(threshold=50),
+            schema_version=3,
+        ),
+    )
+
+    @module(
+        imports=[EventSourcingModule.register()],
+        extensions=[es_ext],
+    )
+    class ItemModule:
+        pass
+
+    with pytest.raises(SnapshotMigrationChainError, match='schema_version is 3 but no migrations are provided'):
+        async with create_test_app(imports=[ItemModule]):
+            pass
+
+
+async def test_snapshot_migration_target_rejects_chain_not_reaching_schema_version() -> None:
+    es_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemRepository,
+        snapshot=SnapshotOptions(
+            strategy=EventCountStrategy(threshold=50),
+            schema_version=3,
+            migrations=[_NoOpSnapshotMigration()],
+        ),
+    )
+
+    @module(
+        imports=[EventSourcingModule.register()],
+        extensions=[es_ext],
+    )
+    class ItemModule:
+        pass
+
+    with pytest.raises(SnapshotMigrationChainError, match='migration chain reaches version 2 but schema_version is 3'):
+        async with create_test_app(imports=[ItemModule]):
+            pass
+
+
+async def test_snapshot_migration_target_rejects_chain_not_starting_at_version_1() -> None:
+    es_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemRepository,
+        snapshot=SnapshotOptions(
+            strategy=EventCountStrategy(threshold=50),
+            schema_version=3,
+            migrations=[_V2ToV3SnapshotMigration()],
+        ),
+    )
+
+    @module(
+        imports=[EventSourcingModule.register()],
+        extensions=[es_ext],
+    )
+    class ItemModule:
+        pass
+
+    with pytest.raises(SnapshotMigrationChainError, match='starts at version 2 but must start at version 1'):
+        async with create_test_app(imports=[ItemModule]):
+            pass

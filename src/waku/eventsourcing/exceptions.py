@@ -143,9 +143,10 @@ class RetryExhaustedError(ProjectionError):
 
 
 class DuplicateIdempotencyKeyError(EventSourcingError):
-    def __init__(self, stream_id: StreamId) -> None:
+    def __init__(self, stream_id: StreamId, *, reason: str) -> None:
         self.stream_id = stream_id
-        super().__init__(f'Duplicate idempotency keys within batch on stream {stream_id}')
+        self.reason = reason
+        super().__init__(f'Duplicate idempotency keys ({reason}) on stream {stream_id}')
 
 
 class PartialDuplicateAppendError(EventSourcingError):

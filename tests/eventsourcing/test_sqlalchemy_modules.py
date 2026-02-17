@@ -30,9 +30,6 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
 
-# --- V2 domain types for upcasting tests ---
-
-
 @dataclass(frozen=True)
 class NoteCreatedV2(INotification):
     heading: str

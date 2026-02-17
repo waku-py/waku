@@ -57,6 +57,10 @@ class SnapshotMigrationChain:
             prev_to = m.to_version
         self._migrations = tuple(sorted_migrations)
 
+    @property
+    def migrations(self) -> tuple[ISnapshotMigration, ...]:
+        return self._migrations
+
     def migrate(self, state: dict[str, Any], from_version: int) -> tuple[dict[str, Any], int]:
         current = from_version
         for m in self._migrations:

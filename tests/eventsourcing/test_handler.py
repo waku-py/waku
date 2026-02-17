@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from unittest.mock import AsyncMock, patch
+from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
@@ -15,6 +15,9 @@ from waku.modules import module
 from waku.testing import create_test_app
 
 from tests.eventsourcing.domain import Note, NoteCreated, NoteEdited, NoteRepository
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -83,35 +86,35 @@ async def test_event_sourced_command_handler_creates_and_persists_aggregate() ->
         assert loaded.version == 0
 
 
-async def test_default_idempotency_key_passes_none_to_repository() -> None:
+async def test_default_idempotency_key_passes_none_to_repository(mocker: MockerFixture) -> None:
     registry = EventTypeRegistry()
     registry.register(NoteCreated)
     registry.register(NoteEdited)
     event_store = InMemoryEventStore(registry=registry)
     repo = NoteRepository(event_store=event_store)
-    publisher = AsyncMock(spec=IPublisher)
+    publisher = mocker.AsyncMock(spec=IPublisher)
     handler = CreateNoteHandler(repository=repo, publisher=publisher)
 
-    with patch.object(repo, 'save', wraps=repo.save) as save_spy:
-        await handler.handle(CreateNote(note_id='n-1', title='Hello'))
+    save_spy = mocker.spy(repo, 'save')
+    await handler.handle(CreateNote(note_id='n-1', title='Hello'))
 
-        save_spy.assert_awaited_once()
-        _, kwargs = save_spy.call_args
-        assert kwargs['idempotency_key'] is None
+    save_spy.assert_awaited_once()
+    _, kwargs = save_spy.call_args
+    assert kwargs['idempotency_key'] is None
 
 
-async def test_idempotency_key_passed_to_repository_save() -> None:
+async def test_idempotency_key_passed_to_repository_save(mocker: MockerFixture) -> None:
     registry = EventTypeRegistry()
     registry.register(NoteCreated)
     registry.register(NoteEdited)
     event_store = InMemoryEventStore(registry=registry)
     repo = NoteRepository(event_store=event_store)
-    publisher = AsyncMock(spec=IPublisher)
+    publisher = mocker.AsyncMock(spec=IPublisher)
     handler = CreateNoteWithIdempotencyKeyHandler(repository=repo, publisher=publisher)
 
-    with patch.object(repo, 'save', wraps=repo.save) as save_spy:
-        await handler.handle(CreateNoteWithKey(note_id='n-1', title='Hello', idempotency_key='key-123'))
+    save_spy = mocker.spy(repo, 'save')
+    await handler.handle(CreateNoteWithKey(note_id='n-1', title='Hello', idempotency_key='key-123'))
 
-        save_spy.assert_awaited_once()
-        _, kwargs = save_spy.call_args
-        assert kwargs['idempotency_key'] == 'key-123'
+    save_spy.assert_awaited_once()
+    _, kwargs = save_spy.call_args
+    assert kwargs['idempotency_key'] == 'key-123'

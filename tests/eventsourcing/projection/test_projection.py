@@ -48,9 +48,6 @@ def test_abstract_subclass_without_name_is_allowed() -> None:
         def some_helper(self) -> None: ...
 
 
-# --- ICatchUpProjection ---
-
-
 def test_catch_up_projection_without_name_raises_type_error() -> None:
     with pytest.raises(TypeError, match='must define projection_name'):
 

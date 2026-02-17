@@ -6,8 +6,6 @@ from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.repository import EventSourcedRepository
 
-# --- Bank Account ---
-
 
 @dataclass(frozen=True)
 class AccountOpened(INotification):
@@ -43,9 +41,6 @@ class BankAccount(EventSourcedAggregate):
                 self.name = name
             case MoneyDeposited(amount=amount):
                 self.balance += amount
-
-
-# --- Note ---
 
 
 @dataclass(frozen=True)

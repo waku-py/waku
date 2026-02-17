@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from unittest.mock import AsyncMock, patch
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from unittest.mock import AsyncMock
+
+    from pytest_mock import MockerFixture
 from typing_extensions import override
 
 from waku.cqrs.contracts.request import Request, Response
@@ -14,8 +19,6 @@ from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
 from tests.eventsourcing.decider.conftest import CounterRepository
 from tests.eventsourcing.test_decider import CounterDecider, CounterState, Increment, Incremented
-
-# -- Test CQRS request/response types ----------------------------------------
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -40,9 +43,6 @@ class CreateCounterCommand(Request['CounterResponse']):
 class IncrementCounterVoidCommand(Request[None]):
     counter_id: str
     amount: int = 1
-
-
-# -- Concrete handler subclasses for testing ----------------------------------
 
 
 class IncrementCounterHandler(
@@ -124,9 +124,6 @@ class IdempotentCreateCounterHandler(
         return request.idempotency_key or None
 
 
-# -- Fixtures -----------------------------------------------------------------
-
-
 @pytest.fixture
 def decider() -> CounterDecider:
     return CounterDecider()
@@ -145,11 +142,9 @@ def repository(decider: CounterDecider, event_store: InMemoryEventStore) -> Coun
 
 
 @pytest.fixture
-def publisher() -> AsyncMock:
-    return AsyncMock(spec=IPublisher)
-
-
-# -- Tests --------------------------------------------------------------------
+def publisher(mocker: MockerFixture) -> AsyncMock:
+    mock: AsyncMock = mocker.AsyncMock(spec=IPublisher)
+    return mock
 
 
 async def test_handle_loads_state_decides_saves_and_returns_response(
@@ -203,30 +198,32 @@ async def test_void_handler_returns_none(
 
 
 async def test_default_idempotency_key_passes_none_to_repository(
+    mocker: MockerFixture,
     repository: CounterRepository,
     decider: CounterDecider,
     publisher: AsyncMock,
 ) -> None:
     handler = CreateCounterHandler(repository=repository, decider=decider, publisher=publisher)
 
-    with patch.object(repository, 'save', wraps=repository.save) as save_spy:
-        await handler.handle(CreateCounterCommand(counter_id='c-1', amount=1))
+    save_spy = mocker.spy(repository, 'save')
+    await handler.handle(CreateCounterCommand(counter_id='c-1', amount=1))
 
-        save_spy.assert_awaited_once()
-        _, kwargs = save_spy.call_args
-        assert kwargs['idempotency_key'] is None
+    save_spy.assert_awaited_once()
+    _, kwargs = save_spy.call_args
+    assert kwargs['idempotency_key'] is None
 
 
 async def test_idempotency_key_passed_to_repository_save(
+    mocker: MockerFixture,
     repository: CounterRepository,
     decider: CounterDecider,
     publisher: AsyncMock,
 ) -> None:
     handler = IdempotentCreateCounterHandler(repository=repository, decider=decider, publisher=publisher)
 
-    with patch.object(repository, 'save', wraps=repository.save) as save_spy:
-        await handler.handle(IdempotentCreateCounterCommand(counter_id='c-key', amount=5, idempotency_key='key-abc'))
+    save_spy = mocker.spy(repository, 'save')
+    await handler.handle(IdempotentCreateCounterCommand(counter_id='c-key', amount=5, idempotency_key='key-abc'))
 
-        save_spy.assert_awaited_once()
-        _, kwargs = save_spy.call_args
-        assert kwargs['idempotency_key'] == 'key-abc'
+    save_spy.assert_awaited_once()
+    _, kwargs = save_spy.call_args
+    assert kwargs['idempotency_key'] == 'key-abc'

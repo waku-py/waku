@@ -20,6 +20,7 @@ from waku.eventsourcing.exceptions import (
     AggregateNotFoundError,
     ConcurrencyConflictError,
     DuplicateAggregateNameError,
+    DuplicateIdempotencyKeyError,
     EventSourcingError,
     ProjectionError,
     ProjectionStoppedError,
@@ -27,8 +28,6 @@ from waku.eventsourcing.exceptions import (
     StreamNotFoundError,
 )
 from waku.exceptions import WakuError
-
-# --- StreamId ---
 
 
 def test_stream_id_stores_value() -> None:
@@ -83,9 +82,6 @@ def test_stream_id_empty_stream_key_raises_value_error() -> None:
         StreamId(stream_type='order', stream_key='')
 
 
-# --- ExpectedVersion ADT ---
-
-
 def test_exact_stores_version() -> None:
     version = Exact(version=5)
     assert version.version == 5
@@ -103,17 +99,11 @@ def test_exact_is_frozen() -> None:
         exact.version = 99  # type: ignore[misc]
 
 
-# --- EventMetadata ---
-
-
 def test_event_metadata_defaults() -> None:
     meta = EventMetadata()
     assert meta.correlation_id is None
     assert meta.causation_id is None
     assert meta.extra == {}
-
-
-# --- EventEnvelope ---
 
 
 def test_event_envelope_defaults() -> None:
@@ -123,7 +113,9 @@ def test_event_envelope_defaults() -> None:
     assert envelope.metadata == EventMetadata()
 
 
-# --- StoredEvent ---
+def test_event_envelope_empty_idempotency_key_raises_value_error() -> None:
+    with pytest.raises(ValueError, match='idempotency_key must not be empty'):
+        EventEnvelope(domain_event='SomeEvent', idempotency_key='')
 
 
 def test_stored_event_construction() -> None:
@@ -149,9 +141,6 @@ def test_stored_event_construction() -> None:
     assert stored.timestamp == now
     assert stored.data == {'total': 100}
     assert stored.metadata.correlation_id == 'corr-1'
-
-
-# --- Exceptions ---
 
 
 def test_event_sourcing_error_is_waku_error_subclass() -> None:
@@ -185,9 +174,6 @@ def test_aggregate_not_found_error_carries_attrs() -> None:
     assert isinstance(error, EventSourcingError)
 
 
-# --- Projection Errors ---
-
-
 def test_projection_error_hierarchy() -> None:
     assert issubclass(ProjectionError, EventSourcingError)
     assert issubclass(ProjectionError, WakuError)
@@ -213,6 +199,26 @@ def test_retry_exhausted_error_carries_attrs() -> None:
     assert 'analytics' in str(error)
     assert '3' in str(error)
     assert 'timeout' in str(error)
+
+
+def test_duplicate_idempotency_key_error_within_batch() -> None:
+    stream_id = StreamId.for_aggregate('order', '1')
+    error = DuplicateIdempotencyKeyError(stream_id, reason='duplicate keys within batch')
+    assert error.stream_id == stream_id
+    assert error.reason == 'duplicate keys within batch'
+    assert 'duplicate keys within batch' in str(error)
+    assert 'order-1' in str(error)
+    assert isinstance(error, EventSourcingError)
+
+
+def test_duplicate_idempotency_key_error_conflict_with_existing() -> None:
+    stream_id = StreamId.for_aggregate('order', '1')
+    error = DuplicateIdempotencyKeyError(stream_id, reason='conflict with existing keys')
+    assert error.stream_id == stream_id
+    assert error.reason == 'conflict with existing keys'
+    assert 'conflict with existing keys' in str(error)
+    assert 'order-1' in str(error)
+    assert isinstance(error, EventSourcingError)
 
 
 def test_duplicate_aggregate_name_error_carries_attrs() -> None:

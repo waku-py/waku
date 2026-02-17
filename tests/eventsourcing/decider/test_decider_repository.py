@@ -136,3 +136,50 @@ async def test_load_succeeds_when_stream_within_limit(
 
     assert state == CounterState(value=6)
     assert version == 2
+
+
+async def test_save_with_idempotency_key_generates_indexed_keys(
+    repository: CounterRepository,
+    event_store: InMemoryEventStore,
+) -> None:
+    events = [Incremented(amount=3), Incremented(amount=7)]
+
+    await repository.save('c-idem-1', events, expected_version=-1, idempotency_key='cmd-456')
+
+    stream_id = StreamId.for_aggregate('Counter', 'c-idem-1')
+    stored = await event_store.read_stream(stream_id)
+    assert [e.idempotency_key for e in stored] == ['cmd-456:0', 'cmd-456:1']
+
+
+async def test_save_with_same_idempotency_key_is_idempotent(
+    repository: CounterRepository,
+    event_store: InMemoryEventStore,
+) -> None:
+    events = [Incremented(amount=5), Incremented(amount=10)]
+    first_version = await repository.save('c-idem-2', events, expected_version=-1, idempotency_key='cmd-789')
+
+    retry_version = await repository.save('c-idem-2', events, expected_version=-1, idempotency_key='cmd-789')
+
+    assert retry_version == first_version
+    stream_id = StreamId.for_aggregate('Counter', 'c-idem-2')
+    stored = await event_store.read_stream(stream_id)
+    assert len(stored) == 2
+    state, _ = await repository.load('c-idem-2')
+    assert state == CounterState(value=15)
+
+
+async def test_save_without_idempotency_key_generates_unique_uuid_keys(
+    repository: CounterRepository,
+    event_store: InMemoryEventStore,
+) -> None:
+    events = [Incremented(amount=1), Incremented(amount=2)]
+
+    await repository.save('c-idem-3', events, expected_version=-1)
+
+    stream_id = StreamId.for_aggregate('Counter', 'c-idem-3')
+    stored = await event_store.read_stream(stream_id)
+    keys = [e.idempotency_key for e in stored]
+    assert keys[0] != keys[1]
+    for key in keys:
+        assert len(key) == 36
+        assert key.count('-') == 4

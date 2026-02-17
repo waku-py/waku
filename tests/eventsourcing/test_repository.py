@@ -19,9 +19,6 @@ class LimitedBankAccountRepository(EventSourcedRepository[BankAccount]):
     max_stream_length = 3
 
 
-# --- Fixtures ---
-
-
 @pytest.fixture
 def store() -> InMemoryEventStore:
     registry = EventTypeRegistry()
@@ -38,9 +35,6 @@ def repository(store: InMemoryEventStore) -> BankAccountRepository:
 @pytest.fixture
 def limited_repository(store: InMemoryEventStore) -> LimitedBankAccountRepository:
     return LimitedBankAccountRepository(store)
-
-
-# --- Tests ---
 
 
 async def test_save_new_aggregate_persists_events_and_returns_version(
@@ -205,3 +199,60 @@ async def test_load_with_no_max_stream_length_loads_any_size(
 
     assert loaded.name == 'Carol'
     assert loaded.balance == 200
+
+
+async def test_save_with_idempotency_key_generates_indexed_keys(
+    store: InMemoryEventStore,
+    repository: BankAccountRepository,
+) -> None:
+    account = BankAccount()
+    account.open('Alice')
+    account.deposit(100)
+
+    await repository.save('acc-idem-1', account, idempotency_key='cmd-123')
+
+    stream_id = StreamId.for_aggregate('BankAccount', 'acc-idem-1')
+    stored = await store.read_stream(stream_id)
+    assert [e.idempotency_key for e in stored] == ['cmd-123:0', 'cmd-123:1']
+
+
+async def test_save_with_same_idempotency_key_is_idempotent(
+    store: InMemoryEventStore,
+    repository: BankAccountRepository,
+) -> None:
+    account = BankAccount()
+    account.open('Bob')
+    account.deposit(200)
+    first_version, _ = await repository.save('acc-idem-2', account, idempotency_key='cmd-456')
+
+    retry_account = BankAccount()
+    retry_account.open('Bob')
+    retry_account.deposit(200)
+    second_version, _ = await repository.save('acc-idem-2', retry_account, idempotency_key='cmd-456')
+
+    assert second_version == first_version
+    stream_id = StreamId.for_aggregate('BankAccount', 'acc-idem-2')
+    stored = await store.read_stream(stream_id)
+    assert len(stored) == 2
+    loaded = await repository.load('acc-idem-2')
+    assert loaded.name == 'Bob'
+    assert loaded.balance == 200
+
+
+async def test_save_without_idempotency_key_generates_unique_uuid_keys(
+    store: InMemoryEventStore,
+    repository: BankAccountRepository,
+) -> None:
+    account = BankAccount()
+    account.open('Carol')
+    account.deposit(50)
+
+    await repository.save('acc-idem-3', account)
+
+    stream_id = StreamId.for_aggregate('BankAccount', 'acc-idem-3')
+    stored = await store.read_stream(stream_id)
+    keys = [e.idempotency_key for e in stored]
+    assert keys[0] != keys[1]
+    for key in keys:
+        assert len(key) == 36
+        assert key.count('-') == 4

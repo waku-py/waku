@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from typing import Any
-from unittest.mock import AsyncMock
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from typing_extensions import override
+
+if TYPE_CHECKING:
+    from unittest.mock import AsyncMock
+
+    from pytest_mock import MockerFixture
 
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.decider.repository import SnapshotDeciderRepository
@@ -37,8 +41,8 @@ def event_store() -> InMemoryEventStore:
 
 
 @pytest.fixture
-def snapshot_store() -> AsyncMock:
-    mock = AsyncMock(spec=ISnapshotStore)
+def snapshot_store(mocker: MockerFixture) -> AsyncMock:
+    mock: AsyncMock = mocker.AsyncMock(spec=ISnapshotStore)
     mock.load.return_value = None
     return mock
 
@@ -166,9 +170,6 @@ async def test_load_with_mismatched_snapshot_type_raises(
         await repository.load('c-1')
 
 
-# --- Snapshot schema migration tests ---
-
-
 class AddDefaultValueMigration(ISnapshotMigration):
     from_version = 1
     to_version = 2
@@ -179,11 +180,12 @@ class AddDefaultValueMigration(ISnapshotMigration):
 
 
 async def test_load_with_old_schema_version_applies_migration(
+    mocker: MockerFixture,
     decider: CounterDecider,
     event_store: InMemoryEventStore,
     state_serializer: JsonSnapshotStateSerializer,
 ) -> None:
-    snapshot_store = AsyncMock(spec=ISnapshotStore)
+    snapshot_store = mocker.AsyncMock(spec=ISnapshotStore)
     snapshot_store.load.return_value = None
     strategy = EventCountStrategy(threshold=100)
     registry = SnapshotConfigRegistry({
@@ -218,11 +220,12 @@ async def test_load_with_old_schema_version_applies_migration(
 
 
 async def test_load_with_old_schema_version_no_migration_replays_from_events(
+    mocker: MockerFixture,
     decider: CounterDecider,
     event_store: InMemoryEventStore,
     state_serializer: JsonSnapshotStateSerializer,
 ) -> None:
-    snapshot_store = AsyncMock(spec=ISnapshotStore)
+    snapshot_store = mocker.AsyncMock(spec=ISnapshotStore)
     snapshot_store.load.return_value = None
     strategy = EventCountStrategy(threshold=100)
     registry = SnapshotConfigRegistry({
