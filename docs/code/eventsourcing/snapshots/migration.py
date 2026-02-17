@@ -23,9 +23,6 @@ class RenameOwnerToName(ISnapshotMigration):
 
 
 class BankAccountSnapshotRepository(SnapshotEventSourcedRepository[BankAccount]):
-    snapshot_schema_version = 3
-    snapshot_migrations = (AddEmailField(), RenameOwnerToName())
-
     def _snapshot_state(self, aggregate: BankAccount) -> object:
         return {'name': aggregate.owner, 'email': '', 'balance': aggregate.balance}
 

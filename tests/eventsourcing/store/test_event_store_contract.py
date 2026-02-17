@@ -376,6 +376,7 @@ async def test_append_with_same_idempotency_keys_is_idempotent(
     assert second_version == first_version
     events = await store.read_stream(stream_id)
     assert len(events) == 2
+    assert [e.idempotency_key for e in events] == ['key-1', 'key-2']
 
 
 async def test_idempotent_append_succeeds_despite_stale_expected_version(

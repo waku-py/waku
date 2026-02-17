@@ -78,7 +78,7 @@ graph TD
 
 ## Module Wiring
 
-Pass `snapshot_strategy` to `bind_aggregate()` or `bind_decider()`:
+Pass `snapshot=SnapshotOptions(...)` to `bind_aggregate()` or `bind_decider()`:
 
 === "OOP Aggregate"
 
@@ -92,8 +92,8 @@ Pass `snapshot_strategy` to `bind_aggregate()` or `bind_decider()`:
     --8<-- "docs/code/eventsourcing/snapshots/decider_modules.py"
     ```
 
-The extension automatically registers the strategy in the DI container when `snapshot_strategy`
-is provided.
+The extension automatically registers the strategy in the DI container when `snapshot` is
+provided.
 
 !!! warning
     Snapshot support requires `ISnapshotStore` and `ISnapshotStateSerializer` to be registered
@@ -132,15 +132,24 @@ versioning** and a **migration chain** that transforms old snapshots to the curr
 
 ### Declaring Schema Versions
 
-Set `snapshot_schema_version` on your repository to track the current state schema:
+Set `schema_version` in the `SnapshotOptions` passed to `bind_aggregate()` or `bind_decider()`
+to track the current state schema:
 
 ```python
-class BankAccountSnapshotRepository(SnapshotEventSourcedRepository[BankAccount]):
-    snapshot_schema_version = 2  # bump when state structure changes
+from waku.eventsourcing import EventSourcingExtension, SnapshotOptions
+
+EventSourcingExtension().bind_aggregate(
+    repository=BankAccountSnapshotRepository,
+    event_types=[AccountOpened, MoneyDeposited, MoneyWithdrawn],
+    snapshot=SnapshotOptions(
+        strategy=EventCountStrategy(threshold=50),
+        schema_version=2,  # bump when state structure changes
+    ),
+)
 ```
 
 All new snapshots are saved with this version. On load, the repository checks whether the
-stored snapshot's `schema_version` matches `snapshot_schema_version`.
+stored snapshot's `schema_version` matches the configured `schema_version` in `SnapshotOptions`.
 
 ### Writing Migrations
 
@@ -153,10 +162,26 @@ Implement `ISnapshotMigration` for each schema version transition:
 Each migration specifies `from_version` and `to_version` and transforms the state dictionary.
 The `SnapshotMigrationChain` applies them in sequence.
 
+Pass migrations alongside the schema version in `SnapshotOptions`:
+
+```python
+from waku.eventsourcing import EventSourcingExtension, SnapshotOptions
+
+EventSourcingExtension().bind_aggregate(
+    repository=BankAccountSnapshotRepository,
+    event_types=[AccountOpened, MoneyDeposited, MoneyWithdrawn],
+    snapshot=SnapshotOptions(
+        strategy=EventCountStrategy(threshold=50),
+        schema_version=3,
+        migrations=[AddEmailField(), RenameOwnerToName()],
+    ),
+)
+```
+
 ### Migration Chain Validation
 
-`SnapshotMigrationChain` validates migrations at construction time (during repository
-initialization). It rejects:
+`SnapshotMigrationChain` validates migrations at construction time (during module
+registration). It rejects:
 
 - `from_version` less than 1
 - `to_version` not greater than `from_version`
@@ -167,7 +192,7 @@ Validation failures raise `SnapshotMigrationChainError`.
 
 ### Graceful Degradation
 
-When a stored snapshot has a different `schema_version` than the repository expects:
+When a stored snapshot has a different `schema_version` than the configured value:
 
 ```mermaid
 graph TD
