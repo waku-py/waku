@@ -9,7 +9,12 @@ import anyio
 
 from waku.eventsourcing.contracts.event import EventEnvelope, IMetadataEnricher, StoredEvent
 from waku.eventsourcing.contracts.stream import StreamPosition
-from waku.eventsourcing.exceptions import DuplicateIdempotencyKeyError, PartialDuplicateAppendError, StreamNotFoundError
+from waku.eventsourcing.exceptions import (
+    DuplicateIdempotencyKeyError,
+    EventSourcingError,
+    PartialDuplicateAppendError,
+    StreamNotFoundError,
+)
 from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.store._shared import enrich_metadata
@@ -17,7 +22,7 @@ from waku.eventsourcing.store._version_check import check_expected_version
 from waku.eventsourcing.store.interfaces import IEventStore
 
 if TYPE_CHECKING:
-    from waku.eventsourcing.contracts.stream import AnyVersion, Exact, NoStream, StreamExists, StreamId
+    from waku.eventsourcing.contracts.stream import ExpectedVersion, StreamId
 
 __all__ = ['InMemoryEventStore']
 
@@ -90,7 +95,7 @@ class InMemoryEventStore(IEventStore):
         /,
         events: Sequence[EventEnvelope],
         *,
-        expected_version: Exact | NoStream | StreamExists | AnyVersion,
+        expected_version: ExpectedVersion,
     ) -> int:
         async with self._lock:
             key = str(stream_id)
@@ -152,7 +157,7 @@ class InMemoryEventStore(IEventStore):
         keys = [e.idempotency_key for e in events]
         unique_keys = set(keys)
         if len(unique_keys) != len(keys):
-            raise DuplicateIdempotencyKeyError(stream_id)
+            raise DuplicateIdempotencyKeyError(stream_id, reason='duplicate keys within batch')
 
         existing = self._idempotency_keys.get(str(stream_id), set())
         found = unique_keys & existing
@@ -161,6 +166,9 @@ class InMemoryEventStore(IEventStore):
             return None
 
         if found == unique_keys:
+            if str(stream_id) not in self._streams:  # pragma: no cover
+                msg = f'Idempotency keys found but stream {stream_id} does not exist'
+                raise EventSourcingError(msg)
             return current_version
 
         raise PartialDuplicateAppendError(stream_id, len(found), len(keys))

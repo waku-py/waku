@@ -16,7 +16,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 
-__all__ = ['EventStoreTables', 'bind_event_store_tables']
+__all__ = ['IDEMPOTENCY_KEY_CONSTRAINT', 'EventStoreTables', 'bind_event_store_tables']
+
+IDEMPOTENCY_KEY_CONSTRAINT = 'uq_es_events_idempotency_key'
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +53,7 @@ es_events_table = Table(
     Column('schema_version', Integer, nullable=False, server_default='1'),
     Column('idempotency_key', Text, nullable=False),
     UniqueConstraint('stream_id', 'position', name='uq_es_events_stream_id_position'),
-    UniqueConstraint('stream_id', 'idempotency_key', name='uq_es_events_idempotency_key'),
+    UniqueConstraint('stream_id', 'idempotency_key', name=IDEMPOTENCY_KEY_CONSTRAINT),
     Index('ix_es_events_global_position', 'global_position'),
     Index('ix_es_events_event_type', 'event_type'),
 )

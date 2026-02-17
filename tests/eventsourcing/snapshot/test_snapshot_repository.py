@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from typing import Any
-from unittest.mock import AsyncMock
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from typing_extensions import override
+
+if TYPE_CHECKING:
+    from unittest.mock import AsyncMock
+
+    from pytest_mock import MockerFixture
 
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import AggregateNotFoundError, SnapshotTypeMismatchError
@@ -42,8 +46,8 @@ def event_store() -> InMemoryEventStore:
 
 
 @pytest.fixture
-def snapshot_store() -> AsyncMock:
-    mock = AsyncMock(spec=ISnapshotStore)
+def snapshot_store(mocker: MockerFixture) -> AsyncMock:
+    mock: AsyncMock = mocker.AsyncMock(spec=ISnapshotStore)
     mock.load.return_value = None
     return mock
 
@@ -207,10 +211,11 @@ class RenamedBankAccountRepo(SnapshotEventSourcedRepository[BankAccount]):
 
 
 async def test_snapshot_state_type_matches_aggregate_name(
+    mocker: MockerFixture,
     event_store: InMemoryEventStore,
     state_serializer: JsonSnapshotStateSerializer,
 ) -> None:
-    snapshot_store = AsyncMock(spec=ISnapshotStore)
+    snapshot_store = mocker.AsyncMock(spec=ISnapshotStore)
     config_registry = SnapshotConfigRegistry({
         'Account': SnapshotConfig(strategy=EventCountStrategy(threshold=3)),
     })
@@ -235,10 +240,11 @@ async def test_snapshot_state_type_matches_aggregate_name(
 
 
 async def test_snapshot_save_writes_aggregate_name_as_state_type(
+    mocker: MockerFixture,
     event_store: InMemoryEventStore,
     state_serializer: JsonSnapshotStateSerializer,
 ) -> None:
-    snapshot_store = AsyncMock(spec=ISnapshotStore)
+    snapshot_store = mocker.AsyncMock(spec=ISnapshotStore)
     snapshot_store.load.return_value = None
     config_registry = SnapshotConfigRegistry({
         'Account': SnapshotConfig(strategy=EventCountStrategy(threshold=3)),
@@ -256,9 +262,6 @@ async def test_snapshot_save_writes_aggregate_name_as_state_type(
     assert saved_snapshot.state_type == 'Account'
 
 
-# --- Snapshot schema migration tests ---
-
-
 class AddBalanceFieldMigration(ISnapshotMigration):
     from_version = 1
     to_version = 2
@@ -269,10 +272,11 @@ class AddBalanceFieldMigration(ISnapshotMigration):
 
 
 async def test_load_with_matching_schema_version_uses_snapshot(
+    mocker: MockerFixture,
     event_store: InMemoryEventStore,
     state_serializer: JsonSnapshotStateSerializer,
 ) -> None:
-    snapshot_store = AsyncMock(spec=ISnapshotStore)
+    snapshot_store = mocker.AsyncMock(spec=ISnapshotStore)
     config_registry = SnapshotConfigRegistry({
         'BankAccount': SnapshotConfig(strategy=EventCountStrategy(threshold=100)),
     })
@@ -298,10 +302,11 @@ async def test_load_with_matching_schema_version_uses_snapshot(
 
 
 async def test_load_with_old_schema_version_applies_migration(
+    mocker: MockerFixture,
     event_store: InMemoryEventStore,
     state_serializer: JsonSnapshotStateSerializer,
 ) -> None:
-    snapshot_store = AsyncMock(spec=ISnapshotStore)
+    snapshot_store = mocker.AsyncMock(spec=ISnapshotStore)
     config_registry = SnapshotConfigRegistry({
         'BankAccount': SnapshotConfig(
             strategy=EventCountStrategy(threshold=100),
@@ -331,10 +336,11 @@ async def test_load_with_old_schema_version_applies_migration(
 
 
 async def test_load_with_old_schema_version_no_migration_replays_from_events(
+    mocker: MockerFixture,
     event_store: InMemoryEventStore,
     state_serializer: JsonSnapshotStateSerializer,
 ) -> None:
-    snapshot_store = AsyncMock(spec=ISnapshotStore)
+    snapshot_store = mocker.AsyncMock(spec=ISnapshotStore)
     config_registry = SnapshotConfigRegistry({
         'BankAccount': SnapshotConfig(
             strategy=EventCountStrategy(threshold=100),
@@ -364,10 +370,11 @@ async def test_load_with_old_schema_version_no_migration_replays_from_events(
 
 
 async def test_save_writes_current_schema_version(
+    mocker: MockerFixture,
     event_store: InMemoryEventStore,
     state_serializer: JsonSnapshotStateSerializer,
 ) -> None:
-    snapshot_store = AsyncMock(spec=ISnapshotStore)
+    snapshot_store = mocker.AsyncMock(spec=ISnapshotStore)
     snapshot_store.load.return_value = None
     config_registry = SnapshotConfigRegistry({
         'BankAccount': SnapshotConfig(

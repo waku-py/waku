@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
-from unittest.mock import patch
 
 import pytest
 from typing_extensions import override
@@ -17,6 +16,8 @@ from tests.eventsourcing.projection.helpers import RecordingProjection, StopProj
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from pytest_mock import MockerFixture
 
     from waku.eventsourcing.contracts.event import StoredEvent
 
@@ -78,7 +79,7 @@ async def test_run_once_returns_zero_when_caught_up() -> None:
     assert processed == 0
 
 
-async def test_retry_policy_recovers_after_transient_failure() -> None:
+async def test_retry_policy_recovers_after_transient_failure(mocker: MockerFixture) -> None:
     registry = make_registry()
     store = InMemoryEventStore(registry)
     checkpoint_store = InMemoryCheckpointStore()
@@ -101,8 +102,8 @@ async def test_retry_policy_recovers_after_transient_failure() -> None:
 
     await seed_events(store, count=3)
 
-    with patch('waku.eventsourcing.projection.processor.anyio.sleep', return_value=None):
-        processed = await processor.run_once(projection, store, checkpoint_store)
+    mocker.patch('waku.eventsourcing.projection.processor.anyio.sleep', return_value=None)
+    processed = await processor.run_once(projection, store, checkpoint_store)
 
     assert processed == 0
 
@@ -112,7 +113,7 @@ async def test_retry_policy_recovers_after_transient_failure() -> None:
     assert processed == 3
 
 
-async def test_retry_policy_raises_after_max_attempts() -> None:
+async def test_retry_policy_raises_after_max_attempts(mocker: MockerFixture) -> None:
     registry = make_registry()
     store = InMemoryEventStore(registry)
     checkpoint_store = InMemoryCheckpointStore()
@@ -122,10 +123,10 @@ async def test_retry_policy_raises_after_max_attempts() -> None:
 
     await seed_events(store, count=3)
 
-    with patch('waku.eventsourcing.projection.processor.anyio.sleep', return_value=None):
-        await processor.run_once(projection, store, checkpoint_store)  # attempt 1
-        with pytest.raises(RetryExhaustedError, match='exhausted 2 retry attempts'):
-            await processor.run_once(projection, store, checkpoint_store)  # attempt 2 -> raises
+    mocker.patch('waku.eventsourcing.projection.processor.anyio.sleep', return_value=None)
+    await processor.run_once(projection, store, checkpoint_store)  # attempt 1
+    with pytest.raises(RetryExhaustedError, match='exhausted 2 retry attempts'):
+        await processor.run_once(projection, store, checkpoint_store)  # attempt 2 -> raises
 
 
 async def test_skip_policy_advances_checkpoint_on_failure() -> None:

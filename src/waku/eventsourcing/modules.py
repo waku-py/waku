@@ -11,7 +11,12 @@ from waku.eventsourcing._generics import resolve_generic_args
 from waku.eventsourcing.contracts.aggregate import IDecider
 from waku.eventsourcing.contracts.event import IMetadataEnricher
 from waku.eventsourcing.decider.repository import DeciderRepository
-from waku.eventsourcing.exceptions import DuplicateAggregateNameError, RegistryFrozenError, UpcasterChainError
+from waku.eventsourcing.exceptions import (
+    DuplicateAggregateNameError,
+    RegistryFrozenError,
+    SnapshotMigrationChainError,
+    UpcasterChainError,
+)
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore, IProjection
 from waku.eventsourcing.serialization.interfaces import IEventSerializer, ISnapshotStateSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
@@ -301,10 +306,12 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
         configs: dict[str, SnapshotConfig] = {}
         for _module_type, ext in extensions:
             for aggregate_name, options in ext.snapshot_bindings():
+                migration_chain = SnapshotMigrationChain(options.migrations)
+                _validate_snapshot_migration_target(aggregate_name, options.schema_version, migration_chain)
                 configs[aggregate_name] = SnapshotConfig(
                     strategy=options.strategy,
                     schema_version=options.schema_version,
-                    migration_chain=SnapshotMigrationChain(options.migrations),
+                    migration_chain=migration_chain,
                 )
         return SnapshotConfigRegistry(configs)
 
@@ -349,3 +356,36 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
                     f'must be < event version {version}'
                 )
                 raise UpcasterChainError(msg)
+
+
+def _validate_snapshot_migration_target(
+    aggregate_name: str,
+    schema_version: int,
+    chain: SnapshotMigrationChain,
+) -> None:
+    if not chain.migrations:
+        if schema_version != 1:
+            msg = (
+                f'Snapshot config for aggregate {aggregate_name!r}: '
+                f'schema_version is {schema_version} but no migrations are provided. '
+                f'Either set schema_version=1 or provide migrations.'
+            )
+            raise SnapshotMigrationChainError(msg)
+        return
+
+    first_from_version = chain.migrations[0].from_version
+    if first_from_version != 1:
+        msg = (
+            f'Snapshot config for aggregate {aggregate_name!r}: '
+            f'migration chain starts at version {first_from_version} but must start at version 1.'
+        )
+        raise SnapshotMigrationChainError(msg)
+
+    final_to_version = chain.migrations[-1].to_version
+    if final_to_version != schema_version:
+        msg = (
+            f'Snapshot config for aggregate {aggregate_name!r}: '
+            f'migration chain reaches version {final_to_version} but schema_version is {schema_version}. '
+            f'The final migration to_version must equal schema_version.'
+        )
+        raise SnapshotMigrationChainError(msg)

@@ -125,3 +125,17 @@ def test_chain_rejects_gap_in_migration_sequence() -> None:
 
     with pytest.raises(SnapshotMigrationChainError, match='Gap in snapshot migration chain'):
         SnapshotMigrationChain([V1ToV2(), V3ToV4()])
+
+
+def test_migrations_property_returns_empty_tuple_for_empty_chain() -> None:
+    chain = SnapshotMigrationChain([])
+
+    assert chain.migrations == ()
+
+
+def test_migrations_property_returns_sorted_migrations() -> None:
+    rename = RenameNameToOwnerMigration()
+    add_balance = AddBalanceFieldMigration()
+    chain = SnapshotMigrationChain([rename, add_balance])
+
+    assert chain.migrations == (add_balance, rename)

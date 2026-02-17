@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Sequence  # noqa: TC003  # Dishka needs runtime access
 from datetime import UTC, datetime
@@ -9,6 +10,7 @@ from sqlalchemy import (  # Dishka needs runtime access
     func as sa_func,
     select,
 )
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002  # Dishka needs runtime access
 
@@ -27,7 +29,11 @@ from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa:
 from waku.eventsourcing.store._shared import enrich_metadata
 from waku.eventsourcing.store._version_check import check_expected_version
 from waku.eventsourcing.store.interfaces import IEventStore
-from waku.eventsourcing.store.sqlalchemy.tables import EventStoreTables  # noqa: TC001  # Dishka needs runtime access
+from waku.eventsourcing.store.sqlalchemy._serialization import row_to_stored_event, serialize_metadata
+from waku.eventsourcing.store.sqlalchemy.tables import (  # Dishka needs runtime access
+    IDEMPOTENCY_KEY_CONSTRAINT,
+    EventStoreTables,
+)
 from waku.eventsourcing.upcasting.chain import UpcasterChain  # noqa: TC001  # Dishka needs runtime access
 
 if TYPE_CHECKING:
@@ -38,6 +44,8 @@ __all__ = [
     'SqlAlchemyEventStore',
     'make_sqlalchemy_event_store',
 ]
+
+logger = logging.getLogger(__name__)
 
 
 class SqlAlchemyEventStoreFactory(Protocol):
@@ -112,7 +120,12 @@ class SqlAlchemyEventStore(IEventStore):
         if not rows:
             await self._ensure_stream_exists(stream_id)
 
-        return [self._row_to_stored_event(row) for row in rows]
+        return [
+            row_to_stored_event(
+                row, registry=self._registry, upcaster_chain=self._upcaster_chain, serializer=self._serializer
+            )
+            for row in rows
+        ]
 
     async def _read_stream_end(self, stream_id: StreamId, key: str) -> list[StoredEvent]:
         query = (
@@ -128,7 +141,11 @@ class SqlAlchemyEventStore(IEventStore):
             await self._ensure_stream_exists(stream_id)
             return []
 
-        return [self._row_to_stored_event(row)]
+        return [
+            row_to_stored_event(
+                row, registry=self._registry, upcaster_chain=self._upcaster_chain, serializer=self._serializer
+            )
+        ]
 
     async def _ensure_stream_exists(self, stream_id: StreamId) -> None:
         if not await self.stream_exists(stream_id):
@@ -150,7 +167,12 @@ class SqlAlchemyEventStore(IEventStore):
 
         result = await self._session.execute(query)
         rows = result.fetchall()
-        return [self._row_to_stored_event(row) for row in rows]
+        return [
+            row_to_stored_event(
+                row, registry=self._registry, upcaster_chain=self._upcaster_chain, serializer=self._serializer
+            )
+            for row in rows
+        ]
 
     async def stream_exists(self, stream_id: StreamId, /) -> bool:
         key = str(stream_id)
@@ -173,17 +195,32 @@ class SqlAlchemyEventStore(IEventStore):
         if dedup_version is not None:
             return dedup_version
 
-        current_version = await self._resolve_stream_state(stream_id, expected_version)
+        current_version = await self._resolve_current_version(stream_id, expected_version)
         new_version = current_version + len(events)
 
-        await self._update_stream_version(stream_id, current_version, new_version)
-        stored_events = await self._insert_events(stream_id, events, start_position=current_version + 1)
-
         try:
-            await self._session.flush()
+            async with self._session.begin_nested():
+                await self._ensure_stream_row(stream_id)
+                await self._update_stream_version(stream_id, current_version, new_version)
+                stored_events = await self._insert_events(stream_id, events, start_position=current_version + 1)
         except IntegrityError as exc:
-            if 'uq_es_events_idempotency_key' in str(exc):
-                raise DuplicateIdempotencyKeyError(stream_id) from exc
+            if IDEMPOTENCY_KEY_CONSTRAINT in str(exc):
+                logger.warning(
+                    'Idempotency race condition on stream %s: duplicate key caught by DB constraint',
+                    stream_id,
+                )
+                dedup_version = await self._check_idempotency(stream_id, events)
+                if dedup_version is not None:
+                    return dedup_version
+                logger.exception(  # pragma: no cover
+                    'Idempotency re-check returned no match after IntegrityError on stream %s — '
+                    'this should not happen under normal conditions',
+                    stream_id,
+                )
+                raise DuplicateIdempotencyKeyError(
+                    stream_id,
+                    reason='conflict with existing keys',
+                ) from exc  # pragma: no cover
             raise
 
         for projection in self._projections:
@@ -199,7 +236,7 @@ class SqlAlchemyEventStore(IEventStore):
         keys = [e.idempotency_key for e in events]
         unique_keys = set(keys)
         if len(unique_keys) != len(keys):
-            raise DuplicateIdempotencyKeyError(stream_id)
+            raise DuplicateIdempotencyKeyError(stream_id, reason='duplicate keys within batch')
 
         key = str(stream_id)
         query = select(self._events.c.idempotency_key).where(
@@ -214,7 +251,7 @@ class SqlAlchemyEventStore(IEventStore):
 
         if existing_keys == unique_keys:
             stream_row = await self._get_stream(key)
-            if stream_row is None:
+            if stream_row is None:  # pragma: no cover
                 msg = f'Idempotency keys found but stream {stream_id} does not exist'
                 raise EventSourcingError(msg)
             return int(stream_row.version)
@@ -232,28 +269,17 @@ class SqlAlchemyEventStore(IEventStore):
         check_expected_version(stream_id, expected_version, current_version, exists=stream_row is not None)
         return current_version
 
-    async def _resolve_stream_state(
-        self,
-        stream_id: StreamId,
-        expected_version: ExpectedVersion,
-    ) -> int:
+    async def _ensure_stream_row(self, stream_id: StreamId) -> None:
         key = str(stream_id)
-        stream_row = await self._get_stream(key)
-        current_version = stream_row.version if stream_row is not None else -1
-        exists = stream_row is not None
-
-        check_expected_version(stream_id, expected_version, current_version, exists=exists)
-
-        if not exists:
-            await self._session.execute(
-                self._streams.insert().values(
-                    stream_id=key,
-                    stream_type=stream_id.stream_type,
-                    version=-1,
-                )
+        await self._session.execute(
+            pg_insert(self._streams)
+            .values(
+                stream_id=key,
+                stream_type=stream_id.stream_type,
+                version=-1,
             )
-
-        return current_version
+            .on_conflict_do_nothing(index_elements=['stream_id'])
+        )
 
     async def _update_stream_version(
         self,
@@ -301,7 +327,7 @@ class SqlAlchemyEventStore(IEventStore):
                 'event_type': event_type,
                 'position': position,
                 'data': self._serializer.serialize(envelope.domain_event),
-                'metadata': self._serialize_metadata(metadata),
+                'metadata': serialize_metadata(metadata),
                 'timestamp': now,
                 'schema_version': self._registry.get_version(
                     type(envelope.domain_event)  # pyrefly: ignore[bad-argument-type]
@@ -336,44 +362,6 @@ class SqlAlchemyEventStore(IEventStore):
         query = select(self._streams).where(self._streams.c.stream_id == stream_id)
         result = await self._session.execute(query)
         return result.one_or_none()
-
-    def _row_to_stored_event(self, row: Any) -> StoredEvent:
-        metadata = self._deserialize_metadata(row.metadata)
-        schema_version = row.schema_version
-        data = row.data
-
-        canonical_type = self._registry.get_name(self._registry.resolve(row.event_type))
-        data = self._upcaster_chain.upcast(canonical_type, data, schema_version)
-
-        domain_event = self._serializer.deserialize(data, row.event_type)
-        return StoredEvent(
-            event_id=row.event_id,
-            stream_id=StreamId.from_value(row.stream_id),
-            event_type=row.event_type,
-            position=row.position,
-            global_position=row.global_position,
-            timestamp=row.timestamp,
-            data=domain_event,
-            metadata=metadata,
-            idempotency_key=row.idempotency_key,
-            schema_version=schema_version,
-        )
-
-    @staticmethod
-    def _serialize_metadata(metadata: EventMetadata) -> dict[str, Any]:
-        return {
-            'correlation_id': metadata.correlation_id,
-            'causation_id': metadata.causation_id,
-            'extra': metadata.extra,
-        }
-
-    @staticmethod
-    def _deserialize_metadata(data: dict[str, Any]) -> EventMetadata:
-        return EventMetadata(
-            correlation_id=data.get('correlation_id'),
-            causation_id=data.get('causation_id'),
-            extra=data.get('extra', {}),
-        )
 
 
 def make_sqlalchemy_event_store(tables: EventStoreTables) -> SqlAlchemyEventStoreFactory:

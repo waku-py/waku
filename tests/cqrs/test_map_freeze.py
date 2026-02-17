@@ -61,9 +61,6 @@ def _bind_behavior(m: PipelineBehaviorMap) -> None:
     m.bind(DummyRequest, [DummyBehavior])  # ty: ignore[invalid-argument-type]
 
 
-# -- RequestMap --
-
-
 def test_request_map_bind_after_freeze_raises() -> None:
     m = RequestMap()
     m.freeze()
@@ -96,9 +93,6 @@ def test_request_map_is_frozen_reflects_state() -> None:
     assert m.is_frozen is True
 
 
-# -- EventMap --
-
-
 def test_event_map_bind_after_freeze_raises() -> None:
     m = EventMap()
     m.freeze()
@@ -129,9 +123,6 @@ def test_event_map_is_frozen_reflects_state() -> None:
     assert m.is_frozen is False
     m.freeze()
     assert m.is_frozen is True
-
-
-# -- PipelineBehaviorMap --
 
 
 def test_pipeline_map_bind_after_freeze_raises() -> None:
