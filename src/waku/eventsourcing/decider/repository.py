@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 import typing
 import uuid
-from typing import ClassVar, Final, Generic
+from typing import TYPE_CHECKING, ClassVar, Final, Generic
 
 from waku.eventsourcing._generics import resolve_generic_args
 from waku.eventsourcing.contracts.aggregate import (  # Dishka needs runtime access
@@ -14,7 +14,12 @@ from waku.eventsourcing.contracts.aggregate import (  # Dishka needs runtime acc
 )
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
-from waku.eventsourcing.exceptions import AggregateNotFoundError, SnapshotTypeMismatchError, StreamNotFoundError
+from waku.eventsourcing.exceptions import (
+    AggregateNotFoundError,
+    SnapshotTypeMismatchError,
+    StreamNotFoundError,
+    StreamTooLargeError,
+)
 from waku.eventsourcing.serialization.interfaces import (
     ISnapshotStateSerializer,  # noqa: TC001  # Dishka needs runtime access
 )
@@ -23,7 +28,16 @@ from waku.eventsourcing.snapshot.interfaces import (  # Dishka needs runtime acc
     ISnapshotStrategy,
     Snapshot,
 )
+from waku.eventsourcing.snapshot.migration import (
+    _EMPTY_CHAIN,
+    ISnapshotMigration,
+    SnapshotMigrationChain,
+    migrate_snapshot_or_discard,
+)
 from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Dishka needs runtime access
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 __all__ = [
     'DeciderRepository',
@@ -35,6 +49,7 @@ _STATE_SUFFIX: Final = 'State'
 
 class DeciderRepository(abc.ABC, Generic[StateT, CommandT, EventT]):
     aggregate_name: ClassVar[str]
+    max_stream_length: ClassVar[int | None] = None
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
@@ -64,13 +79,16 @@ class DeciderRepository(abc.ABC, Generic[StateT, CommandT, EventT]):
 
     async def load(self, aggregate_id: str) -> tuple[StateT, int]:
         stream_id = self._stream_id(aggregate_id)
+        count = self.max_stream_length + 1 if self.max_stream_length is not None else None
         try:
-            stored_events = await self._event_store.read_stream(stream_id)
+            stored_events = await self._event_store.read_stream(stream_id, count=count)
         except StreamNotFoundError:
             raise AggregateNotFoundError(
                 aggregate_type=self.aggregate_name,
                 aggregate_id=aggregate_id,
             ) from None
+        if self.max_stream_length is not None and len(stored_events) > self.max_stream_length:
+            raise StreamTooLargeError(stream_id, self.max_stream_length)
         state = self._decider.initial_state()
         for stored in stored_events:
             state = self._decider.evolve(state, stored.data)  # type: ignore[arg-type]
@@ -104,6 +122,9 @@ class DeciderRepository(abc.ABC, Generic[StateT, CommandT, EventT]):
 
 
 class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc.ABC):
+    snapshot_schema_version: ClassVar[int] = 1
+    snapshot_migrations: ClassVar[Sequence[ISnapshotMigration]] = ()
+
     def __init__(
         self,
         decider: IDecider[StateT, CommandT, EventT],
@@ -118,6 +139,9 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
         self._state_serializer = state_serializer
         self._last_snapshot_versions: dict[str, int] = {}
         self._state_type: type[StateT] = type(self._decider.initial_state())
+        self._migration_chain = (
+            SnapshotMigrationChain(self.snapshot_migrations) if self.snapshot_migrations else _EMPTY_CHAIN
+        )
 
     async def load(self, aggregate_id: str) -> tuple[StateT, int]:
         stream_id = self._stream_id(aggregate_id)
@@ -126,6 +150,18 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
         if snapshot is not None:
             if snapshot.state_type != self._state_type.__name__:
                 raise SnapshotTypeMismatchError(stream_id, self._state_type.__name__, snapshot.state_type)
+
+            if snapshot.schema_version != self.snapshot_schema_version:
+                snapshot = migrate_snapshot_or_discard(
+                    self._migration_chain,
+                    snapshot,
+                    self.snapshot_schema_version,
+                    stream_id,
+                )
+                if snapshot is None:
+                    self._last_snapshot_versions[aggregate_id] = -1
+                    return await super().load(aggregate_id)
+
             self._last_snapshot_versions[aggregate_id] = snapshot.version
             state = self._state_serializer.deserialize(snapshot.state, self._state_type)
             try:
@@ -171,6 +207,7 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
                     state=state_data,
                     version=new_version,
                     state_type=self._state_type.__name__,
+                    schema_version=self.snapshot_schema_version,
                 )
                 await self._snapshot_store.save(new_snapshot)
                 self._last_snapshot_versions[aggregate_id] = new_version

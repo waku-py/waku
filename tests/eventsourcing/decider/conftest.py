@@ -13,6 +13,11 @@ class CounterRepository(DeciderRepository[CounterState, Increment, Incremented])
     aggregate_name = 'Counter'
 
 
+class LimitedCounterRepository(DeciderRepository[CounterState, Increment, Incremented]):
+    aggregate_name = 'Counter'
+    max_stream_length = 3
+
+
 @pytest.fixture
 def decider() -> CounterDecider:
     return CounterDecider()
@@ -28,3 +33,8 @@ def event_store() -> InMemoryEventStore:
 @pytest.fixture
 def repository(decider: CounterDecider, event_store: InMemoryEventStore) -> CounterRepository:
     return CounterRepository(decider=decider, event_store=event_store)
+
+
+@pytest.fixture
+def limited_repository(decider: CounterDecider, event_store: InMemoryEventStore) -> LimitedCounterRepository:
+    return LimitedCounterRepository(decider=decider, event_store=event_store)

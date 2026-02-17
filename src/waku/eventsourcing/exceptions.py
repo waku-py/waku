@@ -20,8 +20,10 @@ __all__ = [
     'ProjectionStoppedError',
     'RegistryFrozenError',
     'RetryExhaustedError',
+    'SnapshotMigrationChainError',
     'SnapshotTypeMismatchError',
     'StreamNotFoundError',
+    'StreamTooLargeError',
     'UnknownEventTypeError',
     'UpcasterChainError',
 ]
@@ -105,6 +107,16 @@ class SnapshotTypeMismatchError(EventSourcingError):
         )
 
 
+class StreamTooLargeError(EventSourcingError):
+    def __init__(self, stream_id: StreamId, max_length: int) -> None:
+        self.stream_id = stream_id
+        self.max_length = max_length
+        super().__init__(
+            f'Stream {stream_id} exceeds maximum length of {max_length} events. '
+            f'Configure snapshots to reduce stream replay size.'
+        )
+
+
 class RegistryFrozenError(EventSourcingError):
     def __init__(self) -> None:
         super().__init__('Cannot register event types after registry is frozen')
@@ -144,6 +156,10 @@ class PartialDuplicateAppendError(EventSourcingError):
             f'Partial duplicate append on stream {stream_id}: '
             f'{existing_count} of {total_count} idempotency keys already exist'
         )
+
+
+class SnapshotMigrationChainError(EventSourcingError):
+    pass
 
 
 class UpcasterChainError(EventSourcingError):

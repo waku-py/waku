@@ -39,6 +39,7 @@ class SqlAlchemySnapshotStore(ISnapshotStore):
             state=row.state,
             version=row.version,
             state_type=row.state_type,
+            schema_version=row.schema_version,
         )
 
     async def save(self, snapshot: Snapshot, /) -> None:
@@ -47,6 +48,7 @@ class SqlAlchemySnapshotStore(ISnapshotStore):
             state=snapshot.state,
             version=snapshot.version,
             state_type=snapshot.state_type,
+            schema_version=snapshot.schema_version,
         )
         stmt = stmt.on_conflict_do_update(
             index_elements=['stream_id'],
@@ -54,6 +56,7 @@ class SqlAlchemySnapshotStore(ISnapshotStore):
                 'state': stmt.excluded.state,
                 'version': stmt.excluded.version,
                 'state_type': stmt.excluded.state_type,
+                'schema_version': stmt.excluded.schema_version,
                 'updated_at': sa_func.now(),
             },
         )
