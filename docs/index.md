@@ -35,9 +35,13 @@ hide:
 
 As your project scales, problems creep in: services import each other freely,
 swapping a database means editing dozens of files, and nobody can tell which module
-depends on what. waku gives you modules with explicit boundaries, type-safe DI
-powered by [Dishka](https://github.com/reagento/dishka/), and integrated CQRS
-and event sourcing — so your codebase stays manageable as it scales.
+depends on what. Python has no built-in way to enforce component boundaries —
+so what starts as clean code quietly becomes a tangle of implicit dependencies
+that discipline alone can't prevent.
+
+waku gives you modules with explicit boundaries, type-safe DI powered by
+[Dishka](https://github.com/reagento/dishka/), and integrated CQRS and event
+sourcing — so your codebase stays manageable as it scales.
 
 ## Installation
 
@@ -53,32 +57,48 @@ and event sourcing — so your codebase stays manageable as it scales.
     pip install waku
     ```
 
-## What you get
+## Structure that scales
 
 <div class="grid cards feature-cards" markdown>
 
--   :material-view-module: **Module Boundaries**
+-   :material-view-module: **Package by Component**
 
     ---
 
-    Stop fighting circular imports. Group code into [modules](fundamentals/modules.md) with
-    explicit imports and exports — keep your dependency graph visible.
+    Each [module](fundamentals/modules.md) is a self-contained unit with its own providers.
+    Explicit imports and exports control what crosses boundaries —
+    validated at startup, not discovered in production.
 
--   :material-needle: **Dependency Injection**
+-   :material-needle: **Dependency Inversion**
 
     ---
 
-    Built on [Dishka](https://github.com/reagento/dishka/) with
-    [singleton, scoped, and transient](fundamentals/providers.md) providers.
-    Swap implementations without touching business logic.
+    Define interfaces in your application core, bind adapters in infrastructure
+    modules. Swap a database, a cache, or an API client by changing one
+    [provider](fundamentals/providers.md) — powered by [Dishka](https://github.com/reagento/dishka/).
+
+-   :material-connection: **One Core, Any Entrypoint**
+
+    ---
+
+    Build your module tree once with `WakuFactory`. Plug it into
+    [FastAPI, Litestar, FastStream, Aiogram](fundamentals/integrations.md),
+    CLI, or workers — same logic everywhere.
+
+</div>
+
+## Built-in capabilities
+
+<div class="grid cards feature-cards" markdown>
 
 -   :material-swap-horizontal: **CQRS & Mediator**
 
     ---
 
-    Separate reads from writes. [Commands, queries, and events](features/cqrs/index.md)
-    with pipeline behaviors for cross-cutting concerns — all in-process,
-    no message broker required.
+    DI alone doesn't decouple components — you need events.
+    The [mediator](features/cqrs/index.md) dispatches commands, queries, and events
+    so components never reference each other directly.
+    Pipeline behaviors handle cross-cutting concerns.
 
 -   :material-history: **Event Sourcing**
 
@@ -96,14 +116,6 @@ and event sourcing — so your codebase stays manageable as it scales.
     [extensions](advanced/extensions/index.md). Add validation, logging, or custom
     behaviors — decoupled from your business logic.
 
--   :material-connection: **Framework Integrations**
-
-    ---
-
-    Works with FastAPI, Litestar, FastStream, Aiogram, and
-    [more](fundamentals/integrations.md). waku provides structure —
-    your framework provides the entrypoints.
-
 </div>
 
 ## How it works
@@ -112,7 +124,37 @@ Group related providers into **modules** with explicit imports and exports.
 `WakuFactory` wires the module tree into a DI container. Plug it into your
 framework — FastAPI, Litestar, or anything else — and you're done.
 
-## Quick Example
+??? tip "Recommended project structure"
+
+    Following [Explicit Architecture](https://herbertograca.com/2017/11/16/explicit-architecture-01-ddd-hexagonal-onion-clean-cqrs-how-i-put-it-all-together/)
+    and its [code reflection](https://herbertograca.com/2019/06/05/reflecting-architecture-and-domain-in-code/),
+    only UI and shared infrastructure live at the top level — each feature
+    component is a vertical slice with its own domain, application, and
+    infrastructure layers, wired together by a waku module:
+
+    ```text
+    your_app/
+    ├── core/
+    │   ├── components/
+    │   │   ├── users/              # feature component
+    │   │   │   ├── domain/         # entities, value objects, events
+    │   │   │   ├── application/    # use cases, handlers, ports
+    │   │   │   ├── infra/          # repositories, adapters
+    │   │   │   └── module.py       # waku module
+    │   │   └── orders/
+    │   │       ├── domain/
+    │   │       ├── application/
+    │   │       ├── infra/
+    │   │       └── module.py
+    │   ├── ports/                  # shared system ports
+    │   └── shared_kernel/          # cross-component contracts
+    ├── infra/                      # cross-cutting infrastructure
+    │   └── module.py
+    ├── ui/                         # API routes, CLI handlers
+    └── app.py                      # composition root
+    ```
+
+## Quick example
 
 === "Basic"
 

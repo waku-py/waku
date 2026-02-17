@@ -288,8 +288,10 @@ Available languages: ['en', 'es', 'fr']
 5. Use the [Mediator (CQRS)](features/cqrs/index.md) for command/query separation
 6. Build event-driven systems with [Event Sourcing](features/eventsourcing/index.md)
 
-!!! tip "Further reading"
-    [The Software Architecture Chronicles](https://herbertograca.com/2017/07/03/the-software-architecture-chronicles/)
-    by Herberto Graça [distills](https://herbertograca.com/2017/11/16/explicit-architecture-01-ddd-hexagonal-onion-clean-cqrs-how-i-put-it-all-together/)
-    all popular software architectural styles into a single approach — a great resource for understanding
-    the principles behind waku.
+## Further reading
+
+- [**The Software Architecture Chronicles**](https://herbertograca.com/2017/07/03/the-software-architecture-chronicles/)
+  by Herberto Graça
+  [distills](https://herbertograca.com/2017/11/16/explicit-architecture-01-ddd-hexagonal-onion-clean-cqrs-how-i-put-it-all-together/)
+  all popular software architectural styles into a single approach — a great resource
+  for understanding the principles behind waku.
