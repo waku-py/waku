@@ -20,6 +20,7 @@ __all__ = [
     'ProjectionStoppedError',
     'RegistryFrozenError',
     'RetryExhaustedError',
+    'SnapshotConfigNotFoundError',
     'SnapshotMigrationChainError',
     'SnapshotTypeMismatchError',
     'StreamNotFoundError',
@@ -155,6 +156,15 @@ class PartialDuplicateAppendError(EventSourcingError):
         super().__init__(
             f'Partial duplicate append on stream {stream_id}: '
             f'{existing_count} of {total_count} idempotency keys already exist'
+        )
+
+
+class SnapshotConfigNotFoundError(EventSourcingError):
+    def __init__(self, aggregate_name: str) -> None:
+        self.aggregate_name = aggregate_name
+        super().__init__(
+            f'No snapshot config found for aggregate {aggregate_name!r}. '
+            f'Provide snapshot=SnapshotOptions(...) via bind_aggregate() or bind_decider().'
         )
 
 

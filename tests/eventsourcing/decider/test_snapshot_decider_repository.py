@@ -12,7 +12,8 @@ from waku.eventsourcing.exceptions import SnapshotTypeMismatchError
 from waku.eventsourcing.serialization.json import JsonSnapshotStateSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, Snapshot
-from waku.eventsourcing.snapshot.migration import ISnapshotMigration
+from waku.eventsourcing.snapshot.migration import ISnapshotMigration, SnapshotMigrationChain
+from waku.eventsourcing.snapshot.registry import SnapshotConfig, SnapshotConfigRegistry
 from waku.eventsourcing.snapshot.strategy import EventCountStrategy
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
@@ -55,11 +56,12 @@ def repository(
     state_serializer: JsonSnapshotStateSerializer,
 ) -> CounterSnapshotRepository:
     strategy = EventCountStrategy(threshold=3)
+    registry = SnapshotConfigRegistry({'Counter': SnapshotConfig(strategy=strategy)})
     return CounterSnapshotRepository(
         decider=decider,
         event_store=event_store,
         snapshot_store=snapshot_store,
-        snapshot_strategy=strategy,
+        snapshot_config_registry=registry,
         state_serializer=state_serializer,
     )
 
@@ -176,18 +178,6 @@ class AddDefaultValueMigration(ISnapshotMigration):
         return {**state, 'value': state.get('value', 0)}
 
 
-class MigratingCounterSnapshotRepository(SnapshotDeciderRepository[CounterState, Increment, Incremented]):
-    aggregate_name = 'Counter'
-    snapshot_schema_version = 2
-    snapshot_migrations = (AddDefaultValueMigration(),)
-
-
-class NoMigrationV3CounterRepository(SnapshotDeciderRepository[CounterState, Increment, Incremented]):
-    aggregate_name = 'Counter'
-    snapshot_schema_version = 3
-    snapshot_migrations = (AddDefaultValueMigration(),)
-
-
 async def test_load_with_old_schema_version_applies_migration(
     decider: CounterDecider,
     event_store: InMemoryEventStore,
@@ -196,11 +186,18 @@ async def test_load_with_old_schema_version_applies_migration(
     snapshot_store = AsyncMock(spec=ISnapshotStore)
     snapshot_store.load.return_value = None
     strategy = EventCountStrategy(threshold=100)
-    repo = MigratingCounterSnapshotRepository(
+    registry = SnapshotConfigRegistry({
+        'Counter': SnapshotConfig(
+            strategy=strategy,
+            schema_version=2,
+            migration_chain=SnapshotMigrationChain([AddDefaultValueMigration()]),
+        ),
+    })
+    repo = CounterSnapshotRepository(
         decider=decider,
         event_store=event_store,
         snapshot_store=snapshot_store,
-        snapshot_strategy=strategy,
+        snapshot_config_registry=registry,
         state_serializer=state_serializer,
     )
 
@@ -228,11 +225,18 @@ async def test_load_with_old_schema_version_no_migration_replays_from_events(
     snapshot_store = AsyncMock(spec=ISnapshotStore)
     snapshot_store.load.return_value = None
     strategy = EventCountStrategy(threshold=100)
-    repo = NoMigrationV3CounterRepository(
+    registry = SnapshotConfigRegistry({
+        'Counter': SnapshotConfig(
+            strategy=strategy,
+            schema_version=3,
+            migration_chain=SnapshotMigrationChain([AddDefaultValueMigration()]),
+        ),
+    })
+    repo = CounterSnapshotRepository(
         decider=decider,
         event_store=event_store,
         snapshot_store=snapshot_store,
-        snapshot_strategy=strategy,
+        snapshot_config_registry=registry,
         state_serializer=state_serializer,
     )
 

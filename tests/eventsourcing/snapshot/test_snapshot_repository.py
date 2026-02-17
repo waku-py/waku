@@ -11,7 +11,8 @@ from waku.eventsourcing.exceptions import AggregateNotFoundError, SnapshotTypeMi
 from waku.eventsourcing.serialization.json import JsonSnapshotStateSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, Snapshot
-from waku.eventsourcing.snapshot.migration import ISnapshotMigration
+from waku.eventsourcing.snapshot.migration import ISnapshotMigration, SnapshotMigrationChain
+from waku.eventsourcing.snapshot.registry import SnapshotConfig, SnapshotConfigRegistry
 from waku.eventsourcing.snapshot.repository import SnapshotEventSourcedRepository
 from waku.eventsourcing.snapshot.strategy import EventCountStrategy
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
@@ -58,8 +59,10 @@ def repository(
     snapshot_store: AsyncMock,
     state_serializer: JsonSnapshotStateSerializer,
 ) -> BankAccountRepository:
-    strategy = EventCountStrategy(threshold=3)
-    return BankAccountRepository(event_store, snapshot_store, strategy, state_serializer)
+    config_registry = SnapshotConfigRegistry({
+        'BankAccount': SnapshotConfig(strategy=EventCountStrategy(threshold=3)),
+    })
+    return BankAccountRepository(event_store, snapshot_store, config_registry, state_serializer)
 
 
 async def test_load_without_snapshot_full_replay(
@@ -208,8 +211,10 @@ async def test_snapshot_state_type_matches_aggregate_name(
     state_serializer: JsonSnapshotStateSerializer,
 ) -> None:
     snapshot_store = AsyncMock(spec=ISnapshotStore)
-    strategy = EventCountStrategy(threshold=3)
-    repo = RenamedBankAccountRepo(event_store, snapshot_store, strategy, state_serializer)
+    config_registry = SnapshotConfigRegistry({
+        'Account': SnapshotConfig(strategy=EventCountStrategy(threshold=3)),
+    })
+    repo = RenamedBankAccountRepo(event_store, snapshot_store, config_registry, state_serializer)
 
     snapshot_store.load.return_value = Snapshot(
         stream_id=StreamId.for_aggregate('Account', 'acc-1'),
@@ -235,8 +240,10 @@ async def test_snapshot_save_writes_aggregate_name_as_state_type(
 ) -> None:
     snapshot_store = AsyncMock(spec=ISnapshotStore)
     snapshot_store.load.return_value = None
-    strategy = EventCountStrategy(threshold=3)
-    repo = RenamedBankAccountRepo(event_store, snapshot_store, strategy, state_serializer)
+    config_registry = SnapshotConfigRegistry({
+        'Account': SnapshotConfig(strategy=EventCountStrategy(threshold=3)),
+    })
+    repo = RenamedBankAccountRepo(event_store, snapshot_store, config_registry, state_serializer)
 
     account = BankAccount()
     account.open('Alice')
@@ -261,45 +268,15 @@ class AddBalanceFieldMigration(ISnapshotMigration):
         return {**state, 'balance': 0}
 
 
-class MigratingBankAccountRepository(SnapshotEventSourcedRepository[BankAccount]):
-    snapshot_schema_version = 2
-    snapshot_migrations = (AddBalanceFieldMigration(),)
-
-    @override
-    def _snapshot_state(self, aggregate: BankAccount) -> object:
-        return AccountState(name=aggregate.name, balance=aggregate.balance)
-
-    @override
-    def _restore_from_snapshot(self, snapshot: Snapshot) -> BankAccount:
-        aggregate = BankAccount()
-        aggregate.name = snapshot.state['name']
-        aggregate.balance = snapshot.state['balance']
-        return aggregate
-
-
-class NoMigrationV3Repository(SnapshotEventSourcedRepository[BankAccount]):
-    snapshot_schema_version = 3
-    snapshot_migrations = (AddBalanceFieldMigration(),)
-
-    @override
-    def _snapshot_state(self, aggregate: BankAccount) -> object:
-        return AccountState(name=aggregate.name, balance=aggregate.balance)
-
-    @override
-    def _restore_from_snapshot(self, snapshot: Snapshot) -> BankAccount:
-        aggregate = BankAccount()
-        aggregate.name = snapshot.state['name']
-        aggregate.balance = snapshot.state['balance']
-        return aggregate
-
-
 async def test_load_with_matching_schema_version_uses_snapshot(
     event_store: InMemoryEventStore,
     state_serializer: JsonSnapshotStateSerializer,
 ) -> None:
     snapshot_store = AsyncMock(spec=ISnapshotStore)
-    strategy = EventCountStrategy(threshold=100)
-    repo = BankAccountRepository(event_store, snapshot_store, strategy, state_serializer)
+    config_registry = SnapshotConfigRegistry({
+        'BankAccount': SnapshotConfig(strategy=EventCountStrategy(threshold=100)),
+    })
+    repo = BankAccountRepository(event_store, snapshot_store, config_registry, state_serializer)
 
     account = BankAccount()
     account.open('Alice')
@@ -325,8 +302,14 @@ async def test_load_with_old_schema_version_applies_migration(
     state_serializer: JsonSnapshotStateSerializer,
 ) -> None:
     snapshot_store = AsyncMock(spec=ISnapshotStore)
-    strategy = EventCountStrategy(threshold=100)
-    repo = MigratingBankAccountRepository(event_store, snapshot_store, strategy, state_serializer)
+    config_registry = SnapshotConfigRegistry({
+        'BankAccount': SnapshotConfig(
+            strategy=EventCountStrategy(threshold=100),
+            schema_version=2,
+            migration_chain=SnapshotMigrationChain([AddBalanceFieldMigration()]),
+        ),
+    })
+    repo = BankAccountRepository(event_store, snapshot_store, config_registry, state_serializer)
 
     account = BankAccount()
     account.open('Alice')
@@ -352,8 +335,14 @@ async def test_load_with_old_schema_version_no_migration_replays_from_events(
     state_serializer: JsonSnapshotStateSerializer,
 ) -> None:
     snapshot_store = AsyncMock(spec=ISnapshotStore)
-    strategy = EventCountStrategy(threshold=100)
-    repo = NoMigrationV3Repository(event_store, snapshot_store, strategy, state_serializer)
+    config_registry = SnapshotConfigRegistry({
+        'BankAccount': SnapshotConfig(
+            strategy=EventCountStrategy(threshold=100),
+            schema_version=3,
+            migration_chain=SnapshotMigrationChain([AddBalanceFieldMigration()]),
+        ),
+    })
+    repo = BankAccountRepository(event_store, snapshot_store, config_registry, state_serializer)
 
     account = BankAccount()
     account.open('Alice')
@@ -380,8 +369,14 @@ async def test_save_writes_current_schema_version(
 ) -> None:
     snapshot_store = AsyncMock(spec=ISnapshotStore)
     snapshot_store.load.return_value = None
-    strategy = EventCountStrategy(threshold=3)
-    repo = MigratingBankAccountRepository(event_store, snapshot_store, strategy, state_serializer)
+    config_registry = SnapshotConfigRegistry({
+        'BankAccount': SnapshotConfig(
+            strategy=EventCountStrategy(threshold=3),
+            schema_version=2,
+            migration_chain=SnapshotMigrationChain([AddBalanceFieldMigration()]),
+        ),
+    })
+    repo = BankAccountRepository(event_store, snapshot_store, config_registry, state_serializer)
 
     account = BankAccount()
     account.open('Alice')

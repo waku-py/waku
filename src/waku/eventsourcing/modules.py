@@ -15,7 +15,9 @@ from waku.eventsourcing.exceptions import DuplicateAggregateNameError, RegistryF
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore, IProjection
 from waku.eventsourcing.serialization.interfaces import IEventSerializer, ISnapshotStateSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
-from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, ISnapshotStrategy
+from waku.eventsourcing.snapshot.interfaces import ISnapshotStore
+from waku.eventsourcing.snapshot.migration import SnapshotMigrationChain
+from waku.eventsourcing.snapshot.registry import SnapshotConfig, SnapshotConfigRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.eventsourcing.upcasting.chain import UpcasterChain
@@ -27,6 +29,8 @@ if TYPE_CHECKING:
 
     from waku.cqrs.contracts.notification import INotification
     from waku.eventsourcing.repository import EventSourcedRepository
+    from waku.eventsourcing.snapshot.interfaces import ISnapshotStrategy
+    from waku.eventsourcing.snapshot.migration import ISnapshotMigration
     from waku.eventsourcing.upcasting.interfaces import IEventUpcaster
     from waku.modules import ModuleMetadata, ModuleType
 
@@ -37,6 +41,7 @@ __all__ = [
     'EventSourcingModule',
     'EventType',
     'EventTypeSpec',
+    'SnapshotOptions',
 ]
 
 
@@ -53,11 +58,18 @@ EventTypeSpec: TypeAlias = 'type[INotification] | EventType'
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class SnapshotOptions:
+    strategy: ISnapshotStrategy
+    schema_version: int = 1
+    migrations: Sequence[ISnapshotMigration] = ()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class AggregateBinding:
     repository: type[EventSourcedRepository[Any]]
     event_types: Sequence[EventTypeSpec] = ()
     projections: Sequence[type[IProjection]] = ()
-    snapshot_strategy: ISnapshotStrategy | None = None
+    snapshot: SnapshotOptions | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -66,7 +78,7 @@ class DeciderBinding:
     decider: type[IDecider[Any, Any, Any]]
     event_types: Sequence[EventTypeSpec] = ()
     projections: Sequence[type[IProjection]] = ()
-    snapshot_strategy: ISnapshotStrategy | None = None
+    snapshot: SnapshotOptions | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -158,14 +170,14 @@ class EventSourcingExtension(OnModuleConfigure):
         repository: type[EventSourcedRepository[Any]],
         event_types: Sequence[EventTypeSpec] = (),
         projections: Sequence[type[IProjection]] = (),
-        snapshot_strategy: ISnapshotStrategy | None = None,
+        snapshot: SnapshotOptions | None = None,
     ) -> Self:
         self._bindings.append(
             AggregateBinding(
                 repository=repository,
                 event_types=event_types,
                 projections=projections,
-                snapshot_strategy=snapshot_strategy,
+                snapshot=snapshot,
             )
         )
         self._registry.projection_types.extend(projections)
@@ -178,7 +190,7 @@ class EventSourcingExtension(OnModuleConfigure):
         decider: type[IDecider[Any, Any, Any]],
         event_types: Sequence[EventTypeSpec] = (),
         projections: Sequence[type[IProjection]] = (),
-        snapshot_strategy: ISnapshotStrategy | None = None,
+        snapshot: SnapshotOptions | None = None,
     ) -> Self:
         self._decider_bindings.append(
             DeciderBinding(
@@ -186,7 +198,7 @@ class EventSourcingExtension(OnModuleConfigure):
                 decider=decider,
                 event_types=event_types,
                 projections=projections,
-                snapshot_strategy=snapshot_strategy,
+                snapshot=snapshot,
             )
         )
         self._registry.projection_types.extend(projections)
@@ -207,20 +219,24 @@ class EventSourcingExtension(OnModuleConfigure):
         for binding in self._decider_bindings:
             yield binding.repository.aggregate_name, binding.repository
 
+    def snapshot_bindings(self) -> Iterator[tuple[str, SnapshotOptions]]:
+        for binding in self._bindings:
+            if binding.snapshot is not None:
+                yield binding.repository.aggregate_name, binding.snapshot
+        for binding in self._decider_bindings:
+            if binding.snapshot is not None:
+                yield binding.repository.aggregate_name, binding.snapshot
+
     def on_module_configure(self, metadata: ModuleMetadata) -> None:
         for binding in self._bindings:
             repo_type = binding.repository
             metadata.providers.append(scoped(WithParents[repo_type], repo_type))  # type: ignore[misc,valid-type]
-            if binding.snapshot_strategy is not None:
-                metadata.providers.append(object_(binding.snapshot_strategy, provided_type=ISnapshotStrategy))
 
         for binding in self._decider_bindings:
             repo_type = binding.repository
             metadata.providers.append(scoped(WithParents[repo_type], repo_type))  # type: ignore[misc,valid-type]
             decider_iface = self._resolve_decider_interface(repo_type)
             metadata.providers.append(scoped(decider_iface, binding.decider))
-            if binding.snapshot_strategy is not None:
-                metadata.providers.append(object_(binding.snapshot_strategy, provided_type=ISnapshotStrategy))
 
     @staticmethod
     def _resolve_decider_interface(repo_type: type[Any]) -> type[Any]:
@@ -265,6 +281,11 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
         registry.add_provider(owning_module, object_(event_type_registry))
         registry.add_provider(owning_module, object_(upcaster_chain))
 
+        snapshot_config_registry = self._build_snapshot_config_registry(
+            registry.find_extensions(EventSourcingExtension),
+        )
+        registry.add_provider(owning_module, object_(snapshot_config_registry))
+
         if self._has_serializer and len(event_type_registry) == 0:
             warnings.warn(
                 'A serializer is configured but no event types were registered via '
@@ -272,6 +293,20 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
                 UserWarning,
                 stacklevel=1,
             )
+
+    @staticmethod
+    def _build_snapshot_config_registry(
+        extensions: Iterator[tuple[ModuleType, EventSourcingExtension]],
+    ) -> SnapshotConfigRegistry:
+        configs: dict[str, SnapshotConfig] = {}
+        for _module_type, ext in extensions:
+            for aggregate_name, options in ext.snapshot_bindings():
+                configs[aggregate_name] = SnapshotConfig(
+                    strategy=options.strategy,
+                    schema_version=options.schema_version,
+                    migration_chain=SnapshotMigrationChain(options.migrations),
+                )
+        return SnapshotConfigRegistry(configs)
 
     @classmethod
     def _build_type_registry(cls, aggregated: EventSourcingRegistry) -> tuple[EventTypeRegistry, UpcasterChain]:

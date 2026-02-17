@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 import typing
 import uuid
-from typing import TYPE_CHECKING, ClassVar, Final, Generic
+from typing import ClassVar, Final, Generic
 
 from waku.eventsourcing._generics import resolve_generic_args
 from waku.eventsourcing.contracts.aggregate import (  # Dishka needs runtime access
@@ -25,19 +25,11 @@ from waku.eventsourcing.serialization.interfaces import (
 )
 from waku.eventsourcing.snapshot.interfaces import (  # Dishka needs runtime access
     ISnapshotStore,
-    ISnapshotStrategy,
     Snapshot,
 )
-from waku.eventsourcing.snapshot.migration import (
-    _EMPTY_CHAIN,
-    ISnapshotMigration,
-    SnapshotMigrationChain,
-    migrate_snapshot_or_discard,
-)
+from waku.eventsourcing.snapshot.migration import migrate_snapshot_or_discard
+from waku.eventsourcing.snapshot.registry import SnapshotConfigRegistry  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Dishka needs runtime access
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
 
 __all__ = [
     'DeciderRepository',
@@ -122,26 +114,23 @@ class DeciderRepository(abc.ABC, Generic[StateT, CommandT, EventT]):
 
 
 class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc.ABC):
-    snapshot_schema_version: ClassVar[int] = 1
-    snapshot_migrations: ClassVar[Sequence[ISnapshotMigration]] = ()
-
     def __init__(
         self,
         decider: IDecider[StateT, CommandT, EventT],
         event_store: IEventStore,
         snapshot_store: ISnapshotStore,
-        snapshot_strategy: ISnapshotStrategy,
+        snapshot_config_registry: SnapshotConfigRegistry,
         state_serializer: ISnapshotStateSerializer,
     ) -> None:
         super().__init__(decider, event_store)
         self._snapshot_store = snapshot_store
-        self._snapshot_strategy = snapshot_strategy
         self._state_serializer = state_serializer
         self._last_snapshot_versions: dict[str, int] = {}
         self._state_type: type[StateT] = type(self._decider.initial_state())
-        self._migration_chain = (
-            SnapshotMigrationChain(self.snapshot_migrations) if self.snapshot_migrations else _EMPTY_CHAIN
-        )
+        snapshot_config = snapshot_config_registry.get(self.aggregate_name)
+        self._snapshot_strategy = snapshot_config.strategy
+        self._snapshot_schema_version = snapshot_config.schema_version
+        self._migration_chain = snapshot_config.migration_chain
 
     async def load(self, aggregate_id: str) -> tuple[StateT, int]:
         stream_id = self._stream_id(aggregate_id)
@@ -151,11 +140,11 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
             if snapshot.state_type != self._state_type.__name__:
                 raise SnapshotTypeMismatchError(stream_id, self._state_type.__name__, snapshot.state_type)
 
-            if snapshot.schema_version != self.snapshot_schema_version:
+            if snapshot.schema_version != self._snapshot_schema_version:
                 snapshot = migrate_snapshot_or_discard(
                     self._migration_chain,
                     snapshot,
-                    self.snapshot_schema_version,
+                    self._snapshot_schema_version,
                     stream_id,
                 )
                 if snapshot is None:
@@ -207,7 +196,7 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
                     state=state_data,
                     version=new_version,
                     state_type=self._state_type.__name__,
-                    schema_version=self.snapshot_schema_version,
+                    schema_version=self._snapshot_schema_version,
                 )
                 await self._snapshot_store.save(new_snapshot)
                 self._last_snapshot_versions[aggregate_id] = new_version

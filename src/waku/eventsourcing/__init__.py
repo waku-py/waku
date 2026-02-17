@@ -26,6 +26,7 @@ from waku.eventsourcing.exceptions import (
     ProjectionStoppedError,
     RegistryFrozenError,
     RetryExhaustedError,
+    SnapshotConfigNotFoundError,
     SnapshotMigrationChainError,
     SnapshotTypeMismatchError,
     StreamNotFoundError,
@@ -40,6 +41,7 @@ from waku.eventsourcing.modules import (
     EventSourcingModule,
     EventType,
     EventTypeSpec,
+    SnapshotOptions,
 )
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.upcasting import (
@@ -86,8 +88,10 @@ __all__ = [
     'ProjectionStoppedError',
     'RegistryFrozenError',
     'RetryExhaustedError',
+    'SnapshotConfigNotFoundError',
     'SnapshotDeciderRepository',
     'SnapshotMigrationChainError',
+    'SnapshotOptions',
     'SnapshotTypeMismatchError',
     'StoredEvent',
     'StreamExists',

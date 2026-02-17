@@ -1,5 +1,5 @@
 from waku import module
-from waku.eventsourcing import EventSourcingExtension
+from waku.eventsourcing import EventSourcingExtension, SnapshotOptions
 from waku.eventsourcing.snapshot.strategy import EventCountStrategy
 
 from app.decider import BankAccountDecider
@@ -13,7 +13,7 @@ from app.repository import BankAccountSnapshotRepository
             repository=BankAccountSnapshotRepository,
             decider=BankAccountDecider,
             event_types=[AccountOpened, MoneyDeposited],
-            snapshot_strategy=EventCountStrategy(threshold=50),
+            snapshot=SnapshotOptions(strategy=EventCountStrategy(threshold=50)),
         ),
     ],
 )

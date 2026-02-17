@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from typing_extensions import override
@@ -10,11 +10,20 @@ from typing_extensions import override
 from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.event import EventMetadata, IMetadataEnricher
-from waku.eventsourcing.exceptions import DuplicateAggregateNameError, UpcasterChainError
-from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule, EventType
+from waku.eventsourcing.exceptions import DuplicateAggregateNameError, SnapshotConfigNotFoundError, UpcasterChainError
+from waku.eventsourcing.modules import (
+    EventSourcingConfig,
+    EventSourcingExtension,
+    EventSourcingModule,
+    EventType,
+    SnapshotOptions,
+)
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, IProjection
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
+from waku.eventsourcing.snapshot.migration import ISnapshotMigration, SnapshotMigrationChain
+from waku.eventsourcing.snapshot.registry import SnapshotConfig, SnapshotConfigRegistry
+from waku.eventsourcing.snapshot.strategy import EventCountStrategy
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.eventsourcing.upcasting import UpcasterChain, add_field, rename_field
@@ -497,3 +506,78 @@ async def test_different_aggregate_names_across_modules_passes() -> None:
 
     async with create_test_app(imports=[ModuleA, ModuleB]):
         pass
+
+
+async def test_snapshot_config_registry_resolvable_with_strategy() -> None:
+    es_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemRepository,
+        snapshot=SnapshotOptions(strategy=EventCountStrategy(threshold=50)),
+    )
+
+    @module(
+        imports=[EventSourcingModule.register()],
+        extensions=[es_ext],
+    )
+    class ItemModule:
+        pass
+
+    async with create_test_app(imports=[ItemModule]) as app, app.container() as container:
+        registry = await container.get(SnapshotConfigRegistry)
+        config = registry.get('Item')
+
+        assert isinstance(config, SnapshotConfig)
+        assert isinstance(config.strategy, EventCountStrategy)
+        assert config.schema_version == 1
+
+
+async def test_snapshot_config_registry_empty_when_no_strategy() -> None:
+    es_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemRepository,
+    )
+
+    @module(
+        imports=[EventSourcingModule.register()],
+        extensions=[es_ext],
+    )
+    class ItemModule:
+        pass
+
+    async with create_test_app(imports=[ItemModule]) as app, app.container() as container:
+        registry = await container.get(SnapshotConfigRegistry)
+
+        with pytest.raises(SnapshotConfigNotFoundError, match='Item'):
+            registry.get('Item')
+
+
+class _NoOpSnapshotMigration(ISnapshotMigration):
+    from_version = 1
+    to_version = 2
+
+    @override
+    def migrate(self, state: dict[str, Any], /) -> dict[str, Any]:
+        return state
+
+
+async def test_snapshot_config_registry_with_schema_version_and_migrations() -> None:
+    es_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemRepository,
+        snapshot=SnapshotOptions(
+            strategy=EventCountStrategy(threshold=50),
+            schema_version=2,
+            migrations=[_NoOpSnapshotMigration()],
+        ),
+    )
+
+    @module(
+        imports=[EventSourcingModule.register()],
+        extensions=[es_ext],
+    )
+    class ItemModule:
+        pass
+
+    async with create_test_app(imports=[ItemModule]) as app, app.container() as container:
+        registry = await container.get(SnapshotConfigRegistry)
+        config = registry.get('Item')
+
+        assert config.schema_version == 2
+        assert isinstance(config.migration_chain, SnapshotMigrationChain)
