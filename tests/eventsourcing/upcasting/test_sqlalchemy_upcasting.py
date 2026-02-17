@@ -51,7 +51,7 @@ async def test_upcasted_read(pg_session: AsyncSession, event_tables: EventStoreT
     stream_id = StreamId.for_aggregate('Order', '1')
     await v1_store.append_to_stream(
         stream_id,
-        [EventEnvelope(domain_event=OrderCreatedV1(name='Alice'))],
+        [EventEnvelope(domain_event=OrderCreatedV1(name='Alice'), idempotency_key='upcast-alice')],
         expected_version=NoStream(),
     )
 
@@ -95,7 +95,7 @@ async def test_schema_version_written_to_db(pg_session: AsyncSession, event_tabl
     stream_id = StreamId.for_aggregate('Order', '2')
     await store.append_to_stream(
         stream_id,
-        [EventEnvelope(domain_event=OrderCreatedV2(full_name='Bob'))],
+        [EventEnvelope(domain_event=OrderCreatedV2(full_name='Bob'), idempotency_key='upcast-bob')],
         expected_version=NoStream(),
     )
 
@@ -122,7 +122,7 @@ async def test_read_all_applies_upcasting(pg_session: AsyncSession, event_tables
     stream_id = StreamId.for_aggregate('Order', '3')
     await v1_store.append_to_stream(
         stream_id,
-        [EventEnvelope(domain_event=OrderCreatedV1(name='Charlie'))],
+        [EventEnvelope(domain_event=OrderCreatedV1(name='Charlie'), idempotency_key='upcast-charlie')],
         expected_version=NoStream(),
     )
 
@@ -167,7 +167,7 @@ async def test_alias_resolved_before_upcasting(pg_session: AsyncSession, event_t
     stream_id = StreamId.for_aggregate('Order', 'alias-1')
     await v1_store.append_to_stream(
         stream_id,
-        [EventEnvelope(domain_event=OrderCreatedV1(name='Diana'))],
+        [EventEnvelope(domain_event=OrderCreatedV1(name='Diana'), idempotency_key='upcast-diana')],
         expected_version=NoStream(),
     )
 

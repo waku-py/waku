@@ -68,8 +68,10 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
         self,
         aggregate_id: str,
         aggregate: AggregateT,
+        *,
+        idempotency_key: str | None = None,
     ) -> tuple[int, list[INotification]]:
-        new_version, events = await super().save(aggregate_id, aggregate)
+        new_version, events = await super().save(aggregate_id, aggregate, idempotency_key=idempotency_key)
 
         if events:
             stream_id = self._stream_id(aggregate_id)

@@ -9,11 +9,18 @@ from sqlalchemy import (  # Dishka needs runtime access
     func as sa_func,
     select,
 )
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002  # Dishka needs runtime access
 
 from waku.eventsourcing.contracts.event import EventMetadata, IMetadataEnricher, StoredEvent
 from waku.eventsourcing.contracts.stream import StreamId, StreamPosition
-from waku.eventsourcing.exceptions import ConcurrencyConflictError, StreamNotFoundError
+from waku.eventsourcing.exceptions import (
+    ConcurrencyConflictError,
+    DuplicateIdempotencyKeyError,
+    EventSourcingError,
+    PartialDuplicateAppendError,
+    StreamNotFoundError,
+)
 from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.serialization.interfaces import IEventSerializer  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa: TC001  # Dishka needs runtime access
@@ -162,18 +169,57 @@ class SqlAlchemyEventStore(IEventStore):
         if not events:
             return await self._resolve_current_version(stream_id, expected_version)
 
+        dedup_version = await self._check_idempotency(stream_id, events)
+        if dedup_version is not None:
+            return dedup_version
+
         current_version = await self._resolve_stream_state(stream_id, expected_version)
         new_version = current_version + len(events)
 
         await self._update_stream_version(stream_id, current_version, new_version)
         stored_events = await self._insert_events(stream_id, events, start_position=current_version + 1)
 
-        await self._session.flush()
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            if 'uq_es_events_idempotency_key' in str(exc):
+                raise DuplicateIdempotencyKeyError(stream_id) from exc
+            raise
 
         for projection in self._projections:
             await projection.project(stored_events)
 
         return new_version
+
+    async def _check_idempotency(
+        self,
+        stream_id: StreamId,
+        events: Sequence[EventEnvelope],
+    ) -> int | None:
+        keys = [e.idempotency_key for e in events]
+        unique_keys = set(keys)
+        if len(unique_keys) != len(keys):
+            raise DuplicateIdempotencyKeyError(stream_id)
+
+        key = str(stream_id)
+        query = select(self._events.c.idempotency_key).where(
+            self._events.c.stream_id == key,
+            self._events.c.idempotency_key.in_(keys),
+        )
+        result = await self._session.execute(query)
+        existing_keys = {row[0] for row in result.fetchall()}
+
+        if not existing_keys:
+            return None
+
+        if existing_keys == unique_keys:
+            stream_row = await self._get_stream(key)
+            if stream_row is None:
+                msg = f'Idempotency keys found but stream {stream_id} does not exist'
+                raise EventSourcingError(msg)
+            return int(stream_row.version)
+
+        raise PartialDuplicateAppendError(stream_id, len(existing_keys), len(keys))
 
     async def _resolve_current_version(
         self,
@@ -260,6 +306,7 @@ class SqlAlchemyEventStore(IEventStore):
                 'schema_version': self._registry.get_version(
                     type(envelope.domain_event)  # pyrefly: ignore[bad-argument-type]
                 ),
+                'idempotency_key': envelope.idempotency_key,
             })
             envelopes_data.append((event_id, event_type, now, envelope.domain_event, metadata))
             position += 1
@@ -279,6 +326,7 @@ class SqlAlchemyEventStore(IEventStore):
                 timestamp=envelopes_data[i][2],
                 data=envelopes_data[i][3],
                 metadata=envelopes_data[i][4],
+                idempotency_key=events[i].idempotency_key,
                 schema_version=rows[i]['schema_version'],
             )
             for i in range(len(events))
@@ -307,6 +355,7 @@ class SqlAlchemyEventStore(IEventStore):
             timestamp=row.timestamp,
             data=domain_event,
             metadata=metadata,
+            idempotency_key=row.idempotency_key,
             schema_version=schema_version,
         )
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from typing_extensions import override
@@ -93,6 +93,37 @@ class IncrementCounterVoidHandler(
         return Increment(amount=request.amount)
 
 
+@dataclass(frozen=True, kw_only=True)
+class IdempotentCreateCounterCommand(Request['CounterResponse']):
+    counter_id: str
+    amount: int = 1
+    idempotency_key: str = ''
+
+
+class IdempotentCreateCounterHandler(
+    DeciderCommandHandler[IdempotentCreateCounterCommand, CounterResponse, CounterState, Increment, Incremented],
+):
+    @override
+    def _aggregate_id(self, request: IdempotentCreateCounterCommand) -> str:
+        return request.counter_id
+
+    @override
+    def _to_command(self, request: IdempotentCreateCounterCommand) -> Increment:
+        return Increment(amount=request.amount)
+
+    @override
+    def _is_creation_command(self, request: IdempotentCreateCounterCommand) -> bool:
+        return True
+
+    @override
+    def _to_response(self, state: CounterState, version: int) -> CounterResponse:
+        return CounterResponse(value=state.value, version=version)
+
+    @override
+    def _idempotency_key(self, request: IdempotentCreateCounterCommand) -> str | None:
+        return request.idempotency_key or None
+
+
 # -- Fixtures -----------------------------------------------------------------
 
 
@@ -169,3 +200,33 @@ async def test_void_handler_returns_none(
     result = await handler.handle(IncrementCounterVoidCommand(counter_id='c-void', amount=2))  # type: ignore[func-returns-value]
 
     assert result is None
+
+
+async def test_default_idempotency_key_passes_none_to_repository(
+    repository: CounterRepository,
+    decider: CounterDecider,
+    publisher: AsyncMock,
+) -> None:
+    handler = CreateCounterHandler(repository=repository, decider=decider, publisher=publisher)
+
+    with patch.object(repository, 'save', wraps=repository.save) as save_spy:
+        await handler.handle(CreateCounterCommand(counter_id='c-1', amount=1))
+
+        save_spy.assert_awaited_once()
+        _, kwargs = save_spy.call_args
+        assert kwargs['idempotency_key'] is None
+
+
+async def test_idempotency_key_passed_to_repository_save(
+    repository: CounterRepository,
+    decider: CounterDecider,
+    publisher: AsyncMock,
+) -> None:
+    handler = IdempotentCreateCounterHandler(repository=repository, decider=decider, publisher=publisher)
+
+    with patch.object(repository, 'save', wraps=repository.save) as save_spy:
+        await handler.handle(IdempotentCreateCounterCommand(counter_id='c-key', amount=5, idempotency_key='key-abc'))
+
+        save_spy.assert_awaited_once()
+        _, kwargs = save_spy.call_args
+        assert kwargs['idempotency_key'] == 'key-abc'

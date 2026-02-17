@@ -21,7 +21,7 @@ async def test_in_memory_store_writes_schema_version() -> None:
     stream_id = StreamId.for_aggregate('Order', '1')
     await store.append_to_stream(
         stream_id,
-        [EventEnvelope(domain_event=OrderCreated(order_id='1'))],
+        [EventEnvelope(domain_event=OrderCreated(order_id='1'), idempotency_key='version-test')],
         expected_version=NoStream(),
     )
 
@@ -37,7 +37,7 @@ async def test_in_memory_store_default_version_is_one() -> None:
     stream_id = StreamId.for_aggregate('Order', '1')
     await store.append_to_stream(
         stream_id,
-        [EventEnvelope(domain_event=OrderCreated(order_id='1'))],
+        [EventEnvelope(domain_event=OrderCreated(order_id='1'), idempotency_key='version-test')],
         expected_version=NoStream(),
     )
 

@@ -5,8 +5,14 @@ from typing import TYPE_CHECKING
 import pytest
 from typing_extensions import override
 
+from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import AnyVersion, Exact, NoStream, StreamExists, StreamId, StreamPosition
-from waku.eventsourcing.exceptions import ConcurrencyConflictError, StreamNotFoundError
+from waku.eventsourcing.exceptions import (
+    ConcurrencyConflictError,
+    DuplicateIdempotencyKeyError,
+    PartialDuplicateAppendError,
+    StreamNotFoundError,
+)
 from waku.eventsourcing.projection.interfaces import IProjection
 
 from tests.eventsourcing.store.domain import ItemAdded, OrderCreated, make_envelope
@@ -353,3 +359,99 @@ async def test_projection_failure_propagates(store_factory: EventStoreFactory) -
             [make_envelope(OrderCreated(order_id='1'))],
             expected_version=NoStream(),
         )
+
+
+async def test_append_with_same_idempotency_keys_is_idempotent(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    envelopes = [
+        EventEnvelope(domain_event=OrderCreated(order_id='123'), idempotency_key='key-1'),
+        EventEnvelope(domain_event=ItemAdded(item_name='Widget'), idempotency_key='key-2'),
+    ]
+
+    first_version = await store.append_to_stream(stream_id, envelopes, expected_version=NoStream())
+    second_version = await store.append_to_stream(stream_id, envelopes, expected_version=Exact(version=first_version))
+
+    assert second_version == first_version
+    events = await store.read_stream(stream_id)
+    assert len(events) == 2
+
+
+async def test_idempotent_append_succeeds_despite_stale_expected_version(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    envelopes = [
+        EventEnvelope(domain_event=OrderCreated(order_id='123'), idempotency_key='key-1'),
+    ]
+
+    await store.append_to_stream(stream_id, envelopes, expected_version=NoStream())
+
+    version = await store.append_to_stream(stream_id, envelopes, expected_version=NoStream())
+
+    assert version == 0
+    events = await store.read_stream(stream_id)
+    assert len(events) == 1
+
+
+async def test_partial_duplicate_keys_raises_error(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    await store.append_to_stream(
+        stream_id,
+        [EventEnvelope(domain_event=OrderCreated(order_id='123'), idempotency_key='key-1')],
+        expected_version=NoStream(),
+    )
+
+    with pytest.raises(PartialDuplicateAppendError):
+        await store.append_to_stream(
+            stream_id,
+            [
+                EventEnvelope(domain_event=OrderCreated(order_id='123'), idempotency_key='key-1'),
+                EventEnvelope(domain_event=ItemAdded(item_name='Widget'), idempotency_key='key-new'),
+            ],
+            expected_version=Exact(version=0),
+        )
+
+
+async def test_duplicate_keys_within_batch_raises_error(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    with pytest.raises(DuplicateIdempotencyKeyError):
+        await store.append_to_stream(
+            stream_id,
+            [
+                EventEnvelope(domain_event=OrderCreated(order_id='123'), idempotency_key='same-key'),
+                EventEnvelope(domain_event=ItemAdded(item_name='Widget'), idempotency_key='same-key'),
+            ],
+            expected_version=NoStream(),
+        )
+
+
+async def test_same_idempotency_key_in_different_streams_is_allowed(
+    store: IEventStore,
+) -> None:
+    stream_a = StreamId.for_aggregate('Order', 'A')
+    stream_b = StreamId.for_aggregate('Order', 'B')
+    shared_key = 'shared-key'
+
+    version_a = await store.append_to_stream(
+        stream_a,
+        [EventEnvelope(domain_event=OrderCreated(order_id='A'), idempotency_key=shared_key)],
+        expected_version=NoStream(),
+    )
+    version_b = await store.append_to_stream(
+        stream_b,
+        [EventEnvelope(domain_event=OrderCreated(order_id='B'), idempotency_key=shared_key)],
+        expected_version=NoStream(),
+    )
+
+    assert version_a == 0
+    assert version_b == 0
+    events_a = await store.read_stream(stream_a)
+    events_b = await store.read_stream(stream_b)
+    assert len(events_a) == 1
+    assert len(events_b) == 1
