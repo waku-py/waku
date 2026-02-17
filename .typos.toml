@@ -1,6 +1,7 @@
 [files]
 extend-exclude = [
   "CHANGELOG.md",
+  "context7.json",
 ]
 
 [default.extend-words]
