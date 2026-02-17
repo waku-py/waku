@@ -51,17 +51,41 @@
 
 ## The Problem
 
-Python backends start clean and end up as tangles of circular imports, implicit dependencies, and modules that know too much about each other. Testing becomes painful, onboarding becomes slow, and refactoring becomes risky.
+Python has no built-in way to enforce component boundaries. Packages don't control visibility, imports aren't validated, and nothing stops module A from reaching into the internals of module B. As a project grows, what started as clean separation quietly becomes a web of implicit dependencies — where testing requires the whole system, onboarding means reading everything, and changing one module risks breaking three others.
 
 ## What waku gives you
 
-- 🧩 [**Module boundaries**](https://waku-py.github.io/waku/fundamentals/modules/): Group related code into modules with explicit imports and exports — keep your dependency graph visible.
-- 💉 [**Dependency injection**](https://waku-py.github.io/waku/fundamentals/providers/): Built on [Dishka](https://github.com/reagento/dishka/) — singleton, scoped, and transient providers with full type safety. Swap implementations without touching business logic.
-- 📨 [**CQRS & mediator**](https://waku-py.github.io/waku/features/cqrs/): Separate reads from writes. Commands, queries, and events with pipeline behaviors for cross-cutting concerns — all in-process, no message broker required.
-- 📜 [**Event sourcing**](https://waku-py.github.io/waku/features/eventsourcing/): Aggregates, projections, snapshots, upcasting, and the decider pattern with built-in SQLAlchemy adapters.
-- 🔌 [**Framework integrations**](https://waku-py.github.io/waku/fundamentals/integrations/): Works with FastAPI, Litestar, FastStream, Aiogram, and more. waku provides structure — your framework provides the entrypoints.
-- 🧪 [**Testing built in**](https://waku-py.github.io/waku/fundamentals/testing/): Override any provider in tests with `override()`, or spin up a minimal app with `create_test_app()`.
-- 🧰 [**Lifecycle & extensions**](https://waku-py.github.io/waku/advanced/extensions/): Hook into application startup, shutdown, and module initialization. Add validation, logging, or custom behaviors — decoupled from your business logic.
+### Structure
+
+- 🧩 [**Package by component**](https://waku-py.github.io/waku/fundamentals/modules/):
+  Each module is a self-contained unit with its own providers.
+  Explicit imports and exports control what crosses boundaries —
+  validated at startup, not discovered in production.
+- 💉 [**Dependency inversion**](https://waku-py.github.io/waku/fundamentals/providers/):
+  Define interfaces in your application core, bind adapters in infrastructure modules.
+  Swap a database, a cache, or an API client by changing one provider —
+  powered by [Dishka](https://github.com/reagento/dishka/).
+- 🔌 [**One core, any entrypoint**](https://waku-py.github.io/waku/fundamentals/integrations/):
+  Build your module tree once with `WakuFactory`.
+  Plug it into FastAPI, Litestar, FastStream, Aiogram, CLI, or workers —
+  same logic everywhere.
+
+### Capabilities
+
+- 📨 [**CQRS & mediator**](https://waku-py.github.io/waku/features/cqrs/):
+  DI alone doesn't decouple components — you need events.
+  The mediator dispatches commands, queries, and events so components
+  never reference each other directly. Pipeline behaviors handle cross-cutting concerns.
+- 📜 [**Event sourcing**](https://waku-py.github.io/waku/features/eventsourcing/):
+  Aggregates, projections, snapshots, upcasting, and the decider pattern
+  with built-in SQLAlchemy adapters.
+- 🧪 [**Testing**](https://waku-py.github.io/waku/fundamentals/testing/):
+  Override any provider in tests with `override()`,
+  or spin up a minimal app with `create_test_app()`.
+- 🧰 [**Lifecycle & extensions**](https://waku-py.github.io/waku/advanced/extensions/):
+  Hook into startup, shutdown, and module initialization.
+  Add validation, logging, or custom behaviors —
+  decoupled from your business logic.
 
 ## Quick Start
 
@@ -178,7 +202,7 @@ if __name__ == '__main__':
 
 ```
 
-### Next Steps
+### Next steps
 
 - Learn about [module imports and exports](https://waku-py.github.io/waku/fundamentals/modules/)
 - Try different [provider scopes](https://waku-py.github.io/waku/fundamentals/providers/)

@@ -51,13 +51,13 @@ dev = [
 ]
 docs = [
   "mkdocstrings[python]>=1.0.3",
-  "pymdown-extensions>=10.20.1",
+  "pymdown-extensions>=10.21",
   "zensical>=0.0.23",
 ]
 lint = [
   "deptry==0.24.0",
   "gitlint==0.19.1",
-  "prek==0.3.2",
+  "prek==0.3.3",
   "ruff==0.15.1",
 ]
 test = [
