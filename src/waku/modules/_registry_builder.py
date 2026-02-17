@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict, defaultdict
+from dataclasses import replace as _replace_dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final, TypeAlias
 from uuid import UUID
@@ -77,7 +78,8 @@ class ModuleRegistryBuilder:
             if imported_metadata.id not in visited:
                 self._collect_modules_recursive(imported, visited, post_order, adjacency)
 
-        post_order.append((type_, metadata))
+        # Isolate build-phase mutations (add_provider, is_global) from cached originals
+        post_order.append((type_, self._copy_metadata(metadata)))
         visited.add(metadata.id)
 
     def _execute_registration_hooks(
@@ -122,6 +124,16 @@ class ModuleRegistryBuilder:
         if module_type not in self._metadata_cache:
             self._metadata_cache[module_type] = self._compiler.extract_metadata(module_type)
         return self._metadata_cache[module_type]
+
+    @staticmethod
+    def _copy_metadata(metadata: ModuleMetadata) -> ModuleMetadata:
+        return _replace_dataclass(
+            metadata,
+            providers=list(metadata.providers),
+            imports=list(metadata.imports),
+            exports=list(metadata.exports),
+            extensions=list(metadata.extensions),
+        )
 
     def _build_registry(self, root_module: Module, adjacency: AdjacencyMatrix) -> ModuleRegistry:
         return ModuleRegistry(
