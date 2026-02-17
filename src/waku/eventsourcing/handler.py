@@ -38,7 +38,11 @@ class EventSourcedCommandHandler(
             aggregate = await self._repository.load(aggregate_id)
 
         await self._execute(request, aggregate)
-        _, events = await self._repository.save(aggregate_id, aggregate)
+        _, events = await self._repository.save(
+            aggregate_id,
+            aggregate,
+            idempotency_key=self._idempotency_key(request),
+        )
 
         for event in events:
             await self._publisher.publish(event)
@@ -53,6 +57,9 @@ class EventSourcedCommandHandler(
 
     def _is_creation_command(self, request: RequestT) -> bool:  # noqa: ARG002, PLR6301
         return False
+
+    def _idempotency_key(self, request: RequestT) -> str | None:  # noqa: ARG002, PLR6301
+        return None
 
     @abc.abstractmethod
     def _to_response(self, aggregate: AggregateT) -> ResponseT: ...

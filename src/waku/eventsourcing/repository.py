@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import uuid
 from typing import TYPE_CHECKING, ClassVar, Generic, TypeVar
 
 from waku.eventsourcing._generics import resolve_generic_args
@@ -61,13 +62,21 @@ class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
         self,
         aggregate_id: str,
         aggregate: AggregateT,
+        *,
+        idempotency_key: str | None = None,
     ) -> tuple[int, list[INotification]]:
         stream_id = self._stream_id(aggregate_id)
         events = aggregate.collect_events()
         if not events:
             return aggregate.version, []
 
-        envelopes = [EventEnvelope(domain_event=event) for event in events]
+        envelopes = [
+            EventEnvelope(
+                domain_event=event,
+                idempotency_key=f'{idempotency_key}:{i}' if idempotency_key else str(uuid.uuid4()),
+            )
+            for i, event in enumerate(events)
+        ]
         expected = Exact(version=aggregate.version) if aggregate.version >= 0 else NoStream()
         new_version = await self._event_store.append_to_stream(stream_id, envelopes, expected_version=expected)
         aggregate.mark_persisted(new_version)

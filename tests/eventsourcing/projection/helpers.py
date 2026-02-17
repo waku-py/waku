@@ -61,6 +61,6 @@ async def seed_events(store: InMemoryEventStore, count: int = 5) -> None:
     stream_id = StreamId(stream_type='test', stream_key='1')
     await store.append_to_stream(
         stream_id,
-        [EventEnvelope(domain_event=SampleEvent(value=i)) for i in range(count)],
+        [EventEnvelope(domain_event=SampleEvent(value=i), idempotency_key=f'seed-{i}') for i in range(count)],
         expected_version=NoStream(),
     )

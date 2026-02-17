@@ -37,7 +37,13 @@ class IMetadataEnricher(abc.ABC):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EventEnvelope:
     domain_event: INotification
+    idempotency_key: str
     metadata: EventMetadata = field(default_factory=EventMetadata)
+
+    def __post_init__(self) -> None:
+        if not self.idempotency_key:
+            msg = 'idempotency_key must not be empty'
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -50,4 +56,5 @@ class StoredEvent:
     timestamp: datetime
     data: INotification
     metadata: EventMetadata
+    idempotency_key: str
     schema_version: int = 1

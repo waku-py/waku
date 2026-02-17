@@ -54,6 +54,7 @@ class DeciderCommandHandler(
             events,
             version,
             current_state=state,
+            idempotency_key=self._idempotency_key(request),
         )
 
         for event in events:
@@ -69,6 +70,9 @@ class DeciderCommandHandler(
 
     def _is_creation_command(self, request: RequestT) -> bool:  # noqa: ARG002, PLR6301
         return False
+
+    def _idempotency_key(self, request: RequestT) -> str | None:  # noqa: ARG002, PLR6301
+        return None
 
     @abc.abstractmethod
     def _to_response(self, state: StateT, version: int) -> ResponseT: ...

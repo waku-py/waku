@@ -78,11 +78,24 @@ async def test_run_once_returns_zero_when_caught_up() -> None:
     assert processed == 0
 
 
-async def test_retry_policy_increments_attempts_on_failure() -> None:
+async def test_retry_policy_recovers_after_transient_failure() -> None:
     registry = make_registry()
     store = InMemoryEventStore(registry)
     checkpoint_store = InMemoryCheckpointStore()
-    projection = FailingProjection()
+
+    should_fail = True
+
+    class TransientProjection(ICatchUpProjection):
+        projection_name = 'transient'
+        error_policy: ClassVar[ErrorPolicy] = ErrorPolicy.RETRY
+
+        @override
+        async def project(self, events: Sequence[StoredEvent], /) -> None:
+            if should_fail:
+                msg = 'transient error'
+                raise RuntimeError(msg)
+
+    projection = TransientProjection()
     config = CatchUpProjectionConfig(batch_size=100, max_attempts=5)
     processor = ProjectionProcessor(projection.projection_name, projection.error_policy, config)
 
@@ -92,7 +105,11 @@ async def test_retry_policy_increments_attempts_on_failure() -> None:
         processed = await processor.run_once(projection, store, checkpoint_store)
 
     assert processed == 0
-    assert processor._attempts == 1  # noqa: SLF001
+
+    should_fail = False
+    processed = await processor.run_once(projection, store, checkpoint_store)
+
+    assert processed == 3
 
 
 async def test_retry_policy_raises_after_max_attempts() -> None:

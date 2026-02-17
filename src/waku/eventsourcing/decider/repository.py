@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import typing
+import uuid
 from typing import ClassVar, Final, Generic
 
 from waku.eventsourcing._generics import resolve_generic_args
@@ -83,11 +84,18 @@ class DeciderRepository(abc.ABC, Generic[StateT, CommandT, EventT]):
         expected_version: int,
         *,
         current_state: StateT | None = None,  # noqa: ARG002
+        idempotency_key: str | None = None,
     ) -> int:
         if not events:
             return expected_version
         stream_id = self._stream_id(aggregate_id)
-        envelopes = [EventEnvelope(domain_event=e) for e in events]
+        envelopes = [
+            EventEnvelope(
+                domain_event=e,
+                idempotency_key=f'{idempotency_key}:{i}' if idempotency_key else str(uuid.uuid4()),
+            )
+            for i, e in enumerate(events)
+        ]
         expected = Exact(version=expected_version) if expected_version >= 0 else NoStream()
         return await self._event_store.append_to_stream(stream_id, envelopes, expected_version=expected)
 
@@ -139,8 +147,15 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
         expected_version: int,
         *,
         current_state: StateT | None = None,
+        idempotency_key: str | None = None,
     ) -> int:
-        new_version = await super().save(aggregate_id, events, expected_version, current_state=current_state)
+        new_version = await super().save(
+            aggregate_id,
+            events,
+            expected_version,
+            current_state=current_state,
+            idempotency_key=idempotency_key,
+        )
 
         if events:
             last_snapshot_version = self._last_snapshot_versions.get(aggregate_id, -1)

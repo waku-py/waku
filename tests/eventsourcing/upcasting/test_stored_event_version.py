@@ -23,6 +23,7 @@ def test_stored_event_schema_version_defaults_to_one() -> None:
         timestamp=datetime.now(UTC),
         data=SomeEvent(value='x'),
         metadata=EventMetadata(),
+        idempotency_key='test-key',
     )
     assert event.schema_version == 1
 
@@ -37,6 +38,7 @@ def test_stored_event_schema_version_can_be_set() -> None:
         timestamp=datetime.now(UTC),
         data=SomeEvent(value='x'),
         metadata=EventMetadata(),
+        idempotency_key='test-key',
         schema_version=3,
     )
     assert event.schema_version == 3

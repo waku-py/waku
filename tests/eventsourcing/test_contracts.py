@@ -117,8 +117,9 @@ def test_event_metadata_defaults() -> None:
 
 
 def test_event_envelope_defaults() -> None:
-    envelope = EventEnvelope(domain_event='SomeEvent')
+    envelope = EventEnvelope(domain_event='SomeEvent', idempotency_key='test-key')
     assert envelope.domain_event == 'SomeEvent'
+    assert envelope.idempotency_key == 'test-key'
     assert envelope.metadata == EventMetadata()
 
 
@@ -138,6 +139,7 @@ def test_stored_event_construction() -> None:
         timestamp=now,
         data={'total': 100},
         metadata=meta,
+        idempotency_key='test-key',
     )
     assert stored.event_id == event_id
     assert stored.stream_id == StreamId(stream_type='order', stream_key='1')

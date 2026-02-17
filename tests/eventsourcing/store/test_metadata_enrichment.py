@@ -71,6 +71,7 @@ async def test_enricher_preserves_existing_envelope_metadata(
     store = store_factory(enrichers=[SourceEnricher()])
     envelope = EventEnvelope(
         domain_event=OrderCreated(order_id='123'),
+        idempotency_key='enricher-test',
         metadata=EventMetadata(correlation_id='existing-corr-id'),
     )
     await store.append_to_stream(

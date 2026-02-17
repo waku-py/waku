@@ -9,7 +9,7 @@ import anyio
 
 from waku.eventsourcing.contracts.event import EventEnvelope, IMetadataEnricher, StoredEvent
 from waku.eventsourcing.contracts.stream import StreamPosition
-from waku.eventsourcing.exceptions import StreamNotFoundError
+from waku.eventsourcing.exceptions import DuplicateIdempotencyKeyError, PartialDuplicateAppendError, StreamNotFoundError
 from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.store._shared import enrich_metadata
@@ -31,6 +31,7 @@ class InMemoryEventStore(IEventStore):
     ) -> None:
         self._registry = registry
         self._streams: dict[str, list[StoredEvent]] = {}
+        self._idempotency_keys: dict[str, set[str]] = {}
         self._global_position: int = 0
         self._lock = anyio.Lock()
         self._projections = projections
@@ -96,10 +97,15 @@ class InMemoryEventStore(IEventStore):
             stream = self._streams.get(key)
             current_version = len(stream) - 1 if stream is not None else -1
 
-            check_expected_version(stream_id, expected_version, current_version, exists=stream is not None)
-
             if not events:
+                check_expected_version(stream_id, expected_version, current_version, exists=stream is not None)
                 return current_version
+
+            dedup_version = self._check_idempotency(stream_id, events, current_version)
+            if dedup_version is not None:
+                return dedup_version
+
+            check_expected_version(stream_id, expected_version, current_version, exists=stream is not None)
 
             if stream is None:
                 stream = []
@@ -119,6 +125,7 @@ class InMemoryEventStore(IEventStore):
                     timestamp=datetime.now(UTC),
                     data=envelope.domain_event,
                     metadata=enrich_metadata(envelope.metadata, self._enrichers),
+                    idempotency_key=envelope.idempotency_key,
                     schema_version=self._registry.get_version(
                         type(envelope.domain_event)  # pyrefly: ignore[bad-argument-type]
                     ),
@@ -127,7 +134,33 @@ class InMemoryEventStore(IEventStore):
                 stored_events.append(stored)
                 self._global_position += 1
 
+            stream_keys = self._idempotency_keys.setdefault(key, set())
+            for envelope in events:
+                stream_keys.add(envelope.idempotency_key)
+
             for projection in self._projections:
                 await projection.project(stored_events)
 
             return len(stream) - 1
+
+    def _check_idempotency(
+        self,
+        stream_id: StreamId,
+        events: Sequence[EventEnvelope],
+        current_version: int,
+    ) -> int | None:
+        keys = [e.idempotency_key for e in events]
+        unique_keys = set(keys)
+        if len(unique_keys) != len(keys):
+            raise DuplicateIdempotencyKeyError(stream_id)
+
+        existing = self._idempotency_keys.get(str(stream_id), set())
+        found = unique_keys & existing
+
+        if not found:
+            return None
+
+        if found == unique_keys:
+            return current_version
+
+        raise PartialDuplicateAppendError(stream_id, len(found), len(keys))

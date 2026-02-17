@@ -13,7 +13,9 @@ __all__ = [
     'ConflictingEventTypeError',
     'DuplicateAggregateNameError',
     'DuplicateEventTypeError',
+    'DuplicateIdempotencyKeyError',
     'EventSourcingError',
+    'PartialDuplicateAppendError',
     'ProjectionError',
     'ProjectionStoppedError',
     'RegistryFrozenError',
@@ -125,6 +127,23 @@ class RetryExhaustedError(ProjectionError):
         self.attempts = attempts
         self.cause = cause
         super().__init__(f'Projection {projection_name!r} exhausted {attempts} retry attempts: {cause}')
+
+
+class DuplicateIdempotencyKeyError(EventSourcingError):
+    def __init__(self, stream_id: StreamId) -> None:
+        self.stream_id = stream_id
+        super().__init__(f'Duplicate idempotency keys within batch on stream {stream_id}')
+
+
+class PartialDuplicateAppendError(EventSourcingError):
+    def __init__(self, stream_id: StreamId, existing_count: int, total_count: int) -> None:
+        self.stream_id = stream_id
+        self.existing_count = existing_count
+        self.total_count = total_count
+        super().__init__(
+            f'Partial duplicate append on stream {stream_id}: '
+            f'{existing_count} of {total_count} idempotency keys already exist'
+        )
 
 
 class UpcasterChainError(EventSourcingError):
