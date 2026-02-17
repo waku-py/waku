@@ -130,6 +130,72 @@ Use `bind_decider()` instead of `bind_aggregate()`:
 --8<-- "docs/code/eventsourcing/decider/modules.py"
 ```
 
+## Idempotency
+
+Command handlers support idempotent event appends through the `_idempotency_key()` hook.
+Override it to extract a deduplication token from the incoming request:
+
+=== "OOP Aggregate"
+
+    ```python
+    class OpenAccountHandler(EventSourcedCommandHandler[OpenAccountCommand, OpenAccountResult, BankAccount]):
+        def _idempotency_key(self, request: OpenAccountCommand) -> str | None:
+            return request.idempotency_key  # (1)
+
+        # ... other methods ...
+    ```
+
+    1. Return `None` (the default) to skip deduplication and use random UUIDs.
+
+=== "Functional Decider"
+
+    ```python
+    class OpenAccountDeciderHandler(
+        DeciderCommandHandler[OpenAccountRequest, OpenAccountResult, BankAccountState, BankCommand, INotification],
+    ):
+        def _idempotency_key(self, request: OpenAccountRequest) -> str | None:
+            return request.idempotency_key
+
+        # ... other methods ...
+    ```
+
+When an `idempotency_key` is provided, the repository generates per-event keys in the format
+`{idempotency_key}:0`, `{idempotency_key}:1`, etc. Retrying the same command with the same key
+is safe — the event store returns the existing stream version without duplicating events.
+
+See [Event Store — Idempotency](event-store.md#idempotency) for deduplication semantics and error handling.
+
+## Stream Length Guard
+
+Repositories can enforce a maximum stream length to prevent unbounded event replay. Set the
+`max_stream_length` class variable on your repository:
+
+=== "OOP Aggregate"
+
+    ```python
+    class BankAccountRepository(EventSourcedRepository[BankAccount]):
+        max_stream_length = 500
+    ```
+
+=== "Functional Decider"
+
+    ```python
+    class BankAccountDeciderRepository(DeciderRepository[BankAccountState, BankCommand, INotification]):
+        max_stream_length = 500
+    ```
+
+When a stream exceeds the configured limit, `load()` raises `StreamTooLargeError` with a message
+guiding you to configure [snapshots](snapshots.md).
+
+!!! tip
+    The default is `None` (no limit). Use this as a safety valve for aggregates that
+    might accumulate many events — it catches unbounded growth before it impacts performance.
+
+!!! note
+    Snapshot-aware repositories (`SnapshotEventSourcedRepository`, `SnapshotDeciderRepository`)
+    inherit the guard but only apply it during full replay. When a valid snapshot exists, the
+    repository replays only the events after the snapshot, which naturally stays within bounds.
+
 ## Concurrency Control
 
 Both repository types use `ExpectedVersion` for optimistic concurrency:

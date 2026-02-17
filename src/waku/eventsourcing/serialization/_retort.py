@@ -7,9 +7,9 @@ from adaptix import Retort, dumper, loader
 
 from waku.eventsourcing.contracts.stream import StreamId
 
-__all__ = ['shared_retort', 'validate_dataclass_instance']
+__all__ = ['default_retort', 'validate_dataclass_instance']
 
-shared_retort = Retort(
+default_retort = Retort(
     recipe=[
         loader(UUID, UUID),
         dumper(UUID, str),

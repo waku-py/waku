@@ -18,23 +18,37 @@ The basic chain is:
 DeciderSpec.for_(decider).given([events]).when(command).then([expected_events])
 ```
 
-Available assertions after `.when(command)`:
-
-- `.then([events])` — assert exact events produced
-- `.then_no_events()` — assert no events produced
-- `.then_raises(ExceptionType, match='...')` — assert exception raised
-- `.then_state(predicate)` — assert resulting state matches predicate
-- `.resulting_state` — property to access the state for custom assertions
-
-You can also assert state from events alone (no command):
-
-```python
-DeciderSpec.for_(decider).given([events]).then_state(predicate)
-```
-
 ```python linenums="1"
 --8<-- "docs/code/eventsourcing/testing/decider_spec.py"
 ```
+
+### DeciderSpec Methods
+
+These methods set up the test scenario. `given()` is optional — omit it to test from initial state.
+
+| Method | Parameters | Returns | Description |
+|--------|-----------|---------|-------------|
+| `for_` | `decider: IDecider[S, C, E]` | `DeciderSpec[S, C, E]` | Class method. Create a spec for the given decider |
+| `given` | `events: Sequence[E]` | `DeciderSpec[S, C, E]` | Apply prior events to build up state before the command |
+| `when` | `command: C` | `_DeciderWhenResult[S, C, E]` | Execute a command against the built-up state |
+| `then_state` | `predicate: Callable[[S], bool]` | `None` | Assert state built from `given()` events alone (no command) |
+
+### Assertions After `.when(command)`
+
+Available after `.when(command)`:
+
+| Method | Parameters | Returns | Description |
+|--------|-----------|---------|-------------|
+| `then` | `expected_events: Sequence[E]` | `None` | Assert the command produced exactly these events |
+| `then_no_events` | — | `None` | Assert the command produced zero events |
+| `then_raises` | `exception_type: type[Exception]`, `match: str | None = None` | `None` | Assert the command raises this exception. `match` is a regex passed to `pytest.raises` |
+| `then_state` | `predicate: Callable[[S], Any]` | `None` | Assert the state *after* applying produced events matches the predicate |
+| `resulting_state` | — | `S` | Property. Returns the state after deciding and evolving — use for custom assertions |
+
+!!! tip
+    `then_state` appears on both `DeciderSpec` and the result of `.when()`. On `DeciderSpec` it
+    checks state from events alone (no command). After `.when()` it checks state *after* the
+    command's produced events are applied.
 
 ## OOP Aggregate Testing
 

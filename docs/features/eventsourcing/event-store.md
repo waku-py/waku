@@ -1,6 +1,6 @@
 ---
 title: Event Store
-description: In-memory and PostgreSQL event persistence with optimistic concurrency and metadata enrichment.
+description: In-memory and PostgreSQL event persistence with optimistic concurrency, idempotency, and metadata enrichment.
 ---
 
 # Event Store
@@ -116,15 +116,107 @@ async with engine.begin() as conn:
 
 This creates two tables:
 
-| Table | Purpose |
-|-------|---------|
-| `es_streams` | Stream metadata — stream ID, type, current version, timestamps |
-| `es_events` | Event records — event ID, stream ID, type, position, global position, data (JSONB), metadata (JSONB), timestamp, schema version |
+#### `es_streams`
+
+| Column | Type | Constraints | Description |
+|--------|------|------------|-------------|
+| `stream_id` | `Text` | **PK** | Unique stream identifier |
+| `stream_type` | `Text` | NOT NULL | Aggregate type name |
+| `version` | `Integer` | NOT NULL, default `0` | Current stream version (incremented on each append) |
+| `created_at` | `TIMESTAMP WITH TIME ZONE` | default `now()` | Stream creation time |
+| `updated_at` | `TIMESTAMP WITH TIME ZONE` | default `now()`, auto-update | Last modification time |
+
+#### `es_events`
+
+| Column | Type | Constraints | Description |
+|--------|------|------------|-------------|
+| `event_id` | `UUID` | **PK** | Unique event identifier |
+| `stream_id` | `Text` | NOT NULL | Owning stream |
+| `event_type` | `Text` | NOT NULL | Registered event type name |
+| `position` | `Integer` | NOT NULL | Position within the stream (0-based) |
+| `global_position` | `BigInteger` | NOT NULL, `IDENTITY(ALWAYS)` | Monotonically increasing across all streams |
+| `data` | `JSONB` | NOT NULL | Serialized event payload |
+| `metadata` | `JSONB` | NOT NULL | Correlation, causation, and custom metadata |
+| `timestamp` | `TIMESTAMP WITH TIME ZONE` | NOT NULL | When the event was persisted |
+| `schema_version` | `Integer` | NOT NULL, default `1` | Event schema version for upcasting |
+| `idempotency_key` | `Text` | NOT NULL | Client-provided deduplication token |
+
+**Unique constraints:**
+
+- `uq_es_events_stream_id_position` — `(stream_id, position)`
+- `uq_es_events_idempotency_key` — `(stream_id, idempotency_key)`
+
+**Indexes:**
+
+- `ix_es_events_global_position` — on `global_position` (used by catch-up projections)
+- `ix_es_events_event_type` — on `event_type` (used for type-filtered reads)
 
 !!! tip
     For production, use [Alembic](https://alembic.sqlalchemy.org/) migrations instead of `create_all`.
     The table definitions in `waku.eventsourcing.store.sqlalchemy.tables` are standard SQLAlchemy
     `Table` objects that work with Alembic's [autogenerate](https://alembic.sqlalchemy.org/en/latest/autogenerate.html).
+
+    ```python
+    # alembic/env.py
+    from waku.eventsourcing.store.sqlalchemy import bind_event_store_tables
+
+    target_metadata = MetaData()
+    bind_event_store_tables(target_metadata)
+    ```
+
+## Idempotency
+
+Network retries and client resubmissions can cause duplicate event appends. waku prevents this
+through **idempotency keys** — client-provided deduplication tokens attached to each `EventEnvelope`.
+
+### EventEnvelope
+
+`EventEnvelope` wraps a domain event with an `idempotency_key` for deduplication:
+
+```python
+@dataclass(frozen=True, slots=True, kw_only=True)
+class EventEnvelope:
+    domain_event: INotification
+    idempotency_key: str
+    metadata: EventMetadata = field(default_factory=EventMetadata)
+```
+
+The `idempotency_key` is required and must be non-empty. It is scoped per stream — the same
+key can exist in different streams without conflict.
+
+!!! tip
+    You rarely construct `EventEnvelope` directly. Repositories generate idempotency keys
+    automatically — pass an `idempotency_key` to `repository.save()` for deduplication,
+    or let it default to random UUIDs. See [Aggregates](aggregates.md#idempotency) for details.
+
+### Deduplication Semantics
+
+When appending events, the store checks idempotency keys with **all-or-nothing** semantics:
+
+| Scenario | Behavior |
+|----------|----------|
+| No keys exist in the stream | Events are appended normally |
+| **All** keys already exist | Append succeeds silently — returns the current stream version without inserting |
+| **Some** keys exist, others are new | Raises `PartialDuplicateAppendError` |
+| Duplicate keys within the same batch | Raises `DuplicateIdempotencyKeyError` |
+
+This means a full retry of the same batch is safe (idempotent), but mixing old and new events
+in a single append is rejected as an inconsistency.
+
+### Exceptions
+
+Both exceptions are in `waku.eventsourcing.exceptions`:
+
+| Exception | When | Attributes |
+|-----------|------|------------|
+| `DuplicateIdempotencyKeyError` | Same key appears twice within a batch, or unique constraint violation | `stream_id` |
+| `PartialDuplicateAppendError` | Some (but not all) keys from the batch already exist | `stream_id`, `existing_count`, `total_count` |
+
+### Storage
+
+The SQLAlchemy store persists idempotency keys in a dedicated column on `es_events` with a
+composite unique constraint `(stream_id, idempotency_key)`. The in-memory store tracks keys
+per stream in a dictionary with an async lock for thread safety.
 
 ## Metadata Enrichment
 
@@ -170,6 +262,7 @@ at runtime. The store calls each enricher's `enrich()` method in order before wr
 | `timestamp` | `datetime` | When the event was persisted |
 | `data` | `INotification` | The deserialized domain event |
 | `metadata` | `EventMetadata` | Correlation, causation, and extra metadata |
+| `idempotency_key` | `str` | Client-provided deduplication token (unique per stream) |
 | `schema_version` | `int` | Schema version (defaults to `1`) |
 
 ## Further reading
