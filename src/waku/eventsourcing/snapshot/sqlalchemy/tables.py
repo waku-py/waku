@@ -14,6 +14,7 @@ es_snapshots_table = Table(
     Column('state', JSONB, nullable=False),
     Column('version', Integer, nullable=False),
     Column('state_type', Text, nullable=False),
+    Column('schema_version', Integer, nullable=False, server_default='1'),
     Column('created_at', TIMESTAMP(timezone=True), server_default=func.now()),
     Column('updated_at', TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now()),
 )

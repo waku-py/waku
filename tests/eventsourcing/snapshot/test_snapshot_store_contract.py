@@ -42,3 +42,19 @@ async def test_upsert_replaces_existing(snapshot_store: ISnapshotStore) -> None:
     assert loaded is not None
     assert loaded.version == 10
     assert loaded.state == {'total': 250}
+
+
+async def test_save_and_load_preserves_schema_version(snapshot_store: ISnapshotStore) -> None:
+    snapshot = Snapshot(
+        stream_id=StreamId.for_aggregate('Order', '1'),
+        state={'total': 100},
+        version=5,
+        state_type='Order',
+        schema_version=3,
+    )
+    await snapshot_store.save(snapshot)
+
+    loaded = await snapshot_store.load(snapshot.stream_id)
+
+    assert loaded is not None
+    assert loaded.schema_version == 3

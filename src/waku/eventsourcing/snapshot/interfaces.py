@@ -20,6 +20,7 @@ class Snapshot:
     state: dict[str, Any]
     version: int
     state_type: str
+    schema_version: int = 1
 
 
 class ISnapshotStore(abc.ABC):

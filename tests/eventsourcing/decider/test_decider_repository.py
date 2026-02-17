@@ -4,10 +4,13 @@ import pytest
 
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.decider.repository import DeciderRepository
-from waku.eventsourcing.exceptions import AggregateNotFoundError, ConcurrencyConflictError
+from waku.eventsourcing.exceptions import AggregateNotFoundError, ConcurrencyConflictError, StreamTooLargeError
 from waku.eventsourcing.store.in_memory import InMemoryEventStore  # noqa: TC001  # needed for fixture type
 
-from tests.eventsourcing.decider.conftest import CounterRepository  # noqa: TC002  # needed for fixture type
+from tests.eventsourcing.decider.conftest import (  # noqa: TC002  # needed for fixture type
+    CounterRepository,
+    LimitedCounterRepository,
+)
 from tests.eventsourcing.test_decider import CounterState, Increment, Incremented
 
 
@@ -108,3 +111,28 @@ def test_explicit_aggregate_name_takes_precedence() -> None:
         aggregate_name = 'MyCounter'
 
     assert ExplicitRepo.aggregate_name == 'MyCounter'
+
+
+async def test_load_raises_stream_too_large_error_when_stream_exceeds_limit(
+    limited_repository: LimitedCounterRepository,
+) -> None:
+    events = [Incremented(amount=1), Incremented(amount=2), Incremented(amount=3), Incremented(amount=4)]
+    await limited_repository.save('c-big', events, expected_version=-1)
+
+    with pytest.raises(StreamTooLargeError) as exc_info:
+        await limited_repository.load('c-big')
+
+    assert exc_info.value.stream_id == StreamId.for_aggregate('Counter', 'c-big')
+    assert exc_info.value.max_length == 3
+
+
+async def test_load_succeeds_when_stream_within_limit(
+    limited_repository: LimitedCounterRepository,
+) -> None:
+    events = [Incremented(amount=1), Incremented(amount=2), Incremented(amount=3)]
+    await limited_repository.save('c-ok', events, expected_version=-1)
+
+    state, version = await limited_repository.load('c-ok')
+
+    assert state == CounterState(value=6)
+    assert version == 2

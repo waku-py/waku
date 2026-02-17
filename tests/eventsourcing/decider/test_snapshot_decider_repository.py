@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
+from typing_extensions import override
 
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.decider.repository import SnapshotDeciderRepository
@@ -10,6 +12,7 @@ from waku.eventsourcing.exceptions import SnapshotTypeMismatchError
 from waku.eventsourcing.serialization.json import JsonSnapshotStateSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, Snapshot
+from waku.eventsourcing.snapshot.migration import ISnapshotMigration
 from waku.eventsourcing.snapshot.strategy import EventCountStrategy
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
@@ -159,3 +162,91 @@ async def test_load_with_mismatched_snapshot_type_raises(
 
     with pytest.raises(SnapshotTypeMismatchError, match='WrongState'):
         await repository.load('c-1')
+
+
+# --- Snapshot schema migration tests ---
+
+
+class AddDefaultValueMigration(ISnapshotMigration):
+    from_version = 1
+    to_version = 2
+
+    @override
+    def migrate(self, state: dict[str, Any], /) -> dict[str, Any]:
+        return {**state, 'value': state.get('value', 0)}
+
+
+class MigratingCounterSnapshotRepository(SnapshotDeciderRepository[CounterState, Increment, Incremented]):
+    aggregate_name = 'Counter'
+    snapshot_schema_version = 2
+    snapshot_migrations = (AddDefaultValueMigration(),)
+
+
+class NoMigrationV3CounterRepository(SnapshotDeciderRepository[CounterState, Increment, Incremented]):
+    aggregate_name = 'Counter'
+    snapshot_schema_version = 3
+    snapshot_migrations = (AddDefaultValueMigration(),)
+
+
+async def test_load_with_old_schema_version_applies_migration(
+    decider: CounterDecider,
+    event_store: InMemoryEventStore,
+    state_serializer: JsonSnapshotStateSerializer,
+) -> None:
+    snapshot_store = AsyncMock(spec=ISnapshotStore)
+    snapshot_store.load.return_value = None
+    strategy = EventCountStrategy(threshold=100)
+    repo = MigratingCounterSnapshotRepository(
+        decider=decider,
+        event_store=event_store,
+        snapshot_store=snapshot_store,
+        snapshot_strategy=strategy,
+        state_serializer=state_serializer,
+    )
+
+    await repo.save('c-1', [Incremented(amount=5), Incremented(amount=3)], expected_version=-1)
+
+    snapshot_store.load.return_value = Snapshot(
+        stream_id=StreamId.for_aggregate('Counter', 'c-1'),
+        state={'value': 5},
+        version=0,
+        state_type='CounterState',
+        schema_version=1,
+    )
+
+    state, version = await repo.load('c-1')
+
+    assert state == CounterState(value=8)
+    assert version == 1
+
+
+async def test_load_with_old_schema_version_no_migration_replays_from_events(
+    decider: CounterDecider,
+    event_store: InMemoryEventStore,
+    state_serializer: JsonSnapshotStateSerializer,
+) -> None:
+    snapshot_store = AsyncMock(spec=ISnapshotStore)
+    snapshot_store.load.return_value = None
+    strategy = EventCountStrategy(threshold=100)
+    repo = NoMigrationV3CounterRepository(
+        decider=decider,
+        event_store=event_store,
+        snapshot_store=snapshot_store,
+        snapshot_strategy=strategy,
+        state_serializer=state_serializer,
+    )
+
+    await repo.save('c-1', [Incremented(amount=5), Incremented(amount=3)], expected_version=-1)
+
+    snapshot_store.load.return_value = Snapshot(
+        stream_id=StreamId.for_aggregate('Counter', 'c-1'),
+        state={'value': 5},
+        version=0,
+        state_type='CounterState',
+        schema_version=1,
+    )
+
+    state, version = await repo.load('c-1')
+
+    assert state == CounterState(value=8)
+    assert version == 1

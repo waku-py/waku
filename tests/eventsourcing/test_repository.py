@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from waku.eventsourcing.contracts.stream import StreamId
-from waku.eventsourcing.exceptions import AggregateNotFoundError, ConcurrencyConflictError
+from waku.eventsourcing.exceptions import AggregateNotFoundError, ConcurrencyConflictError, StreamTooLargeError
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
@@ -13,6 +13,10 @@ from tests.eventsourcing.domain import AccountOpened, BankAccount, MoneyDeposite
 
 class BankAccountRepository(EventSourcedRepository[BankAccount]):
     pass
+
+
+class LimitedBankAccountRepository(EventSourcedRepository[BankAccount]):
+    max_stream_length = 3
 
 
 # --- Fixtures ---
@@ -29,6 +33,11 @@ def store() -> InMemoryEventStore:
 @pytest.fixture
 def repository(store: InMemoryEventStore) -> BankAccountRepository:
     return BankAccountRepository(store)
+
+
+@pytest.fixture
+def limited_repository(store: InMemoryEventStore) -> LimitedBankAccountRepository:
+    return LimitedBankAccountRepository(store)
 
 
 # --- Tests ---
@@ -149,3 +158,50 @@ async def test_concurrent_save_on_same_aggregate_raises_concurrency_conflict_err
     reader_b.deposit(200)
     with pytest.raises(ConcurrencyConflictError):
         await repository.save('acc-7', reader_b)
+
+
+async def test_load_raises_stream_too_large_error_when_stream_exceeds_limit(
+    limited_repository: LimitedBankAccountRepository,
+) -> None:
+    account = BankAccount()
+    account.open('Alice')
+    account.deposit(100)
+    account.deposit(200)
+    account.deposit(300)
+    await limited_repository.save('acc-big', account)
+
+    with pytest.raises(StreamTooLargeError) as exc_info:
+        await limited_repository.load('acc-big')
+
+    assert exc_info.value.stream_id == StreamId.for_aggregate('BankAccount', 'acc-big')
+    assert exc_info.value.max_length == 3
+
+
+async def test_load_succeeds_when_stream_within_limit(
+    limited_repository: LimitedBankAccountRepository,
+) -> None:
+    account = BankAccount()
+    account.open('Bob')
+    account.deposit(100)
+    account.deposit(200)
+    await limited_repository.save('acc-ok', account)
+
+    loaded = await limited_repository.load('acc-ok')
+
+    assert loaded.name == 'Bob'
+    assert loaded.balance == 300
+
+
+async def test_load_with_no_max_stream_length_loads_any_size(
+    repository: BankAccountRepository,
+) -> None:
+    account = BankAccount()
+    account.open('Carol')
+    for _i in range(20):
+        account.deposit(10)
+    await repository.save('acc-large', account)
+
+    loaded = await repository.load('acc-large')
+
+    assert loaded.name == 'Carol'
+    assert loaded.balance == 200

@@ -8,7 +8,12 @@ from waku.eventsourcing._generics import resolve_generic_args
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
-from waku.eventsourcing.exceptions import AggregateNotFoundError, EventSourcingError, StreamNotFoundError
+from waku.eventsourcing.exceptions import (
+    AggregateNotFoundError,
+    EventSourcingError,
+    StreamNotFoundError,
+    StreamTooLargeError,
+)
 from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Dishka needs runtime access
 
 if TYPE_CHECKING:
@@ -21,6 +26,7 @@ AggregateT = TypeVar('AggregateT', bound=EventSourcedAggregate)
 
 class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
     aggregate_name: ClassVar[str]
+    max_stream_length: ClassVar[int | None] = None
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
@@ -42,13 +48,16 @@ class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
 
     async def load(self, aggregate_id: str) -> AggregateT:
         stream_id = self._stream_id(aggregate_id)
+        count = self.max_stream_length + 1 if self.max_stream_length is not None else None
         try:
-            stored_events = await self._event_store.read_stream(stream_id)
+            stored_events = await self._event_store.read_stream(stream_id, count=count)
         except StreamNotFoundError:
             raise AggregateNotFoundError(
                 aggregate_type=self.aggregate_name,
                 aggregate_id=aggregate_id,
             ) from None
+        if self.max_stream_length is not None and len(stored_events) > self.max_stream_length:
+            raise StreamTooLargeError(stream_id, self.max_stream_length)
         if not stored_events:
             msg = f'Stream contains no events: {stream_id}'
             raise EventSourcingError(msg)
