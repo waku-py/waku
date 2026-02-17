@@ -27,6 +27,47 @@ config = EventSourcingConfig(event_serializer=JsonEventSerializer)
     Serialization is only needed for persistent stores (e.g., PostgreSQL with SQLAlchemy).
     The in-memory store keeps Python objects directly, so no serializer is required.
 
+??? info "Custom serializers"
+
+    **IEventSerializer Interface**
+
+    `IEventSerializer` defines two methods:
+
+    ```python
+    class IEventSerializer(abc.ABC):
+        def serialize(self, event: INotification, /) -> dict[str, Any]: ...
+        def deserialize(self, data: dict[str, Any], event_type: str, /) -> INotification: ...
+    ```
+
+    | Method | Parameters | Returns | Description |
+    |--------|-----------|---------|-------------|
+    | `serialize` | `event: INotification` | `dict[str, Any]` | Convert a domain event to a JSON-compatible dictionary |
+    | `deserialize` | `data: dict[str, Any]`, `event_type: str` | `INotification` | Reconstruct a domain event from stored data and its registered type name |
+
+    The `event_type` parameter in `deserialize` is the string name from the [Event Type Registry](#event-type-registry).
+
+    **Example: Unix timestamp serializer**
+
+    `default_retort` is the pre-configured adaptix `Retort` used by `JsonEventSerializer`.
+    It handles `StreamId` on top of the built-in support for `datetime`, `UUID`, `Decimal`,
+    `Enum`, and many other types. Use `.extend(recipe=[...])` to override specific type
+    handling — here, serializing `datetime` as Unix timestamps for cross-language interop:
+
+    ```python linenums="1"
+    --8<-- "docs/code/eventsourcing/custom_serializer.py"
+    ```
+
+    Register it the same way:
+
+    ```python
+    config = EventSourcingConfig(event_serializer=UnixTimestampEventSerializer)
+    ```
+
+    Dishka injects the `EventTypeRegistry` dependency automatically.
+
+    See the [adaptix Retort configuration guide](https://adaptix.readthedocs.io/en/latest/loading-and-dumping/tutorial.html#retort-configuration)
+    for the full list of built-in recipes and customization options.
+
 ## Event Type Registry
 
 `EventTypeRegistry` maintains a bidirectional mapping between event classes and string names,

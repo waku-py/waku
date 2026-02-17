@@ -57,13 +57,19 @@ Both aggregate styles have a snapshot-aware repository variant:
     ```
 
 When loading, the snapshot repository first checks for a stored snapshot. If one exists, it
-deserializes the state from the snapshot and replays only the events recorded *after* the
-snapshot version. If no snapshot is found, it falls back to full replay.
+verifies the schema version — applying migrations if needed or falling back to full replay
+if no migration path is available (see [Schema Versioning](#schema-versioning)). It then
+deserializes the state and replays only the events recorded *after* the snapshot version.
+If no snapshot is found, it falls back to full replay.
 
 ```mermaid
 graph TD
     L[Load aggregate] --> CS{Snapshot exists?}
-    CS -->|Yes| DS[Deserialize snapshot]
+    CS -->|Yes| SV{Schema version matches?}
+    SV -->|Yes| DS[Deserialize snapshot]
+    SV -->|No| MG{Migration path?}
+    MG -->|Yes| AP[Apply migrations] --> DS
+    MG -->|No| FR
     DS --> RE[Replay events after snapshot version]
     RE --> A[Aggregate ready]
     CS -->|No| FR[Full replay from event 0]
@@ -111,11 +117,72 @@ The `Snapshot` dataclass carries the serialized state:
 | `state` | `dict[str, Any]` | Serialized aggregate state |
 | `version` | `int` | Stream version at snapshot time |
 | `state_type` | `str` | State class name (for type safety on load) |
+| `schema_version` | `int` | Schema version (defaults to `1`) |
 
 Built-in implementations:
 
 - `InMemorySnapshotStore` — dictionary-backed, suitable for testing
 - `SqlAlchemySnapshotStore` — PostgreSQL-backed via SQLAlchemy async session
+
+## Schema Versioning
+
+Aggregate state structures evolve over time — fields get added, renamed, or removed. Without
+versioning, old snapshots become undeserializable. waku solves this with **snapshot schema
+versioning** and a **migration chain** that transforms old snapshots to the current schema.
+
+### Declaring Schema Versions
+
+Set `snapshot_schema_version` on your repository to track the current state schema:
+
+```python
+class BankAccountSnapshotRepository(SnapshotEventSourcedRepository[BankAccount]):
+    snapshot_schema_version = 2  # bump when state structure changes
+```
+
+All new snapshots are saved with this version. On load, the repository checks whether the
+stored snapshot's `schema_version` matches `snapshot_schema_version`.
+
+### Writing Migrations
+
+Implement `ISnapshotMigration` for each schema version transition:
+
+```python linenums="1"
+--8<-- "docs/code/eventsourcing/snapshots/migration.py"
+```
+
+Each migration specifies `from_version` and `to_version` and transforms the state dictionary.
+The `SnapshotMigrationChain` applies them in sequence.
+
+### Migration Chain Validation
+
+`SnapshotMigrationChain` validates migrations at construction time (during repository
+initialization). It rejects:
+
+- `from_version` less than 1
+- `to_version` not greater than `from_version`
+- Duplicate `from_version` values
+- Gaps in the chain (e.g., v1→v2 followed by v3→v4 — missing v2→v3)
+
+Validation failures raise `SnapshotMigrationChainError`.
+
+### Graceful Degradation
+
+When a stored snapshot has a different `schema_version` than the repository expects:
+
+```mermaid
+graph TD
+    L[Load snapshot] --> V{Version matches?}
+    V -->|Yes| U[Use snapshot]
+    V -->|No| M{Migration path exists?}
+    M -->|Yes| A[Apply migrations]
+    A --> U
+    M -->|No| D[Discard snapshot + log warning]
+    D --> R[Full replay from events]
+```
+
+Missing migrations **never crash the system**. The repository discards the outdated snapshot,
+logs a warning, and falls back to full event replay. This trades performance for correctness
+— the aggregate loads correctly, just without the snapshot optimization.
 
 ## State Serialization
 
@@ -128,7 +195,9 @@ class ISnapshotStateSerializer(abc.ABC):
 ```
 
 `JsonSnapshotStateSerializer` is the built-in implementation. It uses an adaptix `Retort`
-under the hood and works with any dataclass state out of the box.
+under the hood and works with any dataclass state out of the box. The same `default_retort`
+and `.extend()` pattern used for [custom event serializers](schema-evolution.md#event-serialization)
+applies here.
 
 ## Configuration
 
@@ -143,6 +212,22 @@ EventSourcingConfig(
 
 You can pass a factory callable instead of a class when the store requires
 additional constructor arguments (e.g., `snapshot_store=make_sqlalchemy_snapshot_store(table)`).
+
+## Table Schema Reference
+
+### `es_snapshots`
+
+| Column | Type | Constraints | Description |
+|--------|------|------------|-------------|
+| `stream_id` | `Text` | **PK** | Stream identifier (one snapshot per stream) |
+| `state` | `JSONB` | NOT NULL | Serialized aggregate state |
+| `version` | `Integer` | NOT NULL | Stream version at snapshot time |
+| `state_type` | `Text` | NOT NULL | State class name (for type safety on load) |
+| `schema_version` | `Integer` | NOT NULL, default `1` | Schema version for snapshot migrations |
+| `created_at` | `TIMESTAMP WITH TIME ZONE` | default `now()` | First snapshot time |
+| `updated_at` | `TIMESTAMP WITH TIME ZONE` | default `now()`, auto-update | Last snapshot update time |
+
+Bind with `bind_snapshot_tables(metadata)` from `waku.eventsourcing.snapshot.sqlalchemy`.
 
 ## Further reading
 

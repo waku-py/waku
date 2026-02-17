@@ -126,30 +126,77 @@ through the projection.
 `IProjectionLock` ensures only one instance of each catch-up projection runs at a time
 across multiple processes. This prevents duplicate processing and checkpoint conflicts.
 
-- **`InMemoryProjectionLock`** — suitable for single-process deployments. Always acquires
-  the lock immediately.
-- **SQLAlchemy [lease-based lock](https://en.wikipedia.org/wiki/Lease_(computer_science))** — uses a database table with TTL-based leases for
-  multi-process coordination. Configured via `LeaseConfig`:
+```python
+class IProjectionLock(abc.ABC):
+    @contextlib.asynccontextmanager
+    async def acquire(self, projection_name: str) -> AsyncIterator[bool]:
+        """Yields True if the lock was acquired, False if held by another instance."""
+```
 
-    | Field | Default | Description |
-    |-------|---------|-------------|
-    | `ttl_seconds` | `30.0` | How long the lease is valid before expiring |
-    | `renew_interval_factor` | `1/3` | Fraction of TTL at which the lease is renewed |
+### Choosing a Lock
 
-    !!! note "Consistency guarantees"
-        The lease-based lock detects stolen leases via a background heartbeat and cancels the
-        projection task, but there is no fencing token mechanism — a stalled holder (e.g., GC pause)
-        can briefly overlap with a new holder until its next heartbeat fires.
+```mermaid
+graph TD
+    Q1{Single process?}
+    Q1 -->|Yes| IM[InMemoryProjectionLock]
+    Q1 -->|No| Q2{Using PgBouncer<br/>in transaction mode?}
+    Q2 -->|Yes| LB[PostgresLeaseProjectionLock]
+    Q2 -->|No| Q3{Long-running projections<br/>with many connections?}
+    Q3 -->|Yes| LB
+    Q3 -->|No| ADV[PostgresAdvisoryProjectionLock]
+```
 
-        In practice this is safe because the runner resolves the projection, event reader, and
-        checkpoint store from a single DI scope. When using `SqlAlchemyCheckpointStore` with a
-        scoped `AsyncSession`, the projection writes and checkpoint save share the same transaction
-        (the checkpoint store calls `flush()`, not `commit()`). This means either both succeed
-        atomically or both roll back — duplicate processing from a brief overlap will not corrupt
-        the read model.
+| | `InMemoryProjectionLock` | `PostgresLeaseProjectionLock` | `PostgresAdvisoryProjectionLock` |
+|---|---|---|---|
+| **Use case** | Single process, testing | Multi-process production | Multi-process, simple setups |
+| **Connection held** | None | Only during heartbeats | Entire lock duration |
+| **PgBouncer compatible** | N/A | Yes | No (session-bound) |
+| **Extra table required** | No | Yes (`es_projection_leases`) | No |
+| **Lock granularity** | Per process | Per lease TTL | Per DB session |
+| **Failure detection** | Instant | Heartbeat interval | Connection drop |
 
-- **SQLAlchemy [advisory lock](https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS)** — uses PostgreSQL advisory locks for lightweight
-  multi-process coordination.
+### InMemoryProjectionLock
+
+Always acquires the lock immediately. Tracks held lock names for testing. Use this for
+single-process deployments and in tests.
+
+### PostgresLeaseProjectionLock
+
+Uses a database table with TTL-based leases for multi-process coordination. A background
+heartbeat task renews the lease periodically. If the heartbeat detects the lease was stolen
+(e.g., by another instance after TTL expiry), it cancels the projection task.
+
+Configured via `LeaseConfig`:
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `ttl_seconds` | `30.0` | How long the lease is valid before expiring |
+| `renew_interval_factor` | `1/3` | Fraction of TTL at which the lease is renewed |
+| `renew_interval_seconds` | *(derived)* | `ttl_seconds * renew_interval_factor` — read-only property |
+
+With the defaults, the lease renews every 10 seconds and expires after 30 seconds of silence.
+
+!!! note "Consistency guarantees"
+    There is no fencing token mechanism — a stalled holder (e.g., GC pause) can briefly overlap
+    with a new holder until its next heartbeat fires.
+
+    In practice this is safe because the runner resolves the projection, event reader, and
+    checkpoint store from a single DI scope. When using `SqlAlchemyCheckpointStore` with a
+    scoped `AsyncSession`, the projection writes and checkpoint save share the same transaction
+    (the checkpoint store calls `flush()`, not `commit()`). This means either both succeed
+    atomically or both roll back — duplicate processing from a brief overlap will not corrupt
+    the read model.
+
+### PostgresAdvisoryProjectionLock
+
+Uses PostgreSQL [advisory locks](https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS)
+via `pg_try_advisory_lock(hashtext(name))`. The lock is session-bound — it holds a database
+connection for the entire duration.
+
+!!! warning
+    Advisory locks are **not compatible** with PgBouncer in transaction-pooling mode because
+    the lock is tied to the database session, not the transaction. Releasing the connection
+    back to the pool releases the lock. Use `PostgresLeaseProjectionLock` instead.
 
 ## Checkpoint Store
 
@@ -183,6 +230,33 @@ es_config = EventSourcingConfig(
 `make_sqlalchemy_checkpoint_store()` works the same way as `make_sqlalchemy_event_store()` — it
 returns a factory that Dishka uses to construct the store with its `AsyncSession` dependency
 injected automatically.
+
+## Table Schema Reference
+
+### `es_checkpoints`
+
+| Column | Type | Constraints | Description |
+|--------|------|------------|-------------|
+| `projection_name` | `Text` | **PK** | Unique projection identifier |
+| `position` | `BigInteger` | NOT NULL | Last processed global position |
+| `updated_at` | `TIMESTAMP WITH TIME ZONE` | NOT NULL | Last checkpoint update time |
+| `created_at` | `TIMESTAMP WITH TIME ZONE` | default `now()` | First checkpoint time |
+
+Bind with `bind_checkpoint_tables(metadata)` from `waku.eventsourcing.projection.sqlalchemy`.
+
+### `es_projection_leases`
+
+Only required when using `PostgresLeaseProjectionLock`.
+
+| Column | Type | Constraints | Description |
+|--------|------|------------|-------------|
+| `projection_name` | `Text` | **PK** | Projection being locked |
+| `holder_id` | `Text` | NOT NULL | UUID of the lock holder instance |
+| `acquired_at` | `TIMESTAMP WITH TIME ZONE` | default `now()` | When the lease was first acquired |
+| `renewed_at` | `TIMESTAMP WITH TIME ZONE` | default `now()` | Last heartbeat renewal time |
+| `expires_at` | `TIMESTAMP WITH TIME ZONE` | NOT NULL | When the lease expires if not renewed |
+
+Bind with `bind_lease_tables(metadata)` from `waku.eventsourcing.projection.lock.sqlalchemy`.
 
 ## Further reading
 

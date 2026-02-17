@@ -27,10 +27,15 @@ and a natural integration point for reactive systems that respond to events as t
   immutable functional [deciders](aggregates.md#functional-deciders).
 - **Optimistic concurrency** prevents conflicting writes. Each stream tracks a version number;
   concurrent updates to the same aggregate are detected and rejected.
+- **Idempotent appends** protect against duplicate events from network retries. Client-provided
+  idempotency keys ensure that retrying the same command is safe.
+- **Stream length guards** prevent unbounded event replay by raising an error when a stream
+  exceeds a configured limit, guiding you toward snapshots.
 - **Projections** transform events into read-optimized views — either inline (same transaction)
   or via catch-up (eventually consistent background processing).
 - **Schema evolution** is handled through lazy upcasting on read — events are stored in their
-  original form and transformed to the current schema at deserialization time.
+  original form and transformed to the current schema at deserialization time. Snapshot schema
+  versioning with migration chains handles aggregate state structure changes gracefully.
 
 ### The Decider Pattern
 
