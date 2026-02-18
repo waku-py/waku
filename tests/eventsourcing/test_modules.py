@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -12,6 +13,7 @@ from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.event import EventMetadata, IMetadataEnricher
 from waku.eventsourcing.exceptions import (
     DuplicateAggregateNameError,
+    RegistryFrozenError,
     SnapshotConfigNotFoundError,
     SnapshotMigrationChainError,
     UpcasterChainError,
@@ -20,11 +22,13 @@ from waku.eventsourcing.modules import (
     EventSourcingConfig,
     EventSourcingExtension,
     EventSourcingModule,
+    EventSourcingRegistry,
     EventType,
     SnapshotOptions,
 )
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, IProjection
 from waku.eventsourcing.repository import EventSourcedRepository
+from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.snapshot.migration import ISnapshotMigration, SnapshotMigrationChain
 from waku.eventsourcing.snapshot.registry import SnapshotConfig, SnapshotConfigRegistry
@@ -50,14 +54,14 @@ class ItemRenamed(INotification):
 
 
 class Item(EventSourcedAggregate):
-    def __init__(self) -> None:
+    def __init__(self) -> None:  # pragma: no cover
         super().__init__()
         self.name: str = ''
 
-    def create(self, name: str) -> None:
+    def create(self, name: str) -> None:  # pragma: no cover
         self._raise_event(ItemCreated(name=name))
 
-    def _apply(self, event: INotification) -> None:
+    def _apply(self, event: INotification) -> None:  # pragma: no cover
         match event:
             case ItemCreated(name=name):
                 self.name = name
@@ -146,14 +150,14 @@ async def test_event_type_descriptor_with_custom_name_and_aliases() -> None:
 class SearchIndexProjection(ICatchUpProjection):
     projection_name = 'search_index'
 
-    async def project(self, events: Sequence[StoredEvent], /) -> None:
+    async def project(self, events: Sequence[StoredEvent], /) -> None:  # pragma: no cover
         pass
 
 
 class ItemListProjection(IProjection):
     projection_name = 'item_list'
 
-    async def project(self, events: Sequence[StoredEvent], /) -> None:
+    async def project(self, events: Sequence[StoredEvent], /) -> None:  # pragma: no cover
         pass
 
 
@@ -215,7 +219,7 @@ async def test_catch_up_and_inline_projections_independent() -> None:
 
 class TraceIdEnricher(IMetadataEnricher):
     @override
-    def enrich(self, metadata: EventMetadata, /) -> EventMetadata:
+    def enrich(self, metadata: EventMetadata, /) -> EventMetadata:  # pragma: no cover
         return metadata
 
 
@@ -289,15 +293,15 @@ async def test_upcaster_from_version_gte_event_version_raises() -> None:
 
     with pytest.raises(UpcasterChainError, match=r'from_version .* must be < event version'):
         async with create_test_app(imports=[ItemModule]):
-            pass
+            pass  # pragma: no cover
 
 
 class ItemLog(EventSourcedAggregate):
-    def __init__(self) -> None:
+    def __init__(self) -> None:  # pragma: no cover
         super().__init__()
         self.entries: list[str] = []
 
-    def _apply(self, event: INotification) -> None:
+    def _apply(self, event: INotification) -> None:  # pragma: no cover
         match event:
             case ItemCreated(name=name):
                 self.entries.append(name)
@@ -448,7 +452,7 @@ async def test_conflicting_upcasters_across_modules_raises() -> None:
 
     with pytest.raises(UpcasterChainError, match='Conflicting upcaster definitions'):
         async with create_test_app(imports=[ProducerModule, ConsumerModule]):
-            pass
+            pass  # pragma: no cover
 
 
 async def test_empty_upcaster_chain_always_registered() -> None:
@@ -491,7 +495,7 @@ async def test_duplicate_aggregate_name_across_modules_raises() -> None:
 
     with pytest.raises(DuplicateAggregateNameError, match='Item'):
         async with create_test_app(imports=[ModuleA, ModuleB]):
-            pass
+            pass  # pragma: no cover
 
 
 async def test_different_aggregate_names_across_modules_passes() -> None:
@@ -559,7 +563,7 @@ class _NoOpSnapshotMigration(ISnapshotMigration):
     to_version = 2
 
     @override
-    def migrate(self, state: dict[str, Any], /) -> dict[str, Any]:
+    def migrate(self, state: dict[str, Any], /) -> dict[str, Any]:  # pragma: no cover
         return state
 
 
@@ -568,7 +572,7 @@ class _V2ToV3SnapshotMigration(ISnapshotMigration):
     to_version = 3
 
     @override
-    def migrate(self, state: dict[str, Any], /) -> dict[str, Any]:
+    def migrate(self, state: dict[str, Any], /) -> dict[str, Any]:  # pragma: no cover
         return state
 
 
@@ -615,7 +619,7 @@ async def test_snapshot_migration_target_rejects_schema_version_without_migratio
 
     with pytest.raises(SnapshotMigrationChainError, match='schema_version is 3 but no migrations are provided'):
         async with create_test_app(imports=[ItemModule]):
-            pass
+            pass  # pragma: no cover
 
 
 async def test_snapshot_migration_target_rejects_chain_not_reaching_schema_version() -> None:
@@ -637,7 +641,7 @@ async def test_snapshot_migration_target_rejects_chain_not_reaching_schema_versi
 
     with pytest.raises(SnapshotMigrationChainError, match='migration chain reaches version 2 but schema_version is 3'):
         async with create_test_app(imports=[ItemModule]):
-            pass
+            pass  # pragma: no cover
 
 
 async def test_snapshot_migration_target_rejects_chain_not_starting_at_version_1() -> None:
@@ -659,4 +663,41 @@ async def test_snapshot_migration_target_rejects_chain_not_starting_at_version_1
 
     with pytest.raises(SnapshotMigrationChainError, match='starts at version 2 but must start at version 1'):
         async with create_test_app(imports=[ItemModule]):
+            pass  # pragma: no cover
+
+
+async def test_warns_when_serializer_configured_but_no_event_types() -> None:
+    config = EventSourcingConfig(event_serializer=JsonEventSerializer)
+
+    @module(imports=[EventSourcingModule.register(config)])
+    class EmptyModule:
+        pass
+
+    with pytest.warns(UserWarning, match='A serializer is configured but no event types were registered'):
+        async with create_test_app(imports=[EmptyModule]):
             pass
+
+
+async def test_no_warning_when_serializer_configured_with_event_types() -> None:
+    config = EventSourcingConfig(event_serializer=JsonEventSerializer)
+    es_ext = EventSourcingExtension().bind_aggregate(
+        repository=ItemRepository,
+        event_types=[ItemCreated],
+    )
+
+    @module(imports=[EventSourcingModule.register(config)], extensions=[es_ext])
+    class ItemModule:
+        pass
+
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        async with create_test_app(imports=[ItemModule]):
+            pass
+
+
+def test_frozen_registry_rejects_merge() -> None:
+    registry = EventSourcingRegistry()
+    registry.freeze()
+
+    with pytest.raises(RegistryFrozenError):
+        registry.merge(EventSourcingRegistry())

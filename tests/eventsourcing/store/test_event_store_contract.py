@@ -644,6 +644,34 @@ async def test_session_usable_after_savepoint_race_recovery(
     assert await store.stream_exists(other_stream) is True
 
 
+async def test_append_empty_events_validates_version_and_returns_current(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    await store.append_to_stream(
+        stream_id,
+        [make_envelope(OrderCreated(order_id='123'))],
+        expected_version=NoStream(),
+    )
+
+    version = await store.append_to_stream(stream_id, [], expected_version=Exact(version=0))
+    assert version == 0
+
+
+async def test_append_empty_events_raises_on_wrong_version(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    await store.append_to_stream(
+        stream_id,
+        [make_envelope(OrderCreated(order_id='123'))],
+        expected_version=NoStream(),
+    )
+
+    with pytest.raises(ConcurrencyConflictError):
+        await store.append_to_stream(stream_id, [], expected_version=Exact(version=99))
+
+
 async def test_stream_version_consistent_after_savepoint_race_recovery(
     request: pytest.FixtureRequest,
     mocker: MockerFixture,
