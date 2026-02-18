@@ -19,7 +19,6 @@ from waku.eventsourcing.contracts.stream import StreamId, StreamPosition
 from waku.eventsourcing.exceptions import (
     ConcurrencyConflictError,
     DuplicateIdempotencyKeyError,
-    EventSourcingError,
     PartialDuplicateAppendError,
     StreamNotFoundError,
 )
@@ -102,7 +101,7 @@ class SqlAlchemyEventStore(IEventStore):
                 offset = 0
             case int() as offset:
                 pass
-            case _:
+            case _:  # pragma: no cover
                 assert_never(start)
 
         query = (
@@ -138,8 +137,7 @@ class SqlAlchemyEventStore(IEventStore):
         row: Any = result.one_or_none()
 
         if row is None:
-            await self._ensure_stream_exists(stream_id)
-            return []
+            raise StreamNotFoundError(stream_id)
 
         return [
             row_to_stored_event(
@@ -221,7 +219,7 @@ class SqlAlchemyEventStore(IEventStore):
                     stream_id,
                     reason='conflict with existing keys',
                 ) from exc  # pragma: no cover
-            raise
+            raise  # pragma: no cover
 
         for projection in self._projections:
             await projection.project(stored_events)
@@ -251,10 +249,7 @@ class SqlAlchemyEventStore(IEventStore):
 
         if existing_keys == unique_keys:
             stream_row = await self._get_stream(key)
-            if stream_row is None:  # pragma: no cover
-                msg = f'Idempotency keys found but stream {stream_id} does not exist'
-                raise EventSourcingError(msg)
-            return int(stream_row.version)
+            return int(stream_row.version)  # stream must exist if events with these keys exist
 
         raise PartialDuplicateAppendError(stream_id, len(existing_keys), len(keys))
 
@@ -300,7 +295,7 @@ class SqlAlchemyEventStore(IEventStore):
                 updated_at=sa_func.now(),
             )
         )
-        if result.rowcount != 1:  # type: ignore[attr-defined]
+        if result.rowcount != 1:  # type: ignore[attr-defined]  # pragma: no cover
             raise ConcurrencyConflictError(stream_id, expected_version, new_version)
 
     async def _insert_events(

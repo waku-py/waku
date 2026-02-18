@@ -11,7 +11,6 @@ from waku.eventsourcing.contracts.event import EventEnvelope, IMetadataEnricher,
 from waku.eventsourcing.contracts.stream import StreamPosition
 from waku.eventsourcing.exceptions import (
     DuplicateIdempotencyKeyError,
-    EventSourcingError,
     PartialDuplicateAppendError,
     StreamNotFoundError,
 )
@@ -62,7 +61,7 @@ class InMemoryEventStore(IEventStore):
                     offset = max(len(events) - 1, 0)
                 case int() as offset:
                     pass
-                case _:
+                case _:  # pragma: no cover
                     assert_never(start)
             subset = events[offset:]
             if count is not None:
@@ -166,9 +165,6 @@ class InMemoryEventStore(IEventStore):
             return None
 
         if found == unique_keys:
-            if str(stream_id) not in self._streams:  # pragma: no cover
-                msg = f'Idempotency keys found but stream {stream_id} does not exist'
-                raise EventSourcingError(msg)
             return current_version
 
         raise PartialDuplicateAppendError(stream_id, len(found), len(keys))

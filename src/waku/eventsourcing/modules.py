@@ -248,7 +248,7 @@ class EventSourcingExtension(OnModuleConfigure):
         args = resolve_generic_args(repo_type, DeciderRepository)
         if args and len(args) == 3:  # noqa: PLR2004
             return IDecider[args[0], args[1], args[2]]  # type: ignore[valid-type]
-        return IDecider
+        return IDecider  # pragma: no cover
 
 
 class EventSourcingRegistryAggregator(OnModuleRegistration):
