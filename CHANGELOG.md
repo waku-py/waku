@@ -2,6 +2,42 @@
 
 <!-- version list -->
 
+## v0.30.0 (2026-02-18)
+
+### 🪲 Bug Fixes
+
+- **core**: Fix build phase mutations for multiple factory calls in single process
+  ([`08b6f17`](https://github.com/waku-py/waku/commit/08b6f17bc50c696aab57821ddf8d1008b82dd8a6))
+
+- **es**: Figure out idempotency issues
+  ([`dc99ef7`](https://github.com/waku-py/waku/commit/dc99ef7ee13ef8fd5f366859a8855c67c6013b60))
+
+- **es**: Remove invariants protection dead branches
+  ([`b30e469`](https://github.com/waku-py/waku/commit/b30e469956bc23b0b54a97807c8baa8acc79de12))
+
+### 📖 Documentation
+
+- Add ask context7 widget
+  ([`1288bea`](https://github.com/waku-py/waku/commit/1288bea6bc92c857e5cb17b75c9149f011ff0011))
+
+- Refine introduction to have selling points section
+  ([`3991e27`](https://github.com/waku-py/waku/commit/3991e2771d065ac993b0b6ddc25586310bae45fd))
+
+- Refine introduction with better structure
+  ([`5b21690`](https://github.com/waku-py/waku/commit/5b2169048a59ff937ee4c7a19a1a58d40fa9c575))
+
+- **es**: Reflect idempotency and schema versioning
+  ([`bca5806`](https://github.com/waku-py/waku/commit/bca5806887ca2ff7d1f7dabc4e27f20ce635cd81))
+
+### ✨ Features
+
+- **es**: Add idempotency handling to event sourcing events stores
+  ([`feb9e05`](https://github.com/waku-py/waku/commit/feb9e051b089bcc9d5035e9ce47bc12f2c9231cb))
+
+- **es**: Add snapshot schema versioning and large stream guard
+  ([`e25369a`](https://github.com/waku-py/waku/commit/e25369a05cb905ada7d7e9f0d8fc4aee13d55217))
+
+
 ## v0.29.0 (2026-02-16)
 
 ### ✨ Features
