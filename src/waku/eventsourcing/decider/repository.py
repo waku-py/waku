@@ -6,6 +6,7 @@ import uuid
 from typing import ClassVar, Final, Generic
 
 from waku.eventsourcing._introspection import is_abstract, resolve_generic_args
+from waku.eventsourcing._stream_helpers import read_aggregate_stream
 from waku.eventsourcing.contracts.aggregate import (  # Dishka needs runtime access
     CommandT,
     EventT,
@@ -15,10 +16,8 @@ from waku.eventsourcing.contracts.aggregate import (  # Dishka needs runtime acc
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
 from waku.eventsourcing.exceptions import (
-    AggregateNotFoundError,
     SnapshotTypeMismatchError,
     StreamNotFoundError,
-    StreamTooLargeError,
 )
 from waku.eventsourcing.serialization.interfaces import (
     ISnapshotStateSerializer,  # noqa: TC001  # Dishka needs runtime access
@@ -73,16 +72,13 @@ class DeciderRepository(abc.ABC, Generic[StateT, CommandT, EventT]):
 
     async def load(self, aggregate_id: str) -> tuple[StateT, int]:
         stream_id = self._stream_id(aggregate_id)
-        count = self.max_stream_length + 1 if self.max_stream_length is not None else None
-        try:
-            stored_events = await self._event_store.read_stream(stream_id, count=count)
-        except StreamNotFoundError:
-            raise AggregateNotFoundError(
-                aggregate_type=self.aggregate_name,
-                aggregate_id=aggregate_id,
-            ) from None
-        if self.max_stream_length is not None and len(stored_events) > self.max_stream_length:
-            raise StreamTooLargeError(stream_id, self.max_stream_length)
+        stored_events = await read_aggregate_stream(
+            self._event_store,
+            stream_id,
+            aggregate_name=self.aggregate_name,
+            aggregate_id=aggregate_id,
+            max_stream_length=self.max_stream_length,
+        )
         state = self._decider.initial_state()
         for stored in stored_events:
             state = self._decider.evolve(state, stored.data)  # type: ignore[arg-type]
