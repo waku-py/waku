@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from waku.eventsourcing.exceptions import SnapshotTypeMismatchError
@@ -10,6 +11,8 @@ if TYPE_CHECKING:
     from waku.eventsourcing.contracts.stream import StreamId
     from waku.eventsourcing.snapshot.interfaces import ISnapshotStore
     from waku.eventsourcing.snapshot.registry import SnapshotConfig
+
+logger = logging.getLogger(__name__)
 
 
 class SnapshotManager:
@@ -74,5 +77,14 @@ class SnapshotManager:
             state_type=self._state_type_name,
             schema_version=self._config.schema_version,
         )
-        await self._store.save(snapshot)
+        try:
+            await self._store.save(snapshot)
+        except Exception:
+            logger.warning(
+                'Failed to save snapshot for stream %s at version %d, continuing without snapshot',
+                stream_id,
+                version,
+                exc_info=True,
+            )
+            return
         self._last_snapshot_versions[aggregate_id] = version

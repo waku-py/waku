@@ -188,6 +188,24 @@ async def test_load_with_mismatched_snapshot_type_raises(
         await repository.load('c-1')
 
 
+async def test_snapshot_save_failure_does_not_prevent_aggregate_save(
+    repository: CounterSnapshotRepository,
+    event_store: InMemoryEventStore,
+    snapshot_store: AsyncMock,
+) -> None:
+    snapshot_store.save.side_effect = RuntimeError('snapshot store unavailable')
+
+    version = await repository.save(
+        'c-1',
+        [Incremented(amount=1), Incremented(amount=2), Incremented(amount=3)],
+        expected_version=-1,
+    )
+
+    assert version == 2
+    stored = await event_store.read_stream(StreamId.for_aggregate('Counter', 'c-1'))
+    assert len(stored) == 3
+
+
 class AddDefaultValueMigration(ISnapshotMigration):
     from_version = 1
     to_version = 2

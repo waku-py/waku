@@ -151,6 +151,13 @@ class EventSourcingModule:
         if config_.store is not None:
             providers.append(scoped(IEventStore, config_.store))
         else:
+            warnings.warn(
+                'No event store configured — using InMemoryEventStore. '
+                'All events will be lost on restart. '
+                'Configure EventSourcingConfig(store=...) for production use.',
+                UserWarning,
+                stacklevel=2,
+            )
             providers.append(scoped(WithParents[IEventStore], InMemoryEventStore))  # ty:ignore[not-subscriptable]
 
         if config_.event_serializer is not None:

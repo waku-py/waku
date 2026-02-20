@@ -691,6 +691,20 @@ async def test_snapshot_migration_target_rejects_chain_not_starting_at_version_1
             pass  # pragma: no cover
 
 
+async def test_warns_when_no_event_store_configured() -> None:
+    with pytest.warns(UserWarning, match='No event store configured.*InMemoryEventStore'):
+        async with create_test_app(imports=[EventSourcingModule.register()]):
+            pass
+
+
+async def test_no_warning_when_event_store_explicitly_configured() -> None:
+    config = EventSourcingConfig(store=InMemoryEventStore)
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        async with create_test_app(imports=[EventSourcingModule.register(config)]):
+            pass
+
+
 async def test_warns_when_serializer_configured_but_no_event_types() -> None:
     config = EventSourcingConfig(event_serializer=JsonEventSerializer)
 
