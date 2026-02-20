@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import abc
+import inspect
 import typing
 
 from typing_extensions import get_original_bases
 
-__all__ = ['resolve_generic_args']
+__all__ = ['is_abstract', 'resolve_generic_args']
+
+
+def is_abstract(cls: type) -> bool:
+    return inspect.isabstract(cls) or abc.ABC in cls.__bases__
 
 
 def resolve_generic_args(cls: type, base_class: type) -> tuple[type, ...] | None:

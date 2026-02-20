@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
 from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import NoStream, StreamId
-from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection
+from waku.eventsourcing.projection.interfaces import ICatchUpProjection
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 
 if TYPE_CHECKING:
@@ -42,7 +42,6 @@ class RecordingProjection(ICatchUpProjection):
 
 class StopProjection(ICatchUpProjection):
     projection_name = 'stop_proj'
-    error_policy: ClassVar[ErrorPolicy] = ErrorPolicy.STOP
 
     @override
     async def project(self, events: Sequence[StoredEvent], /) -> None:

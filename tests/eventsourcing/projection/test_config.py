@@ -10,7 +10,6 @@ from waku.eventsourcing.projection.config import CatchUpProjectionConfig, LeaseC
 def test_catch_up_config_defaults() -> None:
     config = CatchUpProjectionConfig()
     assert config.batch_size == 100
-    assert config.max_attempts == 3
     assert config.base_retry_delay_seconds == 10.0
     assert config.max_retry_delay_seconds == 300.0
     assert config.poll_interval_min_seconds == 0.5

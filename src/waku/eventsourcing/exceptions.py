@@ -19,7 +19,6 @@ __all__ = [
     'ProjectionError',
     'ProjectionStoppedError',
     'RegistryFrozenError',
-    'RetryExhaustedError',
     'SnapshotConfigNotFoundError',
     'SnapshotMigrationChainError',
     'SnapshotTypeMismatchError',
@@ -132,14 +131,6 @@ class ProjectionStoppedError(ProjectionError):
         self.projection_name = projection_name
         self.cause = cause
         super().__init__(f'Projection {projection_name!r} stopped due to error: {cause}')
-
-
-class RetryExhaustedError(ProjectionError):
-    def __init__(self, projection_name: str, attempts: int, cause: Exception) -> None:
-        self.projection_name = projection_name
-        self.attempts = attempts
-        self.cause = cause
-        super().__init__(f'Projection {projection_name!r} exhausted {attempts} retry attempts: {cause}')
 
 
 class DuplicateIdempotencyKeyError(EventSourcingError):

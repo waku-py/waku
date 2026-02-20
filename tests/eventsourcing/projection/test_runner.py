@@ -8,9 +8,10 @@ import pytest
 from typing_extensions import override
 
 from waku.di import object_
+from waku.eventsourcing.modules import CatchUpProjectionBinding
 from waku.eventsourcing.projection.config import CatchUpProjectionConfig
 from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
-from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore
+from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, ICheckpointStore
 from waku.eventsourcing.projection.lock.in_memory import InMemoryProjectionLock
 from waku.eventsourcing.projection.lock.interfaces import IProjectionLock
 from waku.eventsourcing.projection.runner import CatchUpProjectionRunner
@@ -77,7 +78,7 @@ async def test_runner_processes_all_events() -> None:
         runner = CatchUpProjectionRunner(
             container=app.container,
             lock=lock,
-            projection_types=[RecordingProjection],
+            bindings=[CatchUpProjectionBinding(projection=RecordingProjection)],
             config=_FAST_CONFIG,
         )
 
@@ -102,7 +103,7 @@ async def test_runner_exits_when_no_projections() -> None:
         runner = CatchUpProjectionRunner(
             container=app.container,
             lock=lock,
-            projection_types=[],
+            bindings=[],
             config=_FAST_CONFIG,
         )
 
@@ -123,7 +124,7 @@ async def test_runner_respects_shutdown() -> None:
         runner = CatchUpProjectionRunner(
             container=app.container,
             lock=lock,
-            projection_types=[RecordingProjection],
+            bindings=[CatchUpProjectionBinding(projection=RecordingProjection)],
             config=_FAST_CONFIG,
         )
 
@@ -148,7 +149,7 @@ async def test_rebuild_resets_and_reprocesses() -> None:
         runner = CatchUpProjectionRunner(
             container=app.container,
             lock=lock,
-            projection_types=[RecordingProjection],
+            bindings=[CatchUpProjectionBinding(projection=RecordingProjection)],
             config=_FAST_CONFIG,
         )
 
@@ -172,7 +173,7 @@ async def test_rebuild_unknown_projection_raises() -> None:
     runner = CatchUpProjectionRunner(
         container=None,  # type: ignore[arg-type]
         lock=lock,
-        projection_types=[RecordingProjection],
+        bindings=[CatchUpProjectionBinding(projection=RecordingProjection)],
         config=_FAST_CONFIG,
     )
 
@@ -195,7 +196,7 @@ async def test_runner_skips_locked_projection() -> None:
         runner = CatchUpProjectionRunner(
             container=app.container,
             lock=lock,
-            projection_types=[RecordingProjection],
+            bindings=[CatchUpProjectionBinding(projection=RecordingProjection)],
             config=_FAST_CONFIG,
         )
 
@@ -224,7 +225,10 @@ async def test_runner_isolates_projection_errors() -> None:
         runner = CatchUpProjectionRunner(
             container=app.container,
             lock=lock,
-            projection_types=[RecordingProjection, StopProjection],
+            bindings=[
+                CatchUpProjectionBinding(projection=RecordingProjection),
+                CatchUpProjectionBinding(projection=StopProjection, error_policy=ErrorPolicy.STOP),
+            ],
             config=_FAST_CONFIG,
         )
 

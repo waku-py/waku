@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 from typing_extensions import override
 
-from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, IProjection
+from waku.eventsourcing.projection.interfaces import ICatchUpProjection, IProjection
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -66,16 +66,6 @@ def test_catch_up_projection_with_name_succeeds() -> None:
     assert GoodCatchUp.projection_name == 'good_catch_up'
 
 
-def test_catch_up_projection_default_error_policy_is_retry() -> None:
-    class MyCatchUp(ICatchUpProjection):
-        projection_name = 'my_catch_up'
-
-        @override
-        async def project(self, events: Sequence[StoredEvent], /) -> None: ...
-
-    assert MyCatchUp.error_policy is ErrorPolicy.RETRY
-
-
 async def test_catch_up_projection_default_teardown_is_noop() -> None:
     class MyCatchUp(ICatchUpProjection):
         projection_name = 'my_catch_up'
@@ -85,6 +75,17 @@ async def test_catch_up_projection_default_teardown_is_noop() -> None:
 
     projection = MyCatchUp()
     await projection.teardown()
+
+
+async def test_catch_up_projection_on_skip_default_is_noop() -> None:
+    class MyCatchUp(ICatchUpProjection):
+        projection_name = 'my_catch_up'
+
+        @override
+        async def project(self, events: Sequence[StoredEvent], /) -> None: ...
+
+    projection = MyCatchUp()
+    await projection.on_skip([], RuntimeError('test'))
 
 
 def test_abstract_catch_up_subclass_without_name_is_allowed() -> None:
