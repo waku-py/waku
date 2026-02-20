@@ -75,9 +75,7 @@ Wire everything together and send commands through the mediator:
 --8<-- "docs/code/eventsourcing/quickstart/main.py"
 ```
 
-!!! tip
-    The default `EventSourcingConfig()` uses an in-memory event store — perfect for
-    prototyping. See [Event Store](event-store.md) for PostgreSQL setup.
+See [Event Store](event-store.md) for PostgreSQL setup.
 
 ## Functional Deciders
 

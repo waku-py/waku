@@ -192,6 +192,7 @@ async def test_snapshot_save_failure_does_not_prevent_aggregate_save(
     repository: CounterSnapshotRepository,
     event_store: InMemoryEventStore,
     snapshot_store: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     snapshot_store.save.side_effect = RuntimeError('snapshot store unavailable')
 
@@ -204,6 +205,7 @@ async def test_snapshot_save_failure_does_not_prevent_aggregate_save(
     assert version == 2
     stored = await event_store.read_stream(StreamId.for_aggregate('Counter', 'c-1'))
     assert len(stored) == 3
+    assert 'Failed to save snapshot' in caplog.text
 
 
 class AddDefaultValueMigration(ISnapshotMigration):

@@ -57,18 +57,15 @@ Implement `ICatchUpProjection` for projections that run asynchronously in a back
 Catch-up projections poll the event store, process events in batches, and checkpoint their progress.
 
 !!! warning "At-least-once delivery"
-    Catch-up projections have **at-least-once** delivery semantics. The checkpoint is saved
-    *after* `project()` processes a batch. If the process crashes between projection and
-    checkpoint save, the same batch will be re-delivered on restart.
+    The checkpoint is saved *after* `project()` processes a batch. If the process crashes
+    between projection and checkpoint save, the same batch will be re-delivered on restart.
 
-    This means `project()` **must** be **idempotent** — reprocessing the same events must
-    produce the same result. Use upserts instead of inserts, or track already-processed
-    event positions.
+    `project()` **must** be idempotent.
 
 Error handling is configured per-projection via `CatchUpProjectionBinding` (defaults to
 `ErrorPolicy.STOP` with no retries — see [Error Policies](#error-policies)). Each catch-up
 projection also has an optional `teardown()` method called during rebuilds to clean up existing
-state, and an optional `on_skip()` hook called when a batch is skipped.
+state, and an optional `on_skip(events, error)` hook called when a batch is skipped.
 
 ```python linenums="1"
 --8<-- "docs/code/eventsourcing/projections/catch_up.py"
@@ -80,7 +77,8 @@ Register catch-up projections via `bind_catch_up_projections()`:
 from waku.eventsourcing.modules import CatchUpProjectionBinding
 from waku.eventsourcing.projection.interfaces import ErrorPolicy
 
-EventSourcingExtension()
+(
+    EventSourcingExtension()
     .bind_aggregate(
         repository=BankAccountRepository,
         event_types=[AccountOpened, MoneyDeposited, MoneyWithdrawn],
@@ -92,6 +90,7 @@ EventSourcingExtension()
             max_retry_attempts=3,
         ),
     ])
+)
 ```
 
 ## Error Policies
@@ -291,6 +290,12 @@ or another service), write a **catch-up projection** that reads from the event s
 publishes to your message broker:
 
 ```python
+from collections.abc import Sequence
+
+from waku.eventsourcing.contracts.event import StoredEvent
+from waku.eventsourcing.projection.interfaces import ICatchUpProjection
+
+
 class OrderEventPublisher(ICatchUpProjection):
     projection_name = 'order_event_publisher'
 
@@ -306,16 +311,7 @@ class OrderEventPublisher(ICatchUpProjection):
             )
 ```
 
-This pattern gives you:
-
-- **Guaranteed delivery** — the catch-up projection processes every event, resuming from
-  the last checkpoint after crashes.
-- **Ordering** — events are delivered in global position order.
-- **Decoupling** — the write path has no knowledge of messaging infrastructure.
-
-!!! tip
-    The publisher projection must be idempotent (see [at-least-once delivery](#catch-up-projections)).
-    Most message brokers support idempotent producers or deduplication by message key.
+The same [at-least-once semantics](#catch-up-projections) apply.
 
 ## Further reading
 

@@ -7,7 +7,8 @@ from typing_extensions import override
 from waku.cqrs import MediatorExtension, MediatorModule, Request
 from waku.cqrs.interfaces import IMediator
 from waku.eventsourcing.decider.handler import DeciderVoidCommandHandler
-from waku.eventsourcing.modules import EventSourcingExtension, EventSourcingModule
+from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
+from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.modules import module
 from waku.testing import create_test_app
 
@@ -37,7 +38,10 @@ class IncrementCounterHandler(DeciderVoidCommandHandler[IncrementCounter, Counte
 
 async def test_bind_decider_integrates_with_di_and_mediator() -> None:
     @module(
-        imports=[EventSourcingModule.register(), MediatorModule.register()],
+        imports=[
+            EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore)),
+            MediatorModule.register(),
+        ],
         extensions=[
             EventSourcingExtension().bind_decider(
                 repository=CounterRepository,

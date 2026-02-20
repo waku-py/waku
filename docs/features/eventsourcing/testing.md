@@ -63,14 +63,11 @@ The pattern for testing OOP aggregates: create the aggregate, optionally call `l
 
 ## Integration Testing
 
-For integration tests, use `InMemoryEventStore` (the default) — no database needed. Combine it with `waku.testing.create_test_app()` to create minimal test applications.
+For integration tests, use `InMemoryEventStore` — no database needed. Combine it with `waku.testing.create_test_app()` to create minimal test applications.
 
 ```python linenums="1"
 --8<-- "docs/code/eventsourcing/testing/integration_test.py"
 ```
-
-!!! tip
-    The default `EventSourcingConfig()` already uses in-memory stores, so no extra configuration is needed for tests.
 
 ## Further reading
 

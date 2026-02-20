@@ -400,6 +400,7 @@ async def test_snapshot_save_failure_does_not_prevent_aggregate_save(
     repository: BankAccountRepository,
     event_store: InMemoryEventStore,
     snapshot_store: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     snapshot_store.save.side_effect = RuntimeError('snapshot store unavailable')
 
@@ -413,3 +414,4 @@ async def test_snapshot_save_failure_does_not_prevent_aggregate_save(
     assert len(events) == 3
     stored = await event_store.read_stream(StreamId.for_aggregate('BankAccount', 'acc-1'))
     assert len(stored) == 3
+    assert 'Failed to save snapshot' in caplog.text

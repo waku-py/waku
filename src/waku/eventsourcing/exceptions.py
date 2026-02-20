@@ -14,6 +14,7 @@ __all__ = [
     'DuplicateAggregateNameError',
     'DuplicateEventTypeError',
     'DuplicateIdempotencyKeyError',
+    'EventSourcingConfigError',
     'EventSourcingError',
     'PartialDuplicateAppendError',
     'ProjectionError',
@@ -30,6 +31,10 @@ __all__ = [
 
 
 class EventSourcingError(WakuError):
+    pass
+
+
+class EventSourcingConfigError(EventSourcingError):
     pass
 
 

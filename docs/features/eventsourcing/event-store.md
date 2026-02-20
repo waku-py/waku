@@ -63,14 +63,14 @@ class IEventStore(IEventReader, IEventWriter, abc.ABC):
 
 ## In-Memory Store
 
-`InMemoryEventStore` is the default store used when no explicit store is configured:
+`InMemoryEventStore` stores all events in memory with thread-safe locking via `anyio.Lock`.
+Suitable for development, testing, and prototyping.
 
 ```python
-config = EventSourcingConfig()  # uses InMemoryEventStore
-```
+from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
-It stores all events in memory with thread-safe locking via `anyio.Lock`. Suitable for
-development, testing, and prototyping.
+config = EventSourcingConfig(store=InMemoryEventStore)
+```
 
 !!! warning
     In-memory data is lost when the process exits. Do not use this in production.
