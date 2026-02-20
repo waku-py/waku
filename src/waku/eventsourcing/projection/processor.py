@@ -106,6 +106,7 @@ class ProjectionProcessor:
             return 0
 
         if self._error_policy is ErrorPolicy.STOP:
+            self._attempts = 0
             raise ProjectionStoppedError(self._projection_name, exc)
 
         # ErrorPolicy.SKIP

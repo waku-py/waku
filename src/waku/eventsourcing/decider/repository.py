@@ -106,6 +106,8 @@ class DeciderRepository(abc.ABC, Generic[StateT, CommandT, EventT]):
 
 
 class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc.ABC):
+    snapshot_state_type: ClassVar[str | None] = None
+
     def __init__(
         self,
         decider: IDecider[StateT, CommandT, EventT],
@@ -121,7 +123,7 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
         self._snapshot_manager = SnapshotManager(
             store=snapshot_store,
             config=config,
-            state_type_name=self._state_type.__name__,  # state class name, not aggregate name
+            state_type_name=self.snapshot_state_type or self._state_type.__name__,
         )
 
     async def load(self, aggregate_id: str) -> tuple[StateT, int]:

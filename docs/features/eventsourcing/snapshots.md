@@ -56,10 +56,37 @@ Both aggregate styles have a snapshot-aware repository variant:
     --8<-- "docs/code/eventsourcing/snapshots/decider_repository.py"
     ```
 
+### Overriding `snapshot_state_type`
+
+Each snapshot stores a `state_type` string as a type guard — if the stored value doesn't match
+on load, `SnapshotTypeMismatchError` is raised. By default:
+
+- **OOP**: `state_type` = `aggregate_name` (the aggregate class name)
+- **Decider**: `state_type` = the state class name (e.g., `CounterState`)
+
+If you rename a state or aggregate class, existing snapshots break. Override `snapshot_state_type`
+to pin the stored name:
+
+=== "OOP Aggregate"
+
+    ```python
+    class BankAccountSnapshotRepository(SnapshotEventSourcedRepository[BankAccount]):
+        snapshot_state_type = 'BankAccount'  # pinned — survives class renames
+        ...
+    ```
+
+=== "Functional Decider"
+
+    ```python
+    class BankAccountSnapshotRepository(SnapshotDeciderRepository[BankAccountState, BankCommand, INotification]):
+        snapshot_state_type = 'BankAccountState'  # pinned — survives class renames
+        ...
+    ```
+
 When loading, the snapshot repository first checks for a stored snapshot. If one exists, it
-verifies the schema version — applying migrations if needed or falling back to full replay
-if no migration path is available (see [Schema Versioning](#schema-versioning)). It then
-deserializes the state and replays only the events recorded *after* the snapshot version.
+verifies the `state_type` and schema version — applying migrations if needed or falling back
+to full replay if no migration path is available (see [Schema Versioning](#schema-versioning)).
+It then deserializes the state and replays only the events recorded *after* the snapshot version.
 If no snapshot is found, it falls back to full replay.
 
 ```mermaid
@@ -116,7 +143,7 @@ The `Snapshot` dataclass carries the serialized state:
 | `stream_id` | `StreamId` | Stream identifier (e.g., `StreamId.for_aggregate('BankAccount', 'acc-1')`) |
 | `state` | `dict[str, Any]` | Serialized aggregate state |
 | `version` | `int` | Stream version at snapshot time |
-| `state_type` | `str` | State class name (for type safety on load) |
+| `state_type` | `str` | Type guard verified on load (see [`snapshot_state_type`](#overriding-snapshot_state_type)) |
 | `schema_version` | `int` | Schema version (defaults to `1`) |
 
 Built-in implementations:
@@ -247,7 +274,7 @@ additional constructor arguments (e.g., `snapshot_store=make_sqlalchemy_snapshot
 | `stream_id` | `Text` | **PK** | Stream identifier (one snapshot per stream) |
 | `state` | `JSONB` | NOT NULL | Serialized aggregate state |
 | `version` | `Integer` | NOT NULL | Stream version at snapshot time |
-| `state_type` | `Text` | NOT NULL | State class name (for type safety on load) |
+| `state_type` | `Text` | NOT NULL | Type guard checked on load; controlled by `snapshot_state_type` |
 | `schema_version` | `Integer` | NOT NULL, default `1` | Schema version for snapshot migrations |
 | `created_at` | `TIMESTAMP WITH TIME ZONE` | default `now()` | First snapshot time |
 | `updated_at` | `TIMESTAMP WITH TIME ZONE` | default `now()`, auto-update | Last snapshot update time |

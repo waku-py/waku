@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import abc
-from typing import TYPE_CHECKING, Generic, TypeVar
+from typing import TYPE_CHECKING, ClassVar, Generic, TypeVar
 
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.exceptions import StreamNotFoundError
@@ -24,6 +24,8 @@ AggregateT = TypeVar('AggregateT', bound=EventSourcedAggregate)
 
 
 class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC, Generic[AggregateT]):
+    snapshot_state_type: ClassVar[str | None] = None
+
     def __init__(
         self,
         event_store: IEventStore,
@@ -37,7 +39,7 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
         self._snapshot_manager = SnapshotManager(
             store=snapshot_store,
             config=config,
-            state_type_name=self.aggregate_name,  # aggregate name identifies the snapshotted state
+            state_type_name=self.snapshot_state_type or self.aggregate_name,
         )
 
     async def load(self, aggregate_id: str) -> AggregateT:
