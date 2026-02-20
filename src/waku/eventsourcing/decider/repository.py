@@ -15,18 +15,12 @@ from waku.eventsourcing.contracts.aggregate import (  # Dishka needs runtime acc
 )
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
-from waku.eventsourcing.exceptions import (
-    SnapshotTypeMismatchError,
-    StreamNotFoundError,
-)
+from waku.eventsourcing.exceptions import StreamNotFoundError
 from waku.eventsourcing.serialization.interfaces import (
     ISnapshotStateSerializer,  # noqa: TC001  # Dishka needs runtime access
 )
-from waku.eventsourcing.snapshot.interfaces import (  # Dishka needs runtime access
-    ISnapshotStore,
-    Snapshot,
-)
-from waku.eventsourcing.snapshot.migration import migrate_snapshot_or_discard
+from waku.eventsourcing.snapshot.interfaces import ISnapshotStore  # noqa: TC001  # Dishka needs runtime access
+from waku.eventsourcing.snapshot.manager import SnapshotManager
 from waku.eventsourcing.snapshot.registry import SnapshotConfigRegistry  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Dishka needs runtime access
 
@@ -121,35 +115,20 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
         state_serializer: ISnapshotStateSerializer,
     ) -> None:
         super().__init__(decider, event_store)
-        self._snapshot_store = snapshot_store
         self._state_serializer = state_serializer
-        self._last_snapshot_versions: dict[str, int] = {}
         self._state_type: type[StateT] = type(self._decider.initial_state())
-        snapshot_config = snapshot_config_registry.get(self.aggregate_name)
-        self._snapshot_strategy = snapshot_config.strategy
-        self._snapshot_schema_version = snapshot_config.schema_version
-        self._migration_chain = snapshot_config.migration_chain
+        config = snapshot_config_registry.get(self.aggregate_name)
+        self._snapshot_manager = SnapshotManager(
+            store=snapshot_store,
+            config=config,
+            state_type_name=self._state_type.__name__,  # state class name, not aggregate name
+        )
 
     async def load(self, aggregate_id: str) -> tuple[StateT, int]:
         stream_id = self._stream_id(aggregate_id)
-        snapshot = await self._snapshot_store.load(stream_id)
+        snapshot = await self._snapshot_manager.load_snapshot(stream_id, aggregate_id)
 
         if snapshot is not None:
-            if snapshot.state_type != self._state_type.__name__:
-                raise SnapshotTypeMismatchError(stream_id, self._state_type.__name__, snapshot.state_type)
-
-            if snapshot.schema_version != self._snapshot_schema_version:
-                snapshot = migrate_snapshot_or_discard(
-                    self._migration_chain,
-                    snapshot,
-                    self._snapshot_schema_version,
-                    stream_id,
-                )
-                if snapshot is None:
-                    self._last_snapshot_versions[aggregate_id] = -1
-                    return await super().load(aggregate_id)
-
-            self._last_snapshot_versions[aggregate_id] = snapshot.version
             state = self._state_serializer.deserialize(snapshot.state, self._state_type)
             try:
                 stored_events = await self._event_store.read_stream(stream_id, start=snapshot.version + 1)
@@ -160,7 +139,6 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
             version = snapshot.version + len(stored_events)
             return state, version
 
-        self._last_snapshot_versions[aggregate_id] = -1
         return await super().load(aggregate_id)
 
     async def save(
@@ -180,23 +158,13 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
             idempotency_key=idempotency_key,
         )
 
-        if events:
-            last_snapshot_version = self._last_snapshot_versions.get(aggregate_id, -1)
-            events_since_snapshot = new_version - last_snapshot_version
-            if self._snapshot_strategy.should_snapshot(new_version, events_since_snapshot):
-                if current_state is not None:
-                    state = current_state
-                else:
-                    state, _ = await self.load(aggregate_id)
-                state_data = self._state_serializer.serialize(state)
-                new_snapshot = Snapshot(
-                    stream_id=self._stream_id(aggregate_id),
-                    state=state_data,
-                    version=new_version,
-                    state_type=self._state_type.__name__,
-                    schema_version=self._snapshot_schema_version,
-                )
-                await self._snapshot_store.save(new_snapshot)
-                self._last_snapshot_versions[aggregate_id] = new_version
+        if events and self._snapshot_manager.should_save(aggregate_id, new_version):
+            if current_state is not None:
+                state = current_state
+            else:
+                state, _ = await self.load(aggregate_id)
+            state_data = self._state_serializer.serialize(state)
+            stream_id = self._stream_id(aggregate_id)
+            await self._snapshot_manager.save_snapshot(stream_id, aggregate_id, state_data, new_version)
 
         return new_version
