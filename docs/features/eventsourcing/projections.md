@@ -60,9 +60,10 @@ Catch-up projections poll the event store, process events in batches, and checkp
     Catch-up projections **must** be **idempotent** — reprocessing the same events (e.g., after
     a crash before commit) must produce the same result.
 
-Error handling is configured per-projection via `CatchUpProjectionBinding` (see [Error Policies](#error-policies)).
-Each catch-up projection also has an optional `teardown()` method called during rebuilds to
-clean up existing state, and an optional `on_skip()` hook called when a batch is skipped.
+Error handling is configured per-projection via `CatchUpProjectionBinding` (defaults to
+`ErrorPolicy.STOP` with no retries — see [Error Policies](#error-policies)). Each catch-up
+projection also has an optional `teardown()` method called during rebuilds to clean up existing
+state, and an optional `on_skip()` hook called when a batch is skipped.
 
 ```python linenums="1"
 --8<-- "docs/code/eventsourcing/projections/catch_up.py"

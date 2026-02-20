@@ -126,6 +126,24 @@ async def test_save_triggers_snapshot_when_strategy_says_yes(
     assert saved_snapshot.state == {'value': 6}
 
 
+async def test_save_uses_provided_state_for_snapshot(
+    repository: CounterSnapshotRepository,
+    snapshot_store: AsyncMock,
+) -> None:
+    state = CounterState(value=6)
+
+    await repository.save(
+        'c-3',
+        [Incremented(amount=1), Incremented(amount=2), Incremented(amount=3)],
+        expected_version=-1,
+        current_state=state,
+    )
+
+    snapshot_store.save.assert_called_once()
+    saved_snapshot: Snapshot = snapshot_store.save.call_args[0][0]
+    assert saved_snapshot.state == {'value': 6}
+
+
 async def test_save_skips_snapshot_when_strategy_says_no(
     repository: CounterSnapshotRepository,
     snapshot_store: AsyncMock,
