@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -13,6 +12,7 @@ from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.event import EventMetadata, IMetadataEnricher
 from waku.eventsourcing.exceptions import (
     DuplicateAggregateNameError,
+    EventSourcingConfigError,
     RegistryFrozenError,
     SnapshotConfigNotFoundError,
     SnapshotMigrationChainError,
@@ -73,17 +73,6 @@ class ItemRepository(EventSourcedRepository[Item]):
 
 
 async def test_event_sourcing_module_registers_event_store() -> None:
-    async with (
-        create_test_app(
-            imports=[EventSourcingModule.register()],
-        ) as app,
-        app.container() as container,
-    ):
-        store = await container.get(IEventStore)
-        assert isinstance(store, InMemoryEventStore)
-
-
-async def test_event_sourcing_module_with_custom_config() -> None:
     config = EventSourcingConfig(store=InMemoryEventStore)
     async with (
         create_test_app(
@@ -99,7 +88,7 @@ async def test_event_sourcing_extension_binds_repository() -> None:
     es_ext = EventSourcingExtension().bind_aggregate(repository=ItemRepository)
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[es_ext],
     )
     class ItemModule:
@@ -125,7 +114,7 @@ async def test_event_type_descriptor_with_custom_name_and_aliases() -> None:
     )
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[es_ext],
     )
     class ItemModule:
@@ -174,7 +163,7 @@ async def test_catch_up_projections_registered_via_binding() -> None:
     ])
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[es_ext],
     )
     class TestItemModule:
@@ -192,7 +181,7 @@ async def test_catch_up_projections_bare_type_uses_defaults() -> None:
     es_ext.bind_catch_up_projections([SearchIndexProjection])
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[es_ext],
     )
     class TestItemModule:
@@ -209,7 +198,7 @@ async def test_no_catch_up_projections_resolves_empty_sequence() -> None:
     es_ext.bind_aggregate(repository=ItemRepository, event_types=[ItemCreated])
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[es_ext],
     )
     class TestItemModule:
@@ -226,7 +215,7 @@ async def test_catch_up_and_inline_projections_independent() -> None:
     es_ext.bind_catch_up_projections([SearchIndexProjection])
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[es_ext],
     )
     class TestItemModule:
@@ -249,7 +238,7 @@ class TraceIdEnricher(IMetadataEnricher):
 
 
 async def test_enrichers_registered_via_config() -> None:
-    config = EventSourcingConfig(enrichers=[TraceIdEnricher])
+    config = EventSourcingConfig(store=InMemoryEventStore, enrichers=[TraceIdEnricher])
 
     async with (
         create_test_app(imports=[EventSourcingModule.register(config)]) as app,
@@ -262,7 +251,7 @@ async def test_enrichers_registered_via_config() -> None:
 
 async def test_no_enrichers_resolves_empty_sequence() -> None:
     async with (
-        create_test_app(imports=[EventSourcingModule.register()]) as app,
+        create_test_app(imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))]) as app,
         app.container() as container,
     ):
         enrichers = await container.get(Sequence[IMetadataEnricher])
@@ -282,7 +271,7 @@ async def test_event_type_with_version_and_upcasters() -> None:
     )
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[es_ext],
     )
     class ItemModule:
@@ -310,7 +299,7 @@ async def test_upcaster_from_version_gte_event_version_raises() -> None:
     )
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[es_ext],
     )
     class ItemModule:
@@ -347,7 +336,7 @@ async def test_same_event_type_across_two_modules() -> None:
     )
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[producer_ext],
     )
     class ProducerModule:
@@ -381,7 +370,7 @@ async def test_same_event_type_with_aliases_across_two_modules() -> None:
     )
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[producer_ext],
     )
     class ProducerModule:
@@ -419,7 +408,7 @@ async def test_same_upcasters_across_two_modules() -> None:
     )
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[producer_ext],
     )
     class ProducerModule:
@@ -463,7 +452,7 @@ async def test_conflicting_upcasters_across_modules_raises() -> None:
     )
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[producer_ext],
     )
     class ProducerModule:
@@ -487,7 +476,7 @@ async def test_empty_upcaster_chain_always_registered() -> None:
     )
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[es_ext],
     )
     class ItemModule:
@@ -508,7 +497,7 @@ async def test_duplicate_aggregate_name_across_modules_raises() -> None:
     ext_b = EventSourcingExtension().bind_aggregate(repository=DuplicateItemRepository)
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[ext_a],
     )
     class ModuleA:
@@ -528,7 +517,7 @@ async def test_different_aggregate_names_across_modules_passes() -> None:
     ext_b = EventSourcingExtension().bind_aggregate(repository=ItemLogRepository)
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[ext_a],
     )
     class ModuleA:
@@ -549,7 +538,7 @@ async def test_snapshot_config_registry_resolvable_with_strategy() -> None:
     )
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[es_ext],
     )
     class ItemModule:
@@ -570,7 +559,7 @@ async def test_snapshot_config_registry_empty_when_no_strategy() -> None:
     )
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[es_ext],
     )
     class ItemModule:
@@ -612,7 +601,7 @@ async def test_snapshot_config_registry_with_schema_version_and_migrations() -> 
     )
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[es_ext],
     )
     class ItemModule:
@@ -636,7 +625,7 @@ async def test_snapshot_migration_target_rejects_schema_version_without_migratio
     )
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[es_ext],
     )
     class ItemModule:
@@ -658,7 +647,7 @@ async def test_snapshot_migration_target_rejects_chain_not_reaching_schema_versi
     )
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[es_ext],
     )
     class ItemModule:
@@ -680,7 +669,7 @@ async def test_snapshot_migration_target_rejects_chain_not_starting_at_version_1
     )
 
     @module(
-        imports=[EventSourcingModule.register()],
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
         extensions=[es_ext],
     )
     class ItemModule:
@@ -691,34 +680,20 @@ async def test_snapshot_migration_target_rejects_chain_not_starting_at_version_1
             pass  # pragma: no cover
 
 
-async def test_warns_when_no_event_store_configured() -> None:
-    with pytest.warns(UserWarning, match='No event store configured.*InMemoryEventStore'):
-        async with create_test_app(imports=[EventSourcingModule.register()]):
-            pass
-
-
-async def test_no_warning_when_event_store_explicitly_configured() -> None:
-    config = EventSourcingConfig(store=InMemoryEventStore)
-    with warnings.catch_warnings():
-        warnings.simplefilter('error')
-        async with create_test_app(imports=[EventSourcingModule.register(config)]):
-            pass
-
-
-async def test_warns_when_serializer_configured_but_no_event_types() -> None:
-    config = EventSourcingConfig(event_serializer=JsonEventSerializer)
+async def test_serializer_without_event_types_raises() -> None:
+    config = EventSourcingConfig(store=InMemoryEventStore, event_serializer=JsonEventSerializer)
 
     @module(imports=[EventSourcingModule.register(config)])
     class EmptyModule:
         pass
 
-    with pytest.warns(UserWarning, match='A serializer is configured but no event types were registered'):
+    with pytest.raises(EventSourcingConfigError, match='A serializer is configured but no event types were registered'):
         async with create_test_app(imports=[EmptyModule]):
-            pass
+            pass  # pragma: no cover
 
 
-async def test_no_warning_when_serializer_configured_with_event_types() -> None:
-    config = EventSourcingConfig(event_serializer=JsonEventSerializer)
+async def test_serializer_with_event_types_succeeds() -> None:
+    config = EventSourcingConfig(store=InMemoryEventStore, event_serializer=JsonEventSerializer)
     es_ext = EventSourcingExtension().bind_aggregate(
         repository=ItemRepository,
         event_types=[ItemCreated],
@@ -728,10 +703,8 @@ async def test_no_warning_when_serializer_configured_with_event_types() -> None:
     class ItemModule:
         pass
 
-    with warnings.catch_warnings():
-        warnings.simplefilter('error')
-        async with create_test_app(imports=[ItemModule]):
-            pass
+    async with create_test_app(imports=[ItemModule]):
+        pass
 
 
 def test_frozen_registry_rejects_merge() -> None:

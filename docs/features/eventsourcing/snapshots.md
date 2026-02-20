@@ -92,7 +92,9 @@ If no snapshot is found, it falls back to full replay.
 ```mermaid
 graph TD
     L[Load aggregate] --> CS{Snapshot exists?}
-    CS -->|Yes| SV{Schema version matches?}
+    CS -->|Yes| ST{state_type matches?}
+    ST -->|No| FR
+    ST -->|Yes| SV{Schema version matches?}
     SV -->|Yes| DS[Deserialize snapshot]
     SV -->|No| MG{Migration path?}
     MG -->|Yes| AP[Apply migrations] --> DS

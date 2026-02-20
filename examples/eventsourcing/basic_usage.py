@@ -35,6 +35,7 @@ from waku.eventsourcing import (
     EventSourcingExtension,
     EventSourcingModule,
 )
+from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -198,7 +199,7 @@ class BankModule:
 @module(
     imports=[
         BankModule,
-        EventSourcingModule.register(EventSourcingConfig()),  # in-memory store, defaults
+        EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore)),
         MediatorModule.register(),
     ],
 )

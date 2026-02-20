@@ -8,7 +8,7 @@ from typing_extensions import override
 from waku.cqrs import MediatorExtension, MediatorModule, Request
 from waku.cqrs.interfaces import IMediator, IPublisher
 from waku.eventsourcing.handler import EventSourcedVoidCommandHandler
-from waku.eventsourcing.modules import EventSourcingExtension, EventSourcingModule
+from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.modules import module
@@ -67,7 +67,10 @@ class CreateNoteWithIdempotencyKeyHandler(EventSourcedVoidCommandHandler[CreateN
 
 async def test_event_sourced_command_handler_creates_and_persists_aggregate() -> None:
     @module(
-        imports=[EventSourcingModule.register(), MediatorModule.register()],
+        imports=[
+            EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore)),
+            MediatorModule.register(),
+        ],
         extensions=[
             EventSourcingExtension().bind_aggregate(repository=NoteRepository, event_types=[NoteCreated, NoteEdited]),
             MediatorExtension().bind_request(CreateNote, CreateNoteHandler),

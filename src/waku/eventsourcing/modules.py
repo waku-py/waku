@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Self, TypeAlias
 
@@ -13,6 +12,7 @@ from waku.eventsourcing.contracts.event import IMetadataEnricher
 from waku.eventsourcing.decider.repository import DeciderRepository
 from waku.eventsourcing.exceptions import (
     DuplicateAggregateNameError,
+    EventSourcingConfigError,
     RegistryFrozenError,
     SnapshotMigrationChainError,
     UpcasterChainError,
@@ -23,7 +23,6 @@ from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore
 from waku.eventsourcing.snapshot.migration import SnapshotMigrationChain
 from waku.eventsourcing.snapshot.registry import SnapshotConfig, SnapshotConfigRegistry
-from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.eventsourcing.upcasting.chain import UpcasterChain
 from waku.extensions import OnModuleConfigure, OnModuleRegistration
@@ -100,7 +99,7 @@ CatchUpProjectionSpec: TypeAlias = 'type[ICatchUpProjection] | CatchUpProjection
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EventSourcingConfig:
-    store: type[IEventStore] | Callable[..., IEventStore] | None = None
+    store: type[IEventStore] | Callable[..., IEventStore]
     event_serializer: type[IEventSerializer] | Callable[..., IEventSerializer] | None = None
     snapshot_store: type[ISnapshotStore] | Callable[..., ISnapshotStore] | None = None
     snapshot_state_serializer: type[ISnapshotStateSerializer] | Callable[..., ISnapshotStateSerializer] | None = None
@@ -144,41 +143,30 @@ class EventSourcingRegistry:
 @module()
 class EventSourcingModule:
     @classmethod
-    def register(cls, config: EventSourcingConfig | None = None, /) -> DynamicModule:
-        config_ = config or EventSourcingConfig()
-        providers: list[Provider] = []
+    def register(cls, config: EventSourcingConfig, /) -> DynamicModule:
+        providers: list[Provider] = [
+            scoped(IEventStore, config.store),
+        ]
 
-        if config_.store is not None:
-            providers.append(scoped(IEventStore, config_.store))
-        else:
-            warnings.warn(
-                'No event store configured — using InMemoryEventStore. '
-                'All events will be lost on restart. '
-                'Configure EventSourcingConfig(store=...) for production use.',
-                UserWarning,
-                stacklevel=2,
-            )
-            providers.append(scoped(WithParents[IEventStore], InMemoryEventStore))  # ty:ignore[not-subscriptable]
+        if config.event_serializer is not None:
+            providers.append(scoped(IEventSerializer, config.event_serializer))
 
-        if config_.event_serializer is not None:
-            providers.append(scoped(IEventSerializer, config_.event_serializer))
+        if config.snapshot_store is not None:
+            providers.append(scoped(ISnapshotStore, config.snapshot_store))
 
-        if config_.snapshot_store is not None:
-            providers.append(scoped(ISnapshotStore, config_.snapshot_store))
+        if config.snapshot_state_serializer is not None:
+            providers.append(scoped(ISnapshotStateSerializer, config.snapshot_state_serializer))
 
-        if config_.snapshot_state_serializer is not None:
-            providers.append(scoped(ISnapshotStateSerializer, config_.snapshot_state_serializer))
+        if config.checkpoint_store is not None:
+            providers.append(scoped(ICheckpointStore, config.checkpoint_store))
 
-        if config_.checkpoint_store is not None:
-            providers.append(scoped(ICheckpointStore, config_.checkpoint_store))
-
-        providers.append(many(IMetadataEnricher, *config_.enrichers))
+        providers.append(many(IMetadataEnricher, *config.enrichers))
 
         return DynamicModule(
             parent_module=cls,
             providers=providers,
             extensions=[
-                EventSourcingRegistryAggregator(has_serializer=config_.event_serializer is not None),
+                EventSourcingRegistryAggregator(has_serializer=config.event_serializer is not None),
             ],
             is_global=True,
         )
@@ -314,12 +302,11 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
         registry.add_provider(owning_module, object_(snapshot_config_registry))
 
         if self._has_serializer and len(event_type_registry) == 0:
-            warnings.warn(
+            msg = (
                 'A serializer is configured but no event types were registered via '
-                'bind_aggregate(event_types=[...]). Deserialization will fail at runtime.',
-                UserWarning,
-                stacklevel=1,
+                'bind_aggregate(event_types=[...]). Deserialization will fail at runtime.'
             )
+            raise EventSourcingConfigError(msg)
 
     @staticmethod
     def _build_snapshot_config_registry(

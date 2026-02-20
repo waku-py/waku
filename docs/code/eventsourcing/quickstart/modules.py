@@ -1,6 +1,7 @@
 from waku import module
 from waku.cqrs import MediatorExtension, MediatorModule
 from waku.eventsourcing import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
+from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
 from app.commands import (
     DepositCommand,
@@ -30,7 +31,7 @@ class BankModule:
 @module(
     imports=[
         BankModule,
-        EventSourcingModule.register(EventSourcingConfig()),
+        EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore)),
         MediatorModule.register(),
     ],
 )

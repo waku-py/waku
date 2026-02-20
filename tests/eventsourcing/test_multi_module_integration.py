@@ -5,10 +5,11 @@ from typing import TYPE_CHECKING
 
 from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
-from waku.eventsourcing.modules import EventSourcingExtension, EventSourcingModule, EventType
+from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule, EventType
 from waku.eventsourcing.projection.interfaces import IProjection
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
+from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.upcasting import UpcasterChain, rename_field
 from waku.modules import module
 from waku.testing import create_test_app
@@ -117,7 +118,9 @@ def _create_modules() -> tuple[type, type]:
         projections=[OrderAnalyticsProjection],
     )
 
-    @module(imports=[EventSourcingModule.register()], extensions=[orders_ext])
+    @module(
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))], extensions=[orders_ext]
+    )
     class OrdersModule:
         pass
 
