@@ -60,8 +60,9 @@ Catch-up projections poll the event store, process events in batches, and checkp
     Catch-up projections **must** be **idempotent** — reprocessing the same events (e.g., after
     a crash before commit) must produce the same result.
 
-Each catch-up projection has an optional `teardown()` method called during rebuilds to clean
-up existing state, and an optional `on_skip()` hook called when a batch is skipped due to errors.
+Error handling is configured per-projection via `CatchUpProjectionBinding` (see [Error Policies](#error-policies)).
+Each catch-up projection also has an optional `teardown()` method called during rebuilds to
+clean up existing state, and an optional `on_skip()` hook called when a batch is skipped.
 
 ```python linenums="1"
 --8<-- "docs/code/eventsourcing/projections/catch_up.py"
@@ -91,8 +92,10 @@ EventSourcingExtension()
 
 | Policy | Behavior |
 |--------|----------|
-| `ErrorPolicy.STOP` | Stop the projection (default). If `max_retry_attempts > 0`, retries first. |
-| `ErrorPolicy.SKIP` | Skip failed batch and continue. Calls `on_skip()` hook before advancing. If `max_retry_attempts > 0`, retries first. |
+| `ErrorPolicy.STOP` | Stop the projection (default) |
+| `ErrorPolicy.SKIP` | Skip failed batch and continue; calls `on_skip()` hook before advancing |
+
+Both policies retry first when `max_retry_attempts > 0`.
 
 ## CatchUpProjectionRunner
 
@@ -116,7 +119,7 @@ through the projection.
 
 ## Configuration
 
-`CatchUpProjectionConfig` controls the runner's polling and retry behavior:
+`CatchUpProjectionConfig` controls the runner's polling behavior:
 
 | Field | Default | Description |
 |-------|---------|-------------|

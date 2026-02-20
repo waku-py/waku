@@ -102,6 +102,9 @@ async def test_stop_policy_raises_after_retries(mocker: MockerFixture) -> None:
     with pytest.raises(ProjectionStoppedError, match='stopped due to error'):
         await processor.run_once(projection, store, checkpoint_store)  # attempt 2 -> stop
 
+    checkpoint = await checkpoint_store.load('stop_proj')
+    assert checkpoint is None
+
 
 async def test_skip_policy_advances_checkpoint() -> None:
     registry = make_registry()
