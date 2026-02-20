@@ -56,9 +56,14 @@ EventSourcingExtension().bind_aggregate(
 Implement `ICatchUpProjection` for projections that run asynchronously in a background process.
 Catch-up projections poll the event store, process events in batches, and checkpoint their progress.
 
-!!! warning
-    Catch-up projections **must** be **idempotent** — reprocessing the same events (e.g., after
-    a crash before commit) must produce the same result.
+!!! warning "At-least-once delivery"
+    Catch-up projections have **at-least-once** delivery semantics. The checkpoint is saved
+    *after* `project()` processes a batch. If the process crashes between projection and
+    checkpoint save, the same batch will be re-delivered on restart.
+
+    This means `project()` **must** be **idempotent** — reprocessing the same events must
+    produce the same result. Use upserts instead of inserts, or track already-processed
+    event positions.
 
 Error handling is configured per-projection via `CatchUpProjectionBinding` (defaults to
 `ErrorPolicy.STOP` with no retries — see [Error Policies](#error-policies)). Each catch-up
@@ -270,6 +275,47 @@ Only required when using `PostgresLeaseProjectionLock`.
 | `expires_at` | `TIMESTAMP WITH TIME ZONE` | NOT NULL | When the lease expires if not renewed |
 
 Bind with `bind_lease_tables(metadata)` from `waku.eventsourcing.projection.lock.sqlalchemy`.
+
+## The Event Store as Outbox
+
+In event sourcing, the event store is already a durable, ordered log of everything that
+happened — it naturally serves as a [transactional outbox](https://microservices.io/patterns/data/transactional-outbox.html).
+
+The `publisher.publish()` call in command handlers is an **in-process convenience** — it
+dispatches mediator notifications to other handlers within the same process. It is not
+a reliability mechanism. If the process crashes after saving events but before publishing,
+the in-process notifications are lost.
+
+For reliable cross-service messaging (e.g., publishing domain events to Kafka, RabbitMQ,
+or another service), write a **catch-up projection** that reads from the event store and
+publishes to your message broker:
+
+```python
+class OrderEventPublisher(ICatchUpProjection):
+    projection_name = 'order_event_publisher'
+
+    def __init__(self, broker: MessageBroker) -> None:
+        self._broker = broker
+
+    async def project(self, events: Sequence[StoredEvent], /) -> None:
+        for event in events:
+            await self._broker.publish(
+                topic='orders',
+                key=str(event.stream_id),
+                value=event.data,
+            )
+```
+
+This pattern gives you:
+
+- **Guaranteed delivery** — the catch-up projection processes every event, resuming from
+  the last checkpoint after crashes.
+- **Ordering** — events are delivered in global position order.
+- **Decoupling** — the write path has no knowledge of messaging infrastructure.
+
+!!! tip
+    The publisher projection must be idempotent (see [at-least-once delivery](#catch-up-projections)).
+    Most message brokers support idempotent producers or deduplication by message key.
 
 ## Further reading
 

@@ -44,6 +44,16 @@ class ErrorPolicy(enum.StrEnum):
 
 
 class ICatchUpProjection(IProjection, ABC):
+    """Projection that processes events asynchronously via polling.
+
+    Catch-up projections have **at-least-once** delivery semantics: the checkpoint
+    is saved *after* ``project()`` processes a batch. If the process crashes between
+    projection and checkpoint save, the same batch will be re-delivered on restart.
+
+    Implementations **must** make ``project()`` idempotent (e.g., use upserts instead
+    of inserts, or check for already-processed event positions).
+    """
+
     async def on_skip(self, events: Sequence[StoredEvent], error: Exception) -> None:
         pass
 
