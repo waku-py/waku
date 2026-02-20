@@ -394,3 +394,22 @@ async def test_save_writes_current_schema_version(
     snapshot_store.save.assert_called_once()
     saved_snapshot: Snapshot = snapshot_store.save.call_args[0][0]
     assert saved_snapshot.schema_version == 2
+
+
+async def test_snapshot_save_failure_does_not_prevent_aggregate_save(
+    repository: BankAccountRepository,
+    event_store: InMemoryEventStore,
+    snapshot_store: AsyncMock,
+) -> None:
+    snapshot_store.save.side_effect = RuntimeError('snapshot store unavailable')
+
+    account = BankAccount()
+    account.open('Alice')
+    account.deposit(100)
+    account.deposit(200)
+    version, events = await repository.save('acc-1', account)
+
+    assert version == 2
+    assert len(events) == 3
+    stored = await event_store.read_stream(StreamId.for_aggregate('BankAccount', 'acc-1'))
+    assert len(stored) == 3
