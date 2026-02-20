@@ -11,7 +11,6 @@ __all__ = [
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CatchUpProjectionConfig:
     batch_size: int = 100
-    max_attempts: int = 3
     base_retry_delay_seconds: float = 10.0
     max_retry_delay_seconds: float = 300.0
     poll_interval_min_seconds: float = 0.5

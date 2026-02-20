@@ -4,7 +4,7 @@ import abc
 import uuid
 from typing import TYPE_CHECKING, ClassVar, Generic, TypeVar
 
-from waku.eventsourcing._generics import resolve_generic_args
+from waku.eventsourcing._introspection import is_abstract, resolve_generic_args
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
@@ -30,7 +30,9 @@ class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
-        if abc.ABC not in cls.__bases__ and not getattr(cls, 'aggregate_name', None):
+        if is_abstract(cls):
+            return
+        if not getattr(cls, 'aggregate_name', None):
             aggregate_cls = cls._resolve_aggregate_type()
             if aggregate_cls is not None:
                 cls.aggregate_name = aggregate_cls.__name__

@@ -60,8 +60,8 @@ Catch-up projections poll the event store, process events in batches, and checkp
     Catch-up projections **must** be **idempotent** — reprocessing the same events (e.g., after
     a crash before commit) must produce the same result.
 
-Each catch-up projection has an `error_policy` class attribute (defaults to `ErrorPolicy.RETRY`)
-and an optional `teardown()` method called during rebuilds to clean up existing state.
+Each catch-up projection has an optional `teardown()` method called during rebuilds to clean
+up existing state, and an optional `on_skip()` hook called when a batch is skipped due to errors.
 
 ```python linenums="1"
 --8<-- "docs/code/eventsourcing/projections/catch_up.py"
@@ -70,21 +70,29 @@ and an optional `teardown()` method called during rebuilds to clean up existing 
 Register catch-up projections via `bind_catch_up_projections()`:
 
 ```python
+from waku.eventsourcing.modules import CatchUpProjectionBinding
+from waku.eventsourcing.projection.interfaces import ErrorPolicy
+
 EventSourcingExtension()
     .bind_aggregate(
         repository=BankAccountRepository,
         event_types=[AccountOpened, MoneyDeposited, MoneyWithdrawn],
     )
-    .bind_catch_up_projections([AccountSummaryProjection])
+    .bind_catch_up_projections([
+        CatchUpProjectionBinding(
+            projection=AccountSummaryProjection,
+            error_policy=ErrorPolicy.SKIP,
+            max_retry_attempts=3,
+        ),
+    ])
 ```
 
 ## Error Policies
 
 | Policy | Behavior |
 |--------|----------|
-| `ErrorPolicy.RETRY` | Retry the failed batch with exponential backoff (default) |
-| `ErrorPolicy.SKIP` | Skip the failed batch and continue from the next checkpoint |
-| `ErrorPolicy.STOP` | Stop the projection permanently until manually restarted |
+| `ErrorPolicy.STOP` | Stop the projection (default). If `max_retry_attempts > 0`, retries first. |
+| `ErrorPolicy.SKIP` | Skip failed batch and continue. Calls `on_skip()` hook before advancing. If `max_retry_attempts > 0`, retries first. |
 
 ## CatchUpProjectionRunner
 
@@ -113,13 +121,14 @@ through the projection.
 | Field | Default | Description |
 |-------|---------|-------------|
 | `batch_size` | `100` | Maximum events per batch |
-| `max_attempts` | `3` | Retry attempts before applying the error policy |
 | `base_retry_delay_seconds` | `10.0` | Initial delay between retries |
 | `max_retry_delay_seconds` | `300.0` | Maximum delay between retries |
 | `poll_interval_min_seconds` | `0.5` | Minimum polling interval when events are available |
 | `poll_interval_max_seconds` | `5.0` | Maximum polling interval when idle |
 | `poll_interval_step_seconds` | `1.0` | Increment per idle cycle |
 | `poll_interval_jitter_factor` | `0.1` | Random jitter factor applied to the interval |
+
+Retry count is configured per-projection via `CatchUpProjectionBinding.max_retry_attempts`, not globally.
 
 ## Distributed Locking
 

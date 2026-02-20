@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import abc
 import enum
-import inspect
-from typing import TYPE_CHECKING, ClassVar
+from abc import ABC
+from typing import TYPE_CHECKING
+
+from waku.eventsourcing._introspection import is_abstract
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from typing import ClassVar
 
     from waku.eventsourcing.contracts.event import StoredEvent
     from waku.eventsourcing.projection.checkpoint import Checkpoint
@@ -24,7 +27,7 @@ class IProjection(abc.ABC):
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
-        if inspect.isabstract(cls):
+        if is_abstract(cls):
             return
         if not getattr(cls, 'projection_name', None):
             msg = f'{cls.__name__} must define projection_name class attribute'
@@ -34,14 +37,15 @@ class IProjection(abc.ABC):
     async def project(self, events: Sequence[StoredEvent], /) -> None: ...
 
 
-class ErrorPolicy(enum.Enum):
-    RETRY = 'retry'
-    SKIP = 'skip'
-    STOP = 'stop'
+@enum.unique
+class ErrorPolicy(enum.StrEnum):
+    SKIP = enum.auto()
+    STOP = enum.auto()
 
 
-class ICatchUpProjection(IProjection):
-    error_policy: ClassVar[ErrorPolicy] = ErrorPolicy.RETRY
+class ICatchUpProjection(IProjection, ABC):
+    async def on_skip(self, events: Sequence[StoredEvent], error: Exception) -> None:
+        pass
 
     async def teardown(self) -> None:
         pass

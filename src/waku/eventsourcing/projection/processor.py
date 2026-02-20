@@ -6,12 +6,15 @@ from typing import TYPE_CHECKING
 
 import anyio
 
-from waku.eventsourcing.exceptions import ProjectionStoppedError, RetryExhaustedError
+from waku.eventsourcing.exceptions import ProjectionStoppedError
 from waku.eventsourcing.projection.adaptive_interval import calculate_backoff_with_jitter
 from waku.eventsourcing.projection.checkpoint import Checkpoint
 from waku.eventsourcing.projection.interfaces import ErrorPolicy
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from waku.eventsourcing.contracts.event import StoredEvent
     from waku.eventsourcing.projection.config import CatchUpProjectionConfig
     from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore
     from waku.eventsourcing.store.interfaces import IEventReader
@@ -22,9 +25,16 @@ logger = logging.getLogger(__name__)
 
 
 class ProjectionProcessor:
-    def __init__(self, projection_name: str, error_policy: ErrorPolicy, config: CatchUpProjectionConfig) -> None:
+    def __init__(
+        self,
+        projection_name: str,
+        error_policy: ErrorPolicy,
+        max_retry_attempts: int,
+        config: CatchUpProjectionConfig,
+    ) -> None:
         self._projection_name = projection_name
         self._error_policy = error_policy
+        self._max_retry_attempts = max_retry_attempts
         self._config = config
         self._attempts: int = 0
 
@@ -48,7 +58,7 @@ class ProjectionProcessor:
         try:
             await projection.project(events)
         except Exception as exc:  # noqa: BLE001
-            return await self._handle_error(exc, events[-1].global_position, checkpoint_store)
+            return await self._handle_error(exc, events, projection, checkpoint_store)
 
         await checkpoint_store.save(
             Checkpoint(
@@ -72,47 +82,50 @@ class ProjectionProcessor:
     async def _handle_error(
         self,
         exc: Exception,
-        last_global_position: int,
+        events: Sequence[StoredEvent],
+        projection: ICatchUpProjection,
         checkpoint_store: ICheckpointStore,
     ) -> int:
-        policy = self._error_policy
-        projection_name = self._projection_name
+        self._attempts += 1
 
-        if policy is ErrorPolicy.STOP:
-            raise ProjectionStoppedError(projection_name, exc)
-
-        if policy is ErrorPolicy.SKIP:
+        if self._attempts <= self._max_retry_attempts:
+            delay = calculate_backoff_with_jitter(
+                self._attempts,
+                self._config.base_retry_delay_seconds,
+                self._config.max_retry_delay_seconds,
+            )
             logger.warning(
-                'Projection %r: skipping batch due to error: %s',
-                projection_name,
+                'Projection %r: attempt %d/%d failed, retrying in %.2fs: %s',
+                self._projection_name,
+                self._attempts,
+                self._max_retry_attempts,
+                delay,
                 exc,
             )
-            await checkpoint_store.save(
-                Checkpoint(
-                    projection_name=projection_name,
-                    position=last_global_position,
-                    updated_at=datetime.now(UTC),
-                ),
-            )
-            self._attempts = 0
+            await anyio.sleep(delay)
             return 0
 
-        # ErrorPolicy.RETRY
-        self._attempts += 1
-        if self._attempts >= self._config.max_attempts:
-            raise RetryExhaustedError(projection_name, self._attempts, exc)
+        if self._error_policy is ErrorPolicy.STOP:
+            raise ProjectionStoppedError(self._projection_name, exc)
 
-        delay = calculate_backoff_with_jitter(
-            self._attempts,
-            self._config.base_retry_delay_seconds,
-            self._config.max_retry_delay_seconds,
-        )
+        # ErrorPolicy.SKIP
         logger.warning(
-            'Projection %r: attempt %d failed, retrying in %.2fs: %s',
-            projection_name,
+            'Projection %r: skipping batch due to error (after %d attempts): %s',
+            self._projection_name,
             self._attempts,
-            delay,
             exc,
         )
-        await anyio.sleep(delay)
+        try:
+            await projection.on_skip(events, exc)
+        except Exception:
+            logger.exception('Projection %r: on_skip handler failed', self._projection_name)
+
+        await checkpoint_store.save(
+            Checkpoint(
+                projection_name=self._projection_name,
+                position=events[-1].global_position,
+                updated_at=datetime.now(UTC),
+            ),
+        )
+        self._attempts = 0
         return 0

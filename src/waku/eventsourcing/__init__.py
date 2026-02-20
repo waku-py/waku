@@ -27,7 +27,6 @@ from waku.eventsourcing.exceptions import (
     ProjectionError,
     ProjectionStoppedError,
     RegistryFrozenError,
-    RetryExhaustedError,
     SnapshotConfigNotFoundError,
     SnapshotMigrationChainError,
     SnapshotTypeMismatchError,
@@ -38,6 +37,8 @@ from waku.eventsourcing.exceptions import (
 )
 from waku.eventsourcing.handler import EventSourcedCommandHandler, EventSourcedVoidCommandHandler
 from waku.eventsourcing.modules import (
+    CatchUpProjectionBinding,
+    CatchUpProjectionSpec,
     EventSourcingConfig,
     EventSourcingExtension,
     EventSourcingModule,
@@ -45,6 +46,7 @@ from waku.eventsourcing.modules import (
     EventTypeSpec,
     SnapshotOptions,
 )
+from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, ICheckpointStore, IProjection
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.upcasting import (
     FnUpcaster,
@@ -60,6 +62,8 @@ from waku.eventsourcing.upcasting import (
 __all__ = [
     'AggregateNotFoundError',
     'AnyVersion',
+    'CatchUpProjectionBinding',
+    'CatchUpProjectionSpec',
     'ConcurrencyConflictError',
     'ConflictingEventTypeError',
     'DeciderCommandHandler',
@@ -68,6 +72,7 @@ __all__ = [
     'DuplicateAggregateNameError',
     'DuplicateEventTypeError',
     'DuplicateIdempotencyKeyError',
+    'ErrorPolicy',
     'EventEnvelope',
     'EventMetadata',
     'EventSourcedAggregate',
@@ -83,15 +88,17 @@ __all__ = [
     'Exact',
     'ExpectedVersion',
     'FnUpcaster',
+    'ICatchUpProjection',
+    'ICheckpointStore',
     'IDecider',
     'IEventUpcaster',
     'IMetadataEnricher',
+    'IProjection',
     'NoStream',
     'PartialDuplicateAppendError',
     'ProjectionError',
     'ProjectionStoppedError',
     'RegistryFrozenError',
-    'RetryExhaustedError',
     'SnapshotConfigNotFoundError',
     'SnapshotDeciderRepository',
     'SnapshotMigrationChainError',

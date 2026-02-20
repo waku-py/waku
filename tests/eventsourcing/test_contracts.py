@@ -24,7 +24,6 @@ from waku.eventsourcing.exceptions import (
     EventSourcingError,
     ProjectionError,
     ProjectionStoppedError,
-    RetryExhaustedError,
     StreamNotFoundError,
 )
 from waku.exceptions import WakuError
@@ -178,7 +177,6 @@ def test_projection_error_hierarchy() -> None:
     assert issubclass(ProjectionError, EventSourcingError)
     assert issubclass(ProjectionError, WakuError)
     assert issubclass(ProjectionStoppedError, ProjectionError)
-    assert issubclass(RetryExhaustedError, ProjectionError)
 
 
 def test_projection_stopped_error_carries_attrs() -> None:
@@ -188,17 +186,6 @@ def test_projection_stopped_error_carries_attrs() -> None:
     assert error.cause is cause
     assert 'search_index' in str(error)
     assert 'boom' in str(error)
-
-
-def test_retry_exhausted_error_carries_attrs() -> None:
-    cause = RuntimeError('timeout')
-    error = RetryExhaustedError(projection_name='analytics', attempts=3, cause=cause)
-    assert error.projection_name == 'analytics'
-    assert error.attempts == 3
-    assert error.cause is cause
-    assert 'analytics' in str(error)
-    assert '3' in str(error)
-    assert 'timeout' in str(error)
 
 
 def test_duplicate_idempotency_key_error_within_batch() -> None:

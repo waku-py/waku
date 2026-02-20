@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from waku.eventsourcing.contracts.event import StoredEvent
-from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection
+from waku.eventsourcing.projection.interfaces import ICatchUpProjection
 
 from app.events import AccountOpened, MoneyDeposited, MoneyWithdrawn
 
@@ -16,7 +16,6 @@ class AccountSummary:
 
 class AccountSummaryProjection(ICatchUpProjection):
     projection_name = 'account_summary'
-    error_policy = ErrorPolicy.RETRY
 
     def __init__(self) -> None:
         self.summaries: dict[str, AccountSummary] = {}

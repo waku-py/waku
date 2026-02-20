@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Self, TypeAlias
 from typing_extensions import override
 
 from waku.di import Provider, WithParents, many, object_, scoped
-from waku.eventsourcing._generics import resolve_generic_args
+from waku.eventsourcing._introspection import resolve_generic_args
 from waku.eventsourcing.contracts.aggregate import IDecider
 from waku.eventsourcing.contracts.event import IMetadataEnricher
 from waku.eventsourcing.decider.repository import DeciderRepository
@@ -17,7 +17,7 @@ from waku.eventsourcing.exceptions import (
     SnapshotMigrationChainError,
     UpcasterChainError,
 )
-from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore, IProjection
+from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, ICheckpointStore, IProjection
 from waku.eventsourcing.serialization.interfaces import IEventSerializer, ISnapshotStateSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore
@@ -41,6 +41,8 @@ if TYPE_CHECKING:
 
 
 __all__ = [
+    'CatchUpProjectionBinding',
+    'CatchUpProjectionSpec',
     'EventSourcingConfig',
     'EventSourcingExtension',
     'EventSourcingModule',
@@ -87,6 +89,16 @@ class DeciderBinding:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class CatchUpProjectionBinding:
+    projection: type[ICatchUpProjection]
+    error_policy: ErrorPolicy = ErrorPolicy.STOP
+    max_retry_attempts: int = 0
+
+
+CatchUpProjectionSpec: TypeAlias = 'type[ICatchUpProjection] | CatchUpProjectionBinding'
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class EventSourcingConfig:
     store: type[IEventStore] | Callable[..., IEventStore] | None = None
     event_serializer: type[IEventSerializer] | Callable[..., IEventSerializer] | None = None
@@ -99,14 +111,14 @@ class EventSourcingConfig:
 @dataclass(slots=True)
 class EventSourcingRegistry:
     projection_types: list[type[IProjection]] = field(default_factory=list)
-    catch_up_projection_types: list[type[ICatchUpProjection]] = field(default_factory=list)
+    catch_up_bindings: list[CatchUpProjectionBinding] = field(default_factory=list)
     event_type_bindings: list[EventTypeSpec] = field(default_factory=list)
     _frozen: bool = field(default=False, init=False, repr=False)
 
     def merge(self, other: EventSourcingRegistry) -> None:
         self._check_not_frozen()
         self.projection_types.extend(other.projection_types)
-        self.catch_up_projection_types.extend(other.catch_up_projection_types)
+        self.catch_up_bindings.extend(other.catch_up_bindings)
         self.event_type_bindings.extend(other.event_type_bindings)
 
     def freeze(self) -> None:
@@ -115,8 +127,9 @@ class EventSourcingRegistry:
     def handler_providers(self) -> Iterator[Provider]:
         if self.projection_types:
             yield many(IProjection, *self.projection_types, collect=False)
-        if self.catch_up_projection_types:
-            yield many(ICatchUpProjection, *self.catch_up_projection_types, collect=False)
+        if self.catch_up_bindings:
+            catch_up_types = [b.projection for b in self.catch_up_bindings]
+            yield many(ICatchUpProjection, *catch_up_types, collect=False)
 
     @staticmethod
     def collector_providers() -> Iterator[Provider]:
@@ -210,8 +223,10 @@ class EventSourcingExtension(OnModuleConfigure):
         self._registry.event_type_bindings.extend(event_types)
         return self
 
-    def bind_catch_up_projections(self, projections: Sequence[type[ICatchUpProjection]]) -> Self:
-        self._registry.catch_up_projection_types.extend(projections)
+    def bind_catch_up_projections(self, projections: Sequence[CatchUpProjectionSpec]) -> Self:
+        for spec in projections:
+            binding = CatchUpProjectionBinding(projection=spec) if isinstance(spec, type) else spec
+            self._registry.catch_up_bindings.append(binding)
         return self
 
     @property

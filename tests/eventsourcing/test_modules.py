@@ -19,6 +19,7 @@ from waku.eventsourcing.exceptions import (
     UpcasterChainError,
 )
 from waku.eventsourcing.modules import (
+    CatchUpProjectionBinding,
     EventSourcingConfig,
     EventSourcingExtension,
     EventSourcingModule,
@@ -26,7 +27,7 @@ from waku.eventsourcing.modules import (
     EventType,
     SnapshotOptions,
 )
-from waku.eventsourcing.projection.interfaces import ICatchUpProjection, IProjection
+from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, IProjection
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
@@ -161,7 +162,31 @@ class ItemListProjection(IProjection):
         pass
 
 
-async def test_catch_up_projections_registered_via_bind() -> None:
+async def test_catch_up_projections_registered_via_binding() -> None:
+    es_ext = EventSourcingExtension()
+    es_ext.bind_aggregate(repository=ItemRepository, event_types=[ItemCreated])
+    es_ext.bind_catch_up_projections([
+        CatchUpProjectionBinding(
+            projection=SearchIndexProjection,
+            error_policy=ErrorPolicy.SKIP,
+            max_retry_attempts=3,
+        ),
+    ])
+
+    @module(
+        imports=[EventSourcingModule.register()],
+        extensions=[es_ext],
+    )
+    class TestItemModule:
+        pass
+
+    async with create_test_app(imports=[TestItemModule]) as app, app.container() as container:
+        projections = await container.get(Sequence[ICatchUpProjection])
+        assert len(projections) == 1
+        assert isinstance(projections[0], SearchIndexProjection)
+
+
+async def test_catch_up_projections_bare_type_uses_defaults() -> None:
     es_ext = EventSourcingExtension()
     es_ext.bind_aggregate(repository=ItemRepository, event_types=[ItemCreated])
     es_ext.bind_catch_up_projections([SearchIndexProjection])
