@@ -178,13 +178,14 @@ given type, so you can resolve the dependency by any of its bases:
     from waku.di import WithParents, scoped
 
 
-    class ILogger(Protocol): ...
+    class UserReader(Protocol): ...
+    class UserWriter(Protocol): ...
 
-    class ConsoleLogger(ILogger): ...
+    class UserDAO(UserReader, UserWriter): ...
 
 
-    # Equivalent to scoped(ILogger, ConsoleLogger)
-    scoped(WithParents[ConsoleLogger])
+    # Equivalent to scoped(UserReader, UserDAO) + scoped(UserWriter, UserDAO)
+    scoped(WithParents[UserDAO])
     ```
 
 === "As factory return type"

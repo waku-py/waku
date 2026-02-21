@@ -28,6 +28,11 @@ example from aggregate to running application.
 --8<-- "docs/code/eventsourcing/quickstart/aggregate.py"
 ```
 
+??? note "Why constructor fields have placeholder defaults"
+    The aggregate is never used in its initial state — `_apply()` sets the real values when
+    replaying the creation event. The defaults (`''`, `0`) exist only to satisfy the type
+    checker and provide a valid initial shape for the object.
+
 Key points:
 
 - `_raise_event()` first applies the event (state mutation), then queues it for persistence
