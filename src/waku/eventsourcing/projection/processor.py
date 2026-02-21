@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from waku.eventsourcing.contracts.event import StoredEvent
-    from waku.eventsourcing.projection.config import CatchUpProjectionConfig
     from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore
     from waku.eventsourcing.store.interfaces import IEventReader
 
@@ -30,12 +29,14 @@ class ProjectionProcessor:
         projection_name: str,
         error_policy: ErrorPolicy,
         max_retry_attempts: int,
-        config: CatchUpProjectionConfig,
+        base_retry_delay_seconds: float,
+        max_retry_delay_seconds: float,
     ) -> None:
         self._projection_name = projection_name
         self._error_policy = error_policy
         self._max_retry_attempts = max_retry_attempts
-        self._config = config
+        self._base_retry_delay_seconds = base_retry_delay_seconds
+        self._max_retry_delay_seconds = max_retry_delay_seconds
         self._attempts: int = 0
 
     @property
@@ -47,11 +48,13 @@ class ProjectionProcessor:
         projection: ICatchUpProjection,
         event_reader: IEventReader,
         checkpoint_store: ICheckpointStore,
+        *,
+        batch_size: int = 100,
     ) -> int:
         checkpoint = await checkpoint_store.load(self._projection_name)
         position = checkpoint.position if checkpoint is not None else -1
 
-        events = await event_reader.read_all(after_position=position, count=self._config.batch_size)
+        events = await event_reader.read_all(after_position=position, count=batch_size)
         if not events:
             return 0
 
@@ -91,8 +94,8 @@ class ProjectionProcessor:
         if self._attempts <= self._max_retry_attempts:
             delay = calculate_backoff_with_jitter(
                 self._attempts,
-                self._config.base_retry_delay_seconds,
-                self._config.max_retry_delay_seconds,
+                self._base_retry_delay_seconds,
+                self._max_retry_delay_seconds,
             )
             logger.warning(
                 'Projection %r: attempt %d/%d failed, retrying in %.2fs: %s',

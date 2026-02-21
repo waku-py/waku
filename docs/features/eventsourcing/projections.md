@@ -124,19 +124,27 @@ through the projection.
 
 ## Configuration
 
-`CatchUpProjectionConfig` controls the runner's polling behavior:
+All per-projection behavior — batch size, error handling, and retry — is configured through
+`CatchUpProjectionBinding`:
 
 | Field | Default | Description |
 |-------|---------|-------------|
+| `projection` | *(required)* | The `ICatchUpProjection` class |
+| `error_policy` | `ErrorPolicy.STOP` | What to do after retries are exhausted |
+| `max_retry_attempts` | `0` | Retry count before applying the error policy |
+| `base_retry_delay_seconds` | `10.0` | Initial delay between retries (exponential backoff) |
+| `max_retry_delay_seconds` | `300.0` | Maximum delay cap for retries |
 | `batch_size` | `100` | Maximum events per batch |
-| `base_retry_delay_seconds` | `10.0` | Initial delay between retries |
-| `max_retry_delay_seconds` | `300.0` | Maximum delay between retries |
+
+The runner's polling interval is configured globally via `PollingConfig` (passed to the runner
+constructor, defaults to sensible values if omitted):
+
+| Field | Default | Description |
+|-------|---------|-------------|
 | `poll_interval_min_seconds` | `0.5` | Minimum polling interval when events are available |
 | `poll_interval_max_seconds` | `5.0` | Maximum polling interval when idle |
 | `poll_interval_step_seconds` | `1.0` | Increment per idle cycle |
 | `poll_interval_jitter_factor` | `0.1` | Random jitter factor applied to the interval |
-
-Retry count is configured per-projection via `CatchUpProjectionBinding.max_retry_attempts`, not globally.
 
 ## Distributed Locking
 

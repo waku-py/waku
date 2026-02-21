@@ -6,7 +6,6 @@ import pytest
 from typing_extensions import override
 
 from waku.eventsourcing.exceptions import ProjectionStoppedError
-from waku.eventsourcing.projection.config import CatchUpProjectionConfig
 from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
 from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection
 from waku.eventsourcing.projection.processor import ProjectionProcessor
@@ -31,7 +30,8 @@ async def test_run_once_processes_batch_and_saves_checkpoint() -> None:
         projection_name='recording',
         error_policy=ErrorPolicy.STOP,
         max_retry_attempts=0,
-        config=CatchUpProjectionConfig(batch_size=100),
+        base_retry_delay_seconds=10.0,
+        max_retry_delay_seconds=300.0,
     )
 
     await seed_events(store, count=5)
@@ -55,7 +55,8 @@ async def test_run_once_returns_zero_when_caught_up() -> None:
         projection_name='recording',
         error_policy=ErrorPolicy.STOP,
         max_retry_attempts=0,
-        config=CatchUpProjectionConfig(batch_size=100),
+        base_retry_delay_seconds=10.0,
+        max_retry_delay_seconds=300.0,
     )
 
     await seed_events(store, count=5)
@@ -74,7 +75,8 @@ async def test_stop_policy_raises_immediately() -> None:
         projection_name='stop_proj',
         error_policy=ErrorPolicy.STOP,
         max_retry_attempts=0,
-        config=CatchUpProjectionConfig(batch_size=100),
+        base_retry_delay_seconds=10.0,
+        max_retry_delay_seconds=300.0,
     )
 
     await seed_events(store, count=3)
@@ -92,7 +94,8 @@ async def test_stop_policy_raises_after_retries(mocker: MockerFixture) -> None:
         projection_name='stop_proj',
         error_policy=ErrorPolicy.STOP,
         max_retry_attempts=1,
-        config=CatchUpProjectionConfig(batch_size=100),
+        base_retry_delay_seconds=10.0,
+        max_retry_delay_seconds=300.0,
     )
 
     await seed_events(store, count=3)
@@ -115,7 +118,8 @@ async def test_skip_policy_advances_checkpoint() -> None:
         projection_name='stop_proj',
         error_policy=ErrorPolicy.SKIP,
         max_retry_attempts=0,
-        config=CatchUpProjectionConfig(batch_size=100),
+        base_retry_delay_seconds=10.0,
+        max_retry_delay_seconds=300.0,
     )
 
     await seed_events(store, count=5)
@@ -153,7 +157,8 @@ async def test_skip_policy_calls_on_skip() -> None:
         projection_name='tracking_skip',
         error_policy=ErrorPolicy.SKIP,
         max_retry_attempts=0,
-        config=CatchUpProjectionConfig(batch_size=100),
+        base_retry_delay_seconds=10.0,
+        max_retry_delay_seconds=300.0,
     )
 
     await seed_events(store, count=3)
@@ -191,7 +196,8 @@ async def test_skip_after_retries(mocker: MockerFixture) -> None:
         projection_name='tracking_skip',
         error_policy=ErrorPolicy.SKIP,
         max_retry_attempts=1,
-        config=CatchUpProjectionConfig(batch_size=100),
+        base_retry_delay_seconds=10.0,
+        max_retry_delay_seconds=300.0,
     )
 
     await seed_events(store, count=3)
@@ -230,7 +236,8 @@ async def test_on_skip_failure_is_swallowed() -> None:
         projection_name='bad_on_skip',
         error_policy=ErrorPolicy.SKIP,
         max_retry_attempts=0,
-        config=CatchUpProjectionConfig(batch_size=100),
+        base_retry_delay_seconds=10.0,
+        max_retry_delay_seconds=300.0,
     )
 
     await seed_events(store, count=3)
@@ -263,7 +270,8 @@ async def test_retry_recovers_after_transient_failure(mocker: MockerFixture) -> 
         projection_name='transient',
         error_policy=ErrorPolicy.STOP,
         max_retry_attempts=5,
-        config=CatchUpProjectionConfig(batch_size=100),
+        base_retry_delay_seconds=10.0,
+        max_retry_delay_seconds=300.0,
     )
 
     await seed_events(store, count=3)
@@ -286,7 +294,8 @@ async def test_reset_checkpoint() -> None:
         projection_name='recording',
         error_policy=ErrorPolicy.STOP,
         max_retry_attempts=0,
-        config=CatchUpProjectionConfig(batch_size=100),
+        base_retry_delay_seconds=10.0,
+        max_retry_delay_seconds=300.0,
     )
 
     await seed_events(store, count=5)

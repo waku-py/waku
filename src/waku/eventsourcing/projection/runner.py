@@ -8,16 +8,18 @@ import anyio
 
 from waku.eventsourcing.exceptions import ProjectionError
 from waku.eventsourcing.projection.adaptive_interval import AdaptiveInterval
+from waku.eventsourcing.projection.config import PollingConfig
 from waku.eventsourcing.projection.interfaces import ICheckpointStore
 from waku.eventsourcing.projection.processor import ProjectionProcessor
 from waku.eventsourcing.store.interfaces import IEventReader
+
+_DEFAULT_POLLING = PollingConfig()
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from waku.di import AsyncContainer
     from waku.eventsourcing.modules import CatchUpProjectionBinding
-    from waku.eventsourcing.projection.config import CatchUpProjectionConfig
     from waku.eventsourcing.projection.lock.interfaces import IProjectionLock
 
 __all__ = ['CatchUpProjectionRunner']
@@ -31,12 +33,12 @@ class CatchUpProjectionRunner:
         container: AsyncContainer,
         lock: IProjectionLock,
         bindings: Sequence[CatchUpProjectionBinding],
-        config: CatchUpProjectionConfig,
+        polling: PollingConfig = _DEFAULT_POLLING,
     ) -> None:
         self._container = container
         self._lock = lock
         self._bindings = tuple(bindings)
-        self._config = config
+        self._polling = polling
         self._shutdown_event = anyio.Event()
 
     async def run(self) -> None:
@@ -64,7 +66,8 @@ class CatchUpProjectionRunner:
                 projection_name,
                 binding.error_policy,
                 binding.max_retry_attempts,
-                self._config,
+                binding.base_retry_delay_seconds,
+                binding.max_retry_delay_seconds,
             )
 
             async with self._container() as scope:
@@ -76,7 +79,12 @@ class CatchUpProjectionRunner:
                     projection = await scope.get(binding.projection)
                     reader = await scope.get(IEventReader)
                     checkpoint_store = await scope.get(ICheckpointStore)
-                    processed = await processor.run_once(projection, reader, checkpoint_store)
+                    processed = await processor.run_once(
+                        projection,
+                        reader,
+                        checkpoint_store,
+                        batch_size=binding.batch_size,
+                    )
 
                 if processed == 0:
                     break
@@ -107,16 +115,17 @@ class CatchUpProjectionRunner:
                 return
 
             interval = AdaptiveInterval(
-                min_seconds=self._config.poll_interval_min_seconds,
-                max_seconds=self._config.poll_interval_max_seconds,
-                step_seconds=self._config.poll_interval_step_seconds,
-                jitter_factor=self._config.poll_interval_jitter_factor,
+                min_seconds=self._polling.poll_interval_min_seconds,
+                max_seconds=self._polling.poll_interval_max_seconds,
+                step_seconds=self._polling.poll_interval_step_seconds,
+                jitter_factor=self._polling.poll_interval_jitter_factor,
             )
             processor = ProjectionProcessor(
                 projection_name,
                 binding.error_policy,
                 binding.max_retry_attempts,
-                self._config,
+                binding.base_retry_delay_seconds,
+                binding.max_retry_delay_seconds,
             )
             try:
                 await self._poll_loop(binding, processor, interval)
@@ -135,7 +144,12 @@ class CatchUpProjectionRunner:
                     projection = await scope.get(binding.projection)
                     reader = await scope.get(IEventReader)
                     checkpoint_store = await scope.get(ICheckpointStore)
-                    processed = await processor.run_once(projection, reader, checkpoint_store)
+                    processed = await processor.run_once(
+                        projection,
+                        reader,
+                        checkpoint_store,
+                        batch_size=binding.batch_size,
+                    )
             except ProjectionError:
                 raise
             except Exception:

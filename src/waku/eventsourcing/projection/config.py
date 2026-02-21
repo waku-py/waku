@@ -3,16 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 __all__ = [
-    'CatchUpProjectionConfig',
     'LeaseConfig',
+    'PollingConfig',
 ]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class CatchUpProjectionConfig:
-    batch_size: int = 100
-    base_retry_delay_seconds: float = 10.0
-    max_retry_delay_seconds: float = 300.0
+class PollingConfig:
     poll_interval_min_seconds: float = 0.5
     poll_interval_max_seconds: float = 5.0
     poll_interval_step_seconds: float = 1.0
