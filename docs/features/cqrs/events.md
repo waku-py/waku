@@ -33,7 +33,12 @@ class OrderShipped(Event):
 ```
 
 `Event` provides a convenient default with an auto-generated UUID. For domain-driven designs
-where you control event identity and metadata, build on `INotification` directly:
+where you control event identity and metadata, build on `INotification` directly.
+
+??? note "Why `INotification`?"
+    The name follows [MediatR](https://github.com/jbogard/MediatR) (.NET) conventions, where
+    notifications are messages with zero or more handlers — as opposed to requests, which have
+    exactly one. waku's CQRS layer uses the same terminology for consistency with the pattern.
 
 ```python linenums="1"
 from dataclasses import dataclass

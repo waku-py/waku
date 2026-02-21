@@ -100,7 +100,13 @@ from waku.eventsourcing.projection.interfaces import ErrorPolicy
 | `ErrorPolicy.STOP` | Stop the projection (default) |
 | `ErrorPolicy.SKIP` | Skip failed batch and continue; calls `on_skip()` hook before advancing |
 
-Both policies retry first when `max_retry_attempts > 0`.
+Both policies retry first when `max_retry_attempts > 0`. The policy only applies after
+retries are exhausted.
+
+!!! info "Fail-fast by default"
+    The default is `STOP` with zero retries — projection failures surface immediately
+    rather than silently losing events. Opt into retries or `SKIP` explicitly when your
+    projection can tolerate partial gaps or transient errors.
 
 ## CatchUpProjectionRunner
 
