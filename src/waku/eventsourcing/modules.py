@@ -92,6 +92,9 @@ class CatchUpProjectionBinding:
     projection: type[ICatchUpProjection]
     error_policy: ErrorPolicy = ErrorPolicy.STOP
     max_retry_attempts: int = 0
+    base_retry_delay_seconds: float = 10.0
+    max_retry_delay_seconds: float = 300.0
+    batch_size: int = 100
 
 
 CatchUpProjectionSpec: TypeAlias = 'type[ICatchUpProjection] | CatchUpProjectionBinding'

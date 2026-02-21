@@ -9,7 +9,7 @@ from typing_extensions import override
 
 from waku.di import object_
 from waku.eventsourcing.modules import CatchUpProjectionBinding
-from waku.eventsourcing.projection.config import CatchUpProjectionConfig
+from waku.eventsourcing.projection.config import PollingConfig
 from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
 from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, ICheckpointStore
 from waku.eventsourcing.projection.lock.in_memory import InMemoryProjectionLock
@@ -27,8 +27,7 @@ if TYPE_CHECKING:
 
     from waku.application import WakuApplication
 
-_FAST_CONFIG = CatchUpProjectionConfig(
-    batch_size=100,
+_FAST_POLLING = PollingConfig(
     poll_interval_min_seconds=0.01,
     poll_interval_max_seconds=0.01,
     poll_interval_step_seconds=0.0,
@@ -79,7 +78,7 @@ async def test_runner_processes_all_events() -> None:
             container=app.container,
             lock=lock,
             bindings=[CatchUpProjectionBinding(projection=RecordingProjection)],
-            config=_FAST_CONFIG,
+            polling=_FAST_POLLING,
         )
 
         async with anyio.create_task_group() as tg:
@@ -104,7 +103,7 @@ async def test_runner_exits_when_no_projections() -> None:
             container=app.container,
             lock=lock,
             bindings=[],
-            config=_FAST_CONFIG,
+            polling=_FAST_POLLING,
         )
 
         with anyio.fail_after(2):
@@ -125,7 +124,7 @@ async def test_runner_respects_shutdown() -> None:
             container=app.container,
             lock=lock,
             bindings=[CatchUpProjectionBinding(projection=RecordingProjection)],
-            config=_FAST_CONFIG,
+            polling=_FAST_POLLING,
         )
 
         async with anyio.create_task_group() as tg:
@@ -150,7 +149,7 @@ async def test_rebuild_resets_and_reprocesses() -> None:
             container=app.container,
             lock=lock,
             bindings=[CatchUpProjectionBinding(projection=RecordingProjection)],
-            config=_FAST_CONFIG,
+            polling=_FAST_POLLING,
         )
 
         async with anyio.create_task_group() as tg:
@@ -174,7 +173,7 @@ async def test_rebuild_unknown_projection_raises() -> None:
         container=None,  # type: ignore[arg-type]
         lock=lock,
         bindings=[CatchUpProjectionBinding(projection=RecordingProjection)],
-        config=_FAST_CONFIG,
+        polling=_FAST_POLLING,
     )
 
     with pytest.raises(ValueError, match="Projection 'nonexistent' not found"):
@@ -197,7 +196,7 @@ async def test_runner_skips_locked_projection() -> None:
             container=app.container,
             lock=lock,
             bindings=[CatchUpProjectionBinding(projection=RecordingProjection)],
-            config=_FAST_CONFIG,
+            polling=_FAST_POLLING,
         )
 
         async with anyio.create_task_group() as tg:
@@ -229,7 +228,7 @@ async def test_runner_isolates_projection_errors() -> None:
                 CatchUpProjectionBinding(projection=RecordingProjection),
                 CatchUpProjectionBinding(projection=StopProjection, error_policy=ErrorPolicy.STOP),
             ],
-            config=_FAST_CONFIG,
+            polling=_FAST_POLLING,
         )
 
         async with anyio.create_task_group() as tg:
