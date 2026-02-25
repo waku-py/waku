@@ -58,7 +58,7 @@ class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
             raise EventSourcingError(msg)
         aggregate = self.create_aggregate()
         domain_events = [e.data for e in stored_events]
-        version = len(stored_events) - 1
+        version = stored_events[-1].position
         aggregate.load_from_history(domain_events, version)
         return aggregate
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Sequence  # noqa: TC003  # Dishka needs runtime access
 from datetime import UTC, datetime
@@ -19,6 +20,8 @@ from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa:
 from waku.eventsourcing.store._shared import enrich_metadata
 from waku.eventsourcing.store._version_check import check_expected_version
 from waku.eventsourcing.store.interfaces import IEventStore
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from waku.eventsourcing.contracts.stream import ExpectedVersion, StreamId
@@ -143,7 +146,14 @@ class InMemoryEventStore(IEventStore):
                 stream_keys.add(envelope.idempotency_key)
 
             for projection in self._projections:
-                await projection.project(stored_events)
+                try:
+                    await projection.project(stored_events)
+                except Exception:
+                    logger.exception(
+                        'Inline projection %r failed after events were persisted to stream %s',
+                        projection.projection_name,
+                        stream_id,
+                    )
 
             return len(stream) - 1
 

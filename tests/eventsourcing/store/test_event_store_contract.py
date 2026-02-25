@@ -351,7 +351,7 @@ async def test_projection_receives_events(store_factory: EventStoreFactory) -> N
     assert projected[0].stream_id == StreamId.for_aggregate('Order', '1')
 
 
-async def test_projection_failure_propagates(store_factory: EventStoreFactory) -> None:
+async def test_projection_failure_does_not_affect_append(store_factory: EventStoreFactory) -> None:
     class FailingProjection(IProjection):
         projection_name = 'failing_projection'
 
@@ -362,12 +362,14 @@ async def test_projection_failure_propagates(store_factory: EventStoreFactory) -
 
     store = store_factory(projections=[FailingProjection()])
     stream_id = StreamId.for_aggregate('Order', '1')
-    with pytest.raises(RuntimeError, match='projection failed'):
-        await store.append_to_stream(
-            stream_id,
-            [make_envelope(OrderCreated(order_id='1'))],
-            expected_version=NoStream(),
-        )
+    version = await store.append_to_stream(
+        stream_id,
+        [make_envelope(OrderCreated(order_id='1'))],
+        expected_version=NoStream(),
+    )
+    assert version == 0
+    events = await store.read_stream(stream_id)
+    assert len(events) == 1
 
 
 async def test_append_with_same_idempotency_keys_is_idempotent(

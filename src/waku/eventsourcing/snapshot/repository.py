@@ -54,7 +54,7 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
             except StreamNotFoundError:
                 stored_events = []
             domain_events = [e.data for e in stored_events]
-            version = snapshot.version + len(stored_events)
+            version = stored_events[-1].position if stored_events else snapshot.version
             if domain_events:
                 aggregate.load_from_history(domain_events, version)
             else:

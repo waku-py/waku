@@ -222,7 +222,14 @@ class SqlAlchemyEventStore(IEventStore):
             raise  # pragma: no cover
 
         for projection in self._projections:
-            await projection.project(stored_events)
+            try:
+                await projection.project(stored_events)
+            except Exception:
+                logger.exception(
+                    'Inline projection %r failed after events were persisted to stream %s',
+                    projection.projection_name,
+                    stream_id,
+                )
 
         return new_version
 

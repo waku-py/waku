@@ -75,8 +75,10 @@ class DeciderRepository(abc.ABC, Generic[StateT, CommandT, EventT]):
         )
         state = self._decider.initial_state()
         for stored in stored_events:
+            # StoredEvent.data is typed as INotification (store-agnostic); the registry
+            # guarantees only EventT instances are persisted for this aggregate's stream.
             state = self._decider.evolve(state, stored.data)  # type: ignore[arg-type]
-        version = len(stored_events) - 1
+        version = stored_events[-1].position if stored_events else -1
         return state, version
 
     async def save(
@@ -137,8 +139,10 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
             except StreamNotFoundError:
                 stored_events = []
             for stored in stored_events:
+                # StoredEvent.data is typed as INotification (store-agnostic); the registry
+                # guarantees only EventT instances are persisted for this aggregate's stream.
                 state = self._decider.evolve(state, stored.data)  # type: ignore[arg-type]
-            version = snapshot.version + len(stored_events)
+            version = stored_events[-1].position if stored_events else snapshot.version
             return state, version
 
         return await super().load(aggregate_id)
