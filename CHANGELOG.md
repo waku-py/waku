@@ -2,6 +2,39 @@
 
 <!-- version list -->
 
+## v0.31.0 (2026-02-26)
+
+### 🪲 Bug Fixes
+
+- **es**: Use stream position for version and isolate inline projection failures
+  ([`4e11aa4`](https://github.com/waku-py/waku/commit/4e11aa479a135b648a10e09e57e9df8ccd22cf5c))
+
+- **es**: Warn on InMemoryEventStore default and make snapshot save best-effort
+  ([`b4e6500`](https://github.com/waku-py/waku/commit/b4e6500cc1519d5bd0116a6aa8447fbd59023d69))
+
+### 📖 Documentation
+
+- Improve projection, aggregate, DI, and event documentation
+  ([`f4fec74`](https://github.com/waku-py/waku/commit/f4fec7445366bdbdb400b71c8d740580c465d2e0))
+
+- **es**: Document at-least-once projection semantics and outbox pattern
+  ([`fc80584`](https://github.com/waku-py/waku/commit/fc80584cfbe734a38103bb8f3a9920d9bb2b19ff))
+
+### ✨ Features
+
+- **es**: Add snapshot_state_type override and fix projection retry counter
+  ([`742d3cb`](https://github.com/waku-py/waku/commit/742d3cb90bf50b168f4b6dbcf9fe99bc5fc50b1e))
+
+- **es**: Add structured logging and generic StoredEvent
+  ([`422bb88`](https://github.com/waku-py/waku/commit/422bb88b837c155b42578aea48a3b7556f69ac3a))
+
+- **es**: Always require passing event store impl class
+  ([`c7d2d0a`](https://github.com/waku-py/waku/commit/c7d2d0a8e34f27868b9ecd2aed082422303f7e67))
+
+- **es**: Refactor error policy to binding-level config with `on_skip` hook
+  ([`0a99787`](https://github.com/waku-py/waku/commit/0a99787e62a0d1fc9b1da94987aca7020b5d5311))
+
+
 ## v0.30.0 (2026-02-18)
 
 ### 🪲 Bug Fixes
