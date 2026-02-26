@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Generic
+
+from typing_extensions import TypeVar
 
 if TYPE_CHECKING:
     import uuid
@@ -11,8 +13,10 @@ if TYPE_CHECKING:
     from waku.cqrs.contracts.notification import INotification
     from waku.eventsourcing.contracts.stream import StreamId
 
+DataT = TypeVar('DataT', bound='INotification', default='INotification')
 
 __all__ = [
+    'DataT',
     'EventEnvelope',
     'EventMetadata',
     'IMetadataEnricher',
@@ -47,14 +51,14 @@ class EventEnvelope:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class StoredEvent:
+class StoredEvent(Generic[DataT]):
     event_id: uuid.UUID
     stream_id: StreamId
     event_type: str
     position: int
     global_position: int
     timestamp: datetime
-    data: INotification
+    data: DataT
     metadata: EventMetadata
     idempotency_key: str
     schema_version: int = 1

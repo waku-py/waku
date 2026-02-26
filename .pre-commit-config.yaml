@@ -110,7 +110,7 @@ repos:
 
       - id: security-audit
         name: Run security audit checks
-        entry: task deps:audit
+        entry: task deps:audit -- --compact
         language: system
         pass_filenames: false
         fail_fast: true

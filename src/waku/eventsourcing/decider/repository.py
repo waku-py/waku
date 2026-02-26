@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import abc
+import logging
 import typing
 import uuid
-from typing import ClassVar, Final, Generic
+from typing import ClassVar, Final, Generic, cast
 
 from waku.eventsourcing._introspection import is_abstract, resolve_generic_args
 from waku.eventsourcing._stream_helpers import read_aggregate_stream
@@ -13,7 +14,7 @@ from waku.eventsourcing.contracts.aggregate import (  # Dishka needs runtime acc
     IDecider,
     StateT,
 )
-from waku.eventsourcing.contracts.event import EventEnvelope
+from waku.eventsourcing.contracts.event import EventEnvelope, StoredEvent
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
 from waku.eventsourcing.exceptions import StreamNotFoundError
 from waku.eventsourcing.serialization.interfaces import (
@@ -28,6 +29,8 @@ __all__ = [
     'DeciderRepository',
     'SnapshotDeciderRepository',
 ]
+
+logger = logging.getLogger(__name__)
 
 _STATE_SUFFIX: Final = 'State'
 
@@ -74,11 +77,10 @@ class DeciderRepository(abc.ABC, Generic[StateT, CommandT, EventT]):
             max_stream_length=self.max_stream_length,
         )
         state = self._decider.initial_state()
-        for stored in stored_events:
-            # StoredEvent.data is typed as INotification (store-agnostic); the registry
-            # guarantees only EventT instances are persisted for this aggregate's stream.
-            state = self._decider.evolve(state, stored.data)  # type: ignore[arg-type]
+        for stored in cast('list[StoredEvent[EventT]]', stored_events):
+            state = self._decider.evolve(state, stored.data)
         version = stored_events[-1].position if stored_events else -1
+        logger.debug('Loaded %d events for %s/%s', len(stored_events), self.aggregate_name, aggregate_id)
         return state, version
 
     async def save(
@@ -101,7 +103,15 @@ class DeciderRepository(abc.ABC, Generic[StateT, CommandT, EventT]):
             for i, e in enumerate(events)
         ]
         expected = Exact(version=expected_version) if expected_version >= 0 else NoStream()
-        return await self._event_store.append_to_stream(stream_id, envelopes, expected_version=expected)
+        new_version = await self._event_store.append_to_stream(stream_id, envelopes, expected_version=expected)
+        logger.debug(
+            'Saved %d events to %s/%s, version %d',
+            len(events),
+            self.aggregate_name,
+            aggregate_id,
+            new_version,
+        )
+        return new_version
 
     def _stream_id(self, aggregate_id: str) -> StreamId:
         return StreamId.for_aggregate(self.aggregate_name, aggregate_id)
@@ -133,18 +143,18 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
         snapshot = await self._snapshot_manager.load_snapshot(stream_id, aggregate_id)
 
         if snapshot is not None:
+            logger.debug('Loaded snapshot for %s/%s at version %d', self.aggregate_name, aggregate_id, snapshot.version)
             state = self._state_serializer.deserialize(snapshot.state, self._state_type)
             try:
                 stored_events = await self._event_store.read_stream(stream_id, start=snapshot.version + 1)
             except StreamNotFoundError:
                 stored_events = []
-            for stored in stored_events:
-                # StoredEvent.data is typed as INotification (store-agnostic); the registry
-                # guarantees only EventT instances are persisted for this aggregate's stream.
-                state = self._decider.evolve(state, stored.data)  # type: ignore[arg-type]
+            for stored in cast('list[StoredEvent[EventT]]', stored_events):
+                state = self._decider.evolve(state, stored.data)
             version = stored_events[-1].position if stored_events else snapshot.version
             return state, version
 
+        logger.debug('No snapshot for %s/%s, loading from events', self.aggregate_name, aggregate_id)
         return await super().load(aggregate_id)
 
     async def save(

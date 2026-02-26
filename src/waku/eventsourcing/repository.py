@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import logging
 import uuid
 from typing import TYPE_CHECKING, ClassVar, Generic, TypeVar
 
@@ -16,6 +17,8 @@ if TYPE_CHECKING:
     from waku.cqrs.contracts.notification import INotification
 
 __all__ = ['EventSourcedRepository']
+
+logger = logging.getLogger(__name__)
 
 AggregateT = TypeVar('AggregateT', bound=EventSourcedAggregate)
 
@@ -59,6 +62,7 @@ class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
         aggregate = self.create_aggregate()
         domain_events = [e.data for e in stored_events]
         version = stored_events[-1].position
+        logger.debug('Loaded %d events for %s/%s', len(stored_events), self.aggregate_name, aggregate_id)
         aggregate.load_from_history(domain_events, version)
         return aggregate
 
@@ -84,6 +88,13 @@ class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
         expected = Exact(version=aggregate.version) if aggregate.version >= 0 else NoStream()
         new_version = await self._event_store.append_to_stream(stream_id, envelopes, expected_version=expected)
         aggregate.mark_persisted(new_version)
+        logger.debug(
+            'Saved %d events to %s/%s, version %d',
+            len(events),
+            self.aggregate_name,
+            aggregate_id,
+            new_version,
+        )
         return new_version, events
 
     def create_aggregate(self) -> AggregateT:
