@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import logging
 from typing import Generic
 
 from typing_extensions import TypeVar, override
@@ -12,6 +13,8 @@ from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.repository import EventSourcedRepository  # noqa: TC001  # Dishka needs runtime access
 
 __all__ = ['EventSourcedCommandHandler', 'EventSourcedVoidCommandHandler']
+
+logger = logging.getLogger(__name__)
 
 AggregateT = TypeVar('AggregateT', bound=EventSourcedAggregate, default=EventSourcedAggregate)
 
@@ -31,6 +34,7 @@ class EventSourcedCommandHandler(
 
     async def handle(self, request: RequestT, /) -> ResponseT:
         aggregate_id = self._aggregate_id(request)
+        logger.debug('Handling %s for %s', type(request).__name__, aggregate_id)
 
         if self._is_creation_command(request):
             aggregate = self._repository.create_aggregate()

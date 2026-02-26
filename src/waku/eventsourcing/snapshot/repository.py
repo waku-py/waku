@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import logging
 from typing import TYPE_CHECKING, ClassVar, Generic, TypeVar
 
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
     from waku.eventsourcing.snapshot.interfaces import Snapshot
 
 __all__ = ['SnapshotEventSourcedRepository']
+
+logger = logging.getLogger(__name__)
 
 AggregateT = TypeVar('AggregateT', bound=EventSourcedAggregate)
 
@@ -47,6 +50,7 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
         snapshot = await self._snapshot_manager.load_snapshot(stream_id, aggregate_id)
 
         if snapshot is not None:
+            logger.debug('Loaded snapshot for %s/%s at version %d', self.aggregate_name, aggregate_id, snapshot.version)
             aggregate = self._restore_from_snapshot(snapshot)
             start = snapshot.version + 1
             try:
@@ -61,6 +65,7 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
                 aggregate.mark_persisted(version)
             return aggregate
 
+        logger.debug('No snapshot for %s/%s, loading from events', self.aggregate_name, aggregate_id)
         return await super().load(aggregate_id)
 
     async def save(

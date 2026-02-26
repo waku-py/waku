@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import logging
 from typing import Generic
 
 from typing_extensions import TypeVar, override
@@ -13,6 +14,8 @@ from waku.eventsourcing.contracts.aggregate import IDecider  # noqa: TC001  # Di
 from waku.eventsourcing.decider.repository import DeciderRepository  # noqa: TC001  # Dishka needs runtime access
 
 __all__ = ['DeciderCommandHandler', 'DeciderVoidCommandHandler']
+
+logger = logging.getLogger(__name__)
 
 StateT = TypeVar('StateT', default=object)
 CommandT = TypeVar('CommandT', default=object)
@@ -37,6 +40,7 @@ class DeciderCommandHandler(
     async def handle(self, request: RequestT, /) -> ResponseT:
         aggregate_id = self._aggregate_id(request)
         command = self._to_command(request)
+        logger.debug('Handling %s for %s', type(request).__name__, aggregate_id)
 
         if self._is_creation_command(request):
             state = self._decider.initial_state()
