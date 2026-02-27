@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import ClassVar
 
+    from waku.cqrs.contracts.notification import INotification
     from waku.eventsourcing.contracts.event import StoredEvent
     from waku.eventsourcing.projection.checkpoint import Checkpoint
 
@@ -49,7 +50,12 @@ class ICatchUpProjection(IProjection, ABC):
     At-least-once delivery: the checkpoint is saved *after* ``project()`` processes
     a batch, so a crash before checkpoint save causes re-delivery on restart.
     ``project()`` must be idempotent.
+
+    Set ``event_types`` to filter which event types this projection receives.
+    When ``None`` (default), all events are delivered.
     """
+
+    event_types: ClassVar[Sequence[type[INotification]] | None] = None
 
     async def on_skip(self, events: Sequence[StoredEvent], error: Exception) -> None:
         pass

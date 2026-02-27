@@ -16,7 +16,7 @@ The store interface is split into two protocols:
 **`IEventReader`** — read-side operations:
 
 - `read_stream(stream_id, *, start, count)` — read events from a single stream
-- `read_all(*, after_position, count)` — read events across all streams by global position
+- `read_all(*, after_position, count, event_types)` — read events across all streams, optionally filtered by event type
 - `stream_exists(stream_id)` — check whether a stream exists
 
 **`IEventWriter`** — write-side operations:
@@ -41,6 +41,7 @@ class IEventReader(abc.ABC):
         *,
         after_position: int = -1,
         count: int | None = None,
+        event_types: Sequence[str] | None = None,
     ) -> list[StoredEvent]: ...
 
     async def stream_exists(self, stream_id: StreamId, /) -> bool: ...
@@ -60,6 +61,11 @@ class IEventWriter(abc.ABC):
 class IEventStore(IEventReader, IEventWriter, abc.ABC):
     pass
 ```
+
+The `event_types` parameter on `read_all()` accepts a sequence of event type name strings
+(as registered in the event type registry). When provided, only events matching those types
+are returned. This is used internally by catch-up projections but is also available for
+direct queries.
 
 ## In-Memory Store
 

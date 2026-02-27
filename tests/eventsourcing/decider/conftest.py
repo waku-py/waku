@@ -50,4 +50,5 @@ def limited_repository(decider: CounterDecider, event_store: InMemoryEventStore)
 
 @pytest.fixture
 def publisher(mocker: MockerFixture) -> AsyncMock:
-    return mocker.AsyncMock(spec=IPublisher)
+    mock: AsyncMock = mocker.AsyncMock(spec=IPublisher)
+    return mock

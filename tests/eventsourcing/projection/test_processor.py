@@ -11,7 +11,13 @@ from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjec
 from waku.eventsourcing.projection.processor import ProjectionProcessor
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
-from tests.eventsourcing.projection.helpers import RecordingProjection, StopProjection, make_registry, seed_events
+from tests.eventsourcing.projection.helpers import (
+    RecordingProjection,
+    StopProjection,
+    make_registry,
+    seed_events,
+    seed_mixed_events,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -310,3 +316,25 @@ async def test_reset_checkpoint() -> None:
     checkpoint = await checkpoint_store.load('recording')
     assert checkpoint is not None
     assert checkpoint.position == -1
+
+
+async def test_run_once_with_event_type_filter() -> None:
+    registry = make_registry()
+    store = InMemoryEventStore(registry)
+    checkpoint_store = InMemoryCheckpointStore()
+    projection = RecordingProjection()
+    processor = ProjectionProcessor(
+        projection_name='recording',
+        error_policy=ErrorPolicy.STOP,
+        max_retry_attempts=0,
+        base_retry_delay_seconds=10.0,
+        max_retry_delay_seconds=300.0,
+        event_type_names=('SampleEvent',),
+    )
+
+    await seed_mixed_events(store)
+    processed = await processor.run_once(projection, store, checkpoint_store)
+
+    assert processed == 2
+    assert len(projection.received) == 2
+    assert all(e.event_type == 'SampleEvent' for e in projection.received)

@@ -23,6 +23,11 @@ class SampleEvent(INotification):
     value: int
 
 
+@dataclass(frozen=True)
+class OtherEvent(INotification):
+    label: str
+
+
 class RecordingProjection(ICatchUpProjection):
     projection_name = 'recording'
 
@@ -52,6 +57,7 @@ class StopProjection(ICatchUpProjection):
 def make_registry() -> EventTypeRegistry:
     registry = EventTypeRegistry()
     registry.register(SampleEvent)
+    registry.register(OtherEvent)
     registry.freeze()
     return registry
 
@@ -61,5 +67,19 @@ async def seed_events(store: InMemoryEventStore, count: int = 5) -> None:
     await store.append_to_stream(
         stream_id,
         [EventEnvelope(domain_event=SampleEvent(value=i), idempotency_key=f'seed-{i}') for i in range(count)],
+        expected_version=NoStream(),
+    )
+
+
+async def seed_mixed_events(store: InMemoryEventStore) -> None:
+    stream_id = StreamId(stream_type='test', stream_key='mixed')
+    await store.append_to_stream(
+        stream_id,
+        [
+            EventEnvelope(domain_event=SampleEvent(value=0), idempotency_key='mix-0'),
+            EventEnvelope(domain_event=OtherEvent(label='a'), idempotency_key='mix-1'),
+            EventEnvelope(domain_event=SampleEvent(value=1), idempotency_key='mix-2'),
+            EventEnvelope(domain_event=OtherEvent(label='b'), idempotency_key='mix-3'),
+        ],
         expected_version=NoStream(),
     )

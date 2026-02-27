@@ -154,12 +154,15 @@ class SqlAlchemyEventStore(IEventStore):
         *,
         after_position: int = -1,
         count: int | None = None,
+        event_types: Sequence[str] | None = None,
     ) -> list[StoredEvent]:
         query = (
             select(self._events)
             .where(self._events.c.global_position > after_position)
             .order_by(self._events.c.global_position)
         )
+        if event_types:
+            query = query.where(self._events.c.event_type.in_(event_types))
         if count is not None:
             query = query.limit(count)
 

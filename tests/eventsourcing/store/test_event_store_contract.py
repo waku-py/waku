@@ -16,7 +16,7 @@ from waku.eventsourcing.exceptions import (
 from waku.eventsourcing.projection.interfaces import IProjection
 from waku.eventsourcing.store.sqlalchemy.store import SqlAlchemyEventStore
 
-from tests.eventsourcing.store.domain import ItemAdded, OrderCreated, make_envelope
+from tests.eventsourcing.store.domain import ItemAdded, OrderCreated, OrderShipped, make_envelope
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -703,3 +703,81 @@ async def test_stream_version_consistent_after_savepoint_race_recovery(
     assert events[1].position == 1
     assert events[0].data == OrderCreated(order_id='123')
     assert events[1].data == ItemAdded(item_name='Widget')
+
+
+# --- read_all event_types filtering ---
+
+
+async def _seed_mixed_events(store: IEventStore) -> None:
+    stream_id = StreamId.for_aggregate('Order', 'mixed')
+    await store.append_to_stream(
+        stream_id,
+        [
+            make_envelope(OrderCreated(order_id='1')),
+            make_envelope(ItemAdded(item_name='A')),
+            make_envelope(OrderCreated(order_id='2')),
+            make_envelope(ItemAdded(item_name='B')),
+            make_envelope(OrderShipped(tracking_number='TRACK-001')),
+        ],
+        expected_version=NoStream(),
+    )
+
+
+async def test_read_all_with_event_types_returns_only_matching(store: IEventStore) -> None:
+    await _seed_mixed_events(store)
+
+    events = await store.read_all(event_types=['OrderCreated'])
+
+    assert len(events) == 2
+    assert all(e.event_type == 'OrderCreated' for e in events)
+
+
+@pytest.mark.parametrize('event_types', [None, []], ids=['none', 'empty_list'])
+async def test_read_all_without_event_type_filter_returns_all(
+    store: IEventStore,
+    event_types: list[str] | None,
+) -> None:
+    await _seed_mixed_events(store)
+
+    events = await store.read_all(event_types=event_types)
+
+    assert len(events) == 5
+
+
+async def test_read_all_with_event_types_respects_after_position(store: IEventStore) -> None:
+    await _seed_mixed_events(store)
+
+    all_events = await store.read_all()
+    mid_position = all_events[1].global_position
+
+    events = await store.read_all(after_position=mid_position, event_types=['OrderCreated'])
+
+    assert len(events) == 1
+    assert events[0].event_type == 'OrderCreated'
+    assert events[0].global_position > mid_position
+
+
+async def test_read_all_with_event_types_respects_count(store: IEventStore) -> None:
+    await _seed_mixed_events(store)
+
+    events = await store.read_all(event_types=['OrderCreated'], count=1)
+
+    assert len(events) == 1
+    assert events[0].event_type == 'OrderCreated'
+
+
+async def test_read_all_with_nonexistent_event_type_returns_empty(store: IEventStore) -> None:
+    await _seed_mixed_events(store)
+
+    events = await store.read_all(event_types=['NonExistent'])
+
+    assert events == []
+
+
+async def test_read_all_with_multiple_event_types(store: IEventStore) -> None:
+    await _seed_mixed_events(store)
+
+    events = await store.read_all(event_types=['OrderCreated', 'ItemAdded'])
+
+    assert len(events) == 4
+    assert all(e.event_type in {'OrderCreated', 'ItemAdded'} for e in events)

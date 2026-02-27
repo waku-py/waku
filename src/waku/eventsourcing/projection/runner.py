@@ -68,6 +68,7 @@ class CatchUpProjectionRunner:
                 binding.max_retry_attempts,
                 binding.base_retry_delay_seconds,
                 binding.max_retry_delay_seconds,
+                event_type_names=binding.event_type_names,
             )
 
             async with self._container() as scope:
@@ -126,6 +127,7 @@ class CatchUpProjectionRunner:
                 binding.max_retry_attempts,
                 binding.base_retry_delay_seconds,
                 binding.max_retry_delay_seconds,
+                event_type_names=binding.event_type_names,
             )
             try:
                 await self._poll_loop(binding, processor, interval)
