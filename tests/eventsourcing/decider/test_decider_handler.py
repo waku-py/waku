@@ -253,6 +253,7 @@ async def test_retry_exhausted_raises_concurrency_error(
         await handler.handle(IncrementCounterCommand(counter_id='c-1', amount=5))
 
     assert mock_save.call_count == 2
+    publisher.publish.assert_not_awaited()
 
 
 async def test_creation_command_not_retried(
@@ -308,3 +309,10 @@ async def test_max_attempts_1_no_retry(
         await handler.handle(IncrementCounterCommand(counter_id='c-1', amount=5))
 
     assert mock_save.call_count == 1
+
+
+def test_max_attempts_zero_raises_value_error() -> None:
+    with pytest.raises(ValueError, match='max_attempts must be >= 1'):
+
+        class ZeroAttemptHandler(IncrementCounterHandler):
+            max_attempts = 0

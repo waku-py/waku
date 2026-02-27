@@ -140,6 +140,7 @@ async def test_retry_exhausted_raises_concurrency_error(mocker: MockerFixture) -
         await handler.handle(EditNote(note_id='n-1', content='Updated'))
 
     assert mock_save.call_count == 2
+    publisher.publish.assert_not_awaited()
 
 
 async def test_creation_command_not_retried(mocker: MockerFixture) -> None:
@@ -242,3 +243,10 @@ async def test_idempotency_key_passed_to_repository_save(mocker: MockerFixture) 
     save_spy.assert_awaited_once()
     _, kwargs = save_spy.call_args
     assert kwargs['idempotency_key'] == 'key-123'
+
+
+def test_max_attempts_zero_raises_value_error() -> None:
+    with pytest.raises(ValueError, match='max_attempts must be >= 1'):
+
+        class ZeroAttemptHandler(EditNoteHandler):
+            max_attempts = 0

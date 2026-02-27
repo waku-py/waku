@@ -8,8 +8,9 @@ import pytest
 from typing_extensions import override
 
 from waku.cqrs.contracts.notification import INotification
-from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
+from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate, IDecider
 from waku.eventsourcing.contracts.event import EventMetadata, IMetadataEnricher
+from waku.eventsourcing.decider.repository import DeciderRepository
 from waku.eventsourcing.exceptions import (
     DuplicateAggregateNameError,
     EventSourcingConfigError,
@@ -27,10 +28,14 @@ from waku.eventsourcing.modules import (
     EventType,
     SnapshotOptions,
 )
-from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, IProjection
+from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
+from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, ICheckpointStore, IProjection
 from waku.eventsourcing.repository import EventSourcedRepository
-from waku.eventsourcing.serialization.json import JsonEventSerializer
+from waku.eventsourcing.serialization.interfaces import ISnapshotStateSerializer
+from waku.eventsourcing.serialization.json import JsonEventSerializer, JsonSnapshotStateSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
+from waku.eventsourcing.snapshot.in_memory import InMemorySnapshotStore
+from waku.eventsourcing.snapshot.interfaces import ISnapshotStore
 from waku.eventsourcing.snapshot.migration import ISnapshotMigration, SnapshotMigrationChain
 from waku.eventsourcing.snapshot.registry import SnapshotConfig, SnapshotConfigRegistry
 from waku.eventsourcing.snapshot.strategy import EventCountStrategy
@@ -713,3 +718,211 @@ def test_frozen_registry_rejects_merge() -> None:
 
     with pytest.raises(RegistryFrozenError):
         registry.merge(EventSourcingRegistry())
+
+
+class FilteredProjection(ICatchUpProjection):
+    projection_name = 'filtered'
+    event_types = (ItemCreated,)
+
+    async def project(self, events: Sequence[StoredEvent], /) -> None:  # pragma: no cover
+        pass
+
+
+class UnfilteredProjection(ICatchUpProjection):
+    projection_name = 'unfiltered'
+
+    async def project(self, events: Sequence[StoredEvent], /) -> None:  # pragma: no cover
+        pass
+
+
+async def test_projection_event_types_resolved_to_names() -> None:
+    es_ext = EventSourcingExtension()
+    es_ext.bind_aggregate(repository=ItemRepository, event_types=[ItemCreated])
+    es_ext.bind_catch_up_projections([FilteredProjection])
+
+    @module(
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
+        extensions=[es_ext],
+    )
+    class TestModule:
+        pass
+
+    async with create_test_app(imports=[TestModule]) as app, app.container() as container:
+        aggregated = await container.get(EventSourcingRegistry)
+        binding = aggregated.catch_up_bindings[0]
+        assert binding.event_type_names == ('ItemCreated',)
+
+
+async def test_projection_without_event_types_has_none() -> None:
+    es_ext = EventSourcingExtension()
+    es_ext.bind_aggregate(repository=ItemRepository, event_types=[ItemCreated])
+    es_ext.bind_catch_up_projections([UnfilteredProjection])
+
+    @module(
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
+        extensions=[es_ext],
+    )
+    class TestModule:
+        pass
+
+    async with create_test_app(imports=[TestModule]) as app, app.container() as container:
+        aggregated = await container.get(EventSourcingRegistry)
+        binding = aggregated.catch_up_bindings[0]
+        assert binding.event_type_names is None
+
+
+async def test_projection_with_unregistered_event_type_raises() -> None:
+    es_ext = EventSourcingExtension()
+    es_ext.bind_aggregate(repository=ItemRepository)
+    es_ext.bind_catch_up_projections([FilteredProjection])
+
+    @module(
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
+        extensions=[es_ext],
+    )
+    class TestModule:
+        pass
+
+    with pytest.raises(EventSourcingConfigError, match=r"'FilteredProjection'.*'ItemCreated'.*not registered"):
+        async with create_test_app(imports=[TestModule]):
+            pass  # pragma: no cover
+
+
+@pytest.mark.parametrize(
+    ('config_kwargs', 'interface', 'implementation'),
+    [
+        pytest.param(
+            {'snapshot_store': InMemorySnapshotStore},
+            ISnapshotStore,
+            InMemorySnapshotStore,
+            id='snapshot_store',
+        ),
+        pytest.param(
+            {'snapshot_state_serializer': JsonSnapshotStateSerializer},
+            ISnapshotStateSerializer,
+            JsonSnapshotStateSerializer,
+            id='snapshot_state_serializer',
+        ),
+        pytest.param(
+            {'checkpoint_store': InMemoryCheckpointStore},
+            ICheckpointStore,
+            InMemoryCheckpointStore,
+            id='checkpoint_store',
+        ),
+    ],
+)
+async def test_event_sourcing_module_registers_optional_provider(
+    config_kwargs: dict[str, Any],
+    interface: type,
+    implementation: type,
+) -> None:
+    config = EventSourcingConfig(store=InMemoryEventStore, **config_kwargs)
+    async with (
+        create_test_app(imports=[EventSourcingModule.register(config)]) as app,
+        app.container() as container,
+    ):
+        resolved = await container.get(interface)
+        assert isinstance(resolved, implementation)
+
+
+@dataclass
+class ItemState:
+    name: str = ''
+
+
+@dataclass(frozen=True)
+class CreateItem:
+    name: str
+
+
+class ItemDecider(IDecider[ItemState, CreateItem, INotification]):
+    @override
+    def initial_state(self) -> ItemState:
+        return ItemState()
+
+    @override
+    def decide(self, command: CreateItem, state: ItemState) -> Sequence[INotification]:
+        return [ItemCreated(name=command.name)]
+
+    @override
+    def evolve(self, state: ItemState, event: INotification) -> ItemState:
+        match event:
+            case ItemCreated(name=name):
+                return ItemState(name=name)
+            case _:  # pragma: no cover
+                return state
+
+
+class ItemDeciderRepository(DeciderRepository[ItemState, CreateItem, INotification]):
+    pass
+
+
+async def test_decider_binding_registers_repository_and_decider() -> None:
+    es_ext = EventSourcingExtension().bind_decider(
+        repository=ItemDeciderRepository,
+        decider=ItemDecider,
+        event_types=[ItemCreated],
+    )
+
+    @module(
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
+        extensions=[es_ext],
+    )
+    class DeciderModule:
+        pass
+
+    async with create_test_app(imports=[DeciderModule]) as app, app.container() as container:
+        repo = await container.get(ItemDeciderRepository)
+        assert isinstance(repo, ItemDeciderRepository)
+
+        decider = await container.get(IDecider[ItemState, CreateItem, INotification])
+        assert isinstance(decider, ItemDecider)
+
+
+async def test_decider_binding_with_snapshot_registers_snapshot_config() -> None:
+    es_ext = EventSourcingExtension().bind_decider(
+        repository=ItemDeciderRepository,
+        decider=ItemDecider,
+        event_types=[ItemCreated],
+        snapshot=SnapshotOptions(strategy=EventCountStrategy(threshold=10)),
+    )
+
+    @module(
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
+        extensions=[es_ext],
+    )
+    class DeciderModule:
+        pass
+
+    async with create_test_app(imports=[DeciderModule]) as app, app.container() as container:
+        registry = await container.get(SnapshotConfigRegistry)
+        config = registry.get('Item')
+        assert isinstance(config.strategy, EventCountStrategy)
+
+
+class DuplicateItemDeciderRepository(DeciderRepository[ItemState, CreateItem, INotification]):
+    aggregate_name = 'Item'
+
+
+async def test_duplicate_aggregate_name_between_aggregate_and_decider_raises() -> None:
+    ext_a = EventSourcingExtension().bind_aggregate(repository=ItemRepository, event_types=[ItemCreated])
+    ext_b = EventSourcingExtension().bind_decider(
+        repository=DuplicateItemDeciderRepository,
+        decider=ItemDecider,
+        event_types=[ItemCreated],
+    )
+
+    @module(
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
+        extensions=[ext_a],
+    )
+    class AggregateModule:
+        pass
+
+    @module(extensions=[ext_b])
+    class DeciderModule:
+        pass
+
+    with pytest.raises(DuplicateAggregateNameError, match='Item'):
+        async with create_test_app(imports=[AggregateModule, DeciderModule]):
+            pass  # pragma: no cover
