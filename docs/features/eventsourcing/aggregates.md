@@ -213,6 +213,46 @@ Both repository types use `ExpectedVersion` for optimistic concurrency:
 The repositories handle this automatically — `NoStream` for new aggregates,
 `Exact` for existing ones. A `ConcurrencyConflictError` is raised on mismatch.
 
+### Automatic Retry
+
+Both `EventSourcedCommandHandler` and `DeciderCommandHandler` include a built-in retry loop
+for optimistic concurrency conflicts. When `save()` raises `ConcurrencyConflictError`, the
+handler re-loads the aggregate from the store and re-executes the command with fresh state.
+
+The default is 3 attempts (1 initial + 2 retries). Override `max_attempts` on your handler
+subclass to change this:
+
+=== "OOP Aggregate"
+
+    ```python
+    class DepositHandler(EventSourcedCommandHandler[DepositCommand, DepositResult, BankAccount]):
+        max_attempts = 5  # 1 initial + 4 retries
+
+        # ... other methods ...
+    ```
+
+=== "Functional Decider"
+
+    ```python
+    class DepositDeciderHandler(DeciderCommandHandler[...]):
+        max_attempts = 5
+
+        # ... other methods ...
+    ```
+
+Set `max_attempts = 1` to disable retry (`ConcurrencyConflictError` propagates immediately).
+
+!!! note
+    Creation commands (where `_is_creation_command()` returns `True`) are **not retried**.
+    A `NoStream` conflict means another process already created the stream — retrying with
+    a fresh aggregate would produce the same failure. Handle this case in your application
+    logic (e.g., load the existing aggregate and update it).
+
+!!! tip
+    The retry loop re-reads state from the event store on each attempt, so it always works
+    with the latest version. No backoff is applied — concurrency conflicts resolve immediately
+    once the handler sees the current state.
+
 ## Choosing an Approach
 
 | | OOP Aggregate | Functional Decider |

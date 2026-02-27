@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 import logging
-from typing import Generic
+from typing import ClassVar, Generic
 
 from typing_extensions import TypeVar, override
 
@@ -12,6 +12,7 @@ from waku.cqrs.interfaces import IPublisher  # noqa: TC001  # Dishka needs runti
 from waku.cqrs.requests.handler import RequestHandler
 from waku.eventsourcing.contracts.aggregate import IDecider  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.decider.repository import DeciderRepository  # noqa: TC001  # Dishka needs runtime access
+from waku.eventsourcing.exceptions import ConcurrencyConflictError
 
 __all__ = ['DeciderCommandHandler', 'DeciderVoidCommandHandler']
 
@@ -27,6 +28,8 @@ class DeciderCommandHandler(
     abc.ABC,
     Generic[RequestT, ResponseT, StateT, CommandT, EventT],
 ):
+    max_attempts: ClassVar[int] = 3
+
     def __init__(
         self,
         repository: DeciderRepository[StateT, CommandT, EventT],
@@ -42,29 +45,50 @@ class DeciderCommandHandler(
         command = self._to_command(request)
         logger.debug('Handling %s for %s', type(request).__name__, aggregate_id)
 
-        if self._is_creation_command(request):
-            state = self._decider.initial_state()
-            version = -1
-        else:
-            state, version = await self._repository.load(aggregate_id)
+        is_creation = self._is_creation_command(request)
+        last_error: ConcurrencyConflictError | None = None
 
-        events = self._decider.decide(command, state)
+        for attempt in range(1, self.max_attempts + 1):
+            if attempt > 1:
+                if is_creation:
+                    raise last_error  # type: ignore[misc]
+                logger.info(
+                    'Retrying %s for %s (attempt %d/%d) after concurrency conflict',
+                    type(request).__name__,
+                    aggregate_id,
+                    attempt,
+                    self.max_attempts,
+                )
 
-        for event in events:
-            state = self._decider.evolve(state, event)
+            if is_creation:
+                state = self._decider.initial_state()
+                version = -1
+            else:
+                state, version = await self._repository.load(aggregate_id)
 
-        new_version = await self._repository.save(
-            aggregate_id,
-            events,
-            version,
-            current_state=state,
-            idempotency_key=self._idempotency_key(request),
-        )
+            events = self._decider.decide(command, state)
 
-        for event in events:
-            await self._publisher.publish(event)
+            for event in events:
+                state = self._decider.evolve(state, event)
 
-        return self._to_response(state, new_version)
+            try:
+                new_version = await self._repository.save(
+                    aggregate_id,
+                    events,
+                    version,
+                    current_state=state,
+                    idempotency_key=self._idempotency_key(request),
+                )
+            except ConcurrencyConflictError as exc:
+                last_error = exc
+                continue
+
+            for event in events:
+                await self._publisher.publish(event)
+
+            return self._to_response(state, new_version)
+
+        raise last_error  # type: ignore[misc]
 
     @abc.abstractmethod
     def _aggregate_id(self, request: RequestT) -> str: ...

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 import logging
-from typing import Generic
+from typing import ClassVar, Generic
 
 from typing_extensions import TypeVar, override
 
@@ -10,6 +10,7 @@ from waku.cqrs.contracts.request import RequestT, ResponseT
 from waku.cqrs.interfaces import IPublisher  # noqa: TC001  # Dishka needs runtime access
 from waku.cqrs.requests.handler import RequestHandler
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
+from waku.eventsourcing.exceptions import ConcurrencyConflictError
 from waku.eventsourcing.repository import EventSourcedRepository  # noqa: TC001  # Dishka needs runtime access
 
 __all__ = ['EventSourcedCommandHandler', 'EventSourcedVoidCommandHandler']
@@ -24,6 +25,8 @@ class EventSourcedCommandHandler(
     abc.ABC,
     Generic[RequestT, ResponseT, AggregateT],
 ):
+    max_attempts: ClassVar[int] = 3
+
     def __init__(
         self,
         repository: EventSourcedRepository[AggregateT],
@@ -36,22 +39,44 @@ class EventSourcedCommandHandler(
         aggregate_id = self._aggregate_id(request)
         logger.debug('Handling %s for %s', type(request).__name__, aggregate_id)
 
-        if self._is_creation_command(request):
-            aggregate = self._repository.create_aggregate()
-        else:
-            aggregate = await self._repository.load(aggregate_id)
+        is_creation = self._is_creation_command(request)
+        last_error: ConcurrencyConflictError | None = None
 
-        await self._execute(request, aggregate)
-        _, events = await self._repository.save(
-            aggregate_id,
-            aggregate,
-            idempotency_key=self._idempotency_key(request),
-        )
+        for attempt in range(1, self.max_attempts + 1):
+            if attempt > 1:
+                if is_creation:
+                    raise last_error  # type: ignore[misc]
+                logger.info(
+                    'Retrying %s for %s (attempt %d/%d) after concurrency conflict',
+                    type(request).__name__,
+                    aggregate_id,
+                    attempt,
+                    self.max_attempts,
+                )
 
-        for event in events:
-            await self._publisher.publish(event)
+            if is_creation:
+                aggregate = self._repository.create_aggregate()
+            else:
+                aggregate = await self._repository.load(aggregate_id)
 
-        return self._to_response(aggregate)
+            await self._execute(request, aggregate)
+
+            try:
+                _, events = await self._repository.save(
+                    aggregate_id,
+                    aggregate,
+                    idempotency_key=self._idempotency_key(request),
+                )
+            except ConcurrencyConflictError as exc:
+                last_error = exc
+                continue
+
+            for event in events:
+                await self._publisher.publish(event)
+
+            return self._to_response(aggregate)
+
+        raise last_error  # type: ignore[misc]
 
     @abc.abstractmethod
     def _aggregate_id(self, request: RequestT) -> str: ...

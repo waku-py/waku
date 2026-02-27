@@ -9,15 +9,16 @@ if TYPE_CHECKING:
     from unittest.mock import AsyncMock
 
     from pytest_mock import MockerFixture
+
+    from tests.eventsourcing.decider.conftest import CounterRepository
 from typing_extensions import override
 
 from waku.cqrs.contracts.request import Request, Response
-from waku.cqrs.interfaces import IPublisher
+from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.decider.handler import DeciderCommandHandler, DeciderVoidCommandHandler
-from waku.eventsourcing.serialization.registry import EventTypeRegistry
-from waku.eventsourcing.store.in_memory import InMemoryEventStore
+from waku.eventsourcing.exceptions import ConcurrencyConflictError, EventSourcingError
 
-from tests.eventsourcing.decider.conftest import CounterRepository
+from tests.eventsourcing.helpers import fail_save_n_times
 from tests.eventsourcing.test_decider import CounterDecider, CounterState, Increment, Incremented
 
 
@@ -93,6 +94,14 @@ class IncrementCounterVoidHandler(
         return Increment(amount=request.amount)
 
 
+class NoRetryIncrementHandler(IncrementCounterHandler):
+    max_attempts = 1
+
+
+class TwoAttemptIncrementHandler(IncrementCounterHandler):
+    max_attempts = 2
+
+
 @dataclass(frozen=True, kw_only=True)
 class IdempotentCreateCounterCommand(Request['CounterResponse']):
     counter_id: str
@@ -122,29 +131,6 @@ class IdempotentCreateCounterHandler(
     @override
     def _idempotency_key(self, request: IdempotentCreateCounterCommand) -> str | None:
         return request.idempotency_key or None
-
-
-@pytest.fixture
-def decider() -> CounterDecider:
-    return CounterDecider()
-
-
-@pytest.fixture
-def event_store() -> InMemoryEventStore:
-    registry = EventTypeRegistry()
-    registry.register(Incremented)
-    return InMemoryEventStore(registry=registry)
-
-
-@pytest.fixture
-def repository(decider: CounterDecider, event_store: InMemoryEventStore) -> CounterRepository:
-    return CounterRepository(decider=decider, event_store=event_store)
-
-
-@pytest.fixture
-def publisher(mocker: MockerFixture) -> AsyncMock:
-    mock: AsyncMock = mocker.AsyncMock(spec=IPublisher)
-    return mock
 
 
 async def test_handle_loads_state_decides_saves_and_returns_response(
@@ -227,3 +213,98 @@ async def test_idempotency_key_passed_to_repository_save(
     save_spy.assert_awaited_once()
     _, kwargs = save_spy.call_args
     assert kwargs['idempotency_key'] == 'key-abc'
+
+
+async def test_retry_succeeds_on_second_attempt(
+    mocker: MockerFixture,
+    repository: CounterRepository,
+    decider: CounterDecider,
+    publisher: AsyncMock,
+) -> None:
+    await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
+
+    handler = IncrementCounterHandler(repository=repository, decider=decider, publisher=publisher)
+    conflict = ConcurrencyConflictError(
+        stream_id=StreamId.for_aggregate('Counter', 'c-1'), expected_version=0, actual_version=1
+    )
+    mocker.patch.object(repository, 'save', side_effect=fail_save_n_times(repository.save, conflict))
+
+    result = await handler.handle(IncrementCounterCommand(counter_id='c-1', amount=5))
+
+    assert result == CounterResponse(value=15, version=1)
+    publisher.publish.assert_awaited_once()
+
+
+async def test_retry_exhausted_raises_concurrency_error(
+    mocker: MockerFixture,
+    repository: CounterRepository,
+    decider: CounterDecider,
+    publisher: AsyncMock,
+) -> None:
+    await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
+
+    handler = TwoAttemptIncrementHandler(repository=repository, decider=decider, publisher=publisher)
+    conflict = ConcurrencyConflictError(
+        stream_id=StreamId.for_aggregate('Counter', 'c-1'), expected_version=0, actual_version=1
+    )
+    mock_save = mocker.patch.object(repository, 'save', side_effect=conflict)
+
+    with pytest.raises(ConcurrencyConflictError):
+        await handler.handle(IncrementCounterCommand(counter_id='c-1', amount=5))
+
+    assert mock_save.call_count == 2
+
+
+async def test_creation_command_not_retried(
+    mocker: MockerFixture,
+    repository: CounterRepository,
+    decider: CounterDecider,
+    publisher: AsyncMock,
+) -> None:
+    handler = CreateCounterHandler(repository=repository, decider=decider, publisher=publisher)
+    conflict = ConcurrencyConflictError(
+        stream_id=StreamId.for_aggregate('Counter', 'c-1'), expected_version=-1, actual_version=0
+    )
+    mock_save = mocker.patch.object(repository, 'save', side_effect=conflict)
+
+    with pytest.raises(ConcurrencyConflictError):
+        await handler.handle(CreateCounterCommand(counter_id='c-1', amount=5))
+
+    assert mock_save.call_count == 1
+
+
+async def test_non_concurrency_error_not_retried(
+    mocker: MockerFixture,
+    repository: CounterRepository,
+    decider: CounterDecider,
+    publisher: AsyncMock,
+) -> None:
+    await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
+
+    handler = IncrementCounterHandler(repository=repository, decider=decider, publisher=publisher)
+    mock_save = mocker.patch.object(repository, 'save', side_effect=EventSourcingError('generic error'))
+
+    with pytest.raises(EventSourcingError, match='generic error'):
+        await handler.handle(IncrementCounterCommand(counter_id='c-1', amount=5))
+
+    assert mock_save.call_count == 1
+
+
+async def test_max_attempts_1_no_retry(
+    mocker: MockerFixture,
+    repository: CounterRepository,
+    decider: CounterDecider,
+    publisher: AsyncMock,
+) -> None:
+    await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
+
+    handler = NoRetryIncrementHandler(repository=repository, decider=decider, publisher=publisher)
+    conflict = ConcurrencyConflictError(
+        stream_id=StreamId.for_aggregate('Counter', 'c-1'), expected_version=0, actual_version=1
+    )
+    mock_save = mocker.patch.object(repository, 'save', side_effect=conflict)
+
+    with pytest.raises(ConcurrencyConflictError):
+        await handler.handle(IncrementCounterCommand(counter_id='c-1', amount=5))
+
+    assert mock_save.call_count == 1
