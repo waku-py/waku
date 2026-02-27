@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
+from waku.cqrs.interfaces import IPublisher
 from waku.eventsourcing.decider.repository import DeciderRepository
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
 from tests.eventsourcing.test_decider import CounterDecider, CounterState, Increment, Incremented
+
+if TYPE_CHECKING:
+    from unittest.mock import AsyncMock
+
+    from pytest_mock import MockerFixture
 
 
 class CounterRepository(DeciderRepository[CounterState, Increment, Incremented]):
@@ -38,3 +46,8 @@ def repository(decider: CounterDecider, event_store: InMemoryEventStore) -> Coun
 @pytest.fixture
 def limited_repository(decider: CounterDecider, event_store: InMemoryEventStore) -> LimitedCounterRepository:
     return LimitedCounterRepository(decider=decider, event_store=event_store)
+
+
+@pytest.fixture
+def publisher(mocker: MockerFixture) -> AsyncMock:
+    return mocker.AsyncMock(spec=IPublisher)
