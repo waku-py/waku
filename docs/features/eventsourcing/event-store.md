@@ -16,7 +16,7 @@ The store interface is split into two protocols:
 **`IEventReader`** — read-side operations:
 
 - `read_stream(stream_id, *, start, count)` — read events from a single stream
-- `read_all(*, after_position, count, event_types)` — read events across all streams, optionally filtered by event type
+- `read_all(*, after_position, count, event_types)` — read events across all streams, optionally filtered by event types
 - `stream_exists(stream_id)` — check whether a stream exists
 
 **`IEventWriter`** — write-side operations:

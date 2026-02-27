@@ -322,19 +322,20 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
     ) -> None:
         for binding in aggregated.catch_up_bindings:
             projection_event_types = binding.projection.event_types
-            if projection_event_types is not None:
-                resolved: list[str] = []
-                for et in projection_event_types:
-                    try:
-                        resolved.append(event_type_registry.get_name(et))
-                    except UnknownEventTypeError:
-                        msg = (
-                            f'Projection {binding.projection.__name__!r} declares event type '
-                            f'{et.__name__!r} in its event_types, but it is not registered '
-                            f'via bind_aggregate(event_types=[...]).'
-                        )
-                        raise EventSourcingConfigError(msg) from None
-                object.__setattr__(binding, 'event_type_names', tuple(resolved))  # noqa: PLC2801  # bypass frozen
+            if projection_event_types is None:
+                continue
+            resolved: list[str] = []
+            for et in projection_event_types:
+                try:
+                    resolved.append(event_type_registry.get_name(et))
+                except UnknownEventTypeError:
+                    msg = (
+                        f'Projection {binding.projection.__name__!r} declares event type '
+                        f'{et.__name__!r} in its event_types, but it is not registered '
+                        f'via bind_aggregate(event_types=[...]).'
+                    )
+                    raise EventSourcingConfigError(msg) from None
+            object.__setattr__(binding, 'event_type_names', tuple(resolved))  # noqa: PLC2801  # bypass frozen
 
     @staticmethod
     def _build_snapshot_config_registry(
