@@ -15,6 +15,7 @@ from waku.eventsourcing.exceptions import (
     EventSourcingConfigError,
     RegistryFrozenError,
     SnapshotMigrationChainError,
+    UnknownEventTypeError,
     UpcasterChainError,
 )
 from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, ICheckpointStore, IProjection
@@ -95,6 +96,7 @@ class CatchUpProjectionBinding:
     base_retry_delay_seconds: float = 10.0
     max_retry_delay_seconds: float = 300.0
     batch_size: int = 100
+    event_type_names: tuple[str, ...] | None = field(default=None, init=False, compare=False, hash=False)
 
 
 CatchUpProjectionSpec: TypeAlias = 'type[ICatchUpProjection] | CatchUpProjectionBinding'
@@ -299,6 +301,8 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
         registry.add_provider(owning_module, object_(event_type_registry))
         registry.add_provider(owning_module, object_(upcaster_chain))
 
+        self._resolve_projection_event_types(aggregated, event_type_registry)
+
         snapshot_config_registry = self._build_snapshot_config_registry(
             registry.find_extensions(EventSourcingExtension),
         )
@@ -310,6 +314,27 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
                 'bind_aggregate(event_types=[...]). Deserialization will fail at runtime.'
             )
             raise EventSourcingConfigError(msg)
+
+    @staticmethod
+    def _resolve_projection_event_types(
+        aggregated: EventSourcingRegistry,
+        event_type_registry: EventTypeRegistry,
+    ) -> None:
+        for binding in aggregated.catch_up_bindings:
+            projection_event_types = binding.projection.event_types
+            if projection_event_types is not None:
+                resolved: list[str] = []
+                for et in projection_event_types:
+                    try:
+                        resolved.append(event_type_registry.get_name(et))
+                    except UnknownEventTypeError:
+                        msg = (
+                            f'Projection {binding.projection.__name__!r} declares event type '
+                            f'{et.__name__!r} in its event_types, but it is not registered '
+                            f'via bind_aggregate(event_types=[...]).'
+                        )
+                        raise EventSourcingConfigError(msg) from None
+                object.__setattr__(binding, 'event_type_names', tuple(resolved))  # noqa: PLC2801  # bypass frozen
 
     @staticmethod
     def _build_snapshot_config_registry(

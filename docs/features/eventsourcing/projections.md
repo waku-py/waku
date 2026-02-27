@@ -93,6 +93,29 @@ from waku.eventsourcing.projection.interfaces import ErrorPolicy
 )
 ```
 
+### Event Type Filtering
+
+Catch-up projections can declare which event types they handle via the `event_types` class
+variable. When set, the projection only receives events of those types — the event store
+filters at the query level, avoiding unnecessary reads.
+
+```python hl_lines="3"
+class OrderSummaryProjection(ICatchUpProjection):
+    projection_name = 'order_summary'
+    event_types = [OrderPlaced, OrderShipped]
+
+    async def project(self, events: Sequence[StoredEvent], /) -> None:
+        for event in events:
+            ...  # only OrderPlaced and OrderShipped events arrive here
+```
+
+When `event_types` is `None` (the default), all events are delivered.
+
+!!! tip
+    Always set `event_types` on projections that only care about a few event types.
+    In systems with hundreds of event types, this avoids reading and discarding irrelevant
+    events on every polling cycle.
+
 ## Error Policies
 
 | Policy | Behavior |

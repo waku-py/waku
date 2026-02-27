@@ -35,6 +35,7 @@ class IEventReader(abc.ABC):
         *,
         after_position: int = -1,
         count: int | None = None,
+        event_types: Sequence[str] | None = None,
     ) -> list[StoredEvent]: ...
 
     @abc.abstractmethod

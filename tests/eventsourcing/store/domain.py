@@ -20,5 +20,10 @@ class ItemAdded:
     item_name: str
 
 
+@dataclass(frozen=True)
+class OrderShipped:
+    tracking_number: str
+
+
 def make_envelope(event: INotification) -> EventEnvelope:
     return EventEnvelope(domain_event=event, idempotency_key=str(uuid.uuid4()))

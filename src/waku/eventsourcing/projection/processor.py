@@ -31,12 +31,14 @@ class ProjectionProcessor:
         max_retry_attempts: int,
         base_retry_delay_seconds: float,
         max_retry_delay_seconds: float,
+        event_type_names: tuple[str, ...] | None = None,
     ) -> None:
         self._projection_name = projection_name
         self._error_policy = error_policy
         self._max_retry_attempts = max_retry_attempts
         self._base_retry_delay_seconds = base_retry_delay_seconds
         self._max_retry_delay_seconds = max_retry_delay_seconds
+        self._event_type_names = event_type_names
         self._attempts: int = 0
 
     @property
@@ -54,7 +56,9 @@ class ProjectionProcessor:
         checkpoint = await checkpoint_store.load(self._projection_name)
         position = checkpoint.position if checkpoint is not None else -1
 
-        events = await event_reader.read_all(after_position=position, count=batch_size)
+        events = await event_reader.read_all(
+            after_position=position, count=batch_size, event_types=self._event_type_names
+        )
         if not events:
             return 0
 

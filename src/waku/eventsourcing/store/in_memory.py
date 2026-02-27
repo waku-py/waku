@@ -76,13 +76,20 @@ class InMemoryEventStore(IEventStore):
         *,
         after_position: int = -1,
         count: int | None = None,
+        event_types: Sequence[str] | None = None,
     ) -> list[StoredEvent]:
         async with self._lock:
             all_events: list[StoredEvent] = []
             for stream_events in self._streams.values():
                 all_events.extend(stream_events)
             all_events.sort(key=lambda e: e.global_position)
-            filtered = [e for e in all_events if e.global_position > after_position]
+
+            type_set = frozenset(event_types) if event_types else None
+            filtered = [
+                e
+                for e in all_events
+                if e.global_position > after_position and (type_set is None or e.event_type in type_set)
+            ]
             if count is not None:
                 filtered = filtered[:count]
             return filtered

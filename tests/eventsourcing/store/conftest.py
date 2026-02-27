@@ -13,7 +13,7 @@ from waku.eventsourcing.store.sqlalchemy.store import SqlAlchemyEventStore
 from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
 from waku.eventsourcing.upcasting.chain import UpcasterChain
 
-from tests.eventsourcing.store.domain import ItemAdded, OrderCreated
+from tests.eventsourcing.store.domain import ItemAdded, OrderCreated, OrderShipped
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -38,6 +38,7 @@ def registry() -> EventTypeRegistry:
     reg = EventTypeRegistry()
     reg.register(OrderCreated)
     reg.register(ItemAdded)
+    reg.register(OrderShipped)
     return reg
 
 
