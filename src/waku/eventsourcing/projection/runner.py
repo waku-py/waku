@@ -11,6 +11,7 @@ from waku.eventsourcing.projection.adaptive_interval import AdaptiveInterval
 from waku.eventsourcing.projection.config import PollingConfig
 from waku.eventsourcing.projection.interfaces import ICheckpointStore
 from waku.eventsourcing.projection.processor import ProjectionProcessor
+from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.store.interfaces import IEventReader
 
 _DEFAULT_POLLING = PollingConfig()
@@ -19,7 +20,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from waku.di import AsyncContainer
-    from waku.eventsourcing.modules import CatchUpProjectionBinding
+    from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
+    from waku.eventsourcing.projection.interfaces import ICatchUpProjection
     from waku.eventsourcing.projection.lock.interfaces import IProjectionLock
 
 __all__ = ['CatchUpProjectionRunner']
@@ -40,6 +42,28 @@ class CatchUpProjectionRunner:
         self._bindings = tuple(bindings)
         self._polling = polling
         self._shutdown_event = anyio.Event()
+
+    @classmethod
+    async def create(
+        cls,
+        container: AsyncContainer,
+        lock: IProjectionLock,
+        projections: Sequence[type[ICatchUpProjection]] | None = None,
+        polling: PollingConfig = _DEFAULT_POLLING,
+    ) -> CatchUpProjectionRunner:
+        async with container() as scope:
+            projection_registry = await scope.get(CatchUpProjectionRegistry)
+        if projections is not None:
+            projection_set = set(projections)
+            bindings = [b for b in projection_registry if b.projection in projection_set]
+        else:
+            bindings = list(projection_registry)
+        return cls(
+            container=container,
+            lock=lock,
+            bindings=bindings,
+            polling=polling,
+        )
 
     async def run(self) -> None:
         if not self._bindings:
@@ -62,14 +86,7 @@ class CatchUpProjectionRunner:
                 projection = await scope.get(binding.projection)
                 await projection.teardown()
 
-            processor = ProjectionProcessor(
-                projection_name,
-                binding.error_policy,
-                binding.max_retry_attempts,
-                binding.base_retry_delay_seconds,
-                binding.max_retry_delay_seconds,
-                event_type_names=binding.event_type_names,
-            )
+            processor = ProjectionProcessor(binding)
 
             async with self._container() as scope:
                 checkpoint_store = await scope.get(ICheckpointStore)
@@ -80,12 +97,7 @@ class CatchUpProjectionRunner:
                     projection = await scope.get(binding.projection)
                     reader = await scope.get(IEventReader)
                     checkpoint_store = await scope.get(ICheckpointStore)
-                    processed = await processor.run_once(
-                        projection,
-                        reader,
-                        checkpoint_store,
-                        batch_size=binding.batch_size,
-                    )
+                    processed = await processor.run_once(projection, reader, checkpoint_store)
 
                 if processed == 0:
                     break
@@ -121,14 +133,7 @@ class CatchUpProjectionRunner:
                 step_seconds=self._polling.poll_interval_step_seconds,
                 jitter_factor=self._polling.poll_interval_jitter_factor,
             )
-            processor = ProjectionProcessor(
-                projection_name,
-                binding.error_policy,
-                binding.max_retry_attempts,
-                binding.base_retry_delay_seconds,
-                binding.max_retry_delay_seconds,
-                event_type_names=binding.event_type_names,
-            )
+            processor = ProjectionProcessor(binding)
             try:
                 await self._poll_loop(binding, processor, interval)
             except ProjectionError:
@@ -146,12 +151,7 @@ class CatchUpProjectionRunner:
                     projection = await scope.get(binding.projection)
                     reader = await scope.get(IEventReader)
                     checkpoint_store = await scope.get(ICheckpointStore)
-                    processed = await processor.run_once(
-                        projection,
-                        reader,
-                        checkpoint_store,
-                        batch_size=binding.batch_size,
-                    )
+                    processed = await processor.run_once(projection, reader, checkpoint_store)
             except ProjectionError:
                 raise
             except Exception:

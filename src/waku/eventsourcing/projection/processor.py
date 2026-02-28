@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from waku.eventsourcing.contracts.event import StoredEvent
+    from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
     from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore
     from waku.eventsourcing.store.interfaces import IEventReader
 
@@ -24,40 +25,27 @@ logger = logging.getLogger(__name__)
 
 
 class ProjectionProcessor:
-    def __init__(
-        self,
-        projection_name: str,
-        error_policy: ErrorPolicy,
-        max_retry_attempts: int,
-        base_retry_delay_seconds: float,
-        max_retry_delay_seconds: float,
-        event_type_names: tuple[str, ...] | None = None,
-    ) -> None:
-        self._projection_name = projection_name
-        self._error_policy = error_policy
-        self._max_retry_attempts = max_retry_attempts
-        self._base_retry_delay_seconds = base_retry_delay_seconds
-        self._max_retry_delay_seconds = max_retry_delay_seconds
-        self._event_type_names = event_type_names
+    def __init__(self, binding: CatchUpProjectionBinding) -> None:
+        self._binding = binding
         self._attempts: int = 0
 
     @property
     def projection_name(self) -> str:
-        return self._projection_name
+        return self._binding.projection.projection_name
 
     async def run_once(
         self,
         projection: ICatchUpProjection,
         event_reader: IEventReader,
         checkpoint_store: ICheckpointStore,
-        *,
-        batch_size: int = 100,
     ) -> int:
-        checkpoint = await checkpoint_store.load(self._projection_name)
+        checkpoint = await checkpoint_store.load(self.projection_name)
         position = checkpoint.position if checkpoint is not None else -1
 
         events = await event_reader.read_all(
-            after_position=position, count=batch_size, event_types=self._event_type_names
+            after_position=position,
+            count=self._binding.batch_size,
+            event_types=self._binding.event_type_names,
         )
         if not events:
             return 0
@@ -69,7 +57,7 @@ class ProjectionProcessor:
 
         await checkpoint_store.save(
             Checkpoint(
-                projection_name=self._projection_name,
+                projection_name=self.projection_name,
                 position=events[-1].global_position,
                 updated_at=datetime.now(UTC),
             ),
@@ -80,7 +68,7 @@ class ProjectionProcessor:
     async def reset_checkpoint(self, checkpoint_store: ICheckpointStore) -> None:
         await checkpoint_store.save(
             Checkpoint(
-                projection_name=self._projection_name,
+                projection_name=self.projection_name,
                 position=-1,
                 updated_at=datetime.now(UTC),
             ),
@@ -95,42 +83,42 @@ class ProjectionProcessor:
     ) -> int:
         self._attempts += 1
 
-        if self._attempts <= self._max_retry_attempts:
+        if self._attempts <= self._binding.max_retry_attempts:
             delay = calculate_backoff_with_jitter(
                 self._attempts,
-                self._base_retry_delay_seconds,
-                self._max_retry_delay_seconds,
+                self._binding.base_retry_delay_seconds,
+                self._binding.max_retry_delay_seconds,
             )
             logger.warning(
                 'Projection %r: attempt %d/%d failed, retrying in %.2fs: %s',
-                self._projection_name,
+                self.projection_name,
                 self._attempts,
-                self._max_retry_attempts,
+                self._binding.max_retry_attempts,
                 delay,
                 exc,
             )
             await anyio.sleep(delay)
             return 0
 
-        if self._error_policy is ErrorPolicy.STOP:
+        if self._binding.error_policy is ErrorPolicy.STOP:
             self._attempts = 0
-            raise ProjectionStoppedError(self._projection_name, exc)
+            raise ProjectionStoppedError(self.projection_name, exc)
 
         # ErrorPolicy.SKIP
         logger.warning(
             'Projection %r: skipping batch due to error (after %d attempts): %s',
-            self._projection_name,
+            self.projection_name,
             self._attempts,
             exc,
         )
         try:
             await projection.on_skip(events, exc)
         except Exception:
-            logger.exception('Projection %r: on_skip handler failed', self._projection_name)
+            logger.exception('Projection %r: on_skip handler failed', self.projection_name)
 
         await checkpoint_store.save(
             Checkpoint(
-                projection_name=self._projection_name,
+                projection_name=self.projection_name,
                 position=events[-1].global_position,
                 updated_at=datetime.now(UTC),
             ),

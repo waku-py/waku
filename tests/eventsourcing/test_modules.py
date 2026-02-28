@@ -20,7 +20,6 @@ from waku.eventsourcing.exceptions import (
     UpcasterChainError,
 )
 from waku.eventsourcing.modules import (
-    CatchUpProjectionBinding,
     EventSourcingConfig,
     EventSourcingExtension,
     EventSourcingModule,
@@ -30,6 +29,7 @@ from waku.eventsourcing.modules import (
 )
 from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
 from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, ICheckpointStore, IProjection
+from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.interfaces import ISnapshotStateSerializer
 from waku.eventsourcing.serialization.json import JsonEventSerializer, JsonSnapshotStateSerializer
@@ -159,13 +159,11 @@ class ItemListProjection(IProjection):
 async def test_catch_up_projections_registered_via_binding() -> None:
     es_ext = EventSourcingExtension()
     es_ext.bind_aggregate(repository=ItemRepository, event_types=[ItemCreated])
-    es_ext.bind_catch_up_projections([
-        CatchUpProjectionBinding(
-            projection=SearchIndexProjection,
-            error_policy=ErrorPolicy.SKIP,
-            max_retry_attempts=3,
-        ),
-    ])
+    es_ext.bind_catch_up_projection(
+        SearchIndexProjection,
+        error_policy=ErrorPolicy.SKIP,
+        max_retry_attempts=3,
+    )
 
     @module(
         imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
@@ -183,7 +181,7 @@ async def test_catch_up_projections_registered_via_binding() -> None:
 async def test_catch_up_projections_bare_type_uses_defaults() -> None:
     es_ext = EventSourcingExtension()
     es_ext.bind_aggregate(repository=ItemRepository, event_types=[ItemCreated])
-    es_ext.bind_catch_up_projections([SearchIndexProjection])
+    es_ext.bind_catch_up_projection(SearchIndexProjection)
 
     @module(
         imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
@@ -217,7 +215,7 @@ async def test_no_catch_up_projections_resolves_empty_sequence() -> None:
 async def test_catch_up_and_inline_projections_independent() -> None:
     es_ext = EventSourcingExtension()
     es_ext.bind_aggregate(repository=ItemRepository, event_types=[ItemCreated], projections=[ItemListProjection])
-    es_ext.bind_catch_up_projections([SearchIndexProjection])
+    es_ext.bind_catch_up_projection(SearchIndexProjection)
 
     @module(
         imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
@@ -728,17 +726,10 @@ class FilteredProjection(ICatchUpProjection):
         pass
 
 
-class UnfilteredProjection(ICatchUpProjection):
-    projection_name = 'unfiltered'
-
-    async def project(self, events: Sequence[StoredEvent], /) -> None:  # pragma: no cover
-        pass
-
-
-async def test_projection_event_types_resolved_to_names() -> None:
+async def test_filtered_projection_stored_in_registry() -> None:
     es_ext = EventSourcingExtension()
     es_ext.bind_aggregate(repository=ItemRepository, event_types=[ItemCreated])
-    es_ext.bind_catch_up_projections([FilteredProjection])
+    es_ext.bind_catch_up_projection(FilteredProjection)
 
     @module(
         imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
@@ -748,33 +739,17 @@ async def test_projection_event_types_resolved_to_names() -> None:
         pass
 
     async with create_test_app(imports=[TestModule]) as app, app.container() as container:
-        aggregated = await container.get(EventSourcingRegistry)
-        binding = aggregated.catch_up_bindings[0]
+        projection_registry = await container.get(CatchUpProjectionRegistry)
+        assert len(projection_registry) == 1
+        binding = projection_registry.get('filtered')
+        assert binding.projection is FilteredProjection
         assert binding.event_type_names == ('ItemCreated',)
-
-
-async def test_projection_without_event_types_has_none() -> None:
-    es_ext = EventSourcingExtension()
-    es_ext.bind_aggregate(repository=ItemRepository, event_types=[ItemCreated])
-    es_ext.bind_catch_up_projections([UnfilteredProjection])
-
-    @module(
-        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
-        extensions=[es_ext],
-    )
-    class TestModule:
-        pass
-
-    async with create_test_app(imports=[TestModule]) as app, app.container() as container:
-        aggregated = await container.get(EventSourcingRegistry)
-        binding = aggregated.catch_up_bindings[0]
-        assert binding.event_type_names is None
 
 
 async def test_projection_with_unregistered_event_type_raises() -> None:
     es_ext = EventSourcingExtension()
     es_ext.bind_aggregate(repository=ItemRepository)
-    es_ext.bind_catch_up_projections([FilteredProjection])
+    es_ext.bind_catch_up_projection(FilteredProjection)
 
     @module(
         imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
@@ -821,7 +796,7 @@ async def test_event_sourcing_module_registers_optional_provider(
         create_test_app(imports=[EventSourcingModule.register(config)]) as app,
         app.container() as container,
     ):
-        resolved = await container.get(interface)
+        resolved: object = await container.get(interface)
         assert isinstance(resolved, implementation)
 
 

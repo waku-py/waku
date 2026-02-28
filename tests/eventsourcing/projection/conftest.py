@@ -8,11 +8,34 @@ from sqlalchemy import MetaData
 from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
 from waku.eventsourcing.projection.sqlalchemy.store import SqlAlchemyCheckpointStore
 from waku.eventsourcing.projection.sqlalchemy.tables import bind_checkpoint_tables
+from waku.eventsourcing.serialization.registry import EventTypeRegistry
+from waku.eventsourcing.store.in_memory import InMemoryEventStore
+
+from tests.eventsourcing.projection.helpers import OtherEvent, SampleEvent
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from waku.eventsourcing.projection.interfaces import ICheckpointStore
+
+
+@pytest.fixture
+def event_type_registry() -> EventTypeRegistry:
+    registry = EventTypeRegistry()
+    registry.register(SampleEvent)
+    registry.register(OtherEvent)
+    registry.freeze()
+    return registry
+
+
+@pytest.fixture
+def event_store(event_type_registry: EventTypeRegistry) -> InMemoryEventStore:
+    return InMemoryEventStore(event_type_registry)
+
+
+@pytest.fixture
+def in_memory_checkpoint_store() -> InMemoryCheckpointStore:
+    return InMemoryCheckpointStore()
 
 
 @pytest.fixture(params=['in_memory', 'sqlalchemy'])
