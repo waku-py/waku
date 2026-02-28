@@ -8,24 +8,30 @@ import pytest
 from typing_extensions import override
 
 from waku.di import object_
-from waku.eventsourcing.modules import CatchUpProjectionBinding
 from waku.eventsourcing.projection.config import PollingConfig
-from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
 from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, ICheckpointStore
 from waku.eventsourcing.projection.lock.in_memory import InMemoryProjectionLock
 from waku.eventsourcing.projection.lock.interfaces import IProjectionLock
+from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.projection.runner import CatchUpProjectionRunner
-from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import IEventReader, IEventStore
 from waku.factory import WakuFactory
 from waku.modules import module
 
-from tests.eventsourcing.projection.helpers import RecordingProjection, StopProjection, make_registry, seed_events
+from tests.eventsourcing.projection.helpers import (
+    RecordingProjection,
+    StopProjection,
+    make_binding,
+    seed_events,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
 
     from waku.application import WakuApplication
+    from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
+    from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
+    from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
 _FAST_POLLING = PollingConfig(
     poll_interval_min_seconds=0.01,
@@ -46,12 +52,15 @@ def _make_app(
     checkpoint_store: ICheckpointStore,
     lock: IProjectionLock,
     projections: Sequence[ICatchUpProjection],
+    bindings: Sequence[CatchUpProjectionBinding],
 ) -> WakuApplication:
+    projection_registry = CatchUpProjectionRegistry(tuple(bindings))
     providers = [
         object_(store, provided_type=IEventStore),
         object_(store, provided_type=IEventReader),
         object_(checkpoint_store, provided_type=ICheckpointStore),
         object_(lock, provided_type=IProjectionLock),
+        object_(projection_registry),
         *[object_(proj, provided_type=type(proj)) for proj in projections],
     ]
 
@@ -62,22 +71,21 @@ def _make_app(
     return WakuFactory(TestModule).create()
 
 
-async def test_runner_processes_all_events() -> None:
-    registry = make_registry()
-    store = InMemoryEventStore(registry)
-    await seed_events(store, count=5)
+async def test_runner_processes_all_events(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
+    await seed_events(event_store, count=5)
 
-    checkpoint_store = InMemoryCheckpointStore()
     lock = InMemoryProjectionLock()
     projection = RecordingProjection()
-
-    app = _make_app(store, checkpoint_store, lock, (projection,))
+    binding = make_binding(RecordingProjection)
+    app = _make_app(event_store, in_memory_checkpoint_store, lock, (projection,), (binding,))
 
     async with app:
-        runner = CatchUpProjectionRunner(
+        runner = await CatchUpProjectionRunner.create(
             container=app.container,
             lock=lock,
-            bindings=[CatchUpProjectionBinding(projection=RecordingProjection)],
             polling=_FAST_POLLING,
         )
 
@@ -90,19 +98,17 @@ async def test_runner_processes_all_events() -> None:
     assert [e.data.value for e in projection.received] == [0, 1, 2, 3, 4]  # type: ignore[attr-defined]
 
 
-async def test_runner_exits_when_no_projections() -> None:
-    registry = make_registry()
-    store = InMemoryEventStore(registry)
-    checkpoint_store = InMemoryCheckpointStore()
+async def test_runner_exits_when_no_projections(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
     lock = InMemoryProjectionLock()
-
-    app = _make_app(store, checkpoint_store, lock, ())
+    app = _make_app(event_store, in_memory_checkpoint_store, lock, (), ())
 
     async with app:
-        runner = CatchUpProjectionRunner(
+        runner = await CatchUpProjectionRunner.create(
             container=app.container,
             lock=lock,
-            bindings=[],
             polling=_FAST_POLLING,
         )
 
@@ -110,20 +116,19 @@ async def test_runner_exits_when_no_projections() -> None:
             await runner.run()
 
 
-async def test_runner_respects_shutdown() -> None:
-    registry = make_registry()
-    store = InMemoryEventStore(registry)
-    checkpoint_store = InMemoryCheckpointStore()
+async def test_runner_respects_shutdown(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
     lock = InMemoryProjectionLock()
     projection = RecordingProjection()
-
-    app = _make_app(store, checkpoint_store, lock, (projection,))
+    binding = make_binding(RecordingProjection)
+    app = _make_app(event_store, in_memory_checkpoint_store, lock, (projection,), (binding,))
 
     async with app:
-        runner = CatchUpProjectionRunner(
+        runner = await CatchUpProjectionRunner.create(
             container=app.container,
             lock=lock,
-            bindings=[CatchUpProjectionBinding(projection=RecordingProjection)],
             polling=_FAST_POLLING,
         )
 
@@ -133,22 +138,21 @@ async def test_runner_respects_shutdown() -> None:
             runner.request_shutdown()
 
 
-async def test_rebuild_resets_and_reprocesses() -> None:
-    registry = make_registry()
-    store = InMemoryEventStore(registry)
-    await seed_events(store, count=5)
+async def test_rebuild_resets_and_reprocesses(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
+    await seed_events(event_store, count=5)
 
-    checkpoint_store = InMemoryCheckpointStore()
     lock = InMemoryProjectionLock()
     projection = RecordingProjection()
-
-    app = _make_app(store, checkpoint_store, lock, (projection,))
+    binding = make_binding(RecordingProjection)
+    app = _make_app(event_store, in_memory_checkpoint_store, lock, (projection,), (binding,))
 
     async with app:
-        runner = CatchUpProjectionRunner(
+        runner = await CatchUpProjectionRunner.create(
             container=app.container,
             lock=lock,
-            bindings=[CatchUpProjectionBinding(projection=RecordingProjection)],
             polling=_FAST_POLLING,
         )
 
@@ -166,36 +170,41 @@ async def test_rebuild_resets_and_reprocesses() -> None:
     assert [e.data.value for e in projection.received] == [0, 1, 2, 3, 4]  # type: ignore[attr-defined]
 
 
-async def test_rebuild_unknown_projection_raises() -> None:
+async def test_rebuild_unknown_projection_raises(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
     lock = InMemoryProjectionLock()
-
-    runner = CatchUpProjectionRunner(
-        container=None,  # type: ignore[arg-type]
-        lock=lock,
-        bindings=[CatchUpProjectionBinding(projection=RecordingProjection)],
-        polling=_FAST_POLLING,
-    )
-
-    with pytest.raises(ValueError, match="Projection 'nonexistent' not found"):
-        await runner.rebuild('nonexistent')
-
-
-async def test_runner_skips_locked_projection() -> None:
-    registry = make_registry()
-    store = InMemoryEventStore(registry)
-    await seed_events(store, count=5)
-
-    checkpoint_store = InMemoryCheckpointStore()
-    lock = AlwaysLockedLock()
+    binding = make_binding(RecordingProjection)
     projection = RecordingProjection()
-
-    app = _make_app(store, checkpoint_store, lock, (projection,))
+    app = _make_app(event_store, in_memory_checkpoint_store, lock, (projection,), (binding,))
 
     async with app:
-        runner = CatchUpProjectionRunner(
+        runner = await CatchUpProjectionRunner.create(
             container=app.container,
             lock=lock,
-            bindings=[CatchUpProjectionBinding(projection=RecordingProjection)],
+            polling=_FAST_POLLING,
+        )
+
+        with pytest.raises(ValueError, match="Projection 'nonexistent' not found"):
+            await runner.rebuild('nonexistent')
+
+
+async def test_runner_skips_locked_projection(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
+    await seed_events(event_store, count=5)
+
+    lock = AlwaysLockedLock()
+    projection = RecordingProjection()
+    binding = make_binding(RecordingProjection)
+    app = _make_app(event_store, in_memory_checkpoint_store, lock, (projection,), (binding,))
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(
+            container=app.container,
+            lock=lock,
             polling=_FAST_POLLING,
         )
 
@@ -207,27 +216,29 @@ async def test_runner_skips_locked_projection() -> None:
     assert len(projection.received) == 0
 
 
-async def test_runner_isolates_projection_errors() -> None:
-    registry = make_registry()
-    store = InMemoryEventStore(registry)
-    await seed_events(store, count=5)
+async def test_runner_isolates_projection_errors(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
+    await seed_events(event_store, count=5)
 
-    checkpoint_store = InMemoryCheckpointStore()
     lock = InMemoryProjectionLock()
-
     good_projection = RecordingProjection()
     stop_projection = StopProjection()
-
-    app = _make_app(store, checkpoint_store, lock, (good_projection, stop_projection))
+    recording_binding = make_binding(RecordingProjection)
+    stop_binding = make_binding(StopProjection, error_policy=ErrorPolicy.STOP)
+    app = _make_app(
+        event_store,
+        in_memory_checkpoint_store,
+        lock,
+        (good_projection, stop_projection),
+        (recording_binding, stop_binding),
+    )
 
     async with app:
-        runner = CatchUpProjectionRunner(
+        runner = await CatchUpProjectionRunner.create(
             container=app.container,
             lock=lock,
-            bindings=[
-                CatchUpProjectionBinding(projection=RecordingProjection),
-                CatchUpProjectionBinding(projection=StopProjection, error_policy=ErrorPolicy.STOP),
-            ],
             polling=_FAST_POLLING,
         )
 

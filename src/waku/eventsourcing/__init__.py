@@ -38,8 +38,6 @@ from waku.eventsourcing.exceptions import (
 )
 from waku.eventsourcing.handler import EventSourcedCommandHandler, EventSourcedVoidCommandHandler
 from waku.eventsourcing.modules import (
-    CatchUpProjectionBinding,
-    CatchUpProjectionSpec,
     EventSourcingConfig,
     EventSourcingExtension,
     EventSourcingModule,
@@ -47,7 +45,10 @@ from waku.eventsourcing.modules import (
     EventTypeSpec,
     SnapshotOptions,
 )
+from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
 from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, ICheckpointStore, IProjection
+from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
+from waku.eventsourcing.projection.runner import CatchUpProjectionRunner
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.upcasting import (
     FnUpcaster,
@@ -64,7 +65,8 @@ __all__ = [
     'AggregateNotFoundError',
     'AnyVersion',
     'CatchUpProjectionBinding',
-    'CatchUpProjectionSpec',
+    'CatchUpProjectionRegistry',
+    'CatchUpProjectionRunner',
     'ConcurrencyConflictError',
     'ConflictingEventTypeError',
     'DataT',

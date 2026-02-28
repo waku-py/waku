@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections import defaultdict
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Self, TypeAlias
 
 from typing_extensions import override
@@ -18,7 +19,9 @@ from waku.eventsourcing.exceptions import (
     UnknownEventTypeError,
     UpcasterChainError,
 )
+from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
 from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, ICheckpointStore, IProjection
+from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.serialization.interfaces import IEventSerializer, ISnapshotStateSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore
@@ -41,8 +44,6 @@ if TYPE_CHECKING:
 
 
 __all__ = [
-    'CatchUpProjectionBinding',
-    'CatchUpProjectionSpec',
     'EventSourcingConfig',
     'EventSourcingExtension',
     'EventSourcingModule',
@@ -74,32 +75,18 @@ class SnapshotOptions:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AggregateBinding:
     repository: type[EventSourcedRepository[Any]]
-    event_types: Sequence[EventTypeSpec] = ()
-    projections: Sequence[type[IProjection]] = ()
-    snapshot: SnapshotOptions | None = None
+    event_types: Sequence[EventTypeSpec]
+    projections: Sequence[type[IProjection]]
+    snapshot: SnapshotOptions | None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DeciderBinding:
     repository: type[DeciderRepository[Any, Any, Any]]
     decider: type[IDecider[Any, Any, Any]]
-    event_types: Sequence[EventTypeSpec] = ()
-    projections: Sequence[type[IProjection]] = ()
-    snapshot: SnapshotOptions | None = None
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class CatchUpProjectionBinding:
-    projection: type[ICatchUpProjection]
-    error_policy: ErrorPolicy = ErrorPolicy.STOP
-    max_retry_attempts: int = 0
-    base_retry_delay_seconds: float = 10.0
-    max_retry_delay_seconds: float = 300.0
-    batch_size: int = 100
-    event_type_names: tuple[str, ...] | None = field(default=None, init=False, compare=False, hash=False)
-
-
-CatchUpProjectionSpec: TypeAlias = 'type[ICatchUpProjection] | CatchUpProjectionBinding'
+    event_types: Sequence[EventTypeSpec]
+    projections: Sequence[type[IProjection]]
+    snapshot: SnapshotOptions | None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -115,14 +102,14 @@ class EventSourcingConfig:
 @dataclass(slots=True)
 class EventSourcingRegistry:
     projection_types: list[type[IProjection]] = field(default_factory=list)
-    catch_up_bindings: list[CatchUpProjectionBinding] = field(default_factory=list)
+    catch_up_projection_types: list[type[ICatchUpProjection]] = field(default_factory=list)
     event_type_bindings: list[EventTypeSpec] = field(default_factory=list)
     _frozen: bool = field(default=False, init=False, repr=False)
 
     def merge(self, other: EventSourcingRegistry) -> None:
         self._check_not_frozen()
         self.projection_types.extend(other.projection_types)
-        self.catch_up_bindings.extend(other.catch_up_bindings)
+        self.catch_up_projection_types.extend(other.catch_up_projection_types)
         self.event_type_bindings.extend(other.event_type_bindings)
 
     def freeze(self) -> None:
@@ -131,9 +118,8 @@ class EventSourcingRegistry:
     def handler_providers(self) -> Iterator[Provider]:
         if self.projection_types:
             yield many(IProjection, *self.projection_types, collect=False)
-        if self.catch_up_bindings:
-            catch_up_types = [b.projection for b in self.catch_up_bindings]
-            yield many(ICatchUpProjection, *catch_up_types, collect=False)
+        if self.catch_up_projection_types:
+            yield many(ICatchUpProjection, *self.catch_up_projection_types, collect=False)
 
     @staticmethod
     def collector_providers() -> Iterator[Provider]:
@@ -181,6 +167,7 @@ class EventSourcingModule:
 class EventSourcingExtension(OnModuleConfigure):
     _bindings: list[AggregateBinding] = field(default_factory=list, init=False)
     _decider_bindings: list[DeciderBinding] = field(default_factory=list, init=False)
+    _catch_up_bindings: list[CatchUpProjectionBinding] = field(default_factory=list, init=False)
     _registry: EventSourcingRegistry = field(default_factory=EventSourcingRegistry, init=False)
 
     def bind_aggregate(
@@ -223,11 +210,32 @@ class EventSourcingExtension(OnModuleConfigure):
         self._registry.event_type_bindings.extend(event_types)
         return self
 
-    def bind_catch_up_projections(self, projections: Sequence[CatchUpProjectionSpec]) -> Self:
-        for spec in projections:
-            binding = CatchUpProjectionBinding(projection=spec) if isinstance(spec, type) else spec
-            self._registry.catch_up_bindings.append(binding)
+    def bind_catch_up_projection(
+        self,
+        projection: type[ICatchUpProjection],
+        *,
+        error_policy: ErrorPolicy = ErrorPolicy.STOP,
+        max_retry_attempts: int = 0,
+        base_retry_delay_seconds: float = 10.0,
+        max_retry_delay_seconds: float = 300.0,
+        batch_size: int = 100,
+    ) -> Self:
+        self._registry.catch_up_projection_types.append(projection)
+        self._catch_up_bindings.append(
+            CatchUpProjectionBinding(
+                projection=projection,
+                error_policy=error_policy,
+                max_retry_attempts=max_retry_attempts,
+                base_retry_delay_seconds=base_retry_delay_seconds,
+                max_retry_delay_seconds=max_retry_delay_seconds,
+                batch_size=batch_size,
+            )
+        )
         return self
+
+    @property
+    def catch_up_bindings(self) -> list[CatchUpProjectionBinding]:
+        return self._catch_up_bindings
 
     @property
     def registry(self) -> EventSourcingRegistry:
@@ -278,14 +286,16 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
         context: Mapping[Any, Any] | None,
     ) -> None:
         aggregated = EventSourcingRegistry()
-        all_aggregate_names: dict[str, list[type]] = {}
+        all_aggregate_names: defaultdict[str, list[type]] = defaultdict(list)
+        all_catch_up_bindings: list[CatchUpProjectionBinding] = []
 
         for module_type, ext in registry.find_extensions(EventSourcingExtension):
             aggregated.merge(ext.registry)
+            all_catch_up_bindings.extend(ext.catch_up_bindings)
             for provider in ext.registry.handler_providers():
                 registry.add_provider(module_type, provider)
             for name, repo_type in ext.aggregate_names():
-                all_aggregate_names.setdefault(name, []).append(repo_type)
+                all_aggregate_names[name].append(repo_type)
 
         for name, repos in all_aggregate_names.items():
             if len(repos) > 1:
@@ -294,14 +304,18 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
         for provider in aggregated.collector_providers():
             registry.add_provider(owning_module, provider)
 
-        aggregated.freeze()
-        registry.add_provider(owning_module, object_(aggregated))
-
         event_type_registry, upcaster_chain = self._build_type_registry(aggregated)
         registry.add_provider(owning_module, object_(event_type_registry))
         registry.add_provider(owning_module, object_(upcaster_chain))
 
-        self._resolve_projection_event_types(aggregated, event_type_registry)
+        resolved_bindings = self._resolve_catch_up_bindings(all_catch_up_bindings, event_type_registry)
+        registry.add_provider(
+            owning_module,
+            object_(CatchUpProjectionRegistry(resolved_bindings)),
+        )
+
+        aggregated.freeze()
+        registry.add_provider(owning_module, object_(aggregated))
 
         snapshot_config_registry = self._build_snapshot_config_registry(
             registry.find_extensions(EventSourcingExtension),
@@ -316,18 +330,19 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
             raise EventSourcingConfigError(msg)
 
     @staticmethod
-    def _resolve_projection_event_types(
-        aggregated: EventSourcingRegistry,
+    def _resolve_catch_up_bindings(
+        bindings: Sequence[CatchUpProjectionBinding],
         event_type_registry: EventTypeRegistry,
-    ) -> None:
-        for binding in aggregated.catch_up_bindings:
-            projection_event_types = binding.projection.event_types
-            if projection_event_types is None:
+    ) -> tuple[CatchUpProjectionBinding, ...]:
+        resolved: list[CatchUpProjectionBinding] = []
+        for binding in bindings:
+            if binding.projection.event_types is None:
+                resolved.append(binding)
                 continue
-            resolved: list[str] = []
-            for et in projection_event_types:
+            names: list[str] = []
+            for et in binding.projection.event_types:
                 try:
-                    resolved.append(event_type_registry.get_name(et))
+                    names.append(event_type_registry.get_name(et))
                 except UnknownEventTypeError:
                     msg = (
                         f'Projection {binding.projection.__name__!r} declares event type '
@@ -335,7 +350,8 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
                         f'via bind_aggregate(event_types=[...]).'
                     )
                     raise EventSourcingConfigError(msg) from None
-            object.__setattr__(binding, 'event_type_names', tuple(resolved))  # noqa: PLC2801  # bypass frozen
+            resolved.append(replace(binding, event_type_names=tuple(names)))
+        return tuple(resolved)
 
     @staticmethod
     def _build_snapshot_config_registry(

@@ -8,8 +8,8 @@ from typing_extensions import override
 from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import NoStream, StreamId
-from waku.eventsourcing.projection.interfaces import ICatchUpProjection
-from waku.eventsourcing.serialization.registry import EventTypeRegistry
+from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
+from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -54,20 +54,33 @@ class StopProjection(ICatchUpProjection):
         raise RuntimeError(msg)
 
 
-def make_registry() -> EventTypeRegistry:
-    registry = EventTypeRegistry()
-    registry.register(SampleEvent)
-    registry.register(OtherEvent)
-    registry.freeze()
-    return registry
-
-
 async def seed_events(store: InMemoryEventStore, count: int = 5) -> None:
     stream_id = StreamId(stream_type='test', stream_key='1')
     await store.append_to_stream(
         stream_id,
         [EventEnvelope(domain_event=SampleEvent(value=i), idempotency_key=f'seed-{i}') for i in range(count)],
         expected_version=NoStream(),
+    )
+
+
+def make_binding(
+    projection: type[ICatchUpProjection],
+    *,
+    error_policy: ErrorPolicy = ErrorPolicy.STOP,
+    max_retry_attempts: int = 0,
+    base_retry_delay_seconds: float = 10.0,
+    max_retry_delay_seconds: float = 300.0,
+    batch_size: int = 100,
+    event_type_names: tuple[str, ...] | None = None,
+) -> CatchUpProjectionBinding:
+    return CatchUpProjectionBinding(
+        projection=projection,
+        error_policy=error_policy,
+        max_retry_attempts=max_retry_attempts,
+        base_retry_delay_seconds=base_retry_delay_seconds,
+        max_retry_delay_seconds=max_retry_delay_seconds,
+        batch_size=batch_size,
+        event_type_names=event_type_names,
     )
 
 
