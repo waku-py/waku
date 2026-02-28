@@ -62,7 +62,7 @@ Catch-up projections poll the event store, process events in batches, and checkp
 
     `project()` **must** be idempotent.
 
-Error handling is configured per-projection via `CatchUpProjectionBinding` (defaults to
+Error handling is configured per-projection via `bind_catch_up_projection()` (defaults to
 `ErrorPolicy.STOP` with no retries — see [Error Policies](#error-policies)). Each catch-up
 projection also has an optional `teardown()` method called during rebuilds to clean up existing
 state, and an optional `on_skip(events, error)` hook called when a batch is skipped.
@@ -71,10 +71,9 @@ state, and an optional `on_skip(events, error)` hook called when a batch is skip
 --8<-- "docs/code/eventsourcing/projections/catch_up.py"
 ```
 
-Register catch-up projections via `bind_catch_up_projections()`:
+Register catch-up projections via `bind_catch_up_projection()`:
 
 ```python
-from waku.eventsourcing.modules import CatchUpProjectionBinding
 from waku.eventsourcing.projection.interfaces import ErrorPolicy
 
 (
@@ -83,13 +82,11 @@ from waku.eventsourcing.projection.interfaces import ErrorPolicy
         repository=BankAccountRepository,
         event_types=[AccountOpened, MoneyDeposited, MoneyWithdrawn],
     )
-    .bind_catch_up_projections([
-        CatchUpProjectionBinding(
-            projection=AccountSummaryProjection,
-            error_policy=ErrorPolicy.SKIP,
-            max_retry_attempts=3,
-        ),
-    ])
+    .bind_catch_up_projection(
+        AccountSummaryProjection,
+        error_policy=ErrorPolicy.SKIP,
+        max_retry_attempts=3,
+    )
 )
 ```
 
@@ -154,10 +151,10 @@ through the projection.
 ## Configuration
 
 All per-projection behavior — batch size, error handling, and retry — is configured through
-`CatchUpProjectionBinding`:
+`bind_catch_up_projection()`:
 
-| Field | Default | Description |
-|-------|---------|-------------|
+| Parameter | Default | Description |
+|-----------|---------|-------------|
 | `projection` | *(required)* | The `ICatchUpProjection` class |
 | `error_policy` | `ErrorPolicy.STOP` | What to do after retries are exhausted |
 | `max_retry_attempts` | `0` | Retry count before applying the error policy |
