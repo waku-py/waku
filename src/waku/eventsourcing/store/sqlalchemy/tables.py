@@ -37,6 +37,7 @@ es_streams_table = Table(
     Column('version', Integer, nullable=False, server_default='0'),
     Column('created_at', TIMESTAMP(timezone=True), server_default=func.now()),
     Column('updated_at', TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now()),
+    Column('deleted_at', TIMESTAMP(timezone=True), nullable=True),
 )
 
 es_events_table = Table(

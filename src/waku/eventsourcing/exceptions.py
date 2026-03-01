@@ -23,6 +23,7 @@ __all__ = [
     'SnapshotConfigNotFoundError',
     'SnapshotMigrationChainError',
     'SnapshotTypeMismatchError',
+    'StreamDeletedError',
     'StreamNotFoundError',
     'StreamTooLargeError',
     'UnknownEventTypeError',
@@ -42,6 +43,12 @@ class StreamNotFoundError(EventSourcingError):
     def __init__(self, stream_id: StreamId) -> None:
         self.stream_id = stream_id
         super().__init__(f'Stream {stream_id} not found')
+
+
+class StreamDeletedError(EventSourcingError):
+    def __init__(self, stream_id: StreamId) -> None:
+        self.stream_id = stream_id
+        super().__init__(f'Stream {stream_id} is deleted')
 
 
 class ConcurrencyConflictError(EventSourcingError):

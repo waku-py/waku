@@ -1,13 +1,13 @@
 ---
 title: Event Store
-description: In-memory and PostgreSQL event persistence with optimistic concurrency, idempotency, and metadata enrichment.
+description: In-memory and PostgreSQL event persistence with optimistic concurrency, idempotency, stream deletion, and metadata enrichment.
 ---
 
 # Event Store
 
 The event store is the persistence layer for event sourcing. It handles appending new events to
-streams and reading them back. waku provides an in-memory implementation for development and a
-SQLAlchemy-based PostgreSQL adapter for production.
+streams, reading them back, and managing stream lifecycle (including soft deletion). waku provides
+an in-memory implementation for development and a SQLAlchemy-based PostgreSQL adapter for production.
 
 ## IEventStore Interface
 
@@ -22,6 +22,7 @@ The store interface is split into two protocols:
 **`IEventWriter`** — write-side operations:
 
 - `append_to_stream(stream_id, events, *, expected_version)` — append events with optimistic concurrency
+- `delete_stream(stream_id)` — soft-delete a stream (see [Stream Deletion](#stream-deletion))
 
 `IEventStore` combines both:
 
@@ -57,14 +58,16 @@ class IEventWriter(abc.ABC):
         expected_version: ExpectedVersion,
     ) -> int: ...
 
+    async def delete_stream(self, stream_id: StreamId, /) -> None: ...
+
 
 class IEventStore(IEventReader, IEventWriter, abc.ABC):
     pass
 ```
 
-The `event_types` parameter on `read_all()` accepts a sequence of event type name strings
-(as registered in the event type registry). When provided, only events matching those types
-are returned.
+!!! tip
+    The `event_types` parameter on `read_all()` accepts event type name strings (as registered
+    in the event type registry). When provided, only events matching those types are returned.
 
 ## In-Memory Store
 
@@ -130,6 +133,7 @@ This creates two tables:
 | `version` | `Integer` | NOT NULL, default `0` | Current stream version (incremented on each append) |
 | `created_at` | `TIMESTAMP WITH TIME ZONE` | default `now()` | Stream creation time |
 | `updated_at` | `TIMESTAMP WITH TIME ZONE` | default `now()`, auto-update | Last modification time |
+| `deleted_at` | `TIMESTAMP WITH TIME ZONE` | nullable | Soft-delete timestamp (see [Stream Deletion](#stream-deletion)) |
 
 #### `es_events`
 
@@ -222,6 +226,34 @@ Both exceptions are in `waku.eventsourcing.exceptions`:
 The SQLAlchemy store persists idempotency keys in a dedicated column on `es_events` with a
 composite unique constraint `(stream_id, idempotency_key)`. The in-memory store tracks keys
 per stream in a dictionary with an async lock for thread safety.
+
+## Stream Deletion
+
+`delete_stream()` performs a **soft delete** — the stream is marked as deleted but its events
+are preserved for audit purposes.
+
+```python
+await store.delete_stream(stream_id)
+```
+
+| Operation | Behavior |
+|-----------|----------|
+| `stream_exists(stream_id)` | Returns `False` |
+| `read_all()` | Excludes events from deleted streams |
+| `read_positions()` | Excludes positions from deleted streams |
+| `append_to_stream(stream_id, ...)` | Raises `StreamDeletedError` |
+| `read_stream(stream_id)` | Still returns events (audit trail) |
+
+Calling `delete_stream()` on a nonexistent stream raises `StreamNotFoundError`.
+Calling it on an already-deleted stream is a no-op.
+
+!!! note
+    Repositories (`EventSourcedRepository`, `DeciderRepository`) can still `load()` a deleted
+    aggregate for read-only audit. Only `save()` will fail with `StreamDeletedError`.
+
+The SQLAlchemy store sets a `deleted_at` timestamp on the `es_streams` row and uses a JOIN
+filter to exclude deleted streams from `read_all` and `read_positions` queries. The in-memory
+store tracks deleted stream keys in a separate set.
 
 ## Metadata Enrichment
 

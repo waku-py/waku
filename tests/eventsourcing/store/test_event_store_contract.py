@@ -11,6 +11,7 @@ from waku.eventsourcing.exceptions import (
     ConcurrencyConflictError,
     DuplicateIdempotencyKeyError,
     PartialDuplicateAppendError,
+    StreamDeletedError,
     StreamNotFoundError,
 )
 from waku.eventsourcing.projection.interfaces import IProjection
@@ -852,3 +853,206 @@ async def test_read_positions_returns_positions_in_range(
     # Read positions in sub-range: after the first event
     positions = await store.read_positions(after_position=all_positions[0], up_to_position=all_positions[-1])
     assert positions == all_positions[1:]
+
+
+# --- delete_stream ---
+
+
+async def test_delete_stream_on_nonexistent_raises(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    with pytest.raises(StreamNotFoundError):
+        await store.delete_stream(stream_id)
+
+
+async def test_delete_stream_marks_stream_as_deleted(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    await store.append_to_stream(
+        stream_id,
+        [make_envelope(OrderCreated(order_id='123'))],
+        expected_version=NoStream(),
+    )
+    await store.delete_stream(stream_id)
+
+
+async def test_delete_stream_is_idempotent(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    await store.append_to_stream(
+        stream_id,
+        [make_envelope(OrderCreated(order_id='123'))],
+        expected_version=NoStream(),
+    )
+    await store.delete_stream(stream_id)
+    await store.delete_stream(stream_id)
+
+
+async def test_append_to_deleted_stream_raises(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    await store.append_to_stream(
+        stream_id,
+        [make_envelope(OrderCreated(order_id='123'))],
+        expected_version=NoStream(),
+    )
+    await store.delete_stream(stream_id)
+
+    with pytest.raises(StreamDeletedError):
+        await store.append_to_stream(
+            stream_id,
+            [make_envelope(ItemAdded(item_name='widget'))],
+            expected_version=Exact(0),
+        )
+
+
+async def test_read_all_excludes_deleted_streams(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    other_stream = StreamId.for_aggregate('Order', '456')
+
+    await store.append_to_stream(
+        stream_id,
+        [make_envelope(OrderCreated(order_id='123'))],
+        expected_version=NoStream(),
+    )
+    await store.append_to_stream(
+        other_stream,
+        [make_envelope(OrderCreated(order_id='456'))],
+        expected_version=NoStream(),
+    )
+
+    await store.delete_stream(stream_id)
+
+    events = await store.read_all()
+    assert len(events) == 1
+    assert events[0].stream_id == other_stream
+
+
+async def test_read_positions_excludes_deleted_streams(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    other_stream = StreamId.for_aggregate('Order', '456')
+
+    await store.append_to_stream(
+        stream_id,
+        [make_envelope(OrderCreated(order_id='123'))],
+        expected_version=NoStream(),
+    )
+    await store.append_to_stream(
+        other_stream,
+        [make_envelope(OrderCreated(order_id='456'))],
+        expected_version=NoStream(),
+    )
+
+    all_before = await store.read_all()
+    deleted_pos = next(e.global_position for e in all_before if e.stream_id == stream_id)
+    kept_pos = next(e.global_position for e in all_before if e.stream_id == other_stream)
+
+    await store.delete_stream(stream_id)
+
+    positions = await store.read_positions(after_position=-1, up_to_position=kept_pos + 1)
+    assert deleted_pos not in positions
+    assert kept_pos in positions
+
+
+async def test_read_stream_works_on_deleted_stream(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    await store.append_to_stream(
+        stream_id,
+        [make_envelope(OrderCreated(order_id='123'))],
+        expected_version=NoStream(),
+    )
+    await store.delete_stream(stream_id)
+
+    events = await store.read_stream(stream_id)
+    assert len(events) == 1
+
+
+async def test_stream_exists_returns_false_for_deleted_stream(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    await store.append_to_stream(
+        stream_id,
+        [make_envelope(OrderCreated(order_id='123'))],
+        expected_version=NoStream(),
+    )
+    assert await store.stream_exists(stream_id) is True
+
+    await store.delete_stream(stream_id)
+    assert await store.stream_exists(stream_id) is False
+
+
+async def test_append_to_deleted_stream_with_any_version_raises(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    await store.append_to_stream(
+        stream_id,
+        [make_envelope(OrderCreated(order_id='123'))],
+        expected_version=NoStream(),
+    )
+    await store.delete_stream(stream_id)
+
+    with pytest.raises(StreamDeletedError):
+        await store.append_to_stream(
+            stream_id,
+            [make_envelope(ItemAdded(item_name='widget'))],
+            expected_version=AnyVersion(),
+        )
+
+
+async def test_append_empty_events_to_deleted_stream_raises(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    await store.append_to_stream(
+        stream_id,
+        [make_envelope(OrderCreated(order_id='123'))],
+        expected_version=NoStream(),
+    )
+    await store.delete_stream(stream_id)
+
+    with pytest.raises(StreamDeletedError):
+        await store.append_to_stream(stream_id, [], expected_version=AnyVersion())
+
+
+async def test_idempotent_append_to_deleted_stream_raises(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    envelopes = [
+        EventEnvelope(domain_event=OrderCreated(order_id='123'), idempotency_key='key-1'),
+        EventEnvelope(domain_event=ItemAdded(item_name='Widget'), idempotency_key='key-2'),
+    ]
+    await store.append_to_stream(stream_id, envelopes, expected_version=NoStream())
+    await store.delete_stream(stream_id)
+
+    with pytest.raises(StreamDeletedError):
+        await store.append_to_stream(stream_id, envelopes, expected_version=Exact(version=1))
+
+
+async def test_read_stream_end_works_on_deleted_stream(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    await store.append_to_stream(
+        stream_id,
+        [make_envelope(OrderCreated(order_id='1')), make_envelope(ItemAdded(item_name='widget'))],
+        expected_version=NoStream(),
+    )
+    await store.delete_stream(stream_id)
+
+    events = await store.read_stream(stream_id, start=StreamPosition.END)
+
+    assert len(events) == 1
+    assert events[0].data == ItemAdded(item_name='widget')
