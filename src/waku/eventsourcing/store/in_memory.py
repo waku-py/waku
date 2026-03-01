@@ -13,6 +13,7 @@ from waku.eventsourcing.contracts.stream import StreamPosition
 from waku.eventsourcing.exceptions import (
     DuplicateIdempotencyKeyError,
     PartialDuplicateAppendError,
+    StreamDeletedError,
     StreamNotFoundError,
 )
 from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001  # Dishka needs runtime access
@@ -39,6 +40,7 @@ class InMemoryEventStore(IEventStore):
         self._registry = registry
         self._streams: dict[str, list[StoredEvent]] = {}
         self._idempotency_keys: dict[str, set[str]] = {}
+        self._deleted_streams: set[str] = set()
         self._global_position: int = 0
         self._lock = anyio.Lock()
         self._projections = projections
@@ -71,6 +73,13 @@ class InMemoryEventStore(IEventStore):
                 subset = subset[:count]
             return list(subset)
 
+    async def delete_stream(self, stream_id: StreamId, /) -> None:
+        async with self._lock:
+            key = str(stream_id)
+            if key not in self._streams:
+                raise StreamNotFoundError(stream_id)
+            self._deleted_streams.add(key)
+
     async def read_all(
         self,
         *,
@@ -80,8 +89,9 @@ class InMemoryEventStore(IEventStore):
     ) -> list[StoredEvent]:
         async with self._lock:
             all_events: list[StoredEvent] = []
-            for stream_events in self._streams.values():
-                all_events.extend(stream_events)
+            for key, stream_events in self._streams.items():
+                if key not in self._deleted_streams:
+                    all_events.extend(stream_events)
             all_events.sort(key=lambda e: e.global_position)
 
             type_set = frozenset(event_types) if event_types else None
@@ -96,7 +106,8 @@ class InMemoryEventStore(IEventStore):
 
     async def stream_exists(self, stream_id: StreamId, /) -> bool:
         async with self._lock:
-            return str(stream_id) in self._streams
+            key = str(stream_id)
+            return key in self._streams and key not in self._deleted_streams
 
     async def global_head_position(self) -> int:
         async with self._lock:
@@ -110,7 +121,9 @@ class InMemoryEventStore(IEventStore):
     ) -> list[int]:
         async with self._lock:
             positions: list[int] = []
-            for stream_events in self._streams.values():
+            for key, stream_events in self._streams.items():
+                if key in self._deleted_streams:
+                    continue
                 positions.extend(
                     event.global_position
                     for event in stream_events
@@ -129,6 +142,8 @@ class InMemoryEventStore(IEventStore):
     ) -> int:
         async with self._lock:
             key = str(stream_id)
+            if key in self._deleted_streams:
+                raise StreamDeletedError(stream_id)
             stream = self._streams.get(key)
             current_version = len(stream) - 1 if stream is not None else -1
 

@@ -20,6 +20,7 @@ from waku.eventsourcing.exceptions import (
     ConcurrencyConflictError,
     DuplicateIdempotencyKeyError,
     PartialDuplicateAppendError,
+    StreamDeletedError,
     StreamNotFoundError,
 )
 from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001  # Dishka needs runtime access
@@ -78,6 +79,10 @@ class SqlAlchemyEventStore(IEventStore):
         self._upcaster_chain = upcaster_chain
         self._projections = projections
         self._enrichers = enrichers
+
+    @property
+    def _not_deleted(self) -> Any:
+        return self._streams.c.deleted_at.is_(None)
 
     async def read_stream(
         self,
@@ -146,7 +151,8 @@ class SqlAlchemyEventStore(IEventStore):
         ]
 
     async def _ensure_stream_exists(self, stream_id: StreamId) -> None:
-        if not await self.stream_exists(stream_id):
+        stream_row = await self._get_stream(stream_id)
+        if stream_row is None:
             raise StreamNotFoundError(stream_id)
 
     async def read_all(
@@ -158,7 +164,9 @@ class SqlAlchemyEventStore(IEventStore):
     ) -> list[StoredEvent]:
         query = (
             select(self._events)
+            .join(self._streams, self._events.c.stream_id == self._streams.c.stream_id)
             .where(self._events.c.global_position > after_position)
+            .where(self._not_deleted)
             .order_by(self._events.c.global_position)
         )
         if event_types:
@@ -177,7 +185,10 @@ class SqlAlchemyEventStore(IEventStore):
 
     async def stream_exists(self, stream_id: StreamId, /) -> bool:
         key = str(stream_id)
-        query = select(self._streams.c.stream_id).where(self._streams.c.stream_id == key)
+        query = select(self._streams.c.stream_id).where(
+            self._streams.c.stream_id == key,
+            self._not_deleted,
+        )
         result = await self._session.execute(query)
         return result.scalar_one_or_none() is not None
 
@@ -194,12 +205,24 @@ class SqlAlchemyEventStore(IEventStore):
     ) -> list[int]:
         query = (
             select(self._events.c.global_position)
+            .join(self._streams, self._events.c.stream_id == self._streams.c.stream_id)
             .where(self._events.c.global_position > after_position)
             .where(self._events.c.global_position <= up_to_position)
+            .where(self._not_deleted)
             .order_by(self._events.c.global_position)
         )
         result = await self._session.execute(query)
         return [row[0] for row in result.fetchall()]
+
+    async def delete_stream(self, stream_id: StreamId, /) -> None:
+        stream_row = await self._get_stream(stream_id)
+        if stream_row is None:
+            raise StreamNotFoundError(stream_id)
+        if stream_row.deleted_at is not None:
+            return
+        await self._session.execute(
+            self._streams.update().where(self._streams.c.stream_id == str(stream_id)).values(deleted_at=sa_func.now())
+        )
 
     async def append_to_stream(
         self,
@@ -278,7 +301,9 @@ class SqlAlchemyEventStore(IEventStore):
             return None
 
         if existing_keys == unique_keys:
-            stream_row = await self._get_stream(key)
+            stream_row = await self._get_stream(stream_id)
+            if stream_row.deleted_at is not None:
+                raise StreamDeletedError(stream_id)
             return int(stream_row.version)  # stream must exist if events with these keys exist
 
         raise PartialDuplicateAppendError(stream_id, len(existing_keys), len(keys))
@@ -288,8 +313,9 @@ class SqlAlchemyEventStore(IEventStore):
         stream_id: StreamId,
         expected_version: ExpectedVersion,
     ) -> int:
-        key = str(stream_id)
-        stream_row = await self._get_stream(key)
+        stream_row = await self._get_stream(stream_id)
+        if stream_row is not None and stream_row.deleted_at is not None:
+            raise StreamDeletedError(stream_id)
         current_version = stream_row.version if stream_row is not None else -1
         check_expected_version(stream_id, expected_version, current_version, exists=stream_row is not None)
         return current_version
@@ -383,8 +409,8 @@ class SqlAlchemyEventStore(IEventStore):
             for i in range(len(events))
         ]
 
-    async def _get_stream(self, stream_id: str) -> Any:
-        query = select(self._streams).where(self._streams.c.stream_id == stream_id)
+    async def _get_stream(self, stream_id: StreamId, /) -> Any:
+        query = select(self._streams).where(self._streams.c.stream_id == str(stream_id))
         result = await self._session.execute(query)
         return result.one_or_none()
 

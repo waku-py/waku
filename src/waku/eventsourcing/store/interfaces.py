@@ -71,6 +71,20 @@ class IEventWriter(abc.ABC):
         expected_version: ExpectedVersion,
     ) -> int: ...
 
+    @abc.abstractmethod
+    async def delete_stream(self, stream_id: StreamId, /) -> None:
+        """Mark a stream as permanently deleted.
+
+        Deleted streams are excluded from ``read_all``, ``read_positions``,
+        and ``stream_exists``. Appending to a deleted stream raises
+        ``StreamDeletedError``. Events remain accessible via ``read_stream``
+        for audit purposes.
+
+        Raises ``StreamNotFoundError`` if the stream does not exist.
+        No-op if already deleted.
+        """
+        ...
+
 
 class IEventStore(IEventReader, IEventWriter, abc.ABC):
     pass
