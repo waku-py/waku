@@ -40,3 +40,11 @@ def test_empty_registry() -> None:
 
     assert len(registry) == 0
     assert list(registry) == []
+
+
+def test_duplicate_projection_name_raises() -> None:
+    b1 = make_binding(RecordingProjection)
+    b2 = make_binding(RecordingProjection)
+
+    with pytest.raises(ValueError, match="Duplicate projection name 'recording'"):
+        CatchUpProjectionRegistry((b1, b2))
