@@ -2,10 +2,10 @@ from dataclasses import dataclass
 
 from typing_extensions import override
 
-from waku.cqrs import INotification, Request, Response
+from waku.cqrs import Request, Response
 from waku.eventsourcing import DeciderCommandHandler
 
-from app.decider import BankCommand, OpenAccount
+from app.decider import BankCommand, BankEvent, OpenAccount
 from app.state import BankAccountState
 
 
@@ -26,7 +26,7 @@ class OpenAccountDeciderHandler(
         OpenAccountResult,
         BankAccountState,
         BankCommand,
-        INotification,
+        BankEvent,
     ],
 ):
     @override

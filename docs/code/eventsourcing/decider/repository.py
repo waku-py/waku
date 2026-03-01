@@ -1,9 +1,8 @@
-from waku.cqrs import INotification
 from waku.eventsourcing import DeciderRepository
 
-from app.decider import BankCommand
+from app.decider import BankCommand, BankEvent
 from app.state import BankAccountState
 
 
-class BankAccountDeciderRepository(DeciderRepository[BankAccountState, BankCommand, INotification]):
+class BankAccountDeciderRepository(DeciderRepository[BankAccountState, BankCommand, BankEvent]):
     pass

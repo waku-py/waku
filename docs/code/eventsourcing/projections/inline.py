@@ -1,14 +1,10 @@
 from collections.abc import Sequence
 
-from typing import TYPE_CHECKING
-
 from waku.eventsourcing.contracts.event import StoredEvent
+from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.projection.interfaces import IProjection
 
 from app.events import MoneyDeposited, MoneyWithdrawn
-
-if TYPE_CHECKING:
-    from waku.eventsourcing.contracts.stream import StreamId
 
 
 class AccountBalanceProjection(IProjection):

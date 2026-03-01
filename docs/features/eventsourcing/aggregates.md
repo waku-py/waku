@@ -8,6 +8,17 @@ description: OOP aggregates and functional deciders for event-sourced domain mod
 waku supports two approaches to modeling event-sourced aggregates: **OOP aggregates** (mutable, class-based)
 and **functional deciders** (immutable, function-based).
 
+| | OOP Aggregate | Functional Decider |
+|---|---|---|
+| **State** | Mutable object | Immutable value |
+| **Testing** | Assert aggregate properties | [Given/When/Then DSL](testing.md) |
+| **Complexity** | Simpler for basic CRUD | Better for complex decision logic |
+| **Snapshots** | `SnapshotEventSourcedRepository` | `SnapshotDeciderRepository` |
+
+!!! tip
+    Start with OOP aggregates for straightforward domains. Move to deciders when you need
+    easily testable business rules or immutable state guarantees.
+
 ## Domain Events
 
 Both approaches share the same event definitions — frozen dataclasses implementing `INotification`:
@@ -46,10 +57,6 @@ Subclass `EventSourcedRepository` with the aggregate type parameter:
 ```python linenums="1"
 --8<-- "docs/code/eventsourcing/quickstart/repository.py"
 ```
-
-The repository derives `aggregate_name` from the type parameter by default. This name
-determines the event stream prefix (e.g., `BankAccount-acc-1`). You can override it
-by setting `aggregate_name` explicitly as a class variable.
 
 ### Command Handler
 
@@ -107,13 +114,11 @@ A decider implements three methods from the `IDecider` protocol:
 
 ### Repository
 
+`DeciderRepository` requires three type parameters: `[State, Command, Event]`.
+
 ```python linenums="1"
 --8<-- "docs/code/eventsourcing/decider/repository.py"
 ```
-
-`DeciderRepository` requires three type parameters: `[State, Command, Event]`.
-Like OOP repositories, `aggregate_name` is auto-resolved from the state type parameter
-(e.g., `BankAccountState` → `"BankAccount"`). You can override it with an explicit class variable.
 
 ### Command Handler
 
@@ -133,7 +138,13 @@ Use `bind_decider()` instead of `bind_aggregate()`:
 --8<-- "docs/code/eventsourcing/decider/modules.py"
 ```
 
-## Idempotency
+The bootstrap and run code is the same as the [OOP example](#run) — swap the module import.
+
+## Shared Features
+
+The following features apply to both OOP aggregates and functional deciders.
+
+### Idempotency
 
 Command handlers support idempotent event appends through the `_idempotency_key()` hook.
 Override it to extract a deduplication token from the incoming request:
@@ -144,8 +155,6 @@ Override it to extract a deduplication token from the incoming request:
     class OpenAccountHandler(EventSourcedCommandHandler[OpenAccountCommand, OpenAccountResult, BankAccount]):
         def _idempotency_key(self, request: OpenAccountCommand) -> str | None:
             return request.idempotency_key  # (1)
-
-        # ... other methods ...
     ```
 
     1. Return `None` (the default) to skip deduplication and use random UUIDs.
@@ -154,12 +163,10 @@ Override it to extract a deduplication token from the incoming request:
 
     ```python
     class OpenAccountDeciderHandler(
-        DeciderCommandHandler[OpenAccountRequest, OpenAccountResult, BankAccountState, BankCommand, INotification],
+        DeciderCommandHandler[OpenAccountRequest, OpenAccountResult, BankAccountState, BankCommand, BankEvent],
     ):
         def _idempotency_key(self, request: OpenAccountRequest) -> str | None:
             return request.idempotency_key
-
-        # ... other methods ...
     ```
 
 When an `idempotency_key` is provided, the repository generates per-event keys in the format
@@ -168,7 +175,7 @@ is safe — the event store returns the existing stream version without duplicat
 
 See [Event Store — Idempotency](event-store.md#idempotency) for deduplication semantics and error handling.
 
-## Stream Length Guard
+### Stream Length Guard
 
 Repositories can enforce a maximum stream length to prevent unbounded event replay. Set the
 `max_stream_length` class variable on your repository:
@@ -183,7 +190,7 @@ Repositories can enforce a maximum stream length to prevent unbounded event repl
 === "Functional Decider"
 
     ```python
-    class BankAccountDeciderRepository(DeciderRepository[BankAccountState, BankCommand, INotification]):
+    class BankAccountDeciderRepository(DeciderRepository[BankAccountState, BankCommand, BankEvent]):
         max_stream_length = 500
     ```
 
@@ -199,7 +206,7 @@ guiding you to configure [snapshots](snapshots.md).
     inherit the guard but only apply it during full replay. When a valid snapshot exists, the
     repository replays only the events after the snapshot, which naturally stays within bounds.
 
-## Concurrency Control
+### Concurrency Control
 
 Both repository types use `ExpectedVersion` for optimistic concurrency:
 
@@ -213,7 +220,7 @@ Both repository types use `ExpectedVersion` for optimistic concurrency:
 The repositories handle this automatically — `NoStream` for new aggregates,
 `Exact` for existing ones. A `ConcurrencyConflictError` is raised on mismatch.
 
-### Automatic Retry
+#### Automatic Retry
 
 Both `EventSourcedCommandHandler` and `DeciderCommandHandler` include a built-in retry loop
 for optimistic concurrency conflicts. When `save()` raises `ConcurrencyConflictError`, the
@@ -227,8 +234,7 @@ subclass to change this:
     ```python
     class DepositHandler(EventSourcedCommandHandler[DepositCommand, DepositResult, BankAccount]):
         max_attempts = 5  # 1 initial + 4 retries
-
-        # ... other methods ...
+        ...
     ```
 
 === "Functional Decider"
@@ -236,11 +242,10 @@ subclass to change this:
     ```python
     class DepositDeciderHandler(DeciderCommandHandler[...]):
         max_attempts = 5
-
-        # ... other methods ...
+        ...
     ```
 
-Set `max_attempts = 1` to disable retry (`ConcurrencyConflictError` propagates immediately).
+Set `max_attempts = 1` for no retries — only the initial attempt runs, and `ConcurrencyConflictError` propagates immediately.
 
 !!! note
     Creation commands (where `_is_creation_command()` returns `True`) are **not retried**.
@@ -253,25 +258,12 @@ Set `max_attempts = 1` to disable retry (`ConcurrencyConflictError` propagates i
     with the latest version. No backoff is applied — concurrency conflicts resolve immediately
     once the handler sees the current state.
 
-## Choosing an Approach
-
-| | OOP Aggregate | Functional Decider |
-|---|---|---|
-| **State** | Mutable object | Immutable value |
-| **Testing** | Assert aggregate properties | [Given/When/Then DSL](testing.md) |
-| **Complexity** | Simpler for basic CRUD | Better for complex decision logic |
-| **Snapshots** | `SnapshotEventSourcedRepository` | `SnapshotDeciderRepository` |
-
-!!! tip
-    Start with OOP aggregates for straightforward domains. Move to deciders when you need
-    easily testable business rules or immutable state guarantees.
-
-## Aggregate Naming
+### Aggregate Naming
 
 Both repository types auto-resolve `aggregate_name` from their type parameters. This name
 determines the event stream prefix (e.g., `BankAccount-acc-1`).
 
-### Resolution rules
+#### Resolution rules
 
 | Pattern | Source | Example |
 |---------|--------|---------|
@@ -282,7 +274,7 @@ For deciders, the canonical naming convention is `{AggregateName}State` (e.g., `
 `BankAccountState`). The `State` suffix is automatically removed to derive the stream prefix.
 If the state class has no `State` suffix, the full name is used as-is.
 
-### Explicit override
+#### Explicit override
 
 Set `aggregate_name` as a class variable to override auto-resolution:
 
@@ -291,7 +283,7 @@ class LegacyAccountRepo(EventSourcedRepository[BankAccount]):
     aggregate_name = 'Account'
 ```
 
-### Uniqueness
+#### Uniqueness
 
 `aggregate_name` must be unique across all repositories in the application.
 Duplicate names are detected at startup and raise `DuplicateAggregateNameError`.

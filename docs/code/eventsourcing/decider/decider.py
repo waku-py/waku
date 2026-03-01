@@ -1,15 +1,9 @@
-from __future__ import annotations
-
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
 
 from waku.eventsourcing import IDecider
 
 from app.events import AccountOpened, MoneyDeposited
 from app.state import BankAccountState
-
-if TYPE_CHECKING:
-    from waku.cqrs import INotification
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -42,7 +36,7 @@ class BankAccountDecider(IDecider[BankAccountState, BankCommand, BankEvent]):
                     raise ValueError(msg)
                 return [MoneyDeposited(account_id=aid, amount=amount)]
 
-    def evolve(self, state: BankAccountState, event: INotification) -> BankAccountState:
+    def evolve(self, state: BankAccountState, event: BankEvent) -> BankAccountState:
         match event:
             case AccountOpened(owner=owner):
                 return replace(state, owner=owner)

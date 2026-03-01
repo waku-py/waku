@@ -25,7 +25,7 @@ The store interface is split into two protocols:
 
 `IEventStore` combines both:
 
-```python
+```python linenums="1"
 class IEventReader(abc.ABC):
     async def read_stream(
         self,
@@ -64,8 +64,7 @@ class IEventStore(IEventReader, IEventWriter, abc.ABC):
 
 The `event_types` parameter on `read_all()` accepts a sequence of event type name strings
 (as registered in the event type registry). When provided, only events matching those types
-are returned. This is used internally by catch-up projections but is also available for
-direct queries.
+are returned.
 
 ## In-Memory Store
 
