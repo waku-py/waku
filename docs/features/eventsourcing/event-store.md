@@ -18,6 +18,8 @@ The store interface is split into two protocols:
 - `read_stream(stream_id, *, start, count)` — read events from a single stream
 - `read_all(*, after_position, count, event_types)` — read events across all streams, optionally filtered by event types
 - `stream_exists(stream_id)` — check whether a stream exists
+- `global_head_position()` — return the highest global position across all streams, or `-1` if empty
+- `read_positions(*, after_position, up_to_position)` — return committed global positions in a range (used by [gap detection](projections.md#gap-detection))
 
 **`IEventWriter`** — write-side operations:
 
@@ -47,6 +49,19 @@ class IEventReader(abc.ABC):
 
     async def stream_exists(self, stream_id: StreamId, /) -> bool: ...
 
+    async def global_head_position(self) -> int:
+        """Return the highest global position, or -1 if empty."""
+        ...
+
+    async def read_positions(
+        self,
+        *,
+        after_position: int,
+        up_to_position: int,
+    ) -> list[int]:
+        """Return committed global positions in (after_position, up_to_position]."""
+        ...
+
 
 class IEventWriter(abc.ABC):
     async def append_to_stream(
@@ -72,7 +87,7 @@ class IEventStore(IEventReader, IEventWriter, abc.ABC):
 ## In-Memory Store
 
 `InMemoryEventStore` stores all events in memory with thread-safe locking via `anyio.Lock`.
-Suitable for development, testing, and prototyping.
+Suitable for development and testing.
 
 ```python
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
@@ -218,7 +233,7 @@ Both exceptions are in `waku.eventsourcing.exceptions`:
 
 | Exception | When | Attributes |
 |-----------|------|------------|
-| `DuplicateIdempotencyKeyError` | Same key appears twice within a batch, or unique constraint violation | `stream_id` |
+| `DuplicateIdempotencyKeyError` | Same key appears twice within a batch, or unique constraint violation | `stream_id`, `reason` |
 | `PartialDuplicateAppendError` | Some (but not all) keys from the batch already exist | `stream_id`, `existing_count`, `total_count` |
 
 ### Storage
@@ -302,9 +317,36 @@ at runtime. The store calls each enricher's `enrich()` method in order before wr
 | `idempotency_key` | `str` | Client-provided deduplication token (unique per stream) |
 | `schema_version` | `int` | Schema version (defaults to `1`) |
 
+## Database Schema Summary
+
+All tables created by waku's event sourcing module:
+
+| Table | Bind helper | Documented in |
+|-------|-------------|---------------|
+| `es_streams` | `bind_event_store_tables(metadata)` | [Event Store](#postgresql-with-sqlalchemy) |
+| `es_events` | `bind_event_store_tables(metadata)` | [Event Store](#postgresql-with-sqlalchemy) |
+| `es_checkpoints` | `bind_checkpoint_tables(metadata)` | [Projections](projections.md#table-schema-reference) |
+| `es_projection_leases` | `bind_lease_tables(metadata)` | [Projections](projections.md#es_projection_leases) |
+| `es_snapshots` | `bind_snapshot_tables(metadata)` | [Snapshots](snapshots.md#table-schema-reference) |
+
+```python
+from sqlalchemy import MetaData
+
+from waku.eventsourcing.projection.lock.sqlalchemy import bind_lease_tables
+from waku.eventsourcing.projection.sqlalchemy import bind_checkpoint_tables
+from waku.eventsourcing.snapshot.sqlalchemy import bind_snapshot_tables
+from waku.eventsourcing.store.sqlalchemy import bind_event_store_tables
+
+metadata = MetaData()
+es_tables = bind_event_store_tables(metadata)
+bind_checkpoint_tables(metadata)
+bind_lease_tables(metadata)
+bind_snapshot_tables(metadata)
+```
+
 ## Further reading
 
 - **[Projections](projections.md)** — build read models from event streams
-- **[Schema Evolution](schema-evolution.md)** — upcasting and event versioning
 - **[Snapshots](snapshots.md)** — optimize loading for long-lived aggregates
+- **[Schema Evolution](schema-evolution.md)** — upcasting and event versioning
 - **[Testing](testing.md)** — in-memory event store for integration tests
