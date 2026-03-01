@@ -84,8 +84,9 @@ to pin the stored name:
     ```
 
 When loading, the snapshot repository first checks for a stored snapshot. If one exists, it
-verifies the `state_type` and schema version — applying migrations if needed or falling back
-to full replay if no migration path is available (see [Schema Versioning](#schema-versioning)).
+verifies the `state_type` — raising `SnapshotTypeMismatchError` on mismatch — and checks
+the schema version, applying migrations if needed or falling back to full replay if no
+migration path is available (see [Schema Versioning](#schema-versioning)).
 It then deserializes the state and replays only the events recorded *after* the snapshot version.
 If no snapshot is found, it falls back to full replay.
 
@@ -93,7 +94,7 @@ If no snapshot is found, it falls back to full replay.
 graph TD
     L[Load aggregate] --> CS{Snapshot exists?}
     CS -->|Yes| ST{state_type matches?}
-    ST -->|No| FR
+    ST -->|No| ERR[SnapshotTypeMismatchError]
     ST -->|Yes| SV{Schema version matches?}
     SV -->|Yes| DS[Deserialize snapshot]
     SV -->|No| MG{Migration path?}
@@ -285,7 +286,5 @@ Bind with `bind_snapshot_tables(metadata)` from `waku.eventsourcing.snapshot.sql
 
 ## Further reading
 
-- **[Event Store](event-store.md)** — event persistence and stream mechanics
-- **[Schema Evolution](schema-evolution.md)** — handling state schema changes over time
-- **[Aggregates](aggregates.md)** — OOP aggregates and functional deciders
-- **[Testing](testing.md)** — in-memory stores for integration tests
+- **[Schema Evolution](schema-evolution.md)** — upcasting and event versioning
+- **[Testing](testing.md)** — in-memory stores, unit testing DSL, and projection wait utilities

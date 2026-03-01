@@ -5,8 +5,9 @@ description: Event type registries, upcasting chains, and lazy schema migration.
 
 # Schema Evolution
 
-As your domain evolves, event schemas change. waku provides an event type registry for
-serialization and an upcasting chain for migrating old events to current schemas.
+waku provides an event type registry for serialization and an upcasting chain for migrating
+old events to current schemas — events are stored in their original form and transformed at
+read time, so no batch migrations are required.
 
 ## Event Serialization
 
@@ -126,6 +127,9 @@ EventType(
 New events are always written under the primary `name`. Aliases are read-only —
 they only affect deserialization lookup.
 
+Use aliases for pure renames (no data change). Use upcasters when fields are added,
+removed, or transformed.
+
 ## Upcasting
 
 Upcasters transform old event data (raw `dict` payloads) to match the current schema **before**
@@ -182,7 +186,4 @@ The resulting dict matches the current `AccountOpened` schema and deserializes c
 
 ## Further reading
 
-- **[Event Store](event-store.md)** — where upcasting happens during deserialization
-- **[Aggregates](aggregates.md)** — aggregate patterns that produce versioned events
-- **[Projections](projections.md)** — read models that consume upcasted events
-- **[Testing](testing.md)** — testing upcasters and event evolution
+- **[Testing](testing.md)** — Given/When/Then DSL, integration tests, and projection wait utilities

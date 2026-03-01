@@ -123,7 +123,7 @@ When `event_types` is `None` (the default), all events are delivered.
 Both policies retry first when `max_retry_attempts > 0`. The policy only applies after
 retries are exhausted.
 
-!!! info "Fail-fast by default"
+!!! tip "Fail-fast by default"
     The default is `STOP` with zero retries — projection failures surface immediately
     rather than silently losing events. Opt into retries or `SKIP` explicitly when your
     projection can tolerate partial gaps or transient errors.
@@ -133,16 +133,31 @@ retries are exhausted.
 `CatchUpProjectionRunner` polls the event store and dispatches event batches to registered
 catch-up projections. Each projection runs in its own concurrent task.
 
+Use the `create()` classmethod to build a runner from a DI container:
+
+```python
+runner = await CatchUpProjectionRunner.create(
+    container,
+    lock=InMemoryProjectionLock(),
+    projections=[AccountSummaryProjection],  # optional filter; None = all registered
+    polling=PollingConfig(),                 # optional; defaults to sensible values
+)
+await runner.run()
+```
+
+`create()` resolves the `CatchUpProjectionRegistry` from the container to discover bindings.
+When `projections` is provided, only those projection classes are included.
+
 ```python linenums="1"
 --8<-- "docs/code/eventsourcing/projections/runner.py"
 ```
 
-The runner listens for `SIGTERM` and `SIGINT` to shut down gracefully, finishing any
-in-progress batch before exiting.
+The runner listens for `SIGTERM` and `SIGINT` to shut down. Call `request_shutdown()` for
+programmatic shutdown when running inside another async context.
 
 Use `rebuild(projection_name)` to reprocess all events from the beginning. This calls
-`teardown()` on the projection, resets the checkpoint to zero, and replays every event
-through the projection.
+`teardown()` on the projection, resets the checkpoint to `-1` (nothing processed), and
+replays every event through the projection.
 
 !!! tip
     Run the projection runner as a separate process (e.g., a dedicated worker or sidecar)
@@ -380,7 +395,6 @@ The same [at-least-once semantics](#catch-up-projections) apply.
 
 ## Further reading
 
-- **[Event Store](event-store.md)** — event persistence and metadata enrichment
+- **[Snapshots](snapshots.md)** — optimize loading for long-lived aggregates
 - **[Schema Evolution](schema-evolution.md)** — handling evolved events in projections
-- **[Snapshots](snapshots.md)** — aggregate snapshots and checkpoint strategies
-- **[Testing](testing.md)** — in-memory stores for integration tests
+- **[Testing](testing.md)** — in-memory stores and projection wait utilities

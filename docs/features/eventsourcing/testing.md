@@ -1,6 +1,6 @@
 ---
 title: Testing
-description: Given/When/Then DSL for aggregate and decider testing, projection wait utilities.
+description: Given/When/Then DSL for decider and aggregate testing, integration testing with in-memory stores.
 ---
 
 # Testing
@@ -121,7 +121,10 @@ This avoids flaky timing-dependent assertions.
 reaches the event store's global head position. If the projection does not catch up
 within the deadline, a `TimeoutError` is raised.
 
-`wait_for_all_projections()` does the same for every binding in a `CatchUpProjectionRegistry`.
+`wait_for_all_projections()` does the same for every binding in a `CatchUpProjectionRegistry`
+(default `deadline=10.0`).
+
+**`wait_for_projection()` parameters:**
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -134,6 +137,3 @@ within the deadline, a `TimeoutError` is raised.
 ## Further reading
 
 - **[Testing](../../fundamentals/testing.md)** — core waku testing utilities and provider overrides
-- **[Aggregates](aggregates.md)** — OOP aggregates and functional deciders
-- **[Projections](projections.md)** — read model projections
-- **[Schema Evolution](schema-evolution.md)** — upcasting and event versioning

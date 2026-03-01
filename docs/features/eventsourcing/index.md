@@ -1,6 +1,6 @@
 ---
 title: Event Sourcing
-description: Complete event sourcing toolkit — aggregates, projections, snapshots, and schema evolution with full DI integration.
+description: Event sourcing — aggregates, projections, snapshots, and schema evolution with full DI integration.
 ---
 
 # Event Sourcing
@@ -35,7 +35,7 @@ and a natural integration point for reactive systems that respond to events as t
   or via catch-up (eventually consistent background processing).
 - **Schema evolution** is handled through lazy upcasting on read — events are stored in their
   original form and transformed to the current schema at deserialization time. Snapshot schema
-  versioning with migration chains handles aggregate state structure changes gracefully.
+  versioning with migration chains handles aggregate state structure changes without batch migrations.
 
 ### The Decider Pattern
 
@@ -43,40 +43,24 @@ waku's functional aggregate style is based on the **Decider pattern** formalized
 [Jérémie Chassaing](https://thinkbeforecoding.com/post/2021/12/17/functional-event-sourcing-decider):
 
 ```python
-Decider[Command, State, Event]:
+Decider[State, Command, Event]:
+    initial_state → State
     decide(command, state) → list[Event]
     evolve(state, event) → State
-    initial_state → State
 ```
 
 Pure functions, no side effects, trivially testable. See [Aggregates](aggregates.md) for both
 OOP and functional approaches.
 
-### Inspiration
+??? info "Design lineage"
 
-waku's event sourcing draws from established frameworks across ecosystems:
+    waku's event sourcing draws from established frameworks across ecosystems:
 
-- [Emmett](https://event-driven-io.github.io/emmett/) (TypeScript) — functional-first ES by Oskar Dudycz
-- [Marten](https://martendb.io/events/) (.NET) — projection lifecycle taxonomy (inline / async / live)
-- [Eventuous](https://eventuous.dev/) (.NET) — `IEventStore = IEventReader + IEventWriter` interface split
-- [Axon Framework](https://www.axoniq.io/framework) (JVM) — aggregate testing fixtures (Given/When/Then)
-- [Greg Young](https://www.eventstore.com/blog/what-is-event-sourcing) — ES + CQRS formalization
-
-### Why waku
-
-- **Two aggregate styles, one infrastructure.** Choose mutable OOP aggregates for simple domains
-  or immutable functional [deciders](aggregates.md) for complex business rules — both share the same
-  event store, projections, and module wiring.
-- **Given/When/Then testing DSL.** [DeciderSpec](testing.md) makes decider tests read like specifications:
-
-    ```python
-    DeciderSpec.for_(decider).given([AccountOpened(...)]).when(Deposit(...)).then([MoneyDeposited(...)])
-    ```
-
-- **Lazy schema evolution.** Events are stored in their original form — [upcasters](schema-evolution.md)
-  transform old schemas on read, so you never run batch migrations.
-- **Full DI integration.** Projections, enrichers, stores, and serializers are all resolved through
-  Dishka — swap implementations without touching business logic.
+    - [Emmett](https://event-driven-io.github.io/emmett/) (TypeScript) — functional-first ES by Oskar Dudycz
+    - [Marten](https://martendb.io/events/) (.NET) — projection lifecycle taxonomy (inline / async / live)
+    - [Eventuous](https://eventuous.dev/) (.NET) — `IEventStore = IEventReader + IEventWriter` interface split
+    - [Axon Framework](https://www.axoniq.io/framework) (JVM) — aggregate testing fixtures (Given/When/Then)
+    - [Greg Young](https://www.eventstore.com/blog/what-is-event-sourcing) — ES + CQRS formalization
 
 ---
 

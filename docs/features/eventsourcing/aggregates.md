@@ -16,8 +16,8 @@ and **functional deciders** (immutable, function-based).
 | **Snapshots** | `SnapshotEventSourcedRepository` | `SnapshotDeciderRepository` |
 
 !!! tip
-    Start with OOP aggregates for straightforward domains. Move to deciders when you need
-    easily testable business rules or immutable state guarantees.
+    Start with OOP aggregates. Move to deciders when decision logic is complex or you want
+    pure-function testability.
 
 ## Domain Events
 
@@ -255,8 +255,8 @@ Set `max_attempts = 1` for no retries — only the initial attempt runs, and `Co
 
 !!! tip
     The retry loop re-reads state from the event store on each attempt, so it always works
-    with the latest version. No backoff is applied — concurrency conflicts resolve immediately
-    once the handler sees the current state.
+    with the latest version. No backoff is applied — the handler retries immediately with
+    fresh state.
 
 ### Aggregate Naming
 
@@ -296,8 +296,8 @@ causing data corruption.
 
 ## Further reading
 
-- **[Event Sourcing](index.md)** — overview, architecture, and installation
 - **[Event Store](event-store.md)** — in-memory and PostgreSQL event persistence
+- **[Projections](projections.md)** — build read models from event streams
 - **[Snapshots](snapshots.md)** — optimize loading for long-lived aggregates
-- **[Testing](testing.md)** — Given/When/Then DSL and OOP aggregate testing
+- **[Testing](testing.md)** — Given/When/Then DSL for aggregates and deciders
 - **[Schema Evolution](schema-evolution.md)** — upcasting and event type registries
