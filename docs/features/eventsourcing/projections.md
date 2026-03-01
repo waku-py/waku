@@ -150,8 +150,8 @@ through the projection.
 
 ## Configuration
 
-All per-projection behavior — batch size, error handling, and retry — is configured through
-`bind_catch_up_projection()`:
+All per-projection behavior — batch size, error handling, retry, and gap detection — is
+configured through `bind_catch_up_projection()`:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -161,6 +161,8 @@ All per-projection behavior — batch size, error handling, and retry — is con
 | `base_retry_delay_seconds` | `10.0` | Initial delay between retries (exponential backoff) |
 | `max_retry_delay_seconds` | `300.0` | Maximum delay cap for retries |
 | `batch_size` | `100` | Maximum events per batch |
+| `gap_detection_enabled` | `False` | Enable contiguity checks (see [Gap Detection](#gap-detection)) |
+| `gap_timeout_seconds` | `10.0` | Seconds before a gap is considered permanent and skipped |
 
 The runner's polling interval is configured globally via `PollingConfig` (passed to the runner
 constructor, defaults to sensible values if omitted):
@@ -171,6 +173,35 @@ constructor, defaults to sensible values if omitted):
 | `poll_interval_max_seconds` | `5.0` | Maximum polling interval when idle |
 | `poll_interval_step_seconds` | `1.0` | Increment per idle cycle |
 | `poll_interval_jitter_factor` | `0.1` | Random jitter factor applied to the interval |
+
+## Gap Detection
+
+When multiple writers append to the event store concurrently, a projection may read events
+with non-contiguous global positions — a gap appears when a concurrent transaction has not
+yet committed. Advancing the checkpoint past a gap would permanently skip that event.
+
+Enable gap detection per-projection via `bind_catch_up_projection()`:
+
+```python
+(
+    EventSourcingExtension()
+    .bind_aggregate(...)
+    .bind_catch_up_projection(
+        AccountSummaryProjection,
+        gap_detection_enabled=True,
+        gap_timeout_seconds=10.0,
+    )
+)
+```
+
+When active, the processor queries committed positions from the event store and only advances
+the checkpoint to the last contiguous position. Gaps are tracked with a timeout — if a gap
+persists beyond `gap_timeout_seconds`, it is assumed permanent (e.g., a rolled-back
+transaction) and skipped.
+
+!!! info "Single-writer deployments"
+    If your event store has a single writer process, gaps cannot occur and gap detection
+    adds unnecessary overhead. Leave it disabled (the default).
 
 ## Distributed Locking
 

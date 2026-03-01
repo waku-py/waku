@@ -98,6 +98,27 @@ class InMemoryEventStore(IEventStore):
         async with self._lock:
             return str(stream_id) in self._streams
 
+    async def global_head_position(self) -> int:
+        async with self._lock:
+            return self._global_position - 1
+
+    async def read_positions(
+        self,
+        *,
+        after_position: int,
+        up_to_position: int,
+    ) -> list[int]:
+        async with self._lock:
+            positions: list[int] = []
+            for stream_events in self._streams.values():
+                positions.extend(
+                    event.global_position
+                    for event in stream_events
+                    if after_position < event.global_position <= up_to_position
+                )
+            positions.sort()
+            return positions
+
     async def append_to_stream(
         self,
         stream_id: StreamId,

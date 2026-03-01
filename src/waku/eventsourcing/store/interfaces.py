@@ -41,6 +41,24 @@ class IEventReader(abc.ABC):
     @abc.abstractmethod
     async def stream_exists(self, stream_id: StreamId, /) -> bool: ...
 
+    @abc.abstractmethod
+    async def global_head_position(self) -> int:
+        """Return the highest global position in the store, or ``-1`` if empty."""
+        ...
+
+    @abc.abstractmethod
+    async def read_positions(
+        self,
+        *,
+        after_position: int,
+        up_to_position: int,
+    ) -> list[int]:
+        """Return committed global positions in the range ``(after_position, up_to_position]``.
+
+        Positions are returned in ascending order.
+        """
+        ...
+
 
 class IEventWriter(abc.ABC):
     @abc.abstractmethod

@@ -181,6 +181,26 @@ class SqlAlchemyEventStore(IEventStore):
         result = await self._session.execute(query)
         return result.scalar_one_or_none() is not None
 
+    async def global_head_position(self) -> int:
+        query = select(sa_func.coalesce(sa_func.max(self._events.c.global_position), -1))
+        result = await self._session.execute(query)
+        return int(result.scalar_one())
+
+    async def read_positions(
+        self,
+        *,
+        after_position: int,
+        up_to_position: int,
+    ) -> list[int]:
+        query = (
+            select(self._events.c.global_position)
+            .where(self._events.c.global_position > after_position)
+            .where(self._events.c.global_position <= up_to_position)
+            .order_by(self._events.c.global_position)
+        )
+        result = await self._session.execute(query)
+        return [row[0] for row in result.fetchall()]
+
     async def append_to_stream(
         self,
         stream_id: StreamId,
