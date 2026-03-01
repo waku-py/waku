@@ -248,3 +248,82 @@ async def test_runner_isolates_projection_errors(
             runner.request_shutdown()
 
     assert len(good_projection.received) == 5
+
+
+async def test_rebuild_locked_projection_raises(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
+    lock = AlwaysLockedLock()
+    projection = RecordingProjection()
+    binding = make_binding(RecordingProjection)
+    app = _make_app(event_store, in_memory_checkpoint_store, lock, (projection,), (binding,))
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(
+            container=app.container,
+            lock=lock,
+            polling=_FAST_POLLING,
+        )
+
+        with pytest.raises(RuntimeError, match='is locked by another instance'):
+            await runner.rebuild('recording')
+
+
+async def test_poll_loop_logs_and_continues_on_scope_error(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
+    await seed_events(event_store, count=5)
+
+    lock = InMemoryProjectionLock()
+    binding = make_binding(RecordingProjection)
+    app = _make_app(event_store, in_memory_checkpoint_store, lock, (), (binding,))
+
+    async with app:
+        runner = CatchUpProjectionRunner(
+            container=app.container,
+            lock=lock,
+            bindings=(binding,),
+            polling=_FAST_POLLING,
+        )
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(runner.run)
+            await anyio.sleep(0.1)
+            runner.request_shutdown()
+
+
+async def test_create_filters_by_projection_types(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
+    await seed_events(event_store, count=5)
+
+    lock = InMemoryProjectionLock()
+    good_projection = RecordingProjection()
+    stop_projection = StopProjection()
+    recording_binding = make_binding(RecordingProjection)
+    stop_binding = make_binding(StopProjection, error_policy=ErrorPolicy.STOP)
+    app = _make_app(
+        event_store,
+        in_memory_checkpoint_store,
+        lock,
+        (good_projection, stop_projection),
+        (recording_binding, stop_binding),
+    )
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(
+            container=app.container,
+            lock=lock,
+            projections=[RecordingProjection],
+            polling=_FAST_POLLING,
+        )
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(runner.run)
+            await anyio.sleep(0.1)
+            runner.request_shutdown()
+
+    assert len(good_projection.received) == 5

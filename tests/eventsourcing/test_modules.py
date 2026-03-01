@@ -812,19 +812,19 @@ class CreateItem:
 
 class ItemDecider(IDecider[ItemState, CreateItem, INotification]):
     @override
-    def initial_state(self) -> ItemState:
+    def initial_state(self) -> ItemState:  # pragma: no cover
         return ItemState()
 
     @override
-    def decide(self, command: CreateItem, state: ItemState) -> Sequence[INotification]:
+    def decide(self, command: CreateItem, state: ItemState) -> Sequence[INotification]:  # pragma: no cover
         return [ItemCreated(name=command.name)]
 
     @override
-    def evolve(self, state: ItemState, event: INotification) -> ItemState:
+    def evolve(self, state: ItemState, event: INotification) -> ItemState:  # pragma: no cover
         match event:
             case ItemCreated(name=name):
                 return ItemState(name=name)
-            case _:  # pragma: no cover
+            case _:
                 return state
 
 
