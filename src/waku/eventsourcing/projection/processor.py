@@ -9,6 +9,7 @@ import anyio
 from waku.eventsourcing.exceptions import ProjectionStoppedError
 from waku.eventsourcing.projection.adaptive_interval import calculate_backoff_with_jitter
 from waku.eventsourcing.projection.checkpoint import Checkpoint
+from waku.eventsourcing.projection.gap_detection import GapTracker
 from waku.eventsourcing.projection.interfaces import ErrorPolicy
 
 if TYPE_CHECKING:
@@ -28,6 +29,9 @@ class ProjectionProcessor:
     def __init__(self, binding: CatchUpProjectionBinding) -> None:
         self._binding = binding
         self._attempts: int = 0
+        self._gap_tracker: GapTracker | None = (
+            GapTracker(binding.gap_timeout_seconds) if binding.gap_detection_enabled else None
+        )
 
     @property
     def projection_name(self) -> str:
@@ -49,6 +53,11 @@ class ProjectionProcessor:
         )
         if not events:
             return 0
+
+        if self._gap_tracker is not None:
+            events = await self._apply_gap_detection(events, event_reader, position)
+            if not events:
+                return 0
 
         try:
             await projection.project(events)
@@ -73,6 +82,22 @@ class ProjectionProcessor:
                 updated_at=datetime.now(UTC),
             ),
         )
+
+    async def _apply_gap_detection(
+        self,
+        events: list[StoredEvent],
+        event_reader: IEventReader,
+        checkpoint_position: int,
+    ) -> list[StoredEvent]:
+        assert self._gap_tracker is not None  # noqa: S101
+        committed = await event_reader.read_positions(
+            after_position=checkpoint_position,
+            up_to_position=events[-1].global_position,
+        )
+        safe = self._gap_tracker.safe_position(checkpoint_position, committed)
+        if safe <= checkpoint_position:
+            return []
+        return [e for e in events if e.global_position <= safe]
 
     async def _handle_error(
         self,

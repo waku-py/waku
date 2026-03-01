@@ -20,3 +20,5 @@ class CatchUpProjectionBinding:
     max_retry_delay_seconds: float = 300.0
     batch_size: int = 100
     event_type_names: tuple[str, ...] | None = None
+    gap_detection_enabled: bool = False
+    gap_timeout_seconds: float = 10.0

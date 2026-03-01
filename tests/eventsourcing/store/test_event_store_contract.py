@@ -781,3 +781,74 @@ async def test_read_all_with_multiple_event_types(store: IEventStore) -> None:
 
     assert len(events) == 4
     assert all(e.event_type in {'OrderCreated', 'ItemAdded'} for e in events)
+
+
+# --- global_head_position / read_positions ---
+
+
+async def test_global_head_position_returns_minus_one_when_empty(store: IEventStore) -> None:
+    assert await store.global_head_position() == -1
+
+
+async def test_global_head_position_returns_last_position_after_appends(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    await store.append_to_stream(
+        stream_id,
+        [make_envelope(OrderCreated(order_id='1')), make_envelope(ItemAdded(item_name='A'))],
+        expected_version=NoStream(),
+    )
+    head = await store.global_head_position()
+    assert head >= 1  # at least 2 events (positions 0 and 1)
+
+
+async def test_global_head_position_increases_with_more_events(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    await store.append_to_stream(
+        stream_id,
+        [make_envelope(OrderCreated(order_id='1'))],
+        expected_version=NoStream(),
+    )
+    head_after_one = await store.global_head_position()
+
+    stream_id2 = StreamId.for_aggregate('Order', '456')
+    await store.append_to_stream(
+        stream_id2,
+        [make_envelope(OrderCreated(order_id='2'))],
+        expected_version=NoStream(),
+    )
+    head_after_two = await store.global_head_position()
+    assert head_after_two > head_after_one
+
+
+async def test_read_positions_returns_empty_when_no_events(store: IEventStore) -> None:
+    positions = await store.read_positions(after_position=-1, up_to_position=100)
+    assert positions == []
+
+
+async def test_read_positions_returns_positions_in_range(
+    store: IEventStore,
+    stream_id: StreamId,
+) -> None:
+    await store.append_to_stream(
+        stream_id,
+        [
+            make_envelope(OrderCreated(order_id='1')),
+            make_envelope(ItemAdded(item_name='A')),
+            make_envelope(OrderShipped(tracking_number='T1')),
+        ],
+        expected_version=NoStream(),
+    )
+    all_events = await store.read_all()
+    all_positions = [e.global_position for e in all_events]
+
+    # Read positions in full range
+    positions = await store.read_positions(after_position=-1, up_to_position=all_positions[-1])
+    assert positions == all_positions
+
+    # Read positions in sub-range: after the first event
+    positions = await store.read_positions(after_position=all_positions[0], up_to_position=all_positions[-1])
+    assert positions == all_positions[1:]

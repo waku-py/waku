@@ -63,7 +63,7 @@ async def seed_events(store: InMemoryEventStore, count: int = 5) -> None:
     )
 
 
-def make_binding(
+def make_binding(  # noqa: PLR0913
     projection: type[ICatchUpProjection],
     *,
     error_policy: ErrorPolicy = ErrorPolicy.STOP,
@@ -72,6 +72,8 @@ def make_binding(
     max_retry_delay_seconds: float = 300.0,
     batch_size: int = 100,
     event_type_names: tuple[str, ...] | None = None,
+    gap_detection_enabled: bool = False,
+    gap_timeout_seconds: float = 10.0,
 ) -> CatchUpProjectionBinding:
     return CatchUpProjectionBinding(
         projection=projection,
@@ -81,6 +83,8 @@ def make_binding(
         max_retry_delay_seconds=max_retry_delay_seconds,
         batch_size=batch_size,
         event_type_names=event_type_names,
+        gap_detection_enabled=gap_detection_enabled,
+        gap_timeout_seconds=gap_timeout_seconds,
     )
 
 

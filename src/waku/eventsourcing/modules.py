@@ -210,7 +210,7 @@ class EventSourcingExtension(OnModuleConfigure):
         self._registry.event_type_bindings.extend(event_types)
         return self
 
-    def bind_catch_up_projection(
+    def bind_catch_up_projection(  # noqa: PLR0913
         self,
         projection: type[ICatchUpProjection],
         *,
@@ -219,6 +219,8 @@ class EventSourcingExtension(OnModuleConfigure):
         base_retry_delay_seconds: float = 10.0,
         max_retry_delay_seconds: float = 300.0,
         batch_size: int = 100,
+        gap_detection_enabled: bool = False,
+        gap_timeout_seconds: float = 10.0,
     ) -> Self:
         self._registry.catch_up_projection_types.append(projection)
         self._catch_up_bindings.append(
@@ -229,6 +231,8 @@ class EventSourcingExtension(OnModuleConfigure):
                 base_retry_delay_seconds=base_retry_delay_seconds,
                 max_retry_delay_seconds=max_retry_delay_seconds,
                 batch_size=batch_size,
+                gap_detection_enabled=gap_detection_enabled,
+                gap_timeout_seconds=gap_timeout_seconds,
             )
         )
         return self

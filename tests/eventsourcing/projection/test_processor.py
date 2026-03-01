@@ -273,3 +273,93 @@ async def test_run_once_with_event_type_filter(
     assert processed == 2
     assert len(projection.received) == 2
     assert all(e.event_type == 'SampleEvent' for e in projection.received)
+
+
+async def test_gap_detection_blocks_at_gap(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
+    projection = RecordingProjection()
+    binding = make_binding(RecordingProjection, gap_detection_enabled=True, gap_timeout_seconds=10.0)
+    processor = ProjectionProcessor(binding)
+
+    await seed_events(event_store, count=5)
+    processed = await processor.run_once(projection, event_store, in_memory_checkpoint_store)
+
+    # InMemoryEventStore has no gaps — all events should be processed
+    assert processed == 5
+    checkpoint = await in_memory_checkpoint_store.load('recording')
+    assert checkpoint is not None
+    assert checkpoint.position == 4
+
+
+async def test_gap_detection_disabled_by_default(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
+    projection = RecordingProjection()
+    processor = ProjectionProcessor(make_binding(RecordingProjection))
+
+    await seed_events(event_store, count=5)
+    processed = await processor.run_once(projection, event_store, in_memory_checkpoint_store)
+
+    assert processed == 5
+
+
+async def test_gap_detection_with_event_type_filter(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
+    projection = RecordingProjection()
+    binding = make_binding(
+        RecordingProjection,
+        event_type_names=('SampleEvent',),
+        gap_detection_enabled=True,
+        gap_timeout_seconds=10.0,
+    )
+    processor = ProjectionProcessor(binding)
+
+    await seed_mixed_events(event_store)
+    processed = await processor.run_once(projection, event_store, in_memory_checkpoint_store)
+
+    assert processed == 2
+    assert all(e.event_type == 'SampleEvent' for e in projection.received)
+    checkpoint = await in_memory_checkpoint_store.load('recording')
+    assert checkpoint is not None
+    assert checkpoint.position == 2
+
+
+async def test_gap_detection_returns_zero_when_gap_blocks_all_events(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+    mocker: MockerFixture,
+) -> None:
+    projection = RecordingProjection()
+    binding = make_binding(RecordingProjection, gap_detection_enabled=True, gap_timeout_seconds=10.0)
+    processor = ProjectionProcessor(binding)
+
+    await seed_events(event_store, count=3)
+    mocker.patch.object(event_store, 'read_positions', return_value=[1, 2])
+
+    processed = await processor.run_once(projection, event_store, in_memory_checkpoint_store)
+
+    assert processed == 0
+    assert len(projection.received) == 0
+
+
+async def test_gap_detection_filters_events_up_to_safe_position(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+    mocker: MockerFixture,
+) -> None:
+    projection = RecordingProjection()
+    binding = make_binding(RecordingProjection, gap_detection_enabled=True, gap_timeout_seconds=10.0)
+    processor = ProjectionProcessor(binding)
+
+    await seed_events(event_store, count=5)
+    mocker.patch.object(event_store, 'read_positions', return_value=[0, 1, 3, 4])
+
+    processed = await processor.run_once(projection, event_store, in_memory_checkpoint_store)
+
+    assert processed == 2
+    assert [e.global_position for e in projection.received] == [0, 1]
