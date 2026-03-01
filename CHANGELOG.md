@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v0.32.0 (2026-03-01)
+
+### 📖 Documentation
+
+- **es**: Review and polish event sourcing documentation
+  ([`2a1f2cb`](https://github.com/waku-py/waku/commit/2a1f2cb6708cdf6cf689df053a3efb9d2aa26d96))
+
+- **es**: Update projection docs to use bind_catch_up_projection() API
+  ([`eb9bea5`](https://github.com/waku-py/waku/commit/eb9bea581407173ce4680c556f77792997ae9a4e))
+
+### ✨ Features
+
+- **es**: Add event type filtering to read_all() and catch-up projections
+  ([`595a42a`](https://github.com/waku-py/waku/commit/595a42a0af076339544d5f6fb4bd245ce39a2d68))
+
+- **es**: Add optimistic concurrency retry to command handlers
+  ([`636312c`](https://github.com/waku-py/waku/commit/636312ce71df4a87591d8253de898e1fd5e2bd92))
+
+
 ## v0.31.0 (2026-02-26)
 
 ### 🪲 Bug Fixes

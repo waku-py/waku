@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "waku"
-version = "0.31.0"
+version = "0.32.0"
 description = "Python framework for backends that grow"
 readme = "README.md"
 license = "MIT"
