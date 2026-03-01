@@ -4,7 +4,7 @@ from typing import Any, cast
 from adaptix import dumper, loader
 from typing_extensions import override
 
-from waku.cqrs.contracts.notification import INotification
+from waku.cqrs import INotification
 from waku.eventsourcing.serialization import EventTypeRegistry, IEventSerializer, default_retort
 
 

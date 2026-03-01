@@ -63,9 +63,12 @@ Catch-up projections poll the event store, process events in batches, and checkp
     `project()` **must** be idempotent.
 
 Error handling is configured per-projection via `bind_catch_up_projection()` (defaults to
-`ErrorPolicy.STOP` with no retries — see [Error Policies](#error-policies)). Each catch-up
-projection also has an optional `teardown()` method called during rebuilds to clean up existing
-state, and an optional `on_skip(events, error)` hook called when a batch is skipped.
+`ErrorPolicy.STOP` with no retries — see [Error Policies](#error-policies)).
+
+Each catch-up projection also has two optional hooks:
+
+- `teardown()` — called during rebuilds to clean up existing state
+- `on_skip(events, error)` — called when a batch is skipped due to errors
 
 ```python linenums="1"
 --8<-- "docs/code/eventsourcing/projections/catch_up.py"
@@ -73,7 +76,7 @@ state, and an optional `on_skip(events, error)` hook called when a batch is skip
 
 Register catch-up projections via `bind_catch_up_projection()`:
 
-```python
+```python linenums="1"
 from waku.eventsourcing.projection.interfaces import ErrorPolicy
 
 (
@@ -100,10 +103,7 @@ filters at the query level, avoiding unnecessary reads.
 class OrderSummaryProjection(ICatchUpProjection):
     projection_name = 'order_summary'
     event_types = [OrderPlaced, OrderShipped]
-
-    async def project(self, events: Sequence[StoredEvent], /) -> None:
-        for event in events:
-            ...  # only OrderPlaced and OrderShipped events arrive here
+    ...
 ```
 
 When `event_types` is `None` (the default), all events are delivered.
@@ -269,7 +269,7 @@ Built-in implementations:
 
 Configure the checkpoint store through `EventSourcingConfig`:
 
-```python
+```python linenums="1"
 from waku.eventsourcing import EventSourcingConfig
 from waku.eventsourcing.projection.sqlalchemy import make_sqlalchemy_checkpoint_store
 
@@ -323,7 +323,7 @@ For reliable cross-service messaging (e.g., publishing domain events to Kafka, R
 or another service), write a **catch-up projection** that reads from the event store and
 publishes to your message broker:
 
-```python
+```python linenums="1"
 from collections.abc import Sequence
 
 from waku.eventsourcing.contracts.event import StoredEvent

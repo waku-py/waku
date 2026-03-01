@@ -18,8 +18,7 @@ class RenameOwnerToName(ISnapshotMigration):
     to_version = 3
 
     def migrate(self, state: dict[str, Any], /) -> dict[str, Any]:
-        owner = state.pop('owner', '')
-        return {**state, 'name': owner}
+        return {k: v for k, v in state.items() if k != 'owner'} | {'name': state.get('owner', '')}
 
 
 class BankAccountSnapshotRepository(SnapshotEventSourcedRepository[BankAccount]):
