@@ -13,7 +13,14 @@ __all__ = ['CatchUpProjectionRegistry']
 class CatchUpProjectionRegistry:
     def __init__(self, bindings: tuple[CatchUpProjectionBinding, ...]) -> None:
         self._bindings = bindings
-        self._by_name: dict[str, CatchUpProjectionBinding] = {b.projection.projection_name: b for b in self._bindings}
+        by_name: dict[str, CatchUpProjectionBinding] = {}
+        for b in self._bindings:
+            name = b.projection.projection_name
+            if name in by_name:
+                msg = f'Duplicate projection name {name!r}'
+                raise ValueError(msg)
+            by_name[name] = b
+        self._by_name = by_name
 
     def __iter__(self) -> Iterator[CatchUpProjectionBinding]:
         return iter(self._bindings)
