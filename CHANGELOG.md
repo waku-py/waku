@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.33.0 (2026-03-01)
+
+### ✨ Features
+
+- **es**: Add AggregateSpec, wait utilities, and gap detection
+  ([`321cc03`](https://github.com/waku-py/waku/commit/321cc037aeb6bd5aeb0b38b37af69aeefab5588d))
+
+
 ## v0.32.0 (2026-03-01)
 
 ### 📖 Documentation
