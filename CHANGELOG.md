@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.34.0 (2026-03-01)
+
+### 📖 Documentation
+
+- **es**: Fix inaccuracies and polish event sourcing docs
+  ([`4217881`](https://github.com/waku-py/waku/commit/421788117d5144b6ea68671ca350d0758a6a2bb1))
+
+### ✨ Features
+
+- **es**: Add stream soft delete
+  ([`e37ad72`](https://github.com/waku-py/waku/commit/e37ad72dea39effc6ae23d1086925a8a603529f3))
+
+
 ## v0.33.0 (2026-03-01)
 
 ### ✨ Features
