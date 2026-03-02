@@ -1,6 +1,9 @@
 ---
 title: Extension System
 description: Lifecycle hooks and custom extensions for cross-cutting concerns.
+tags:
+  - extensions
+  - concept
 ---
 
 # Extension System

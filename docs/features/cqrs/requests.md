@@ -1,6 +1,9 @@
 ---
 title: Requests
 description: Commands, queries, request handlers, and dispatching via the mediator.
+tags:
+  - cqrs
+  - guide
 ---
 
 # Requests

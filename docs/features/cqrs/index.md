@@ -1,6 +1,9 @@
 ---
 title: Mediator (CQRS)
 description: Command/query separation with pipeline behaviors, event handlers, and a mediator dispatcher.
+tags:
+  - cqrs
+  - concept
 ---
 
 # Mediator (CQRS)

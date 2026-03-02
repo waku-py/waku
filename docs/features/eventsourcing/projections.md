@@ -1,6 +1,9 @@
 ---
 title: Projections
 description: Inline and catch-up projections for building read models from event streams.
+tags:
+  - event-sourcing
+  - guide
 ---
 
 # Projections

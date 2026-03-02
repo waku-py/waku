@@ -1,6 +1,9 @@
 ---
 title: Aggregates
 description: OOP aggregates and functional deciders for event-sourced domain modeling.
+tags:
+  - event-sourcing
+  - guide
 ---
 
 # Aggregates

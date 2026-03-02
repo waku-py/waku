@@ -1,6 +1,9 @@
 ---
 title: Schema Evolution
 description: Event type registries, upcasting chains, and lazy schema migration.
+tags:
+  - event-sourcing
+  - guide
 ---
 
 # Schema Evolution

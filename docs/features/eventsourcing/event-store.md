@@ -1,6 +1,9 @@
 ---
 title: Event Store
 description: In-memory and PostgreSQL event persistence with optimistic concurrency, idempotency, stream deletion, and metadata enrichment.
+tags:
+  - event-sourcing
+  - guide
 ---
 
 # Event Store

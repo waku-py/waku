@@ -1,6 +1,9 @@
 ---
 title: Snapshots
 description: Aggregate snapshots to optimize loading for long-lived event streams.
+tags:
+  - event-sourcing
+  - guide
 ---
 
 # Snapshots

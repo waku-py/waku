@@ -1,6 +1,9 @@
 ---
 title: Multi-bindings
 description: Register multiple implementations of the same interface and inject them as a collection.
+tags:
+  - di
+  - guide
 ---
 
 # Multi-bindings

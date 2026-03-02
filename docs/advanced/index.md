@@ -1,6 +1,8 @@
 ---
 title: Advanced
 description: Advanced dependency injection patterns and the extension system for building lifecycle hooks.
+tags:
+  - concept
 ---
 
 # Advanced
