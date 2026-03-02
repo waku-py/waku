@@ -22,7 +22,7 @@
 <!-- Package Info -->
 [![PyPI](https://img.shields.io/pypi/v/waku?label=PyPI&logo=pypi)](https://pypi.python.org/pypi/waku)
 [![Python version](https://img.shields.io/pypi/pyversions/waku.svg?label=Python)](https://www.python.org/downloads/)
-![Downloads](https://img.shields.io/pypi/dm/waku)
+[![Downloads](https://static.pepy.tech/badge/waku/month)](https://pepy.tech/projects/waku)
 
 <!-- Tools -->
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
@@ -93,8 +93,6 @@ Python has no built-in way to enforce component boundaries. Packages don't contr
 
 ```sh
 uv add waku
-# or
-pip install waku
 ```
 
 ### Minimal Example
