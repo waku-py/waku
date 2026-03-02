@@ -41,7 +41,7 @@ eventsourcing-sqla = ["sqlalchemy[asyncio]>=2.0.46"]
 
 [project.urls]
 Repository = "https://github.com/waku-py/waku"
-Documentation = "https://waku-py.github.io/waku/"
+Documentation = "https://docs.wakupy.dev/"
 Changelog = "https://github.com/waku-py/waku/blob/master/CHANGELOG.md"
 Issues = "https://github.com/waku-py/waku/issues"
 
