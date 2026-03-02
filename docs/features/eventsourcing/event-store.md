@@ -105,7 +105,7 @@ config = EventSourcingConfig(store=InMemoryEventStore)
 Install the required extras:
 
 ```bash
-uv add waku[eventsourcing,eventsourcing-sqla]
+uv add waku --extra eventsourcing --extra eventsourcing-sqla
 ```
 
 You also need a running PostgreSQL instance.
