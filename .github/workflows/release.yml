@@ -195,16 +195,3 @@ jobs:
           packages-dir: dist
           print-hash: true
           verbose: true
-
-  deploy-docs:
-    uses: ./.github/workflows/deploy-docs.yml
-    if: ${{ github.repository == 'waku-py/waku' }}
-    needs:
-      - eval-changes
-      - validate
-    with:
-      doc-files-changed: ${{ needs.eval-changes.outputs.doc-changes }}
-      src-files-changed: ${{ needs.eval-changes.outputs.src-changes }}
-    permissions:
-      contents: write
-    secrets: inherit
