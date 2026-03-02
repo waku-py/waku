@@ -47,7 +47,7 @@
 > and event sourcing — so your codebase stays manageable as it scales.
 
 > [!TIP]
-> Check out the full [**documentation**](https://waku-py.github.io/waku/) and our [**examples**](https://github.com/waku-py/waku/tree/master/examples) to get started.
+> Check out the full [**documentation**](https://docs.wakupy.dev/) and our [**examples**](https://github.com/waku-py/waku/tree/master/examples) to get started.
 
 ## The Problem
 
@@ -57,32 +57,32 @@ Python has no built-in way to enforce component boundaries. Packages don't contr
 
 ### Structure
 
-- 🧩 [**Package by component**](https://waku-py.github.io/waku/fundamentals/modules/):
+- 🧩 [**Package by component**](https://docs.wakupy.dev/fundamentals/modules/):
   Each module is a self-contained unit with its own providers.
   Explicit imports and exports control what crosses boundaries —
   validated at startup, not discovered in production.
-- 💉 [**Dependency inversion**](https://waku-py.github.io/waku/fundamentals/providers/):
+- 💉 [**Dependency inversion**](https://docs.wakupy.dev/fundamentals/providers/):
   Define interfaces in your application core, bind adapters in infrastructure modules.
   Swap a database, a cache, or an API client by changing one provider —
   powered by [Dishka](https://github.com/reagento/dishka/).
-- 🔌 [**One core, any entrypoint**](https://waku-py.github.io/waku/fundamentals/integrations/):
+- 🔌 [**One core, any entrypoint**](https://docs.wakupy.dev/fundamentals/integrations/):
   Build your module tree once with `WakuFactory`.
   Plug it into FastAPI, Litestar, FastStream, Aiogram, CLI, or workers —
   same logic everywhere.
 
 ### Capabilities
 
-- 📨 [**CQRS & mediator**](https://waku-py.github.io/waku/features/cqrs/):
+- 📨 [**CQRS & mediator**](https://docs.wakupy.dev/features/cqrs/):
   DI alone doesn't decouple components — you need events.
   The mediator dispatches commands, queries, and events so components
   never reference each other directly. Pipeline behaviors handle cross-cutting concerns.
-- 📜 [**Event sourcing**](https://waku-py.github.io/waku/features/eventsourcing/):
+- 📜 [**Event sourcing**](https://docs.wakupy.dev/features/eventsourcing/):
   Aggregates, projections, snapshots, upcasting, and the decider pattern
   with built-in SQLAlchemy adapters.
-- 🧪 [**Testing**](https://waku-py.github.io/waku/fundamentals/testing/):
+- 🧪 [**Testing**](https://docs.wakupy.dev/fundamentals/testing/):
   Override any provider in tests with `override()`,
   or spin up a minimal app with `create_test_app()`.
-- 🧰 [**Lifecycle & extensions**](https://waku-py.github.io/waku/advanced/extensions/):
+- 🧰 [**Lifecycle & extensions**](https://docs.wakupy.dev/advanced/extensions/):
   Hook into startup, shutdown, and module initialization.
   Add validation, logging, or custom behaviors —
   decoupled from your business logic.
@@ -202,28 +202,28 @@ if __name__ == '__main__':
 
 ### Next steps
 
-- Learn about [module imports and exports](https://waku-py.github.io/waku/fundamentals/modules/)
-- Try different [provider scopes](https://waku-py.github.io/waku/fundamentals/providers/)
-- Add [CQRS](https://waku-py.github.io/waku/features/cqrs/) for clean command handling
-- Connect with your [favorite framework](https://waku-py.github.io/waku/fundamentals/integrations/)
+- Learn about [module imports and exports](https://docs.wakupy.dev/fundamentals/modules/)
+- Try different [provider scopes](https://docs.wakupy.dev/fundamentals/providers/)
+- Add [CQRS](https://docs.wakupy.dev/features/cqrs/) for clean command handling
+- Connect with your [favorite framework](https://docs.wakupy.dev/fundamentals/integrations/)
 - Browse the [examples directory](https://github.com/waku-py/waku/tree/master/examples) for inspiration
 
 ## Documentation
 
-- [Getting Started](https://waku-py.github.io/waku/getting-started/)
-- [Module System](https://waku-py.github.io/waku/fundamentals/modules/)
-- [Providers](https://waku-py.github.io/waku/fundamentals/providers/)
-- [Extensions](https://waku-py.github.io/waku/advanced/extensions/)
-- [CQRS](https://waku-py.github.io/waku/features/cqrs/)
-- [Event Sourcing](https://waku-py.github.io/waku/features/eventsourcing/)
-- [API Reference](https://waku-py.github.io/waku/reference/)
+- [Getting Started](https://docs.wakupy.dev/getting-started/)
+- [Module System](https://docs.wakupy.dev/fundamentals/modules/)
+- [Providers](https://docs.wakupy.dev/fundamentals/providers/)
+- [Extensions](https://docs.wakupy.dev/advanced/extensions/)
+- [CQRS](https://docs.wakupy.dev/features/cqrs/)
+- [Event Sourcing](https://docs.wakupy.dev/features/eventsourcing/)
+- [API Reference](https://docs.wakupy.dev/reference/)
 - [Dishka Documentation](https://dishka.readthedocs.io/en/stable/index.html)
 - [DeepWiki](https://deepwiki.com/waku-py/waku)
 
 ## Contributing
 
-- [Contributing Guide](https://waku-py.github.io/waku/contributing/contributing/)
-- [Development Setup](https://waku-py.github.io/waku/contributing/contributing/#development-setup)
+- [Contributing Guide](https://docs.wakupy.dev/contributing/contributing/)
+- [Development Setup](https://docs.wakupy.dev/contributing/contributing/#development-setup)
 
 ### Top contributors
 
