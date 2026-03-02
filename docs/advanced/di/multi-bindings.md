@@ -278,10 +278,10 @@ def many(
 
 ## How it works
 
-Under the hood, `many()` builds a Dishka `Provider` with three layers:
+Under the hood, `many()` builds a dishka `Provider` with three layers:
 
 1. **Individual registrations** — each implementation is registered via `provider.provide(impl, provides=interface, cache=cache, when=when)`.
-2. **Collector** — `provider.collect(interface, scope=scope, cache=cache, provides=Sequence[interface])` aggregates all registered implementations (Dishka's built-in collection mechanism).
+2. **Collector** — `provider.collect(interface, scope=scope, cache=cache, provides=Sequence[interface])` aggregates all registered implementations (dishka's built-in collection mechanism).
 3. **Alias** — `provider.alias(Sequence[interface], provides=list[interface], cache=cache)` makes the collection available as `list[interface]` too.
 
 When `collect=False`, only step 1 runs. This lets you split registration across modules while
@@ -292,4 +292,4 @@ keeping a single collection point.
 - **[Providers](../../fundamentals/providers.md)** — provider types and scopes
 - **[Conditional Providers](conditional-providers.md)** — `when=` parameter and markers
 - **[Modules](../../fundamentals/modules.md)** — module system and provider registration
-- **[Dishka collections](https://dishka.readthedocs.io/en/stable/advanced/collect.html)** — underlying collection mechanism
+- **[dishka collections](https://dishka.readthedocs.io/en/stable/advanced/collect.html)** — underlying collection mechanism

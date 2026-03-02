@@ -431,4 +431,4 @@ aggregation** — is the recommended approach for any cross-module discovery use
 - **[Application](../../fundamentals/application.md)** — application lifecycle and lifespan functions
 - **[Modules](../../fundamentals/modules.md)** — module system and the `@module()` decorator
 - **[CQRS extension](../../features/cqrs/index.md)** — the mediator extension in detail
-- **[Advanced DI Patterns](../di/di-patterns.md)** — `provider()` helper and Dishka primitives for `OnModuleRegistration` use cases
+- **[Advanced DI Patterns](../di/di-patterns.md)** — `provider()` helper and dishka primitives for `OnModuleRegistration` use cases

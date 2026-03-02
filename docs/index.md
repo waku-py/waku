@@ -42,7 +42,7 @@ so what starts as clean code quietly becomes a tangle of implicit dependencies
 that discipline alone can't prevent.
 
 waku gives you modules with explicit boundaries, type-safe DI powered by
-[Dishka](https://github.com/reagento/dishka/), and integrated CQRS and event
+[dishka](https://github.com/reagento/dishka/), and integrated CQRS and event
 sourcing — so your codebase stays manageable as it scales.
 
 ## Installation
@@ -77,7 +77,7 @@ sourcing — so your codebase stays manageable as it scales.
 
     Define interfaces in your application core, bind adapters in infrastructure
     modules. Swap a database, a cache, or an API client by changing one
-    [provider](fundamentals/providers.md) — powered by [Dishka](https://github.com/reagento/dishka/).
+    [provider](fundamentals/providers.md) — powered by [dishka](https://github.com/reagento/dishka/).
 
 -   :material-connection: **One Core, Any Entrypoint**
 
@@ -198,7 +198,7 @@ framework — FastAPI, Litestar, or anything else — and you're done.
 
 === "With FastAPI"
 
-    Wire waku into FastAPI with Dishka's integration — same modules, real HTTP:
+    Wire waku into FastAPI with dishka's integration — same modules, real HTTP:
 
     ```python title="main.py" linenums="1"
     import contextlib

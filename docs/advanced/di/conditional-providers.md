@@ -38,7 +38,7 @@ activator function and attach them to providers via `when=`.
 
 ## Activator functions
 
-An activator is a callable that returns `bool`. At container construction time, Dishka calls
+An activator is a callable that returns `bool`. At container construction time, dishka calls
 every registered activator and uses the result to decide which markers are active.
 
 The `activator()` helper creates a `Provider` that you register alongside your other providers:
@@ -75,7 +75,7 @@ def is_debug(config: AppConfig) -> bool:
 
 !!! note
     The activator function's parameters are resolved from the container context. If your
-    function accepts `AppConfig`, Dishka will inject the `AppConfig` instance from the context
+    function accepts `AppConfig`, dishka will inject the `AppConfig` instance from the context
     dictionary. Activators with no parameters are also valid — they are called with no arguments.
 
 ## Providing config via context
@@ -302,4 +302,4 @@ activator(is_debug_mode, DEBUG, VERBOSE)
 
 - **[Providers](../../fundamentals/providers.md)** — provider types and scopes
 - **[Modules](../../fundamentals/modules.md)** — module system and provider registration
-- **[Dishka conditional activation](https://dishka.readthedocs.io/en/stable/advanced/when.html)** — advanced patterns from the underlying DI framework
+- **[dishka conditional activation](https://dishka.readthedocs.io/en/stable/advanced/when.html)** — advanced patterns from the underlying DI framework

@@ -16,7 +16,7 @@ system that powers waku's lifecycle hooks.
 
     ---
 
-    Conditional activation, collection providers, and low-level Dishka integration
+    Conditional activation, collection providers, and low-level dishka integration
 
 -   :material-puzzle: **[Extension System](extensions/index.md)**
 

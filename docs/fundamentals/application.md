@@ -17,7 +17,7 @@ to manage the full application lifecycle.
 `WakuFactory` takes a root module and produces a `WakuApplication`. Under the hood it:
 
 1. Builds a `ModuleRegistry` (topological sort of all imported modules)
-2. Builds a [Dishka](https://github.com/reagento/dishka/) `AsyncContainer` from the collected providers
+2. Builds a [dishka](https://github.com/reagento/dishka/) `AsyncContainer` from the collected providers
 3. Builds an `ExtensionRegistry` from application and module extensions
 4. Returns a ready-to-use `WakuApplication`
 
@@ -45,7 +45,7 @@ app = WakuFactory(AppModule).create()
 
 ### ContainerConfig
 
-`ContainerConfig` controls the underlying Dishka container behavior:
+`ContainerConfig` controls the underlying dishka container behavior:
 
 | Field              | Default         | Description                                                    |
 |--------------------|:----------------|:---------------------------------------------------------------|
@@ -112,7 +112,7 @@ run_api(settings)
 ```
 
 1. Framework-specific factory that wires the `WakuApplication` into FastAPI, Litestar, FastStream,
-   etc. using the corresponding [Dishka integration](integrations.md).
+   etc. using the corresponding [dishka integration](integrations.md).
 
 This keeps module composition and factory configuration in one place. When you add a new module
 import, change the context shape, or swap an extension, every runner picks up the change
@@ -212,8 +212,8 @@ app = WakuFactory(
 
 ## Container Access
 
-The `container` property on `WakuApplication` returns the Dishka `AsyncContainer`.
-Context values can be provided at two levels, corresponding to Dishka's scopes:
+The `container` property on `WakuApplication` returns the dishka `AsyncContainer`.
+Context values can be provided at two levels, corresponding to dishka's scopes:
 
 ### APP-level context
 
@@ -293,8 +293,8 @@ async def handle_request(request_id: str) -> None:
 
 !!! tip
     For declaring contextual dependencies, see [Contextual providers](providers.md#contextual).
-    For a deeper dive into Dishka scopes, see the
-    [Dishka scopes documentation](https://dishka.readthedocs.io/en/stable/advanced/scopes.html).
+    For a deeper dive into dishka scopes, see the
+    [dishka scopes documentation](https://dishka.readthedocs.io/en/stable/advanced/scopes.html).
 
 ## Further reading
 

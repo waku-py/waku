@@ -115,7 +115,7 @@ async def broadcast_event(publisher: IPublisher) -> None:
 ```
 
 All three interfaces are automatically registered in the DI container by `MediatorModule`.
-Dishka resolves `ISender` and `IPublisher` to the same `Mediator` instance as `IMediator`.
+dishka resolves `ISender` and `IPublisher` to the same `Mediator` instance as `IMediator`.
 
 ---
 

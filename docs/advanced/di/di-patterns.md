@@ -1,6 +1,6 @@
 ---
 title: Advanced DI Patterns
-description: The general-purpose provider() helper, waku-to-Dishka bridge table, and raw Dishka patterns.
+description: The general-purpose provider() helper, waku-to-dishka bridge table, and raw dishka patterns.
 tags:
   - di
   - guide
@@ -17,7 +17,7 @@ the most common dependency registration patterns. This page goes further:
   conditional activation in a single call.
 - **[Multiple interface registration](#multiple-interface-registration)** — `AnyOf` and `WithParents`
   for registering a single implementation under several types.
-- **[Dishka primitives](#dishka-primitives)** — class-based providers, aliases, decorators,
+- **[dishka primitives](#dishka-primitives)** — class-based providers, aliases, decorators,
   components, and custom scopes from the underlying DI framework.
 
 ## The `provider()` helper
@@ -94,12 +94,12 @@ class InfraModule:
     pass
 ```
 
-## Bridge table: waku helpers and Dishka equivalents
+## Bridge table: waku helpers and dishka equivalents
 
-Every waku helper is a thin wrapper around Dishka's `Provider` class. The table below shows what
+Every waku helper is a thin wrapper around dishka's `Provider` class. The table below shows what
 each helper does under the hood.
 
-| waku helper | Dishka equivalent |
+| waku helper | dishka equivalent |
 |---|---|
 | `singleton(A, B)` | `provide(B, scope=Scope.APP, provides=A)` |
 | `singleton(A)` | `provide(A, scope=Scope.APP)` |
@@ -113,7 +113,7 @@ each helper does under the hood.
 | `contextual(T, scope=Scope.APP)` | `from_context(provides=T, scope=Scope.APP)` |
 
 !!! note
-    All Dishka primitives used in this page (`provide`, `provide_all`, `from_context`, `alias`,
+    All dishka primitives used in this page (`provide`, `provide_all`, `from_context`, `alias`,
     `decorate`, `AnyOf`, `WithParents`, `FromComponent`, `Provider`, `Scope`) are re-exported
     from `waku.di`.
 
@@ -239,14 +239,14 @@ same instance.
     the dependency graph obvious at a glance. Reserve `WithParents` for cases where a type
     genuinely implements many interfaces and listing them all would be verbose.
 
-    Additionally, `WithParents` does not work with type checkers. Dishka defines it as
+    Additionally, `WithParents` does not work with type checkers. dishka defines it as
     `TypeAlias = T` under `TYPE_CHECKING`, and since Python's type system does not support
     higher-kinded types, `WithParents[SomeClass]` produces a "not subscriptable" error in
     static analysis.
 
-## Dishka primitives
+## dishka primitives
 
-Dishka offers additional primitives for scenarios where the helpers are not enough. Most are
+dishka offers additional primitives for scenarios where the helpers are not enough. Most are
 re-exported from `waku.di` and work directly in your module's `providers` list.
 
 ### Class-based providers
@@ -277,7 +277,7 @@ Generator and async generator factories work the same way in class-based provide
 dependency and put cleanup after the `yield`.
 
 !!! tip
-    See [Dishka: Class-based providers](https://dishka.readthedocs.io/en/stable/provider/index.html)
+    See [dishka: Class-based providers](https://dishka.readthedocs.io/en/stable/provider/index.html)
     for details.
 
 ### `alias` — type mapping
@@ -301,7 +301,7 @@ class AuthProvider(Provider):
 ```
 
 !!! tip
-    See [Dishka: Alias](https://dishka.readthedocs.io/en/stable/provider/alias.html) for details.
+    See [dishka: Alias](https://dishka.readthedocs.io/en/stable/provider/alias.html) for details.
 
 ### `decorate` — wrapping providers
 
@@ -326,7 +326,7 @@ The container resolves `IUserService` as usual, then passes it through `add_logg
 injecting the result.
 
 !!! tip
-    See [Dishka: Decorator](https://dishka.readthedocs.io/en/stable/provider/decorate.html) for
+    See [dishka: Decorator](https://dishka.readthedocs.io/en/stable/provider/decorate.html) for
     details.
 
 ### Components — provider isolation
@@ -375,17 +375,17 @@ class UserRepository:
 ```
 
 !!! tip
-    See [Dishka: Components](https://dishka.readthedocs.io/en/stable/advanced/components.html) for
+    See [dishka: Components](https://dishka.readthedocs.io/en/stable/advanced/components.html) for
     the full component documentation.
 
 ### Custom scopes
 
 waku uses two built-in scopes (`Scope.APP` and `Scope.REQUEST`). If your application needs
 additional scope levels — for example, a per-session or per-tenant scope — define custom scopes
-using Dishka's scope mechanism.
+using dishka's scope mechanism.
 
 !!! tip
-    See [Dishka: Scopes](https://dishka.readthedocs.io/en/stable/advanced/scopes.html) for
+    See [dishka: Scopes](https://dishka.readthedocs.io/en/stable/advanced/scopes.html) for
     how to define and use custom scopes.
 
 ## Further reading
@@ -394,4 +394,4 @@ using Dishka's scope mechanism.
 - **[Conditional Providers](conditional-providers.md)** — `when=` parameter and markers
 - **[Multi-bindings](multi-bindings.md)** — collection providers with `many()`
 - **[Extension System](../extensions/index.md)** — lifecycle hooks and registration-time provider aggregation
-- **[Dishka documentation](https://dishka.readthedocs.io/en/stable/)** — the underlying DI framework
+- **[dishka documentation](https://dishka.readthedocs.io/en/stable/)** — the underlying DI framework

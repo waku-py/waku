@@ -328,7 +328,7 @@ es_config = EventSourcingConfig(
 ```
 
 `make_sqlalchemy_checkpoint_store()` works the same way as `make_sqlalchemy_event_store()` — it
-returns a factory that Dishka uses to construct the store with its `AsyncSession` dependency
+returns a factory that dishka uses to construct the store with its `AsyncSession` dependency
 injected automatically.
 
 ## Table Schema Reference

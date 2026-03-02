@@ -67,7 +67,7 @@ config = EventSourcingConfig(event_serializer=JsonEventSerializer)
     config = EventSourcingConfig(event_serializer=UnixTimestampEventSerializer)
     ```
 
-    Dishka injects the `EventTypeRegistry` dependency automatically.
+    dishka injects the `EventTypeRegistry` dependency automatically.
 
     See the [adaptix Retort configuration guide](https://adaptix.readthedocs.io/en/latest/loading-and-dumping/tutorial.html#retort-configuration)
     for the full list of built-in recipes and customization options.

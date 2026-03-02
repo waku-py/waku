@@ -20,7 +20,7 @@ which providers it owns and which it exposes to other modules.
 waku provides a [module system](modules.md) that lets you organize providers into cohesive,
 self-contained units with explicit import/export boundaries.
 At bootstrap, waku collects providers from all modules, resolves the module dependency graph,
-and hands the result to the [Dishka](https://github.com/reagento/dishka/) IoC container,
+and hands the result to the [dishka](https://github.com/reagento/dishka/) IoC container,
 which handles dependency resolution and lifecycle management.
 
 
@@ -35,7 +35,7 @@ which handles dependency resolution and lifecycle management.
     testability, and flexibility, as dependencies can be easily swapped or modified without altering the class's code.
     Ultimately, DI improves system design by reducing interdependencies and making code more modular and scalable.
 
-    See also: [Dishka — Introduction to DI](https://dishka.readthedocs.io/en/stable/di_intro.html)
+    See also: [dishka — Introduction to DI](https://dishka.readthedocs.io/en/stable/di_intro.html)
 
     ??? example "Manual DI Example"
         ```python linenums="1"
@@ -53,7 +53,7 @@ which handles dependency resolution and lifecycle management.
 
     With the power of an IoC container, you can leverage all the benefits of DI without manually managing dependencies.
 
-    See also: [Dishka — Key Concepts](https://dishka.readthedocs.io/en/stable/concepts.html)
+    See also: [dishka — Key Concepts](https://dishka.readthedocs.io/en/stable/concepts.html)
 
 ## Providers
 
@@ -167,7 +167,7 @@ singleton(IDatabasePool, create_pool)
 
 ??? tip "Working with context managers"
     Do not apply `@contextmanager` or `@asynccontextmanager` to generator
-    factories — Dishka manages the generator lifecycle directly and these
+    factories — dishka manages the generator lifecycle directly and these
     decorators interfere with that mechanism. Use plain generators as shown above.
 
     To wrap an **existing context manager class**, enter it inside a generator factory:
@@ -194,8 +194,8 @@ singleton(IDatabasePool, create_pool)
 
 Provider helper names are inspired by
 [.NET Core's service lifetimes](https://learn.microsoft.com/en-us/dotnet/core/extensions/dependency-injection#service-lifetimes).
-Under the hood, each helper maps to a Dishka [scope](https://dishka.readthedocs.io/en/stable/advanced/scopes.html)
-that determines the dependency's lifetime. Dishka uses two primary scopes:
+Under the hood, each helper maps to a dishka [scope](https://dishka.readthedocs.io/en/stable/advanced/scopes.html)
+that determines the dependency's lifetime. dishka uses two primary scopes:
 
 - **`APP`** — the dependency lives for the entire application lifetime.
 - **`REQUEST`** — the dependency lives for a single scope entry (e.g., one HTTP request).
@@ -204,7 +204,7 @@ Dependencies are lazy — they are created when first requested.
 Within a scope, the same instance is returned by default (configurable per helper).
 When a scope exits, all its dependencies are finalized in reverse creation order.
 
-For more details, see the [Dishka scopes documentation](https://dishka.readthedocs.io/en/stable/advanced/scopes.html).
+For more details, see the [dishka scopes documentation](https://dishka.readthedocs.io/en/stable/advanced/scopes.html).
 
 ### Transient
 
@@ -282,7 +282,7 @@ and have their own lifecycle (HTTP requests, database transactions, event data).
 !!! warning "Important"
 
     In this example, the `contextual` provider and waku itself are used to manually inject the current request into the `UserService`.
-    However, in real-world applications, you should use the [Dishka FastAPI integration](https://dishka.readthedocs.io/en/stable/integrations/fastapi.html) to inject the request automatically.
+    However, in real-world applications, you should use the [dishka FastAPI integration](https://dishka.readthedocs.io/en/stable/integrations/fastapi.html) to inject the request automatically.
 
 ## Where and how to inject dependencies?
 
@@ -290,12 +290,12 @@ To inject dependencies with waku, you need to:
 
 1. Register them as `providers` with the desired [scope](#scopes) in [modules](modules.md).
 2. Identify your application entrypoints and decorate them with the `@inject` decorator for your framework. Consult the
-   [Dishka integrations](https://dishka.readthedocs.io/en/stable/integrations/index.html) section for your framework to
+   [dishka integrations](https://dishka.readthedocs.io/en/stable/integrations/index.html) section for your framework to
    find out how to do this.
 3. Add dependencies as arguments to your entrypoint signature using the `Injected` type hint.
 
 ## Further reading
 
 - **[Modules](modules.md)** — module system, imports, and exports
-- **[Advanced DI](../advanced/di/index.md)** — conditional providers, multi-bindings, and Dishka primitives
-- **[Dishka documentation](https://dishka.readthedocs.io/en/stable/index.html)** — the underlying DI framework
+- **[Advanced DI](../advanced/di/index.md)** — conditional providers, multi-bindings, and dishka primitives
+- **[dishka documentation](https://dishka.readthedocs.io/en/stable/index.html)** — the underlying DI framework

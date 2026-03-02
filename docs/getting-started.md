@@ -146,9 +146,9 @@ Define the modules and bootstrap the app in `app.py`:
     --8<-- "docs/code/integrations/fastapi_example.py"
     ```
 
-    1. Manages waku lifecycle (extension hooks, startup/shutdown) through FastAPI's lifespan. Dishka handles per-request container scoping automatically.
+    1. Manages waku lifecycle (extension hooks, startup/shutdown) through FastAPI's lifespan. dishka handles per-request container scoping automatically.
     2. [`setup_dishka`](fundamentals/integrations.md) connects the DI container to FastAPI — dependencies resolve automatically per request.
-    3. `@inject` from Dishka's FastAPI integration enables automatic dependency resolution for this handler.
+    3. `@inject` from dishka's FastAPI integration enables automatic dependency resolution for this handler.
     4. `Injected[Type]` marks a parameter for injection. See [Framework Integrations](fundamentals/integrations.md) for other frameworks.
 
 ### Step 4: Run Your Application

@@ -86,7 +86,7 @@ async def test_repository() -> None:
 ### Overriding a production module
 
 Pass an existing module as `base` and supply replacement providers.
-The replacements are automatically marked as overrides, so Dishka resolves them
+The replacements are automatically marked as overrides, so dishka resolves them
 instead of the originals:
 
 ```python linenums="1" title="test_override_base.py"
@@ -242,4 +242,4 @@ async def test_user_creation(application: WakuApplication) -> None:
 ## Further reading
 
 - **[Event Sourcing Testing](../features/eventsourcing/testing.md)** — `DeciderSpec` Given/When/Then DSL for testing deciders and aggregates
-- **[Dishka testing documentation](https://dishka.readthedocs.io/en/stable/advanced/testing/index.html)** — alternative testing approaches provided by the underlying DI framework
+- **[dishka testing documentation](https://dishka.readthedocs.io/en/stable/advanced/testing/index.html)** — alternative testing approaches provided by the underlying DI framework

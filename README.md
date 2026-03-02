@@ -43,7 +43,7 @@
 > As your project scales, problems creep in: services import each other freely,
 > swapping a database means editing dozens of files, and nobody can tell which module
 > depends on what. waku gives you modules with explicit boundaries, type-safe DI
-> powered by [Dishka](https://github.com/reagento/dishka/), and integrated CQRS
+> powered by [dishka](https://github.com/reagento/dishka/), and integrated CQRS
 > and event sourcing — so your codebase stays manageable as it scales.
 
 > [!TIP]
@@ -64,7 +64,7 @@ Python has no built-in way to enforce component boundaries. Packages don't contr
 - 💉 [**Dependency inversion**](https://docs.wakupy.dev/fundamentals/providers/):
   Define interfaces in your application core, bind adapters in infrastructure modules.
   Swap a database, a cache, or an API client by changing one provider —
-  powered by [Dishka](https://github.com/reagento/dishka/).
+  powered by [dishka](https://github.com/reagento/dishka/).
 - 🔌 [**One core, any entrypoint**](https://docs.wakupy.dev/fundamentals/integrations/):
   Build your module tree once with `WakuFactory`.
   Plug it into FastAPI, Litestar, FastStream, Aiogram, CLI, or workers —
@@ -217,7 +217,7 @@ if __name__ == '__main__':
 - [CQRS](https://docs.wakupy.dev/features/cqrs/)
 - [Event Sourcing](https://docs.wakupy.dev/features/eventsourcing/)
 - [API Reference](https://docs.wakupy.dev/reference/)
-- [Dishka Documentation](https://dishka.readthedocs.io/en/stable/index.html)
+- [dishka Documentation](https://dishka.readthedocs.io/en/stable/index.html)
 - [DeepWiki](https://deepwiki.com/waku-py/waku)
 
 ## Contributing
@@ -251,7 +251,7 @@ This project is licensed under the terms of the [MIT License](https://github.com
 
 ## Acknowledgements
 
-- [Dishka](https://github.com/reagento/dishka/) – Dependency Injection framework powering `waku` IoC container.
+- [dishka](https://github.com/reagento/dishka/) – Dependency Injection framework powering `waku` IoC container.
 - [NestJS](https://nestjs.com/) – Inspiration for modular architecture and design patterns.
 - [MediatR (C#)](https://github.com/jbogard/MediatR) – Inspiration for the CQRS subsystem.
 - [Emmett](https://event-driven-io.github.io/emmett/) – Functional-first event sourcing patterns.

@@ -128,7 +128,7 @@ You also need a running PostgreSQL instance.
 ```
 
 `make_sqlalchemy_event_store()` is a factory that binds the tables to `SqlAlchemyEventStore`.
-It returns a callable that Dishka uses to construct the store with its remaining dependencies
+It returns a callable that dishka uses to construct the store with its remaining dependencies
 (session, serializer, registry, upcaster chain) injected automatically.
 
 ### Step 3: Create Tables
@@ -290,7 +290,7 @@ es_config = EventSourcingConfig(
 )
 ```
 
-Enrichers are registered as DI providers, so Dishka resolves their constructor dependencies
+Enrichers are registered as DI providers, so dishka resolves their constructor dependencies
 at runtime. The store calls each enricher's `enrich()` method in order before writing events.
 
 ## EventMetadata
