@@ -1,0 +1,49 @@
+name: Cleanup Preview Deployments
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions: {}
+
+jobs:
+  cleanup:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete preview deployments
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          PROJECT="wakupy"
+          API_BASE="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PROJECT/deployments"
+          PAGE=1
+
+          while true; do
+            if ! RESPONSE=$(curl -sf \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "$API_BASE?env=preview&page=$PAGE&per_page=25"); then
+              echo "::error::Failed to fetch deployments (page $PAGE)"
+              exit 1
+            fi
+
+            IDS=$(echo "$RESPONSE" | jq -r --arg branch "$BRANCH" '.result[] | select(.deployment_trigger.metadata.branch == $branch) | .id')
+            TOTAL_PAGES=$(echo "$RESPONSE" | jq -r '.result_info.total_pages // 1')
+
+            for ID in $IDS; do
+              echo "Deleting deployment $ID for branch $BRANCH"
+              curl -sf -X DELETE \
+                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+                "$API_BASE/$ID?force=true" || echo "::warning::Failed to delete deployment $ID"
+            done
+
+            if [ "$PAGE" -ge "$TOTAL_PAGES" ]; then
+              break
+            fi
+            PAGE=$((PAGE + 1))
+          done
+
+          echo "Cleaned up preview deployments for branch: $BRANCH"
