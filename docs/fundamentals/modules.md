@@ -1,5 +1,8 @@
 ---
 title: Modules
+tags:
+  - modules
+  - guide
 ---
 
 # Modules

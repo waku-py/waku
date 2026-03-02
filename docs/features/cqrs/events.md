@@ -1,6 +1,9 @@
 ---
 title: Events
 description: Event definitions, event handlers, publishers, and cross-module fan-out.
+tags:
+  - cqrs
+  - guide
 ---
 
 # Events

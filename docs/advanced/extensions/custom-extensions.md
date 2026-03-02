@@ -1,6 +1,9 @@
 ---
 title: Custom Extensions
 description: Implementation guide for module and application lifecycle extensions with code examples.
+tags:
+  - extensions
+  - guide
 ---
 
 # Custom Extensions

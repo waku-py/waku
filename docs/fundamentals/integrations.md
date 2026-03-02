@@ -1,6 +1,9 @@
 ---
 title: Framework Integrations
 description: Connecting waku to FastAPI, Litestar, and other frameworks via Dishka integrations.
+tags:
+  - integrations
+  - guide
 ---
 
 # Framework Integrations

@@ -1,6 +1,9 @@
 ---
 title: Validation
 description: Startup validation rules that catch module wiring errors before your application serves requests.
+tags:
+  - validation
+  - guide
 ---
 
 # Validation

@@ -1,6 +1,9 @@
 ---
 title: Advanced DI Patterns
 description: The general-purpose provider() helper, waku-to-Dishka bridge table, and raw Dishka patterns.
+tags:
+  - di
+  - guide
 ---
 
 # Advanced DI Patterns

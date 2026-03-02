@@ -1,6 +1,9 @@
 ---
 title: Providers
 description: Provider types, scopes, and factory patterns for waku dependency injection.
+tags:
+  - di
+  - guide
 ---
 
 # Providers

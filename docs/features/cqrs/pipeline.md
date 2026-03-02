@@ -1,6 +1,9 @@
 ---
 title: Pipeline Behaviors
 description: Cross-cutting middleware that wraps request handling with before/after logic.
+tags:
+  - cqrs
+  - guide
 ---
 
 # Pipeline Behaviors

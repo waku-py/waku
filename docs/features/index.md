@@ -1,6 +1,8 @@
 ---
 title: Features
 description: Built-in features — CQRS mediator, module validation, and event sourcing.
+tags:
+  - concept
 ---
 
 # Features

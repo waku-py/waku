@@ -1,6 +1,9 @@
 ---
 title: Application
 description: Bootstrapping, lifecycle management, and container access for waku applications.
+tags:
+  - modules
+  - guide
 ---
 
 # Application

@@ -4,6 +4,8 @@ description: Python makes it easy to build a backend. waku makes it easy to keep
 hide:
   - navigation
   - toc
+tags:
+  - concept
 ---
 
 <style>
@@ -192,6 +194,54 @@ framework — FastAPI, Litestar, or anything else — and you're done.
 
     if __name__ == '__main__':
         asyncio.run(main())
+    ```
+
+=== "With FastAPI"
+
+    Wire waku into FastAPI with Dishka's integration — same modules, real HTTP:
+
+    ```python title="main.py" linenums="1"
+    import contextlib
+    from collections.abc import AsyncIterator
+
+    import uvicorn
+    from dishka.integrations.fastapi import inject, setup_dishka
+    from fastapi import FastAPI
+
+    from waku import WakuFactory, module
+    from waku.di import Injected, scoped
+
+
+    class GreetingService:
+        async def greet(self, name: str) -> str:
+            return f'Hello, {name}!'
+
+
+    @module(providers=[scoped(GreetingService)])
+    class AppModule:
+        pass
+
+
+    @contextlib.asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        async with app.state.waku:
+            yield
+
+
+    app = FastAPI(lifespan=lifespan)
+    waku_app = WakuFactory(AppModule).create()
+    app.state.waku = waku_app
+    setup_dishka(waku_app.container, app)
+
+
+    @app.get('/')
+    @inject
+    async def hello(greeting: Injected[GreetingService]) -> dict[str, str]:
+        return {'message': await greeting.greet('waku')}
+
+
+    if __name__ == '__main__':
+        uvicorn.run(app)
     ```
 
 === "With module boundaries"

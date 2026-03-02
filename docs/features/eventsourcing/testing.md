@@ -1,6 +1,10 @@
 ---
 title: Testing
 description: Given/When/Then DSL for decider and aggregate testing, integration testing with in-memory stores.
+tags:
+  - event-sourcing
+  - testing
+  - guide
 ---
 
 # Testing

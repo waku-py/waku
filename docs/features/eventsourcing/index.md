@@ -1,6 +1,9 @@
 ---
 title: Event Sourcing
 description: Event sourcing — aggregates, projections, snapshots, and schema evolution with full DI integration.
+tags:
+  - event-sourcing
+  - concept
 ---
 
 # Event Sourcing

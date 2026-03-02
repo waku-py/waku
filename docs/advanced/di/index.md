@@ -1,6 +1,9 @@
 ---
 title: Dependency Injection
 description: Conditional activation, collection providers, and low-level Dishka integration.
+tags:
+  - di
+  - concept
 ---
 
 # Dependency Injection

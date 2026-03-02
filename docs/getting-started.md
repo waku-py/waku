@@ -3,6 +3,8 @@ title: Getting Started
 hide:
   - navigation
 description: Build a minimal waku app, then extend it into a multi-module project
+tags:
+  - tutorial
 ---
 
 # Getting Started
