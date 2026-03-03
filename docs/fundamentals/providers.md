@@ -284,6 +284,22 @@ and have their own lifecycle (HTTP requests, database transactions, event data).
     In this example, the `contextual` provider and waku itself are used to manually inject the current request into the `UserService`.
     However, in real-world applications, you should use the [dishka FastAPI integration](https://dishka.readthedocs.io/en/stable/integrations/fastapi.html) to inject the request automatically.
 
+## Putting it all together
+
+The snippets above show individual provider patterns in isolation. Here they combine
+into a complete service-and-repository setup — the most common DI pattern in practice:
+
+```python linenums="1"
+--8<-- "docs/code/providers/service_repository.py"
+```
+
+1. Binds the `IUserRepository` interface to `InMemoryUserRepository`. Swap to a database-backed
+   implementation by changing this single provider — no other code needs to change.
+2. `UserService` receives `IUserRepository` via its constructor. The container inspects the
+   type hints and injects the registered implementation automatically.
+3. Only `UserService` is exported — the repository stays an internal implementation detail
+   of this module.
+
 ## Where and how to inject dependencies?
 
 To inject dependencies with waku, you need to:

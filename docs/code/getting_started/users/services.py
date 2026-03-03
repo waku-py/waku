@@ -1,13 +1,10 @@
 from app.modules.users.models import User
+from app.modules.users.repositories import IUserRepository
 
 
 class UserService:
-    def __init__(self) -> None:
-        self.users: dict[str, User] = {
-            '1': User(id='1', name='Alice', preferred_language='en'),
-            '2': User(id='2', name='Bob', preferred_language='fr'),
-            '3': User(id='3', name='Carlos', preferred_language='es'),
-        }
+    def __init__(self, repo: IUserRepository) -> None:
+        self._repo = repo
 
     def get_user(self, user_id: str) -> User | None:
-        return self.users.get(user_id)
+        return self._repo.get(user_id)
