@@ -231,9 +231,22 @@ Learn more: [Global Modules](fundamentals/modules.md#global-modules).
 --8<-- "docs/code/getting_started/users/models.py"
 ```
 
+Define a repository interface and an in-memory implementation.
+The interface lets you swap storage backends without touching service code:
+
+```python title="app/modules/users/repositories.py" linenums="1"
+--8<-- "docs/code/getting_started/users/repositories.py"
+```
+
+The service depends on the `IUserRepository` interface — it doesn't know
+which implementation is behind it:
+
 ```python title="app/modules/users/services.py" linenums="1"
 --8<-- "docs/code/getting_started/users/services.py"
 ```
+
+The module wires the interface to the implementation. Swap `InMemoryUserRepository`
+for a database-backed one by changing a single provider:
 
 ```python title="app/modules/users/module.py" linenums="1"
 --8<-- "docs/code/getting_started/users/module.py"
