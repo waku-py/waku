@@ -101,6 +101,46 @@ config = EventSourcingConfig(store=InMemoryEventStore)
 !!! warning
     In-memory data is lost when the process exits. Do not use this in production.
 
+## EventSourcingConfig Reference
+
+`EventSourcingConfig` controls which implementations are used for event persistence,
+serialization, snapshots, checkpoints, and metadata enrichment. All fields except `store`
+are optional.
+
+```python
+from waku.eventsourcing import EventSourcingConfig
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `store` | `type[IEventStore] \| Callable[..., IEventStore]` | *(required)* | Event store implementation (class or factory) |
+| `event_serializer` | `type[IEventSerializer] \| Callable[..., IEventSerializer] \| None` | `None` | Event serializer; required for PostgreSQL |
+| `snapshot_store` | `type[ISnapshotStore] \| Callable[..., ISnapshotStore] \| None` | `None` | Snapshot persistence; required when using snapshot repositories |
+| `snapshot_state_serializer` | `type[ISnapshotStateSerializer] \| Callable[..., ISnapshotStateSerializer] \| None` | `None` | Snapshot state serializer; required when using snapshot repositories |
+| `checkpoint_store` | `type[ICheckpointStore] \| Callable[..., ICheckpointStore] \| None` | `None` | Checkpoint persistence; required when using catch-up projections |
+| `enrichers` | `Sequence[type[IMetadataEnricher]]` | `()` | Metadata enrichers applied to every event before persistence |
+
+!!! warning
+    When using `SqlAlchemyEventStore` (or any SQLAlchemy-based store, checkpoint store, or
+    snapshot store), you **must** register an `AsyncSession` provider in your DI container.
+    The SQLAlchemy stores depend on `AsyncSession` injected by dishka — without it, store
+    resolution fails at runtime.
+
+    ```python
+    from collections.abc import AsyncIterator
+
+    from dishka import Provider, Scope, provide
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    class DbProvider(Provider):
+        @provide(scope=Scope.REQUEST)
+        async def session(
+            self, session_factory: async_sessionmaker[AsyncSession],
+        ) -> AsyncIterator[AsyncSession]:
+            async with session_factory() as session:
+                yield session
+    ```
+
 ## PostgreSQL with SQLAlchemy
 
 ### Prerequisites

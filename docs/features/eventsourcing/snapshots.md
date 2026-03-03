@@ -44,7 +44,16 @@ Both aggregate styles have a snapshot-aware repository variant:
 
 === "OOP Aggregate"
 
-    `SnapshotEventSourcedRepository` requires two additional methods for state serialization:
+    `SnapshotEventSourcedRepository` requires two additional abstract methods for state
+    serialization:
+
+    | Method | Description |
+    |--------|-------------|
+    | `_snapshot_state(aggregate) -> object` | Extract the state to persist in the snapshot |
+    | `_restore_from_snapshot(snapshot) -> AggregateT` | Reconstruct a fully-hydrated aggregate from a `Snapshot` object |
+
+    The `Snapshot` object contains the deserialized `state` dict, `version`, `state_type`,
+    and `schema_version` fields.
 
     ```python linenums="1"
     --8<-- "docs/code/eventsourcing/snapshots/oop_repository.py"
