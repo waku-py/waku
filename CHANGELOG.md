@@ -2,6 +2,31 @@
 
 <!-- version list -->
 
+## v0.34.1 (2026-03-03)
+
+### 🪲 Bug Fixes
+
+- **es**: Make sqla tables bind idempotent
+  ([`138464e`](https://github.com/waku-py/waku/commit/138464eda83ca78da87af8a8e5a3f2e4de9a8c41))
+
+### 📖 Documentation
+
+- Add tags to all pages
+  ([`2d46af6`](https://github.com/waku-py/waku/commit/2d46af6331e1dd5edb0ffbf066fe22c04c159b8d))
+
+- Make `dishka` lowercase in docs
+  ([`5235605`](https://github.com/waku-py/waku/commit/5235605b7bedffb2f9db0f2f35542c92c72f8ffb))
+
+- Update all docs links to docs.wakupy.dev
+  ([`44a39f7`](https://github.com/waku-py/waku/commit/44a39f721b98783804c77586117cdbcfcd034463))
+
+- Update download badge and fix install commands
+  ([`27dc0a9`](https://github.com/waku-py/waku/commit/27dc0a938c840035b62cf8aac4d6ac9ed6776290))
+
+- **es**: Fill documentation gaps for event sourcing setup
+  ([`5ac655c`](https://github.com/waku-py/waku/commit/5ac655cfcf6e66f8a315ca35b42b919125b5a919))
+
+
 ## v0.34.0 (2026-03-01)
 
 ### 📖 Documentation
