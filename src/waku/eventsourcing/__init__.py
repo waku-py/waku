@@ -51,6 +51,7 @@ from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjec
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.projection.runner import CatchUpProjectionRunner
 from waku.eventsourcing.repository import EventSourcedRepository
+from waku.eventsourcing.snapshot.repository import SnapshotEventSourcedRepository
 from waku.eventsourcing.upcasting import (
     FnUpcaster,
     IEventUpcaster,
@@ -107,6 +108,7 @@ __all__ = [
     'RegistryFrozenError',
     'SnapshotConfigNotFoundError',
     'SnapshotDeciderRepository',
+    'SnapshotEventSourcedRepository',
     'SnapshotMigrationChainError',
     'SnapshotOptions',
     'SnapshotTypeMismatchError',

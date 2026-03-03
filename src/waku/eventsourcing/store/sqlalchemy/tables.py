@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Final
 
 from sqlalchemy import (
     BigInteger,
@@ -16,9 +17,13 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 
-__all__ = ['IDEMPOTENCY_KEY_CONSTRAINT', 'EventStoreTables', 'bind_event_store_tables']
+__all__ = [
+    'IDEMPOTENCY_KEY_CONSTRAINT',
+    'EventStoreTables',
+    'bind_event_store_tables',
+]
 
-IDEMPOTENCY_KEY_CONSTRAINT = 'uq_es_events_idempotency_key'
+IDEMPOTENCY_KEY_CONSTRAINT: Final = 'uq_es_events_idempotency_key'
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +66,14 @@ es_events_table = Table(
 
 
 def bind_event_store_tables(metadata: MetaData) -> EventStoreTables:
-    streams = es_streams_table.to_metadata(metadata)
-    events = es_events_table.to_metadata(metadata)
+    streams = (
+        metadata.tables[es_streams_table.name]
+        if es_streams_table.name in metadata.tables
+        else es_streams_table.to_metadata(metadata)
+    )
+    events = (
+        metadata.tables[es_events_table.name]
+        if es_events_table.name in metadata.tables
+        else es_events_table.to_metadata(metadata)
+    )
     return EventStoreTables(streams=streams, events=events)

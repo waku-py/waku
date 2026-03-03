@@ -19,4 +19,6 @@ es_projection_leases_table = Table(
 
 
 def bind_lease_tables(metadata: MetaData) -> Table:
+    if es_projection_leases_table.name in metadata.tables:
+        return metadata.tables[es_projection_leases_table.name]
     return es_projection_leases_table.to_metadata(metadata)
