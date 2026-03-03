@@ -18,7 +18,8 @@ waku provides testing utilities for event-sourced systems at two levels:
 
 ## DeciderSpec DSL
 
-`DeciderSpec` provides a fluent Given/When/Then API for testing functional `IDecider` implementations.
+`DeciderSpec` provides a fluent Given/When/Then API for testing functional `IDecider`
+implementations.
 
 The basic chain is:
 

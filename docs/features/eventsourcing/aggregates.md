@@ -69,10 +69,19 @@ Subclass `EventSourcedRepository` with the aggregate type parameter:
 --8<-- "docs/code/eventsourcing/quickstart/commands.py"
 ```
 
-Override `_is_creation_command()` to return `True` for commands that create new aggregates.
-For all other commands, the handler loads the aggregate from the store.
+`EventSourcedCommandHandler[RequestT, ResponseT, AggregateT]` requires overriding three
+abstract methods and provides two optional hooks:
 
-`EventSourcedVoidCommandHandler` is available for commands that don't return a response.
+| Method | Abstract | Description |
+|--------|----------|-------------|
+| `_aggregate_id(request) -> str` | Yes | Extract the aggregate identifier from the request |
+| `_execute(request, aggregate) -> None` | Yes | Execute business logic on the aggregate |
+| `_to_response(aggregate) -> ResponseT` | Yes | Convert the aggregate to a response value |
+| `_is_creation_command(request) -> bool` | No | Return `True` for commands that create new aggregates (default: `False`) |
+| `_idempotency_key(request) -> str \| None` | No | Return a deduplication token (default: `None`) — see [Idempotency](#idempotency) |
+
+`EventSourcedVoidCommandHandler[RequestT, AggregateT]` pre-implements `_to_response()`
+to return `None` — use it for commands that don't return a value.
 
 ### Module Wiring
 
@@ -131,7 +140,23 @@ A decider implements three methods from the `IDecider` protocol:
 --8<-- "docs/code/eventsourcing/decider/handler.py"
 ```
 
-`DeciderVoidCommandHandler` is available for commands that don't return a response.
+`DeciderCommandHandler[RequestT, ResponseT, StateT, CommandT, EventT]` requires
+overriding three abstract methods and provides two optional hooks:
+
+| Method | Abstract | Description |
+|--------|----------|-------------|
+| `_aggregate_id(request) -> str` | Yes | Extract the aggregate identifier from the request |
+| `_to_command(request) -> CommandT` | Yes | Convert the CQRS request to a domain command |
+| `_to_response(state, version) -> ResponseT` | Yes | Convert the final state and version to a response |
+| `_is_creation_command(request) -> bool` | No | Return `True` for creation commands (default: `False`) |
+| `_idempotency_key(request) -> str \| None` | No | Return a deduplication token (default: `None`) |
+
+!!! note
+    `_to_response()` receives `(state, version)` — not an aggregate. This differs from the
+    OOP handler which receives the aggregate object.
+
+`DeciderVoidCommandHandler[RequestT, StateT, CommandT, EventT]` pre-implements
+`_to_response()` to return `None`.
 
 ### Module Wiring
 

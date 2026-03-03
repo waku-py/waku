@@ -139,6 +139,9 @@ catch-up projections. Each projection runs in its own concurrent task.
 Use the `create()` classmethod to build a runner from a DI container:
 
 ```python
+from waku.eventsourcing.projection.config import PollingConfig
+from waku.eventsourcing.projection.lock.in_memory import InMemoryProjectionLock
+
 runner = await CatchUpProjectionRunner.create(
     container,
     lock=InMemoryProjectionLock(),
@@ -266,6 +269,13 @@ Uses a database table with TTL-based leases for multi-process coordination. A ba
 heartbeat task renews the lease periodically. If the heartbeat detects the lease was stolen
 (e.g., by another instance after TTL expiry), it cancels the projection task.
 
+```python
+from waku.eventsourcing.projection.config import LeaseConfig
+from waku.eventsourcing.projection.lock.sqlalchemy import PostgresLeaseProjectionLock
+
+lock = PostgresLeaseProjectionLock(engine=engine, config=LeaseConfig())
+```
+
 Configured via `LeaseConfig`:
 
 | Field | Default | Description |
@@ -292,6 +302,12 @@ With the defaults, the lease renews every 10 seconds and expires after 30 second
 Uses PostgreSQL [advisory locks](https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS)
 via `pg_try_advisory_lock(hashtext(name))`. The lock is session-bound — it holds a database
 connection for the entire duration.
+
+```python
+from waku.eventsourcing.projection.lock.sqlalchemy import PostgresAdvisoryProjectionLock
+
+lock = PostgresAdvisoryProjectionLock(engine=engine)
+```
 
 !!! warning
     Advisory locks are **not compatible** with PgBouncer in transaction-pooling mode because
