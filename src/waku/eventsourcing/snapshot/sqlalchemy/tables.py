@@ -21,4 +21,6 @@ es_snapshots_table = Table(
 
 
 def bind_snapshot_tables(metadata: MetaData) -> Table:
+    if es_snapshots_table.name in metadata.tables:
+        return metadata.tables[es_snapshots_table.name]
     return es_snapshots_table.to_metadata(metadata)

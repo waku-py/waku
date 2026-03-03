@@ -18,4 +18,6 @@ es_checkpoints_table = Table(
 
 
 def bind_checkpoint_tables(metadata: MetaData) -> Table:
+    if es_checkpoints_table.name in metadata.tables:
+        return metadata.tables[es_checkpoints_table.name]
     return es_checkpoints_table.to_metadata(metadata)
