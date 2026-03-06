@@ -189,14 +189,7 @@ class InMemoryEventStore(IEventStore):
                 stream_keys.add(envelope.idempotency_key)
 
             for projection in self._projections:
-                try:
-                    await projection.project(stored_events)
-                except Exception:
-                    logger.exception(
-                        'Inline projection %r failed after events were persisted to stream %s',
-                        projection.projection_name,
-                        stream_id,
-                    )
+                await projection.project(stored_events)
 
             return len(stream) - 1
 
