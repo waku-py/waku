@@ -242,7 +242,7 @@ class Active:
     balance: int = 0
 
 
-BankAccountState = NotCreated | Active
+BankAccountState = NotCreated | Active  # (1)
 
 
 class BankAccountDecider(IDecider[BankAccountState, BankCommand, BankEvent]):
@@ -269,6 +269,9 @@ class BankAccountDecider(IDecider[BankAccountState, BankCommand, BankEvent]):
             case _:
                 raise TypeError(f'Unexpected {type(event).__name__} in {type(state).__name__}')
 ```
+
+1. Union type aliases require explicit `aggregate_name` on the repository —
+   see [Aggregate Naming](#aggregate-naming) for details.
 
 !!! tip
     Start with a flat state for simple aggregates. Migrate to a discriminated union when
@@ -430,6 +433,26 @@ determines the event stream prefix (e.g., `BankAccount-acc-1`).
 For deciders, the canonical naming convention is `{AggregateName}State` (e.g., `CounterState`,
 `BankAccountState`). The `State` suffix is automatically removed to derive the stream prefix.
 If the state class has no `State` suffix, the full name is used as-is.
+
+!!! warning "Union state types require explicit `aggregate_name`"
+    When using a [discriminated union](#functional-deciders) as the state type
+    (e.g., `NotCreated | Active`), auto-resolution cannot infer a name — union types
+    have no `__name__` attribute. You **must** set `aggregate_name` explicitly:
+
+    ```python
+    class BankAccountRepository(DeciderRepository[NotCreated | Active, BankCommand, BankEvent]):
+        aggregate_name = 'BankAccount'
+    ```
+
+    Alternatively, wrap the union in a `TypeAliasType` (PEP 695 `type` statement on
+    Python 3.12+) — the alias name will be used for auto-resolution:
+
+    ```python
+    type BankAccountState = NotCreated | Active  # Python 3.12+
+
+    class BankAccountRepository(DeciderRepository[BankAccountState, BankCommand, BankEvent]):
+        pass  # aggregate_name inferred as "BankAccount"
+    ```
 
 #### Explicit override
 
