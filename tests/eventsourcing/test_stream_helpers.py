@@ -112,6 +112,42 @@ async def test_forwards_start_param_to_event_store(
     event_store.read_stream.assert_called_once_with(stream_id, start=5, count=None)
 
 
+async def test_start_with_max_stream_length_passes_both(
+    event_store: AsyncMock,
+    stream_id: StreamId,
+) -> None:
+    event_store.read_stream.return_value = [AsyncMock()] * 2
+
+    result = await read_aggregate_stream(
+        event_store,
+        stream_id,
+        start=5,
+        max_stream_length=3,
+    )
+
+    event_store.read_stream.assert_called_once_with(stream_id, start=5, count=4)
+    assert len(result) == 2
+
+
+async def test_start_with_max_stream_length_raises_when_exceeded(
+    event_store: AsyncMock,
+    stream_id: StreamId,
+) -> None:
+    event_store.read_stream.return_value = [AsyncMock()] * 4
+
+    with pytest.raises(StreamTooLargeError) as exc_info:
+        await read_aggregate_stream(
+            event_store,
+            stream_id,
+            start=5,
+            max_stream_length=3,
+        )
+
+    event_store.read_stream.assert_called_once_with(stream_id, start=5, count=4)
+    assert exc_info.value.stream_id == stream_id
+    assert exc_info.value.max_length == 3
+
+
 async def test_succeeds_at_exactly_max_length(
     event_store: AsyncMock,
     stream_id: StreamId,

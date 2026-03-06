@@ -161,10 +161,12 @@ async def test_creation_command_not_retried(mocker: MockerFixture) -> None:
     conflict = ConcurrencyConflictError(
         stream_id=StreamId.for_aggregate('Note', 'n-1'), expected_version=-1, actual_version=0
     )
-    mocker.patch.object(repo, 'save', side_effect=conflict)
+    mock_save = mocker.patch.object(repo, 'save', side_effect=conflict)
 
     with pytest.raises(ConcurrencyConflictError):
         await handler.handle(CreateNote(note_id='n-1', title='Hello'))
+
+    mock_save.assert_awaited_once()
 
 
 async def test_max_attempts_1_no_retry(mocker: MockerFixture) -> None:
