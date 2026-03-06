@@ -6,13 +6,6 @@ on:
     types: [opened, synchronize, ready_for_review, reopened]
     branches:
       - master
-    paths-ignore:
-      - '.github/**'
-      - '.pre-commit-config.yaml'
-      - 'Taskfile.yml'
-      - 'gitlint_plugins.py'
-      - 'pyproject.toml'
-      - 'uv.lock'
 
 jobs:
   claude-review:

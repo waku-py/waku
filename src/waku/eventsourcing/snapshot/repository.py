@@ -4,8 +4,8 @@ import abc
 import logging
 from typing import TYPE_CHECKING, ClassVar, Generic, TypeVar
 
+from waku.eventsourcing._stream_helpers import read_aggregate_stream
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
-from waku.eventsourcing.exceptions import StreamNotFoundError
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.interfaces import (
     ISnapshotStateSerializer,  # noqa: TC001  # Dishka needs runtime access
@@ -52,11 +52,12 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
         if snapshot is not None:
             logger.debug('Loaded snapshot for %s/%s at version %d', self.aggregate_name, aggregate_id, snapshot.version)
             aggregate = self._restore_from_snapshot(snapshot)
-            start = snapshot.version + 1
-            try:
-                stored_events = await self._event_store.read_stream(stream_id, start=start)
-            except StreamNotFoundError:
-                stored_events = []
+            stored_events = await read_aggregate_stream(
+                self._event_store,
+                stream_id,
+                start=snapshot.version + 1,
+                max_stream_length=self.max_stream_length,
+            )
             domain_events = [e.data for e in stored_events]
             version = stored_events[-1].position if stored_events else snapshot.version
             if domain_events:

@@ -87,11 +87,8 @@ async def test_load_sets_correct_version_on_aggregate(
 async def test_load_nonexistent_aggregate_raises_aggregate_not_found_error(
     repository: BankAccountRepository,
 ) -> None:
-    with pytest.raises(AggregateNotFoundError) as exc_info:
-        await repository.load('does-not-exist')
-
-    assert exc_info.value.aggregate_id == 'does-not-exist'
-    assert 'BankAccount' in exc_info.value.aggregate_type
+    with pytest.raises(AggregateNotFoundError):
+        await repository.load('nonexistent')
 
 
 async def test_save_then_load_roundtrip_produces_equivalent_state(

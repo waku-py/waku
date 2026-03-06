@@ -17,7 +17,7 @@ async def execute_with_optimistic_retry(
     attempt_fn: Callable[[], Awaitable[_T]],
     *,
     max_attempts: int,
-    is_creation: bool,
+    is_creation: bool = False,
     request_name: str,
     aggregate_id: str,
 ) -> _T:

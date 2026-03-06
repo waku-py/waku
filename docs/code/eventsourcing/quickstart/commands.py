@@ -21,12 +21,12 @@ class OpenAccountCommand(Request[OpenAccountResult]):
 
 class OpenAccountHandler(EventSourcedCommandHandler[OpenAccountCommand, OpenAccountResult, BankAccount]):
     @override
-    def _aggregate_id(self, request: OpenAccountCommand) -> str:
-        return request.account_id
-
-    @override
     def _is_creation_command(self, request: OpenAccountCommand) -> bool:
         return True
+
+    @override
+    def _aggregate_id(self, request: OpenAccountCommand) -> str:
+        return request.account_id
 
     @override
     async def _execute(self, request: OpenAccountCommand, aggregate: BankAccount) -> None:

@@ -7,7 +7,7 @@ import pytest
 from waku.eventsourcing._stream_helpers import read_aggregate_stream  # noqa: PLC2701
 from waku.eventsourcing.contracts.event import StoredEvent
 from waku.eventsourcing.contracts.stream import StreamId
-from waku.eventsourcing.exceptions import AggregateNotFoundError, StreamNotFoundError, StreamTooLargeError
+from waku.eventsourcing.exceptions import StreamNotFoundError, StreamTooLargeError
 from waku.eventsourcing.store.interfaces import IEventStore
 
 
@@ -28,31 +28,25 @@ async def test_returns_stored_events(event_store: AsyncMock, stream_id: StreamId
     result = await read_aggregate_stream(
         event_store,
         stream_id,
-        aggregate_name='TestAggregate',
-        aggregate_id='agg-1',
         max_stream_length=None,
     )
 
     assert result is sentinel
 
 
-async def test_raises_aggregate_not_found_on_stream_not_found(
+async def test_returns_empty_list_on_stream_not_found(
     event_store: AsyncMock,
     stream_id: StreamId,
 ) -> None:
     event_store.read_stream.side_effect = StreamNotFoundError(stream_id)
 
-    with pytest.raises(AggregateNotFoundError) as exc_info:
-        await read_aggregate_stream(
-            event_store,
-            stream_id,
-            aggregate_name='TestAggregate',
-            aggregate_id='agg-1',
-            max_stream_length=None,
-        )
+    result = await read_aggregate_stream(
+        event_store,
+        stream_id,
+        max_stream_length=None,
+    )
 
-    assert exc_info.value.aggregate_type == 'TestAggregate'
-    assert exc_info.value.aggregate_id == 'agg-1'
+    assert result == []
 
 
 async def test_raises_stream_too_large_when_exceeding_max_length(
@@ -65,8 +59,6 @@ async def test_raises_stream_too_large_when_exceeding_max_length(
         await read_aggregate_stream(
             event_store,
             stream_id,
-            aggregate_name='TestAggregate',
-            aggregate_id='agg-1',
             max_stream_length=3,
         )
 
@@ -83,12 +75,10 @@ async def test_passes_max_length_plus_one_as_count(
     await read_aggregate_stream(
         event_store,
         stream_id,
-        aggregate_name='TestAggregate',
-        aggregate_id='agg-1',
         max_stream_length=5,
     )
 
-    event_store.read_stream.assert_called_once_with(stream_id, count=6)
+    event_store.read_stream.assert_called_once_with(stream_id, start=0, count=6)
 
 
 async def test_passes_none_count_when_no_max_length(
@@ -100,12 +90,26 @@ async def test_passes_none_count_when_no_max_length(
     await read_aggregate_stream(
         event_store,
         stream_id,
-        aggregate_name='TestAggregate',
-        aggregate_id='agg-1',
         max_stream_length=None,
     )
 
-    event_store.read_stream.assert_called_once_with(stream_id, count=None)
+    event_store.read_stream.assert_called_once_with(stream_id, start=0, count=None)
+
+
+async def test_forwards_start_param_to_event_store(
+    event_store: AsyncMock,
+    stream_id: StreamId,
+) -> None:
+    event_store.read_stream.return_value = []
+
+    await read_aggregate_stream(
+        event_store,
+        stream_id,
+        start=5,
+        max_stream_length=None,
+    )
+
+    event_store.read_stream.assert_called_once_with(stream_id, start=5, count=None)
 
 
 async def test_succeeds_at_exactly_max_length(
@@ -117,8 +121,6 @@ async def test_succeeds_at_exactly_max_length(
     result = await read_aggregate_stream(
         event_store,
         stream_id,
-        aggregate_name='TestAggregate',
-        aggregate_id='agg-1',
         max_stream_length=3,
     )
 

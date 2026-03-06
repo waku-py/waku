@@ -74,10 +74,6 @@ class CreateCounterHandler(
         return Increment(amount=request.amount)
 
     @override
-    def _is_creation_command(self, request: CreateCounterCommand) -> bool:
-        return True
-
-    @override
     def _to_response(self, state: CounterState, version: int) -> CounterResponse:
         return CounterResponse(value=state.value, version=version)
 
@@ -121,10 +117,6 @@ class IdempotentCreateCounterHandler(
         return Increment(amount=request.amount)
 
     @override
-    def _is_creation_command(self, request: IdempotentCreateCounterCommand) -> bool:
-        return True
-
-    @override
     def _to_response(self, state: CounterState, version: int) -> CounterResponse:
         return CounterResponse(value=state.value, version=version)
 
@@ -146,16 +138,17 @@ async def test_handle_loads_state_decides_saves_and_returns_response(
     assert result == CounterResponse(value=15, version=1)
 
 
-async def test_handle_creation_command_uses_initial_state(
+async def test_handle_new_aggregate_creates_via_load(
     repository: CounterRepository,
     decider: CounterDecider,
     publisher: AsyncMock,
 ) -> None:
-    handler = CreateCounterHandler(repository=repository, decider=decider, publisher=publisher)
+    handler = IncrementCounterHandler(repository=repository, decider=decider, publisher=publisher)
 
-    result = await handler.handle(CreateCounterCommand(counter_id='new-1', amount=7))
+    result = await handler.handle(IncrementCounterCommand(counter_id='new-1', amount=7))
 
     assert result == CounterResponse(value=7, version=0)
+    publisher.publish.assert_awaited_once_with(Incremented(amount=7))
 
 
 async def test_handle_publishes_each_produced_event(
@@ -215,6 +208,26 @@ async def test_idempotency_key_passed_to_repository_save(
     assert kwargs['idempotency_key'] == 'key-abc'
 
 
+async def test_concurrent_create_retries_as_update(
+    mocker: MockerFixture,
+    repository: CounterRepository,
+    decider: CounterDecider,
+    publisher: AsyncMock,
+) -> None:
+    await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
+
+    handler = CreateCounterHandler(repository=repository, decider=decider, publisher=publisher)
+    conflict = ConcurrencyConflictError(
+        stream_id=StreamId.for_aggregate('Counter', 'c-1'), expected_version=-1, actual_version=0
+    )
+    mocker.patch.object(repository, 'save', side_effect=fail_save_n_times(repository.save, conflict))
+
+    result = await handler.handle(CreateCounterCommand(counter_id='c-1', amount=5))
+
+    assert result == CounterResponse(value=15, version=1)
+    publisher.publish.assert_awaited_once()
+
+
 async def test_retry_succeeds_on_second_attempt(
     mocker: MockerFixture,
     repository: CounterRepository,
@@ -254,24 +267,6 @@ async def test_retry_exhausted_raises_concurrency_error(
 
     assert mock_save.call_count == 2
     publisher.publish.assert_not_awaited()
-
-
-async def test_creation_command_not_retried(
-    mocker: MockerFixture,
-    repository: CounterRepository,
-    decider: CounterDecider,
-    publisher: AsyncMock,
-) -> None:
-    handler = CreateCounterHandler(repository=repository, decider=decider, publisher=publisher)
-    conflict = ConcurrencyConflictError(
-        stream_id=StreamId.for_aggregate('Counter', 'c-1'), expected_version=-1, actual_version=0
-    )
-    mock_save = mocker.patch.object(repository, 'save', side_effect=conflict)
-
-    with pytest.raises(ConcurrencyConflictError):
-        await handler.handle(CreateCounterCommand(counter_id='c-1', amount=5))
-
-    assert mock_save.call_count == 1
 
 
 async def test_non_concurrency_error_not_retried(

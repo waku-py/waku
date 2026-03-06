@@ -10,7 +10,7 @@ from waku.eventsourcing._stream_helpers import read_aggregate_stream
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
-from waku.eventsourcing.exceptions import EventSourcingError
+from waku.eventsourcing.exceptions import AggregateNotFoundError
 from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Dishka needs runtime access
 
 if TYPE_CHECKING:
@@ -52,13 +52,13 @@ class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
         stored_events = await read_aggregate_stream(
             self._event_store,
             stream_id,
-            aggregate_name=self.aggregate_name,
-            aggregate_id=aggregate_id,
             max_stream_length=self.max_stream_length,
         )
         if not stored_events:
-            msg = f'Stream contains no events: {stream_id}'
-            raise EventSourcingError(msg)
+            raise AggregateNotFoundError(
+                aggregate_type=self.aggregate_name,
+                aggregate_id=aggregate_id,
+            )
         aggregate = self.create_aggregate()
         domain_events = [e.data for e in stored_events]
         version = stored_events[-1].position

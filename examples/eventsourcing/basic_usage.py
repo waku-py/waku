@@ -68,6 +68,7 @@ class MoneyWithdrawn(INotification):
 class BankAccount(EventSourcedAggregate):
     def __init__(self) -> None:
         super().__init__()
+        self.account_id: str = ''
         self.owner: str = ''
         self.balance: int = 0
 
@@ -89,7 +90,8 @@ class BankAccount(EventSourcedAggregate):
     @override
     def _apply(self, event: INotification) -> None:
         match event:
-            case AccountOpened(owner=owner):
+            case AccountOpened(account_id=account_id, owner=owner):
+                self.account_id = account_id
                 self.owner = owner
             case MoneyDeposited(amount=amount):
                 self.balance += amount
@@ -120,12 +122,12 @@ class OpenAccountCommand(Request[OpenAccountResult]):
 
 class OpenAccountHandler(EventSourcedCommandHandler[OpenAccountCommand, OpenAccountResult, BankAccount]):
     @override
-    def _aggregate_id(self, request: OpenAccountCommand) -> str:
-        return request.account_id
-
-    @override
     def _is_creation_command(self, request: OpenAccountCommand) -> bool:
         return True
+
+    @override
+    def _aggregate_id(self, request: OpenAccountCommand) -> str:
+        return request.account_id
 
     @override
     async def _execute(self, request: OpenAccountCommand, aggregate: BankAccount) -> None:
@@ -133,7 +135,7 @@ class OpenAccountHandler(EventSourcedCommandHandler[OpenAccountCommand, OpenAcco
 
     @override
     def _to_response(self, aggregate: BankAccount) -> OpenAccountResult:
-        return OpenAccountResult(account_id=aggregate.owner)
+        return OpenAccountResult(account_id=aggregate.account_id)
 
 
 @dataclass(frozen=True, kw_only=True)

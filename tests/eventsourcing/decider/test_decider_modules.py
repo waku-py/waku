@@ -31,10 +31,6 @@ class IncrementCounterHandler(DeciderVoidCommandHandler[IncrementCounter, Counte
     def _to_command(self, request: IncrementCounter) -> Increment:
         return Increment(amount=request.amount)
 
-    @override
-    def _is_creation_command(self, request: IncrementCounter) -> bool:
-        return True
-
 
 async def test_bind_decider_integrates_with_di_and_mediator() -> None:
     @module(

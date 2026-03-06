@@ -4,7 +4,7 @@ import pytest
 
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.decider.repository import DeciderRepository
-from waku.eventsourcing.exceptions import AggregateNotFoundError, ConcurrencyConflictError, StreamTooLargeError
+from waku.eventsourcing.exceptions import ConcurrencyConflictError, StreamTooLargeError
 from waku.eventsourcing.store.in_memory import InMemoryEventStore  # noqa: TC001  # needed for fixture type
 
 from tests.eventsourcing.decider.conftest import (  # noqa: TC002  # needed for fixture type
@@ -14,14 +14,13 @@ from tests.eventsourcing.decider.conftest import (  # noqa: TC002  # needed for 
 from tests.eventsourcing.test_decider import CounterState, Increment, Incremented
 
 
-async def test_load_empty_stream_raises_aggregate_not_found_error(
+async def test_load_empty_stream_returns_initial_state_with_version_minus_one(
     repository: CounterRepository,
 ) -> None:
-    with pytest.raises(AggregateNotFoundError) as exc_info:
-        await repository.load('nonexistent')
+    state, version = await repository.load('nonexistent')
 
-    assert exc_info.value.aggregate_id == 'nonexistent'
-    assert 'Counter' in exc_info.value.aggregate_type
+    assert state == CounterState()
+    assert version == -1
 
 
 async def test_save_new_aggregate_persists_events_to_stream(
