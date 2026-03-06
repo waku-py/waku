@@ -160,8 +160,12 @@ class InMemoryEventStore(IEventStore):
             if stream is None:
                 stream = []
                 self._streams[key] = stream
+                is_new_stream = True
+            else:
+                is_new_stream = False
 
             stored_events: list[StoredEvent] = []
+            base_global_position = self._global_position
             for envelope in events:
                 position = len(stream)
                 stored = StoredEvent(
@@ -188,10 +192,34 @@ class InMemoryEventStore(IEventStore):
             for envelope in events:
                 stream_keys.add(envelope.idempotency_key)
 
-            for projection in self._projections:
-                await projection.project(stored_events)
+            try:
+                for projection in self._projections:
+                    await projection.project(stored_events)
+            except Exception:
+                self._rollback_append(key, stream, events, base_global_position, is_new_stream=is_new_stream)
+                raise
 
             return len(stream) - 1
+
+    def _rollback_append(
+        self,
+        key: str,
+        stream: list[StoredEvent],
+        events: Sequence[EventEnvelope],
+        base_global_position: int,
+        *,
+        is_new_stream: bool,
+    ) -> None:
+        del stream[len(stream) - len(events) :]
+        if is_new_stream:
+            del self._streams[key]
+        self._global_position = base_global_position
+        stream_keys = self._idempotency_keys.get(key)
+        if stream_keys is not None:
+            for envelope in events:
+                stream_keys.discard(envelope.idempotency_key)
+            if not stream_keys:
+                del self._idempotency_keys[key]
 
     def _check_idempotency(
         self,
