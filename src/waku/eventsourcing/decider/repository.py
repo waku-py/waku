@@ -6,6 +6,8 @@ import typing
 import uuid
 from typing import ClassVar, Final, Generic, cast
 
+from typing_extensions import TypeAliasType
+
 from waku.eventsourcing._introspection import is_abstract, resolve_generic_args
 from waku.eventsourcing._stream_helpers import read_aggregate_stream
 from waku.eventsourcing.contracts.aggregate import (  # Dishka needs runtime access
@@ -44,19 +46,24 @@ class DeciderRepository(abc.ABC, Generic[StateT, CommandT, EventT]):
             return
         if not getattr(cls, 'aggregate_name', None):
             state_cls = cls._resolve_state_type()
-            if state_cls is not None:
-                name = state_cls.__name__
-                if name.endswith(_STATE_SUFFIX) and len(name) > len(_STATE_SUFFIX):
-                    name = name.removesuffix(_STATE_SUFFIX)
-                cls.aggregate_name = name
-            else:
+            if state_cls is None:
                 msg = f'{cls.__name__} must define aggregate_name or parametrize Generic with a concrete state type'
                 raise TypeError(msg)
+            if not isinstance(state_cls, (type, TypeAliasType)):
+                msg = (
+                    f'{cls.__name__}: cannot infer aggregate_name from state type {state_cls!r}. '
+                    f'Define aggregate_name explicitly when using Union or complex state types.'
+                )
+                raise TypeError(msg)
+            state_name = state_cls.__name__
+            if state_name.endswith(_STATE_SUFFIX) and len(state_name) > len(_STATE_SUFFIX):
+                state_name = state_name.removesuffix(_STATE_SUFFIX)
+            cls.aggregate_name = state_name
 
     @classmethod
-    def _resolve_state_type(cls) -> type[StateT] | None:
+    def _resolve_state_type(cls) -> object | None:
         args = resolve_generic_args(cls, DeciderRepository)
-        return args[0] if args else None  # ty: ignore[invalid-return-type]
+        return args[0] if args else None
 
     def __init__(
         self,

@@ -42,7 +42,7 @@ class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
     @classmethod
     def _resolve_aggregate_type(cls) -> type[AggregateT] | None:
         args = resolve_generic_args(cls, EventSourcedRepository)
-        return args[0] if args else None  # ty: ignore[invalid-return-type]
+        return args[0] if args else None  # type: ignore[return-value]
 
     def __init__(self, event_store: IEventStore) -> None:
         self._event_store = event_store
