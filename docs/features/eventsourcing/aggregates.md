@@ -81,7 +81,7 @@ abstract methods and provides two optional hooks:
 | `_execute(request, aggregate) -> None` | Yes | Execute business logic on the aggregate |
 | `_to_response(aggregate) -> ResponseT` | Yes | Convert the aggregate to a response value |
 | `_is_creation_command(request) -> bool` | No | Return `True` for commands that create new aggregates (default: `False`) |
-| `_idempotency_key(request) -> str \| None` | No | Return a deduplication token (default: `None`) — see [Idempotency](#idempotency) |
+| `_idempotency_key(request) -> str | None` | No | Return a deduplication token (default: `None`) — see [Idempotency](#idempotency) |
 
 `EventSourcedVoidCommandHandler[RequestT, AggregateT]` pre-implements `_to_response()`
 to return `None` — use it for commands that don't return a value.
@@ -152,7 +152,7 @@ overriding three abstract methods and provides one optional hook:
 | `_aggregate_id(request) -> str` | Yes | Extract the aggregate identifier from the request |
 | `_to_command(request) -> CommandT` | Yes | Convert the CQRS request to a domain command |
 | `_to_response(state, version) -> ResponseT` | Yes | Convert the final state and version to a response |
-| `_idempotency_key(request) -> str \| None` | No | Return a deduplication token (default: `None`) |
+| `_idempotency_key(request) -> str | None` | No | Return a deduplication token (default: `None`) |
 
 !!! note
     `_to_response()` receives `(state, version)` — not an aggregate. This differs from the
@@ -395,6 +395,25 @@ Set `max_attempts = 1` for no retries — only the initial attempt runs, and `Co
     a `ConcurrencyConflictError` on creation means the stream already exists, and
     retrying with a blank aggregate would fail again. Decider commands are always
     retried because `load()` returns real state on retry.
+
+??? info "Why not event-level conflict resolution?"
+
+    Some frameworks (notably Marten for .NET) offer event-level conflict resolution: when
+    a concurrency conflict occurs, instead of retrying the whole command, they compare the
+    committed events against your pending events and accept the append if the event types
+    are "compatible."
+
+    waku deliberately uses **full retry** (reload state → re-execute command → save) instead.
+    Event-level resolution is faster (skips reload + re-execute), but it's a correctness risk:
+    your pending events were computed against **stale state**. Even when event types don't
+    conflict, the semantics might.
+
+    Example: two concurrent `DepositMoney` commands on an account with a `max_balance` limit.
+    Each individually is valid, but together they exceed the limit. Event-level resolution
+    would accept both; full retry catches the violation because the second attempt runs
+    `decide()` against the updated balance.
+
+    Full retry is always safe because business logic runs against the real, current state.
 
 ### Aggregate Naming
 
