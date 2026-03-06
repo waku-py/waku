@@ -164,15 +164,6 @@ def test_concurrency_conflict_error_carries_attrs() -> None:
     assert isinstance(error, EventSourcingError)
 
 
-def test_aggregate_not_found_error_carries_attrs() -> None:
-    error = AggregateNotFoundError(aggregate_type='Order', aggregate_id='abc-123')
-    assert error.aggregate_type == 'Order'
-    assert error.aggregate_id == 'abc-123'
-    assert 'Order' in str(error)
-    assert 'abc-123' in str(error)
-    assert isinstance(error, EventSourcingError)
-
-
 def test_projection_error_hierarchy() -> None:
     assert issubclass(ProjectionError, EventSourcingError)
     assert issubclass(ProjectionError, WakuError)
@@ -206,6 +197,15 @@ def test_duplicate_idempotency_key_error_conflict_with_existing() -> None:
     assert 'conflict with existing keys' in str(error)
     assert 'order-1' in str(error)
     assert isinstance(error, EventSourcingError)
+
+
+def test_aggregate_not_found_error_carries_attrs() -> None:
+    err = AggregateNotFoundError(aggregate_type='Order', aggregate_id='abc')
+    assert err.aggregate_type == 'Order'
+    assert err.aggregate_id == 'abc'
+    assert 'Order' in str(err)
+    assert 'abc' in str(err)
+    assert isinstance(err, EventSourcingError)
 
 
 def test_duplicate_aggregate_name_error_carries_attrs() -> None:

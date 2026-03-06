@@ -49,16 +49,11 @@ class DeciderCommandHandler(
     async def handle(self, request: RequestT, /) -> ResponseT:
         aggregate_id: str = self._aggregate_id(request)
         command: CommandT = self._to_command(request)
-        is_creation: bool = self._is_creation_command(request)
         idempotency_key: str | None = self._idempotency_key(request)
         logger.debug('Handling %s for %s', type(request).__name__, aggregate_id)
 
         async def _attempt() -> ResponseT:
-            if is_creation:
-                state = self._decider.initial_state()
-                version = -1
-            else:
-                state, version = await self._repository.load(aggregate_id)
+            state, version = await self._repository.load(aggregate_id)
 
             events = self._decider.decide(command, state)
             for event in events:
@@ -80,7 +75,6 @@ class DeciderCommandHandler(
         return await execute_with_optimistic_retry(
             _attempt,
             max_attempts=self.max_attempts,
-            is_creation=is_creation,
             request_name=type(request).__name__,
             aggregate_id=aggregate_id,
         )
@@ -90,9 +84,6 @@ class DeciderCommandHandler(
 
     @abc.abstractmethod
     def _to_command(self, request: RequestT) -> CommandT: ...
-
-    def _is_creation_command(self, request: RequestT) -> bool:  # noqa: ARG002, PLR6301
-        return False
 
     def _idempotency_key(self, request: RequestT) -> str | None:  # noqa: ARG002, PLR6301
         return None

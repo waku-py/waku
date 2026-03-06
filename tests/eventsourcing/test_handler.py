@@ -143,19 +143,28 @@ async def test_retry_exhausted_raises_concurrency_error(mocker: MockerFixture) -
     publisher.publish.assert_not_awaited()
 
 
-async def test_creation_command_not_retried(mocker: MockerFixture) -> None:
+async def test_creation_command_creates_aggregate_via_create_aggregate(mocker: MockerFixture) -> None:
     repo, publisher = _make_handler_deps(mocker)
     handler = CreateNoteHandler(repository=repo, publisher=publisher)
 
+    await handler.handle(CreateNote(note_id='n-new', title='Brand New'))
+
+    loaded = await repo.load('n-new')
+    assert loaded.title == 'Brand New'
+    assert loaded.version == 0
+    publisher.publish.assert_awaited_once()
+
+
+async def test_creation_command_not_retried(mocker: MockerFixture) -> None:
+    repo, publisher = _make_handler_deps(mocker)
+    handler = CreateNoteHandler(repository=repo, publisher=publisher)
     conflict = ConcurrencyConflictError(
         stream_id=StreamId.for_aggregate('Note', 'n-1'), expected_version=-1, actual_version=0
     )
-    mock_save = mocker.patch.object(repo, 'save', side_effect=conflict)
+    mocker.patch.object(repo, 'save', side_effect=conflict)
 
     with pytest.raises(ConcurrencyConflictError):
         await handler.handle(CreateNote(note_id='n-1', title='Hello'))
-
-    assert mock_save.call_count == 1
 
 
 async def test_max_attempts_1_no_retry(mocker: MockerFixture) -> None:

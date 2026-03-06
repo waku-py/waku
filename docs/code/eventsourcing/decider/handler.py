@@ -38,9 +38,5 @@ class OpenAccountDeciderHandler(
         return OpenAccount(account_id=request.account_id, owner=request.owner)
 
     @override
-    def _is_creation_command(self, request: OpenAccountRequest) -> bool:
-        return True
-
-    @override
     def _to_response(self, state: BankAccountState, version: int) -> OpenAccountResult:
         return OpenAccountResult(owner=state.owner)

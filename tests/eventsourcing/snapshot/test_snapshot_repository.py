@@ -110,7 +110,7 @@ async def test_load_with_snapshot_partial_replay(
     assert loaded.version == 2
 
 
-async def test_load_nonexistent_raises(repository: BankAccountRepository) -> None:
+async def test_load_nonexistent_raises_aggregate_not_found_error(repository: BankAccountRepository) -> None:
     with pytest.raises(AggregateNotFoundError):
         await repository.load('nonexistent')
 

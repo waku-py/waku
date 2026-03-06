@@ -16,7 +16,6 @@ from waku.eventsourcing.contracts.aggregate import (  # Dishka needs runtime acc
 )
 from waku.eventsourcing.contracts.event import EventEnvelope, StoredEvent
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
-from waku.eventsourcing.exceptions import StreamNotFoundError
 from waku.eventsourcing.serialization.interfaces import (
     ISnapshotStateSerializer,  # noqa: TC001  # Dishka needs runtime access
 )
@@ -72,8 +71,6 @@ class DeciderRepository(abc.ABC, Generic[StateT, CommandT, EventT]):
         stored_events = await read_aggregate_stream(
             self._event_store,
             stream_id,
-            aggregate_name=self.aggregate_name,
-            aggregate_id=aggregate_id,
             max_stream_length=self.max_stream_length,
         )
         state = self._decider.initial_state()
@@ -145,10 +142,12 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
         if snapshot is not None:
             logger.debug('Loaded snapshot for %s/%s at version %d', self.aggregate_name, aggregate_id, snapshot.version)
             state = self._state_serializer.deserialize(snapshot.state, self._state_type)
-            try:
-                stored_events = await self._event_store.read_stream(stream_id, start=snapshot.version + 1)
-            except StreamNotFoundError:
-                stored_events = []
+            stored_events = await read_aggregate_stream(
+                self._event_store,
+                stream_id,
+                start=snapshot.version + 1,
+                max_stream_length=self.max_stream_length,
+            )
             for stored in cast('list[StoredEvent[EventT]]', stored_events):
                 state = self._decider.evolve(state, stored.data)
             version = stored_events[-1].position if stored_events else snapshot.version

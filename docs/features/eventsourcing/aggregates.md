@@ -1,20 +1,22 @@
 ---
-title: Aggregates
+title: Aggregates & Deciders
 description: OOP aggregates and functional deciders for event-sourced domain modeling.
 tags:
   - event-sourcing
   - guide
 ---
 
-# Aggregates
+# Aggregates & Deciders
 
 waku supports two approaches to modeling event-sourced aggregates: **OOP aggregates** (mutable, class-based)
-and **functional deciders** (immutable, function-based).
+and **functional deciders** (immutable, function-based). This page walks through both patterns
+end-to-end, then covers creation semantics and shared features like idempotency, concurrency
+control, and stream length guards.
 
 | | OOP Aggregate | Functional Decider |
 |---|---|---|
 | **State** | Mutable object | Immutable value |
-| **Testing** | Assert aggregate properties | [Given/When/Then DSL](testing.md) |
+| **Testing** | [AggregateSpec DSL](testing.md#aggregatespec-dsl) | [DeciderSpec DSL](testing.md#deciderspec-dsl) |
 | **Complexity** | Simpler for basic CRUD | Better for complex decision logic |
 | **Snapshots** | `SnapshotEventSourcedRepository` | `SnapshotDeciderRepository` |
 
@@ -43,9 +45,10 @@ example from aggregate to running application.
 ```
 
 ??? note "Why constructor fields have placeholder defaults"
-    The aggregate is never used in its initial state — `_apply()` sets the real values when
-    replaying the creation event. The defaults (`''`, `0`) exist only to satisfy the type
-    checker and provide a valid initial shape for the object.
+    A new aggregate starts with `version=-1` and these placeholder values. The first command
+    raises events whose `_apply()` sets the real values. The defaults (`''`, `0`) exist only
+    to satisfy the type checker and provide a valid initial shape. See
+    [Handling Creation Commands](#handling-creation-commands) for details.
 
 Key points:
 
@@ -99,7 +102,8 @@ Wire everything together and send commands through the mediator:
 --8<-- "docs/code/eventsourcing/quickstart/main.py"
 ```
 
-See [Event Store](event-store.md) for PostgreSQL setup.
+!!! tip
+    This example uses `InMemoryEventStore`. See [Event Store](event-store.md) for PostgreSQL setup.
 
 ## Functional Deciders
 
@@ -141,14 +145,13 @@ A decider implements three methods from the `IDecider` protocol:
 ```
 
 `DeciderCommandHandler[RequestT, ResponseT, StateT, CommandT, EventT]` requires
-overriding three abstract methods and provides two optional hooks:
+overriding three abstract methods and provides one optional hook:
 
 | Method | Abstract | Description |
 |--------|----------|-------------|
 | `_aggregate_id(request) -> str` | Yes | Extract the aggregate identifier from the request |
 | `_to_command(request) -> CommandT` | Yes | Convert the CQRS request to a domain command |
 | `_to_response(state, version) -> ResponseT` | Yes | Convert the final state and version to a response |
-| `_is_creation_command(request) -> bool` | No | Return `True` for creation commands (default: `False`) |
 | `_idempotency_key(request) -> str \| None` | No | Return a deduplication token (default: `None`) |
 
 !!! note
@@ -166,11 +169,118 @@ Use `bind_decider()` instead of `bind_aggregate()`:
 --8<-- "docs/code/eventsourcing/decider/modules.py"
 ```
 
-The bootstrap and run code is the same as the [OOP example](#run) — swap the module import.
+The bootstrap and run code is the same as the [OOP example](#run) — replace the
+`BankAccountModule` import with `BankAccountDeciderModule`.
+
+## Handling Creation Commands
+
+The two patterns handle creation differently.
+
+### OOP Aggregates
+
+OOP aggregates use explicit creation: override `_is_creation_command()` to return `True`
+for commands that create new aggregates. The handler skips `load()` and creates a blank
+aggregate directly. Loading a non-existent aggregate raises `AggregateNotFoundError` —
+this protects against update commands accidentally hitting missing streams.
+
+```python
+class OpenAccountHandler(EventSourcedCommandHandler[OpenAccountCommand, OpenAccountResult, BankAccount]):
+    def _aggregate_id(self, request: OpenAccountCommand) -> str:
+        return request.account_id
+
+    def _is_creation_command(self, request: OpenAccountCommand) -> bool:
+        return True
+
+    async def _execute(self, request: OpenAccountCommand, aggregate: BankAccount) -> None:
+        aggregate.open(request.account_id, request.owner)
+
+    def _to_response(self, aggregate: BankAccount) -> OpenAccountResult:
+        return OpenAccountResult(account_id=aggregate.account_id)
+```
+
+On save, a new aggregate (version `-1`) uses `NoStream` expected version — the event store
+rejects the append if the stream already exists, preventing duplicate creation. Creation
+commands are not retried on concurrency conflicts.
+
+!!! note
+    Update commands (`_is_creation_command` returns `False`, the default) load the aggregate
+    from the event store. If the stream doesn't exist, `AggregateNotFoundError` is raised
+    immediately.
+
+### Functional Deciders
+
+Deciders use **uniform stream loading** — `load()` returns `initial_state()` for non-existent
+streams instead of raising an error. No `_is_creation_command` is needed; the decider itself
+controls creation logic through state inspection.
+
+For simple aggregates, a flat state with defaults is enough — `initial_state()` returns
+`BankAccountState()` and the first command fills in the real values:
+
+```python
+@dataclass(frozen=True)
+class BankAccountState:
+    owner: str = ''
+    balance: int = 0
+```
+
+But what if creation and update commands need different validation? A flat state can't
+distinguish "not yet created" from "created with empty values." Use a **discriminated union**
+to make the state self-describing:
+
+```python
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class NotCreated:
+    pass
+
+
+@dataclass(frozen=True)
+class Active:
+    owner: str
+    balance: int = 0
+
+
+BankAccountState = NotCreated | Active
+
+
+class BankAccountDecider(IDecider[BankAccountState, BankCommand, BankEvent]):
+    def initial_state(self) -> BankAccountState:
+        return NotCreated()
+
+    def decide(self, command: BankCommand, state: BankAccountState) -> list[BankEvent]:
+        match (command, state):
+            case (OpenAccount(), NotCreated()):
+                return [AccountOpened(account_id=command.account_id, owner=command.owner)]
+            case (OpenAccount(), Active()):
+                raise ValueError('Account already exists')
+            case (DepositMoney(), Active()):
+                return [MoneyDeposited(account_id=command.account_id, amount=command.amount)]
+            case _:
+                raise ValueError('Account not opened')
+
+    def evolve(self, state: BankAccountState, event: BankEvent) -> BankAccountState:
+        match (event, state):
+            case (AccountOpened(owner=owner), NotCreated()):
+                return Active(owner=owner)
+            case (MoneyDeposited(amount=amount), Active()):
+                return Active(owner=state.owner, balance=state.balance + amount)
+            case _:
+                raise TypeError(f'Unexpected {type(event).__name__} in {type(state).__name__}')
+```
+
+!!! tip
+    Start with a flat state for simple aggregates. Migrate to a discriminated union when
+    creation and update commands need different invariants — the type system and pattern
+    matching will enforce valid transitions at compile time.
+
+On save, version `-1` maps to `NoStream` and version `≥ 0` maps to `Exact(version)`.
+If two concurrent creates race, one wins and the other gets a concurrency conflict —
+the retry loop re-loads the now-existing stream and the decider handles it
+(e.g., rejecting with "Account already exists").
 
 ## Shared Features
-
-The following features apply to both OOP aggregates and functional deciders.
 
 ### Idempotency
 
@@ -222,8 +332,8 @@ Repositories can enforce a maximum stream length to prevent unbounded event repl
         max_stream_length = 500
     ```
 
-When a stream exceeds the configured limit, `load()` raises `StreamTooLargeError` with a message
-guiding you to configure [snapshots](snapshots.md).
+When a stream exceeds the configured limit, `load()` raises `StreamTooLargeError`.
+See [snapshots](snapshots.md) for the solution.
 
 !!! tip
     The default is `None` (no limit). Use this as a safety valve for aggregates that
@@ -262,29 +372,29 @@ subclass to change this:
     ```python
     class DepositHandler(EventSourcedCommandHandler[DepositCommand, DepositResult, BankAccount]):
         max_attempts = 5  # 1 initial + 4 retries
-        ...
     ```
 
 === "Functional Decider"
 
     ```python
-    class DepositDeciderHandler(DeciderCommandHandler[...]):
+    class DepositDeciderHandler(
+        DeciderCommandHandler[DepositRequest, DepositResult, BankAccountState, BankCommand, BankEvent],
+    ):
         max_attempts = 5
-        ...
     ```
 
 Set `max_attempts = 1` for no retries — only the initial attempt runs, and `ConcurrencyConflictError` propagates immediately.
-
-!!! note
-    Creation commands (where `_is_creation_command()` returns `True`) are **not retried**.
-    A `NoStream` conflict means another process already created the stream — retrying with
-    a fresh aggregate would produce the same failure. Handle this case in your application
-    logic (e.g., load the existing aggregate and update it).
 
 !!! tip
     The retry loop re-reads state from the event store on each attempt, so it always works
     with the latest version. No backoff is applied — the handler retries immediately with
     fresh state.
+
+!!! note
+    OOP creation commands (`_is_creation_command` returns `True`) are **not retried** —
+    a `ConcurrencyConflictError` on creation means the stream already exists, and
+    retrying with a blank aggregate would fail again. Decider commands are always
+    retried because `load()` returns real state on retry.
 
 ### Aggregate Naming
 
