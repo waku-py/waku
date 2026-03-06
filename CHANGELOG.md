@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v0.35.0 (2026-03-06)
+
+### 📖 Documentation
+
+- **core**: Use service/repository pattern in DI examples
+  ([`a9e7b9d`](https://github.com/waku-py/waku/commit/a9e7b9d7dfad20ef5e603fbbdb4e7f65cb4404a6))
+
+- **es**: Document cross-aggregate projections, live projections, and design decisions
+  ([`604dfd2`](https://github.com/waku-py/waku/commit/604dfd247b89d220d061133cec42df6b6069dbc2))
+
+### ✨ Features
+
+- **es**: Propagate inline projection errors instead of swallowing
+  ([`fb75e6f`](https://github.com/waku-py/waku/commit/fb75e6fd7db59a1f063e6323fa81c9de04fc469d))
+
+- **es**: Split creation models for OOP aggregates and deciders
+  ([`63c235a`](https://github.com/waku-py/waku/commit/63c235a166df8b1cb6a07d0e106f99d63c6f5d51))
+
+
 ## v0.34.1 (2026-03-03)
 
 ### 🪲 Bug Fixes
