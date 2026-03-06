@@ -54,6 +54,13 @@ EventSourcingExtension().bind_aggregate(
     Inline projections add latency to every write because they execute within the same
     operation. Keep them lightweight or use catch-up projections for expensive read model updates.
 
+!!! note "Error handling"
+    Inline projection failures propagate to the caller — if a projection raises, the
+    `append_to_stream` call fails. When using a scoped `AsyncSession`, this means the
+    entire transaction (events + projection) rolls back together, guaranteeing consistency.
+
+    If you need fire-and-forget semantics, use a catch-up projection instead.
+
 ## Catch-Up Projections
 
 Implement `ICatchUpProjection` for projections that run asynchronously in a background process.
@@ -115,6 +122,33 @@ When `event_types` is `None` (the default), all events are delivered.
     Always set `event_types` on projections that only care about a few event types.
     In systems with hundreds of event types, this avoids reading and discarding irrelevant
     events on every polling cycle.
+
+### Cross-Aggregate Projections
+
+Event type filtering works across aggregate boundaries. A single projection can consume
+events from different aggregates to build a combined read model — the event store queries
+the global event stream by type, ignoring stream boundaries, and returns matching events
+in chronological order.
+
+```python
+class DashboardProjection(ICatchUpProjection):
+    projection_name = 'dashboard'
+    event_types = [OrderPlaced, PaymentReceived, ShipmentDispatched]
+
+    async def project(self, events: Sequence[StoredEvent], /) -> None:
+        for event in events:
+            match event.data:
+                case OrderPlaced():
+                    await self._handle_order(event)
+                case PaymentReceived():
+                    await self._handle_payment(event)
+                case ShipmentDispatched():
+                    await self._handle_shipment(event)
+```
+
+All referenced event types must be registered somewhere via `bind_aggregate()` or
+`bind_decider()` — they do not need to belong to the same aggregate. Registration is
+validated at startup; unregistered types raise `EventSourcingConfigError`.
 
 ## Error Policies
 
@@ -373,6 +407,27 @@ Only required when using `PostgresLeaseProjectionLock`.
 | `expires_at` | `TIMESTAMP WITH TIME ZONE` | NOT NULL | When the lease expires if not renewed |
 
 Bind with `bind_lease_tables(metadata)` from `waku.eventsourcing.projection.lock.sqlalchemy`.
+
+## Live Projections
+
+A live projection builds a read model on demand without checkpointing — useful for
+debugging, ad-hoc queries, or one-off analysis. No dedicated API is needed; compose
+existing primitives directly:
+
+```python
+# Single-stream: project all events from one aggregate
+events = await event_reader.read_stream(stream_id)
+await projection.project(events)
+
+# Cross-stream: project specific event types from the global log
+events = await event_reader.read_all(event_types=['OrderPlaced', 'PaymentReceived'])
+await projection.project(events)
+```
+
+!!! warning
+    Live projections read the entire stream or global log into memory. For large event
+    stores, use `count` to limit the number of events or prefer a checkpointed catch-up
+    projection.
 
 ## The Event Store as Outbox
 
