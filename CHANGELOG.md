@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.35.1 (2026-03-07)
+
+### 🪲 Bug Fixes
+
+- **es**: Handle Union and generic alias types in resolve_generic_args
+  ([`9bd9d02`](https://github.com/waku-py/waku/commit/9bd9d0205cc0accee8978a69c230710ab10b4071))
+
+
 ## v0.35.0 (2026-03-06)
 
 ### 📖 Documentation
