@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from waku.eventsourcing.exceptions import ConcurrencyConflictError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from contextlib import AbstractAsyncContextManager
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ async def execute_with_optimistic_retry(
     is_creation: bool = False,
     request_name: str,
     aggregate_id: str,
+    attempt_context: Callable[[], AbstractAsyncContextManager[Any]],
 ) -> _T:
     for attempt in range(1, max_attempts + 1):
         if attempt > 1:
@@ -32,7 +34,8 @@ async def execute_with_optimistic_retry(
             )
 
         try:
-            return await attempt_fn()
+            async with attempt_context():
+                return await attempt_fn()
         except ConcurrencyConflictError:
             if is_creation or attempt == max_attempts:
                 raise

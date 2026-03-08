@@ -4,8 +4,6 @@ from __future__ import annotations
 from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, Self
 
-from dishka.async_container import AsyncContextWrapper
-
 from waku.extensions import (
     AfterApplicationInit,
     ExtensionRegistry,
@@ -81,7 +79,7 @@ class WakuApplication:
         await self._exit_stack.__aenter__()
         for lifespan_wrapper in self._lifespan:
             await self._exit_stack.enter_async_context(lifespan_wrapper.lifespan(self))
-        await self._exit_stack.enter_async_context(AsyncContextWrapper(self._container))
+        await self._exit_stack.enter_async_context(self._container)
         return self
 
     async def __aexit__(

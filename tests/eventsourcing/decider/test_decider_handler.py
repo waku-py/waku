@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager
     from unittest.mock import AsyncMock
 
     from pytest_mock import MockerFixture
+
+    from waku.cqrs.interfaces import IPublisher
+    from waku.eventsourcing.contracts.aggregate import IDecider
+    from waku.eventsourcing.decider.repository import DeciderRepository
 
     from tests.eventsourcing.decider.conftest import CounterRepository
 from typing_extensions import override
@@ -18,7 +23,7 @@ from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.decider.handler import DeciderCommandHandler, DeciderVoidCommandHandler
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, EventSourcingError
 
-from tests.eventsourcing.helpers import fail_save_n_times
+from tests.eventsourcing.helpers import RecordingContext, fail_save_n_times
 from tests.eventsourcing.test_decider import CounterDecider, CounterState, Increment, Incremented
 
 
@@ -311,3 +316,85 @@ def test_max_attempts_zero_raises_value_error() -> None:
 
         class ZeroAttemptHandler(IncrementCounterHandler):
             max_attempts = 0
+
+
+class IncrementWithContextHandler(
+    DeciderVoidCommandHandler[IncrementCounterVoidCommand, CounterState, Increment, Incremented],
+):
+    def __init__(
+        self,
+        repository: DeciderRepository[CounterState, Increment, Incremented],
+        decider: IDecider[CounterState, Increment, Incremented],
+        publisher: IPublisher,
+        context: RecordingContext,
+    ) -> None:
+        super().__init__(repository, decider, publisher)
+        self._context = context
+
+    @override
+    def _aggregate_id(self, request: IncrementCounterVoidCommand) -> str:
+        return request.counter_id
+
+    @override
+    def _to_command(self, request: IncrementCounterVoidCommand) -> Increment:
+        return Increment(amount=request.amount)
+
+    @override
+    def _create_attempt_context(self) -> AbstractAsyncContextManager[Any]:
+        return self._context
+
+
+async def test_attempt_context_entered_per_attempt(
+    repository: CounterRepository,
+    decider: CounterDecider,
+    publisher: AsyncMock,
+) -> None:
+    await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
+    ctx = RecordingContext()
+    handler = IncrementWithContextHandler(repository=repository, decider=decider, publisher=publisher, context=ctx)
+
+    await handler.handle(IncrementCounterVoidCommand(counter_id='c-1', amount=5))
+
+    assert ctx.entered == 1
+    assert ctx.exited == 1
+
+
+async def test_attempt_context_entered_per_retry_attempt(
+    mocker: MockerFixture,
+    repository: CounterRepository,
+    decider: CounterDecider,
+    publisher: AsyncMock,
+) -> None:
+    await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
+
+    contexts: list[RecordingContext] = []
+
+    class RetryIncrementWithContextHandler(
+        DeciderVoidCommandHandler[IncrementCounterVoidCommand, CounterState, Increment, Incremented],
+    ):
+        max_attempts = 3
+
+        @override
+        def _aggregate_id(self, request: IncrementCounterVoidCommand) -> str:
+            return request.counter_id
+
+        @override
+        def _to_command(self, request: IncrementCounterVoidCommand) -> Increment:
+            return Increment(amount=request.amount)
+
+        @override
+        def _create_attempt_context(self) -> AbstractAsyncContextManager[Any]:
+            c = RecordingContext()
+            contexts.append(c)
+            return c
+
+    handler = RetryIncrementWithContextHandler(repository=repository, decider=decider, publisher=publisher)
+    conflict = ConcurrencyConflictError(
+        stream_id=StreamId.for_aggregate('Counter', 'c-1'), expected_version=0, actual_version=1
+    )
+    mocker.patch.object(repository, 'save', side_effect=fail_save_n_times(repository.save, conflict))
+
+    await handler.handle(IncrementCounterVoidCommand(counter_id='c-1', amount=5))
+
+    assert len(contexts) == 2
+    assert all(c.entered == 1 and c.exited == 1 for c in contexts)

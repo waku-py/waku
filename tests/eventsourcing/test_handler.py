@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from typing_extensions import override
@@ -18,9 +18,10 @@ from waku.modules import module
 from waku.testing import create_test_app
 
 from tests.eventsourcing.domain import Note, NoteCreated, NoteEdited, NoteRepository
-from tests.eventsourcing.helpers import fail_save_n_times
+from tests.eventsourcing.helpers import RecordingContext, fail_save_n_times
 
 if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager
     from unittest.mock import AsyncMock
 
     from pytest_mock import MockerFixture
@@ -261,3 +262,73 @@ def test_max_attempts_zero_raises_value_error() -> None:
 
         class ZeroAttemptHandler(EditNoteHandler):
             max_attempts = 0
+
+
+class EditNoteWithContextHandler(EventSourcedVoidCommandHandler[EditNote, Note]):
+    def __init__(
+        self,
+        repository: NoteRepository,
+        publisher: IPublisher,
+        context: RecordingContext,
+    ) -> None:
+        super().__init__(repository, publisher)
+        self._context = context
+
+    @override
+    def _aggregate_id(self, request: EditNote) -> str:
+        return request.note_id
+
+    @override
+    async def _execute(self, request: EditNote, aggregate: Note) -> None:
+        aggregate.edit(request.content)
+
+    @override
+    def _create_attempt_context(self) -> AbstractAsyncContextManager[Any]:
+        return self._context
+
+
+async def test_attempt_context_entered_per_attempt(mocker: MockerFixture) -> None:
+    repo, publisher = _make_handler_deps(mocker)
+    await _create_note(repo, publisher)
+    ctx = RecordingContext()
+
+    handler = EditNoteWithContextHandler(repository=repo, publisher=publisher, context=ctx)
+    await handler.handle(EditNote(note_id='n-1', content='Updated'))
+
+    assert ctx.entered == 1
+    assert ctx.exited == 1
+
+
+async def test_attempt_context_entered_per_retry_attempt(mocker: MockerFixture) -> None:
+    repo, publisher = _make_handler_deps(mocker)
+    await _create_note(repo, publisher)
+
+    contexts: list[RecordingContext] = []
+
+    class RetryEditWithContextHandler(EventSourcedVoidCommandHandler[EditNote, Note]):
+        max_attempts = 3
+
+        @override
+        def _aggregate_id(self, request: EditNote) -> str:
+            return request.note_id
+
+        @override
+        async def _execute(self, request: EditNote, aggregate: Note) -> None:
+            aggregate.edit(request.content)
+
+        @override
+        def _create_attempt_context(self) -> AbstractAsyncContextManager[Any]:
+            c = RecordingContext()
+            contexts.append(c)
+            return c
+
+    handler = RetryEditWithContextHandler(repository=repo, publisher=publisher)
+    conflict = ConcurrencyConflictError(
+        stream_id=StreamId.for_aggregate('Note', 'n-1'), expected_version=0, actual_version=1
+    )
+    mocker.patch.object(repo, 'save', side_effect=fail_save_n_times(repo.save, conflict))
+
+    await handler.handle(EditNote(note_id='n-1', content='Updated'))
+
+    assert len(contexts) == 2
+    assert all(c.entered == 1 and c.exited == 1 for c in contexts)
