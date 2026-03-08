@@ -88,7 +88,7 @@ def override(
 
     _mark_as_overrides(providers)
 
-    original_context = cast('dict[Any, Any]', container._context)  # noqa: SLF001
+    original_context = container._context or {}  # noqa: SLF001
     merged_context = {**original_context, **(context or {})}
     new_container = make_async_container(
         _container_provider(container),
@@ -111,9 +111,10 @@ def override(
 
 def _container_provider(container: AsyncContainer) -> BaseProvider:
     container_provider = BaseProvider(component=DEFAULT_COMPONENT)
-    container_provider.factories.extend(_extract_factories(container.registry))
-    for registry in container.child_registries:
+    registry: Registry | None = container.registry
+    while registry is not None:
         container_provider.factories.extend(_extract_factories(registry))
+        registry = registry.child_registry
     return container_provider
 
 

@@ -82,6 +82,7 @@ abstract methods and provides two optional hooks:
 | `_to_response(aggregate) -> ResponseT` | Yes | Convert the aggregate to a response value |
 | `_is_creation_command(request) -> bool` | No | Return `True` for commands that create new aggregates (default: `False`) |
 | `_idempotency_key(request) -> str | None` | No | Return a deduplication token (default: `None`) — see [Idempotency](#idempotency) |
+| `_create_attempt_context() -> AbstractAsyncContextManager` | No | Return a context manager entered/exited per retry attempt (default: `nullcontext()`) — see [Per-Attempt Context](#per-attempt-context) |
 
 `EventSourcedVoidCommandHandler[RequestT, AggregateT]` pre-implements `_to_response()`
 to return `None` — use it for commands that don't return a value.
@@ -153,6 +154,7 @@ overriding three abstract methods and provides one optional hook:
 | `_to_command(request) -> CommandT` | Yes | Convert the CQRS request to a domain command |
 | `_to_response(state, version) -> ResponseT` | Yes | Convert the final state and version to a response |
 | `_idempotency_key(request) -> str | None` | No | Return a deduplication token (default: `None`) |
+| `_create_attempt_context() -> AbstractAsyncContextManager` | No | Return a context manager entered/exited per retry attempt (default: `nullcontext()`) — see [Per-Attempt Context](#per-attempt-context) |
 
 !!! note
     `_to_response()` receives `(state, version)` — not an aggregate. This differs from the
@@ -398,6 +400,60 @@ Set `max_attempts = 1` for no retries — only the initial attempt runs, and `Co
     a `ConcurrencyConflictError` on creation means the stream already exists, and
     retrying with a blank aggregate would fail again. Decider commands are always
     retried because `load()` returns real state on retry.
+
+#### Per-Attempt Context
+
+Override `_create_attempt_context()` to wrap each retry attempt in an async context manager.
+The handler calls the factory once per attempt — on conflict, the current context exits
+(receiving the exception), and a fresh one is created for the next attempt.
+
+This is useful for scoping a Unit of Work, database session, or transaction to each attempt
+so that a failed attempt's side effects are rolled back before retrying:
+
+=== "OOP Aggregate"
+
+    ```python
+    class DepositHandler(EventSourcedVoidCommandHandler[DepositCommand, BankAccount]):
+        def __init__(
+            self,
+            repository: BankAccountRepository,
+            publisher: IPublisher,
+            uow: UnitOfWork,
+        ) -> None:
+            super().__init__(repository, publisher)
+            self._uow = uow
+
+        def _create_attempt_context(self) -> AbstractAsyncContextManager[Any]:
+            return self._uow
+
+        # ... other overrides ...
+    ```
+
+=== "Functional Decider"
+
+    ```python
+    class DepositDeciderHandler(
+        DeciderVoidCommandHandler[DepositRequest, BankAccountState, BankCommand, BankEvent],
+    ):
+        def __init__(
+            self,
+            repository: BankAccountDeciderRepository,
+            decider: BankAccountDecider,
+            publisher: IPublisher,
+            uow: UnitOfWork,
+        ) -> None:
+            super().__init__(repository, decider, publisher)
+            self._uow = uow
+
+        def _create_attempt_context(self) -> AbstractAsyncContextManager[Any]:
+            return self._uow
+
+        # ... other overrides ...
+    ```
+
+The UoW begins a transaction on entry, commits on success, and rolls back on exception —
+so each retry attempt starts with a clean slate. The default implementation returns
+`nullcontext()`, which adds no wrapping behavior.
 
 ??? info "Why not event-level conflict resolution?"
 

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import abc
 import logging
-from typing import ClassVar, Generic
+from contextlib import nullcontext
+from typing import TYPE_CHECKING, Any, ClassVar, Generic
 
 from typing_extensions import TypeVar, override
 
@@ -13,6 +14,9 @@ from waku.cqrs.requests.handler import RequestHandler
 from waku.eventsourcing._retry import execute_with_optimistic_retry
 from waku.eventsourcing.contracts.aggregate import IDecider  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.decider.repository import DeciderRepository  # noqa: TC001  # Dishka needs runtime access
+
+if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager
 
 __all__ = ['DeciderCommandHandler', 'DeciderVoidCommandHandler']
 
@@ -77,6 +81,7 @@ class DeciderCommandHandler(
             max_attempts=self.max_attempts,
             request_name=type(request).__name__,
             aggregate_id=aggregate_id,
+            attempt_context=self._create_attempt_context,
         )
 
     @abc.abstractmethod
@@ -87,6 +92,13 @@ class DeciderCommandHandler(
 
     def _idempotency_key(self, request: RequestT) -> str | None:  # noqa: ARG002, PLR6301
         return None
+
+    def _create_attempt_context(self) -> AbstractAsyncContextManager[Any]:  # noqa: PLR6301
+        """Return a new context manager for a single retry attempt.
+
+        Called once per attempt — must return a fresh instance each time.
+        """
+        return nullcontext()
 
     @abc.abstractmethod
     def _to_response(self, state: StateT, version: int) -> ResponseT: ...
