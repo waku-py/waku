@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.36.0 (2026-03-09)
+
+### ✨ Features
+
+- **es**: Add attempt context template method to handlers
+  ([`4924485`](https://github.com/waku-py/waku/commit/4924485fa5cd31a5eb92b2eb845e309f9fa3ccfd))
+
+
 ## v0.35.1 (2026-03-07)
 
 ### 🪲 Bug Fixes
