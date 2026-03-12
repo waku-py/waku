@@ -10,10 +10,10 @@ from waku.eventsourcing.contracts.aggregate import CommandT, EventSourcedAggrega
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from waku.cqrs.contracts.notification import INotification
     from waku.eventsourcing.projection.interfaces import ICheckpointStore
     from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
     from waku.eventsourcing.store.interfaces import IEventReader
+    from waku.messaging.contracts.event import IEvent
 
 __all__ = ['AggregateSpec', 'DeciderSpec', 'wait_for_all_projections', 'wait_for_projection']
 
@@ -96,13 +96,13 @@ class AggregateSpec(Generic[AggregateT]):
 
     def __init__(self, aggregate_type: type[AggregateT]) -> None:
         self._aggregate_type = aggregate_type
-        self._events: list[INotification] = []
+        self._events: list[IEvent] = []
 
     @classmethod
     def for_(cls, aggregate_type: type[AggregateT]) -> AggregateSpec[AggregateT]:
         return cls(aggregate_type)
 
-    def given(self, events: Sequence[INotification]) -> AggregateSpec[AggregateT]:
+    def given(self, events: Sequence[IEvent]) -> AggregateSpec[AggregateT]:
         self._events = list(events)
         return self
 
@@ -126,7 +126,7 @@ class _AggregateWhenResult(Generic[AggregateT]):
         self._aggregate = aggregate
         self._action = action
 
-    def then(self, expected_events: Sequence[INotification]) -> None:
+    def then(self, expected_events: Sequence[IEvent]) -> None:
         self._action(self._aggregate)
         actual = list(self._aggregate.collect_events())
         expected = list(expected_events)

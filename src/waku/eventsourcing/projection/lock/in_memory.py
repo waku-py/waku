@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from waku.eventsourcing.projection.lock.interfaces import IProjectionLock
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
 
 __all__ = ['InMemoryProjectionLock']
 
@@ -18,7 +18,7 @@ class InMemoryProjectionLock(IProjectionLock):
         self._held: set[str] = set()
 
     @contextlib.asynccontextmanager
-    async def acquire(self, projection_name: str) -> AsyncIterator[bool]:
+    async def acquire(self, projection_name: str) -> AsyncGenerator[bool]:
         if projection_name in self._held:
             yield False
             return

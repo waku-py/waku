@@ -4,7 +4,7 @@ from typing import Any, cast
 from adaptix import dumper, loader
 from typing_extensions import override
 
-from waku.cqrs import INotification
+from waku.messaging import IEvent
 from waku.eventsourcing.serialization import EventTypeRegistry, IEventSerializer, default_retort
 
 
@@ -19,10 +19,10 @@ class UnixTimestampEventSerializer(IEventSerializer):
         )
 
     @override
-    def serialize(self, event: INotification, /) -> dict[str, Any]:
+    def serialize(self, event: IEvent, /) -> dict[str, Any]:
         return cast('dict[str, Any]', self._retort.dump(event, type(event)))
 
     @override
-    def deserialize(self, data: dict[str, Any], event_type: str, /) -> INotification:
+    def deserialize(self, data: dict[str, Any], event_type: str, /) -> IEvent:
         cls = self._registry.resolve(event_type)
         return self._retort.load(data, cls)

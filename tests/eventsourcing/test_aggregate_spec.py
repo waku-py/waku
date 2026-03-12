@@ -4,18 +4,18 @@ from dataclasses import dataclass
 
 import pytest
 
-from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.testing import AggregateSpec
+from waku.messaging.contracts.event import IEvent
 
 
 @dataclass(frozen=True)
-class Incremented(INotification):
+class Incremented(IEvent):
     amount: int
 
 
 @dataclass(frozen=True)
-class Decremented(INotification):
+class Decremented(IEvent):
     amount: int
 
 
@@ -39,7 +39,7 @@ class CounterAggregate(EventSourcedAggregate):
     def noop(self) -> None:
         pass
 
-    def _apply(self, event: INotification) -> None:
+    def _apply(self, event: IEvent) -> None:
         match event:
             case Incremented(amount=a):
                 self.value += a

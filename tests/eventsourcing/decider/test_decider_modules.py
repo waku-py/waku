@@ -4,11 +4,11 @@ from dataclasses import dataclass
 
 from typing_extensions import override
 
-from waku.cqrs import MediatorExtension, MediatorModule, Request
-from waku.cqrs.interfaces import IMediator
 from waku.eventsourcing.decider.handler import DeciderVoidCommandHandler
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
+from waku.messaging import IRequest, MessagingExtension, MessagingModule
+from waku.messaging.interfaces import IMessageBus
 from waku.modules import module
 from waku.testing import create_test_app
 
@@ -17,7 +17,7 @@ from tests.eventsourcing.test_decider import CounterDecider, CounterState, Incre
 
 
 @dataclass(frozen=True, kw_only=True)
-class IncrementCounter(Request[None]):
+class IncrementCounter(IRequest):
     counter_id: str
     amount: int
 
@@ -32,11 +32,11 @@ class IncrementCounterHandler(DeciderVoidCommandHandler[IncrementCounter, Counte
         return Increment(amount=request.amount)
 
 
-async def test_bind_decider_integrates_with_di_and_mediator() -> None:
+async def test_bind_decider_integrates_with_di_and_message_bus() -> None:
     @module(
         imports=[
             EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore)),
-            MediatorModule.register(),
+            MessagingModule.register(),
         ],
         extensions=[
             EventSourcingExtension().bind_decider(
@@ -44,15 +44,15 @@ async def test_bind_decider_integrates_with_di_and_mediator() -> None:
                 decider=CounterDecider,
                 event_types=[Incremented],
             ),
-            MediatorExtension().bind_request(IncrementCounter, IncrementCounterHandler),
+            MessagingExtension().bind_request(IncrementCounter, IncrementCounterHandler),
         ],
     )
     class CounterModule:
         pass
 
     async with create_test_app(imports=[CounterModule]) as app, app.container() as container:
-        mediator = await container.get(IMediator)
-        await mediator.send(IncrementCounter(counter_id='c-1', amount=5))
+        bus = await container.get(IMessageBus)
+        await bus.invoke(IncrementCounter(counter_id='c-1', amount=5))
 
         repo = await container.get(CounterRepository)
         state, version = await repo.load('c-1')

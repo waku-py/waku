@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from typing_extensions import override
 
-from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate, IDecider
 from waku.eventsourcing.contracts.event import EventMetadata, IMetadataEnricher
 from waku.eventsourcing.decider.repository import DeciderRepository
@@ -42,6 +41,7 @@ from waku.eventsourcing.snapshot.strategy import EventCountStrategy
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.eventsourcing.upcasting import UpcasterChain, add_field, rename_field
+from waku.messaging.contracts.event import IEvent
 from waku.modules import module
 from waku.testing import create_test_app
 
@@ -50,12 +50,12 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class ItemCreated(INotification):
+class ItemCreated(IEvent):
     name: str
 
 
 @dataclass(frozen=True)
-class ItemRenamed(INotification):
+class ItemRenamed(IEvent):
     new_name: str
 
 
@@ -67,7 +67,7 @@ class Item(EventSourcedAggregate):
     def create(self, name: str) -> None:  # pragma: no cover
         self._raise_event(ItemCreated(name=name))
 
-    def _apply(self, event: INotification) -> None:  # pragma: no cover
+    def _apply(self, event: IEvent) -> None:  # pragma: no cover
         match event:
             case ItemCreated(name=name):
                 self.name = name
@@ -318,7 +318,7 @@ class ItemLog(EventSourcedAggregate):
         super().__init__()
         self.entries: list[str] = []
 
-    def _apply(self, event: INotification) -> None:  # pragma: no cover
+    def _apply(self, event: IEvent) -> None:  # pragma: no cover
         match event:
             case ItemCreated(name=name):
                 self.entries.append(name)
@@ -810,17 +810,17 @@ class CreateItem:
     name: str
 
 
-class ItemDecider(IDecider[ItemState, CreateItem, INotification]):
+class ItemDecider(IDecider[ItemState, CreateItem, IEvent]):
     @override
     def initial_state(self) -> ItemState:  # pragma: no cover
         return ItemState()
 
     @override
-    def decide(self, command: CreateItem, state: ItemState) -> Sequence[INotification]:  # pragma: no cover
+    def decide(self, command: CreateItem, state: ItemState) -> Sequence[IEvent]:  # pragma: no cover
         return [ItemCreated(name=command.name)]
 
     @override
-    def evolve(self, state: ItemState, event: INotification) -> ItemState:  # pragma: no cover
+    def evolve(self, state: ItemState, event: IEvent) -> ItemState:  # pragma: no cover
         match event:
             case ItemCreated(name=name):
                 return ItemState(name=name)
@@ -828,7 +828,7 @@ class ItemDecider(IDecider[ItemState, CreateItem, INotification]):
                 return state
 
 
-class ItemDeciderRepository(DeciderRepository[ItemState, CreateItem, INotification]):
+class ItemDeciderRepository(DeciderRepository[ItemState, CreateItem, IEvent]):
     pass
 
 
@@ -850,7 +850,7 @@ async def test_decider_binding_registers_repository_and_decider() -> None:
         repo = await container.get(ItemDeciderRepository)
         assert isinstance(repo, ItemDeciderRepository)
 
-        decider = await container.get(IDecider[ItemState, CreateItem, INotification])
+        decider = await container.get(IDecider[ItemState, CreateItem, IEvent])
         assert isinstance(decider, ItemDecider)
 
 
@@ -875,7 +875,7 @@ async def test_decider_binding_with_snapshot_registers_snapshot_config() -> None
         assert isinstance(config.strategy, EventCountStrategy)
 
 
-class DuplicateItemDeciderRepository(DeciderRepository[ItemState, CreateItem, INotification]):
+class DuplicateItemDeciderRepository(DeciderRepository[ItemState, CreateItem, IEvent]):
     aggregate_name = 'Item'
 
 

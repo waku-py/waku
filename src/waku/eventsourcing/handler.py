@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING, Any, ClassVar, Generic
 
 from typing_extensions import TypeVar, override
 
-from waku.cqrs.contracts.request import RequestT, ResponseT
-from waku.cqrs.interfaces import IPublisher  # noqa: TC001  # Dishka needs runtime access
-from waku.cqrs.requests.handler import RequestHandler
 from waku.eventsourcing._retry import execute_with_optimistic_retry
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.repository import EventSourcedRepository  # noqa: TC001  # Dishka needs runtime access
+from waku.messaging.contracts.request import RequestT, ResponseT
+from waku.messaging.interfaces import IPublisher  # noqa: TC001  # Dishka needs runtime access
+from waku.messaging.requests.handler import RequestHandler
 
 if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager

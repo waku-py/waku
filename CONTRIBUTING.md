@@ -78,40 +78,40 @@ Scope is optional but encouraged for non-trivial changes.
 
 ### Types
 
-| Type | Purpose |
-|------|---------|
-| `feat` | New feature (minor version bump) |
-| `fix` | Bug fix (patch version bump) |
-| `perf` | Performance improvement (patch version bump) |
-| `docs` | Documentation only |
-| `test` | Adding or updating tests |
+| Type       | Purpose                                                 |
+|------------|---------------------------------------------------------|
+| `feat`     | New feature (minor version bump)                        |
+| `fix`      | Bug fix (patch version bump)                            |
+| `perf`     | Performance improvement (patch version bump)            |
+| `docs`     | Documentation only                                      |
+| `test`     | Adding or updating tests                                |
 | `refactor` | Code change that neither fixes a bug nor adds a feature |
-| `style` | Formatting, whitespace |
-| `build` | Build system or dependency changes |
-| `ci` | CI configuration |
-| `chore` | Maintenance tasks |
+| `style`    | Formatting, whitespace                                  |
+| `build`    | Build system or dependency changes                      |
+| `ci`       | CI configuration                                        |
+| `chore`    | Maintenance tasks                                       |
 
 ### Scopes
 
-| Scope | Area |
-|-------|------|
-| `core` | Core framework (`WakuApplication`, `WakuFactory`, modules) |
-| `cqrs` | CQRS/Mediator system |
-| `di` | Dependency injection helpers |
-| `es` | Event sourcing |
-| `ext` | Extension system |
-| `validation` | Module validation |
-| `deps` | Dependency updates |
-| `docs` | Documentation tooling |
-| `infra` | Infrastructure, deployment |
-| `linters` | Linter configuration |
-| `release` | Release process |
-| `tests` | Test infrastructure |
+| Scope        | Area                                                       |
+|--------------|------------------------------------------------------------|
+| `core`       | Core framework (`WakuApplication`, `WakuFactory`, modules) |
+| `messaging`  | Messaging system                                           |
+| `di`         | Dependency injection helpers                               |
+| `es`         | Event sourcing                                             |
+| `ext`        | Extension system                                           |
+| `validation` | Module validation                                          |
+| `deps`       | Dependency updates                                         |
+| `docs`       | Documentation tooling                                      |
+| `infra`      | Infrastructure, deployment                                 |
+| `linters`    | Linter configuration                                       |
+| `release`    | Release process                                            |
+| `tests`      | Test infrastructure                                        |
 
 ### Examples
 
 ```
-feat(cqrs): add retry behavior for pipeline
+feat(messaging): add retry behavior for pipeline
 fix(core): resolve module init order for circular imports
 docs: add event sourcing guide
 test(ext): cover lifecycle hook edge cases
@@ -154,7 +154,7 @@ task test           # run tests
 task test:cov       # run tests with coverage
 ```
 
-Coverage minimum: **96%**. Test files mirror the source structure under `tests/`.
+Coverage minimum: **98%**. Test files mirror the source structure under `tests/`.
 
 ## CI Pipeline
 
@@ -165,7 +165,7 @@ Every pull request against `master` triggers:
 3. **Type checking** — mypy, ty, pyrefly
 4. **Spell checking** — typos
 5. **Tests** — pytest across Python 3.11, 3.12, 3.13, and 3.14
-6. **Coverage** — 96% threshold
+6. **Coverage** — 98% threshold
 
 ## Pull Requests
 

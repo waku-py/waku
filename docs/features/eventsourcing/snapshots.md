@@ -90,7 +90,7 @@ to pin the stored name:
 === "Functional Decider"
 
     ```python
-    class BankAccountSnapshotRepository(SnapshotDeciderRepository[BankAccountState, BankCommand, INotification]):
+    class BankAccountSnapshotRepository(SnapshotDeciderRepository[BankAccountState, BankCommand, IEvent]):
         snapshot_state_type = 'BankAccountState'  # pinned — survives class renames
         ...
     ```

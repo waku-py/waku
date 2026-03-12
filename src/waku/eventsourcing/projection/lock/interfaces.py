@@ -5,7 +5,7 @@ import contextlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
 
 __all__ = ['IProjectionLock']
 
@@ -15,6 +15,6 @@ class IProjectionLock(abc.ABC):
 
     @abc.abstractmethod
     @contextlib.asynccontextmanager
-    async def acquire(self, projection_name: str) -> AsyncIterator[bool]:
+    async def acquire(self, projection_name: str) -> AsyncGenerator[bool]:
         """Yields True if the lock was acquired, False if held by another instance."""
         yield False  # pragma: no cover

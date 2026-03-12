@@ -1,7 +1,7 @@
 import asyncio
 
 from waku import WakuFactory
-from waku.cqrs import IMediator
+from waku.messaging import IMessageBus
 
 from app.commands import DepositCommand, OpenAccountCommand
 from app.modules import AppModule
@@ -11,10 +11,10 @@ async def main() -> None:
     app = WakuFactory(AppModule).create()
 
     async with app, app.container() as container:
-        mediator = await container.get(IMediator)
+        bus = await container.get(IMessageBus)
 
-        await mediator.send(OpenAccountCommand(account_id='acc-1', owner='dex'))
-        result = await mediator.send(DepositCommand(account_id='acc-1', amount=500))
+        await bus.invoke(OpenAccountCommand(account_id='acc-1', owner='dex'))
+        result = await bus.invoke(DepositCommand(account_id='acc-1', amount=500))
         print(f'Balance: {result.balance}')
 
 

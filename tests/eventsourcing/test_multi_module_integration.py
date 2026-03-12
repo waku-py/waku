@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule, EventType
 from waku.eventsourcing.projection.interfaces import IProjection
@@ -11,6 +10,7 @@ from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.upcasting import UpcasterChain, rename_field
+from waku.messaging.contracts.event import IEvent
 from waku.modules import module
 from waku.testing import create_test_app
 
@@ -21,14 +21,14 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class OrderPlaced(INotification):
+class OrderPlaced(IEvent):
     order_id: str
     customer_id: str
     total: int
 
 
 @dataclass(frozen=True)
-class OrderCancelled(INotification):
+class OrderCancelled(IEvent):
     order_id: str
     reason: str
 
@@ -53,7 +53,7 @@ class Order(EventSourcedAggregate):
     def cancel(self, reason: str) -> None:
         self._raise_event(OrderCancelled(order_id=self.order_id, reason=reason))
 
-    def _apply(self, event: INotification) -> None:
+    def _apply(self, event: IEvent) -> None:
         match event:
             case OrderPlaced(order_id=oid, customer_id=cid, total=t):
                 self.order_id = oid
@@ -99,7 +99,7 @@ class AnalyticsLog(EventSourcedAggregate):
         super().__init__()
         self.event_count: int = 0
 
-    def _apply(self, event: INotification) -> None:  # noqa: ARG002
+    def _apply(self, event: IEvent) -> None:  # noqa: ARG002
         self.event_count += 1
 
 

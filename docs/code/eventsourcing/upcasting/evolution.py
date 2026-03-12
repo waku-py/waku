@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 
-from waku.cqrs import INotification
+from waku.messaging import IEvent
 from waku.eventsourcing import EventType, add_field, rename_field
 
 
 @dataclass(frozen=True, kw_only=True)
-class AccountOpened(INotification):
+class AccountOpened(IEvent):
     account_id: str
     owner_name: str
     currency: str

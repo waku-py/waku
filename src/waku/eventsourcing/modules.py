@@ -35,11 +35,11 @@ from waku.modules import DynamicModule, ModuleMetadataRegistry, module
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping, Sequence
 
-    from waku.cqrs.contracts.notification import INotification
     from waku.eventsourcing.repository import EventSourcedRepository
     from waku.eventsourcing.snapshot.interfaces import ISnapshotStrategy
     from waku.eventsourcing.snapshot.migration import ISnapshotMigration
     from waku.eventsourcing.upcasting.interfaces import IEventUpcaster
+    from waku.messaging.contracts.event import IEvent
     from waku.modules import ModuleMetadata, ModuleType
 
 
@@ -55,14 +55,14 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class EventType:
-    event_type: type[INotification]
+    event_type: type[IEvent]
     name: str | None = field(default=None, kw_only=True)
     aliases: Sequence[str] = field(default=(), kw_only=True)
     version: int = field(default=1, kw_only=True)
     upcasters: Sequence[IEventUpcaster] = field(default=(), kw_only=True)
 
 
-EventTypeSpec: TypeAlias = 'type[INotification] | EventType'
+EventTypeSpec: TypeAlias = 'type[IEvent] | EventType'
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

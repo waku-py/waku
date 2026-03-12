@@ -243,7 +243,7 @@ through **idempotency keys** — client-provided deduplication tokens attached t
 ```python
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EventEnvelope:
-    domain_event: INotification
+    domain_event: IEvent
     idempotency_key: str
     metadata: EventMetadata = field(default_factory=EventMetadata)
 ```
@@ -355,7 +355,7 @@ at runtime. The store calls each enricher's `enrich()` method in order before wr
 | `position` | `int` | Position within the stream (0-based) |
 | `global_position` | `int` | Monotonically increasing position across all streams |
 | `timestamp` | `datetime` | When the event was persisted |
-| `data` | `INotification` | The deserialized domain event |
+| `data` | `IEvent` | The deserialized domain event |
 | `metadata` | `EventMetadata` | Correlation, causation, and extra metadata |
 | `idempotency_key` | `str` | Client-provided deduplication token (unique per stream) |
 | `schema_version` | `int` | Schema version (defaults to `1`) |

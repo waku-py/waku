@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from waku.eventsourcing.contracts.event import EventEnvelope
 
 if TYPE_CHECKING:
-    from waku.cqrs import INotification
+    from waku.messaging import IEvent
 
 
 @dataclass(frozen=True)
@@ -25,5 +25,5 @@ class OrderShipped:
     tracking_number: str
 
 
-def make_envelope(event: INotification) -> EventEnvelope:
+def make_envelope(event: IEvent) -> EventEnvelope:
     return EventEnvelope(domain_event=event, idempotency_key=str(uuid.uuid4()))

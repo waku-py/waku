@@ -28,7 +28,7 @@ class ConventionalCommitTitle(LineRule):  # type: ignore[misc]
 
     contexts: ClassVar[tuple[str, ...]] = (
         'core',
-        'cqrs',
+        'messaging',
         'deps',
         'di',
         'docs',

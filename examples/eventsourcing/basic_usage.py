@@ -1,12 +1,12 @@
 """Event Sourcing with In-Memory Store — current API as of 2026-02-09.
 
 Shows the full registration and usage flow:
-1. Define domain events (frozen dataclasses implementing INotification)
+1. Define domain events (frozen dataclasses implementing IEvent)
 2. Define an aggregate (EventSourcedAggregate subclass)
 3. Define a repository (EventSourcedRepository subclass)
 4. Define a command + handler (EventSourcedCommandHandler)
 5. Wire modules: EventSourcingModule + EventSourcingExtension
-6. Run a command through the mediator
+6. Run a command through the message bus
 """
 
 from __future__ import annotations
@@ -18,15 +18,6 @@ from dataclasses import dataclass
 from typing_extensions import override
 
 from waku import WakuFactory, module
-from waku.cqrs import (
-    EventHandler,
-    IMediator,
-    INotification,
-    MediatorExtension,
-    MediatorModule,
-    Request,
-    Response,
-)
 from waku.eventsourcing import (
     EventSourcedAggregate,
     EventSourcedCommandHandler,
@@ -36,6 +27,14 @@ from waku.eventsourcing import (
     EventSourcingModule,
 )
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
+from waku.messaging import (
+    EventHandler,
+    IEvent,
+    IMessageBus,
+    IRequest,
+    MessagingExtension,
+    MessagingModule,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -45,19 +44,19 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, kw_only=True)
-class AccountOpened(INotification):
+class AccountOpened(IEvent):
     account_id: str
     owner: str
 
 
 @dataclass(frozen=True, kw_only=True)
-class MoneyDeposited(INotification):
+class MoneyDeposited(IEvent):
     account_id: str
     amount: int
 
 
 @dataclass(frozen=True, kw_only=True)
-class MoneyWithdrawn(INotification):
+class MoneyWithdrawn(IEvent):
     account_id: str
     amount: int
 
@@ -88,7 +87,7 @@ class BankAccount(EventSourcedAggregate):
         self._raise_event(MoneyWithdrawn(account_id=account_id, amount=amount))
 
     @override
-    def _apply(self, event: INotification) -> None:
+    def _apply(self, event: IEvent) -> None:
         match event:
             case AccountOpened(account_id=account_id, owner=owner):
                 self.account_id = account_id
@@ -110,12 +109,12 @@ class BankAccountRepository(EventSourcedRepository[BankAccount]):
 
 
 @dataclass(frozen=True, kw_only=True)
-class OpenAccountResult(Response):
+class OpenAccountResult:
     account_id: str
 
 
 @dataclass(frozen=True, kw_only=True)
-class OpenAccountCommand(Request[OpenAccountResult]):
+class OpenAccountCommand(IRequest[OpenAccountResult]):
     account_id: str
     owner: str
 
@@ -139,12 +138,12 @@ class OpenAccountHandler(EventSourcedCommandHandler[OpenAccountCommand, OpenAcco
 
 
 @dataclass(frozen=True, kw_only=True)
-class DepositResult(Response):
+class DepositResult:
     balance: int
 
 
 @dataclass(frozen=True, kw_only=True)
-class DepositCommand(Request[DepositResult]):
+class DepositCommand(IRequest[DepositResult]):
     account_id: str
     amount: int
 
@@ -187,7 +186,7 @@ class MoneyDepositedHandler(EventHandler[MoneyDeposited]):
             repository=BankAccountRepository,
             event_types=[AccountOpened, MoneyDeposited, MoneyWithdrawn],
         ),
-        MediatorExtension()
+        MessagingExtension()
         .bind_request(OpenAccountCommand, OpenAccountHandler)
         .bind_request(DepositCommand, DepositHandler)
         .bind_event(AccountOpened, [AccountOpenedHandler])
@@ -202,7 +201,7 @@ class BankModule:
     imports=[
         BankModule,
         EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore)),
-        MediatorModule.register(),
+        MessagingModule.register(),
     ],
 )
 class AppModule:
@@ -216,18 +215,18 @@ async def main() -> None:
     app = WakuFactory(AppModule).create()
 
     async with app, app.container() as container:
-        mediator = await container.get(IMediator)
+        bus = await container.get(IMessageBus)
 
         # Open account
-        result = await mediator.send(OpenAccountCommand(account_id='acc-1', owner='dex'))
+        result = await bus.invoke(OpenAccountCommand(account_id='acc-1', owner='dex'))
         logger.info('Account opened: %s', result)
 
         # Deposit money
-        result2 = await mediator.send(DepositCommand(account_id='acc-1', amount=500))
+        result2 = await bus.invoke(DepositCommand(account_id='acc-1', amount=500))
         logger.info('Balance after deposit: %d', result2.balance)  # ty: ignore[unresolved-attribute]
 
         # Deposit more
-        result3 = await mediator.send(DepositCommand(account_id='acc-1', amount=300))
+        result3 = await bus.invoke(DepositCommand(account_id='acc-1', amount=300))
         logger.info('Balance after second deposit: %d', result3.balance)  # ty: ignore[unresolved-attribute]
 
 

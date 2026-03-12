@@ -34,11 +34,11 @@ nav = [
   ] },
   { "Features" = [
     { "Validation" = "features/validation.md" },
-    { "Mediator (CQRS)" = [
-      "features/cqrs/index.md",
-      { "Requests" = "features/cqrs/requests.md" },
-      { "Events" = "features/cqrs/events.md" },
-      { "Pipeline Behaviors" = "features/cqrs/pipeline.md" },
+    { "Messaging" = [
+      "features/messaging/index.md",
+      { "Requests" = "features/messaging/requests.md" },
+      { "Events" = "features/messaging/events.md" },
+      { "Pipeline Behaviors" = "features/messaging/pipeline.md" },
     ] },
     { "Event Sourcing" = [
       "features/eventsourcing/index.md",

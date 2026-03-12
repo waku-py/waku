@@ -8,7 +8,7 @@ version = "0.36.0"
 description = "Python framework for backends that grow"
 readme = "README.md"
 license = "MIT"
-keywords = ["architecture", "modular", "decoupled", "framework", "dishka", "ioc", "di", "cqrs", "eventstore", "eventsourcing"]
+keywords = ["architecture", "modular", "decoupled", "framework", "dishka", "ioc", "di", "messaging", "eventstore", "eventsourcing"]
 authors = [
   { name = "Daniil Kharkov", email = "fadeddexofan@gmail.com" },
   { name = "Doctor", email = "thirvondukr@gmail.com" },
@@ -52,7 +52,7 @@ dev = [
 docs = [
   "mkdocstrings[python]>=1.0.3",
   "pymdown-extensions>=10.21",
-  "zensical>=0.0.24",
+  "zensical==0.0.24",
 ]
 lint = [
   "deptry==0.24.0",
@@ -95,7 +95,7 @@ addopts = [
   "--doctest-modules",
   "--strict-markers",
   "--strict-config",
-  "--cov-fail-under=96",
+  "--cov-fail-under=98",
 ]
 # pytest-timeout settings
 timeout = 15

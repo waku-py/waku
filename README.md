@@ -72,9 +72,9 @@ Python has no built-in way to enforce component boundaries. Packages don't contr
 
 ### Capabilities
 
-- 📨 [**CQRS & mediator**](https://docs.wakupy.dev/features/cqrs/):
+- 📨 [**Messaging**](https://docs.wakupy.dev/features/messaging/):
   DI alone doesn't decouple components — you need events.
-  The mediator dispatches commands, queries, and events so components
+  The message bus dispatches commands, queries, and events so components
   never reference each other directly. Pipeline behaviors handle cross-cutting concerns.
 - 📜 [**Event sourcing**](https://docs.wakupy.dev/features/eventsourcing/):
   Aggregates, projections, snapshots, upcasting, and the decider pattern
@@ -204,7 +204,7 @@ if __name__ == '__main__':
 
 - Learn about [module imports and exports](https://docs.wakupy.dev/fundamentals/modules/)
 - Try different [provider scopes](https://docs.wakupy.dev/fundamentals/providers/)
-- Add [CQRS](https://docs.wakupy.dev/features/cqrs/) for clean command handling
+- Add [Messaging](https://docs.wakupy.dev/features/messaging/) for clean command handling
 - Connect with your [favorite framework](https://docs.wakupy.dev/fundamentals/integrations/)
 - Browse the [examples directory](https://github.com/waku-py/waku/tree/master/examples) for inspiration
 
@@ -214,7 +214,7 @@ if __name__ == '__main__':
 - [Module System](https://docs.wakupy.dev/fundamentals/modules/)
 - [Providers](https://docs.wakupy.dev/fundamentals/providers/)
 - [Extensions](https://docs.wakupy.dev/advanced/extensions/)
-- [CQRS](https://docs.wakupy.dev/features/cqrs/)
+- [Messaging](https://docs.wakupy.dev/features/messaging/)
 - [Event Sourcing](https://docs.wakupy.dev/features/eventsourcing/)
 - [API Reference](https://docs.wakupy.dev/reference/)
 - [dishka Documentation](https://dishka.readthedocs.io/en/stable/index.html)

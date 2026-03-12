@@ -39,14 +39,14 @@ config = EventSourcingConfig(event_serializer=JsonEventSerializer)
 
     ```python
     class IEventSerializer(abc.ABC):
-        def serialize(self, event: INotification, /) -> dict[str, Any]: ...
-        def deserialize(self, data: dict[str, Any], event_type: str, /) -> INotification: ...
+        def serialize(self, event: IEvent, /) -> dict[str, Any]: ...
+        def deserialize(self, data: dict[str, Any], event_type: str, /) -> IEvent: ...
     ```
 
     | Method | Parameters | Returns | Description |
     |--------|-----------|---------|-------------|
-    | `serialize` | `event: INotification` | `dict[str, Any]` | Convert a domain event to a JSON-compatible dictionary |
-    | `deserialize` | `data: dict[str, Any]`, `event_type: str` | `INotification` | Reconstruct a domain event from stored data and its registered type name |
+    | `serialize` | `event: IEvent` | `dict[str, Any]` | Convert a domain event to a JSON-compatible dictionary |
+    | `deserialize` | `data: dict[str, Any]`, `event_type: str` | `IEvent` | Reconstruct a domain event from stored data and its registered type name |
 
     The `event_type` parameter in `deserialize` is the string name from the [Event Type Registry](#event-type-registry).
 
@@ -108,7 +108,7 @@ es_ext.bind_aggregate(
 
 | Field        | Type                       | Default                  | Description                                       |
 |--------------|----------------------------|--------------------------|---------------------------------------------------|
-| `event_type` | `type[INotification]`      | *(required, positional)* | The Python event class                            |
+| `event_type` | `type[IEvent]`             | *(required, positional)* | The Python event class                            |
 | `name`       | `str | None`               | `None` (uses class name) | Custom serialization name                         |
 | `aliases`    | `Sequence[str]`            | `()`                     | Alternative names accepted during deserialization |
 | `version`    | `int`                      | `1`                      | Current schema version                            |

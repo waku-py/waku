@@ -300,7 +300,7 @@ Available languages: ['en', 'es', 'fr']
 2. Explore [Dependency Injection](fundamentals/providers.md) patterns
 3. Integrate with [FastAPI, Litestar, or other frameworks](fundamentals/integrations.md)
 4. Add [Extensions](advanced/extensions/index.md) for lifecycle hooks
-5. Use the [Mediator (CQRS)](features/cqrs/index.md) for command/query separation
+5. Use the [Message Bus](features/messaging/index.md) for command/query separation
 6. Build event-driven systems with [Event Sourcing](features/eventsourcing/index.md)
 
 ## Further reading

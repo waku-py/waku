@@ -323,23 +323,23 @@ class PeriodicHealthReport(OnApplicationInit, OnApplicationShutdown):
 
 ## Fluent builder pattern
 
-Extensions that collect configuration benefit from a fluent builder API. The `MediatorExtension`
-in waku's CQRS module is a good example — it chains `.bind_request()` and `.bind_event()` calls:
+Extensions that collect configuration benefit from a fluent builder API. The `MessagingExtension`
+in waku's messaging module is a good example — it chains `.bind_request()` and `.bind_event()` calls:
 
 ```python linenums="1"
 from waku import module
-from waku.cqrs import MediatorExtension
+from waku.messaging import MessagingExtension
 
 from .handlers import CreateOrderHandler, OrderCreatedHandler
 from .contracts import CreateOrderCommand, OrderCreatedEvent
 
-mediator_ext = (
-    MediatorExtension()
+messaging_ext = (
+    MessagingExtension()
     .bind_request(CreateOrderCommand, CreateOrderHandler)
     .bind_event(OrderCreatedEvent, [OrderCreatedHandler])
 )
 
-@module(extensions=[mediator_ext])
+@module(extensions=[messaging_ext])
 class OrderModule:
     pass
 ```
@@ -369,15 +369,15 @@ class RouteExtension(OnModuleConfigure):
         return list(self._routes)
 ```
 
-## Real-world example: `MediatorExtension`
+## Real-world example: `MessagingExtension`
 
-The CQRS mediator is the most comprehensive built-in extension. It combines two extension
+The messaging module is the most comprehensive built-in extension. It combines two extension
 protocols across two classes:
 
-1. **`MediatorExtension`** (`OnModuleConfigure`) — placed in each feature module. Collects
+1. **`MessagingExtension`** (`OnModuleConfigure`) — placed in each feature module. Collects
    request/event handler bindings via the fluent builder API.
-2. **`MediatorRegistryAggregator`** (`OnModuleRegistration`) — placed in `MediatorModule`.
-   Discovers all `MediatorExtension` instances across the module tree, merges their registries,
+2. **`MessageRegistryAggregator`** (`OnModuleRegistration`) — placed in `MessagingModule`.
+   Discovers all `MessagingExtension` instances across the module tree, merges their registries,
    and contributes the aggregated providers to the appropriate modules.
 
 ```python linenums="1"
@@ -386,14 +386,14 @@ from typing import Any
 
 from typing_extensions import override
 
-from waku.cqrs import MediatorExtension
-from waku.cqrs.registry import MediatorRegistry
+from waku.messaging import MessagingExtension
+from waku.messaging.registry import MessageRegistry
 from waku.di import object_
 from waku.extensions import OnModuleRegistration
 from waku.modules import ModuleMetadataRegistry, ModuleType
 
 
-class MediatorRegistryAggregator(OnModuleRegistration):
+class MessageRegistryAggregator(OnModuleRegistration):
     @override
     def on_module_registration(
         self,
@@ -401,9 +401,9 @@ class MediatorRegistryAggregator(OnModuleRegistration):
         owning_module: ModuleType,
         context: Mapping[Any, Any] | None,
     ) -> None:
-        aggregated = MediatorRegistry()  # (1)!
+        aggregated = MessageRegistry()  # (1)!
 
-        for module_type, ext in registry.find_extensions(MediatorExtension):  # (2)!
+        for module_type, ext in registry.find_extensions(MessagingExtension):  # (2)!
             aggregated.merge(ext.registry)
             for provider in ext.registry.handler_providers():
                 registry.add_provider(module_type, provider)  # (3)!
@@ -416,9 +416,9 @@ class MediatorRegistryAggregator(OnModuleRegistration):
 ```
 
 1. Create a fresh registry to merge all discovered handler bindings into.
-2. Walk every module that has a `MediatorExtension` attached.
+2. Walk every module that has a `MessagingExtension` attached.
 3. Register each handler provider in the module that declared it.
-4. Collector providers (multi-bindings) go to the owning module (`MediatorModule`).
+4. Collector providers (multi-bindings) go to the owning module (`MessagingModule`).
 5. Prevent further modifications to the registry.
 6. Make the aggregated registry itself available as a DI provider.
 
@@ -430,5 +430,5 @@ aggregation** — is the recommended approach for any cross-module discovery use
 - **[Lifecycle Hooks](index.md)** — full lifecycle diagram, hook reference table, and phase descriptions
 - **[Application](../../fundamentals/application.md)** — application lifecycle and lifespan functions
 - **[Modules](../../fundamentals/modules.md)** — module system and the `@module()` decorator
-- **[CQRS extension](../../features/cqrs/index.md)** — the mediator extension in detail
+- **[Messaging](../../features/messaging/index.md)** — the messaging extension in detail
 - **[Advanced DI Patterns](../di/di-patterns.md)** — `provider()` helper and dishka primitives for `OnModuleRegistration` use cases
