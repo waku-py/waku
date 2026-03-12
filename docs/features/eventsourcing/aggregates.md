@@ -26,7 +26,7 @@ control, and stream length guards.
 
 ## Domain Events
 
-Both approaches share the same event definitions — frozen dataclasses implementing `INotification`:
+Both approaches share the same event definitions — frozen dataclasses implementing `IEvent`:
 
 ```python linenums="1"
 --8<-- "docs/code/eventsourcing/quickstart/events.py"
@@ -97,7 +97,7 @@ Register aggregates, event types, and command handlers with the module system:
 
 ### Run
 
-Wire everything together and send commands through the mediator:
+Wire everything together and send commands through the message bus:
 
 ```python linenums="1"
 --8<-- "docs/code/eventsourcing/quickstart/main.py"

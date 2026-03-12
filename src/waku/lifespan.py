@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import TYPE_CHECKING, TypeAlias, final
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
     from waku.application import WakuApplication
 
 __all__ = [
@@ -25,7 +23,7 @@ class LifespanWrapper:
         self._lifespan_func = lifespan_func
 
     @asynccontextmanager
-    async def lifespan(self, app: WakuApplication) -> AsyncIterator[None]:
+    async def lifespan(self, app: WakuApplication) -> AsyncGenerator[None]:
         ctx_manager = (
             self._lifespan_func
             if isinstance(self._lifespan_func, AbstractAsyncContextManager)

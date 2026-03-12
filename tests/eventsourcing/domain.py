@@ -2,18 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.repository import EventSourcedRepository
+from waku.messaging.contracts.event import IEvent
 
 
 @dataclass(frozen=True)
-class AccountOpened(INotification):
+class AccountOpened(IEvent):
     name: str
 
 
 @dataclass(frozen=True)
-class MoneyDeposited(INotification):
+class MoneyDeposited(IEvent):
     amount: int
 
 
@@ -35,7 +35,7 @@ class BankAccount(EventSourcedAggregate):
     def deposit(self, amount: int) -> None:
         self._raise_event(MoneyDeposited(amount=amount))
 
-    def _apply(self, event: INotification) -> None:
+    def _apply(self, event: IEvent) -> None:
         match event:
             case AccountOpened(name=name):
                 self.name = name
@@ -44,12 +44,12 @@ class BankAccount(EventSourcedAggregate):
 
 
 @dataclass(frozen=True)
-class NoteCreated(INotification):
+class NoteCreated(IEvent):
     title: str
 
 
 @dataclass(frozen=True)
-class NoteEdited(INotification):
+class NoteEdited(IEvent):
     content: str
 
 
@@ -65,7 +65,7 @@ class Note(EventSourcedAggregate):
     def edit(self, content: str) -> None:
         self._raise_event(NoteEdited(content=content))
 
-    def _apply(self, event: INotification) -> None:
+    def _apply(self, event: IEvent) -> None:
         match event:
             case NoteCreated(title=title):
                 self.title = title

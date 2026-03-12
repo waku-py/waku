@@ -11,7 +11,7 @@ from sqlalchemy import text
 from waku.eventsourcing.projection.lock.interfaces import IProjectionLock
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
 
     from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -54,7 +54,7 @@ class PostgresLeaseProjectionLock(IProjectionLock):
         self._holder_id = str(uuid.uuid4())
 
     @contextlib.asynccontextmanager
-    async def acquire(self, projection_name: str) -> AsyncIterator[bool]:
+    async def acquire(self, projection_name: str) -> AsyncGenerator[bool]:
         async with self._engine.connect() as conn:
             await conn.execution_options(isolation_level='AUTOCOMMIT')
             result = await conn.execute(

@@ -10,10 +10,10 @@ if TYPE_CHECKING:
     import uuid
     from datetime import datetime
 
-    from waku.cqrs.contracts.notification import INotification
     from waku.eventsourcing.contracts.stream import StreamId
+    from waku.messaging.contracts.event import IEvent
 
-DataT = TypeVar('DataT', bound='INotification', default='INotification')
+DataT = TypeVar('DataT', bound='IEvent', default='IEvent')
 
 __all__ = [
     'DataT',
@@ -40,7 +40,7 @@ class IMetadataEnricher(abc.ABC):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EventEnvelope:
-    domain_event: INotification
+    domain_event: IEvent
     idempotency_key: str
     metadata: EventMetadata = field(default_factory=EventMetadata)
 

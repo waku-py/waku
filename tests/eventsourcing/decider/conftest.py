@@ -4,10 +4,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from waku.cqrs.interfaces import IPublisher
 from waku.eventsourcing.decider.repository import DeciderRepository
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
+from waku.messaging.interfaces import IPublisher
 
 from tests.eventsourcing.test_decider import CounterDecider, CounterState, Increment, Incremented
 

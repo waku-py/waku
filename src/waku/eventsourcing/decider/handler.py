@@ -7,13 +7,13 @@ from typing import TYPE_CHECKING, Any, ClassVar, Generic
 
 from typing_extensions import TypeVar, override
 
-from waku.cqrs.contracts.notification import INotification
-from waku.cqrs.contracts.request import RequestT, ResponseT
-from waku.cqrs.interfaces import IPublisher  # noqa: TC001  # Dishka needs runtime access
-from waku.cqrs.requests.handler import RequestHandler
 from waku.eventsourcing._retry import execute_with_optimistic_retry
 from waku.eventsourcing.contracts.aggregate import IDecider  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.decider.repository import DeciderRepository  # noqa: TC001  # Dishka needs runtime access
+from waku.messaging.contracts.event import IEvent
+from waku.messaging.contracts.request import RequestT, ResponseT
+from waku.messaging.interfaces import IPublisher  # noqa: TC001  # Dishka needs runtime access
+from waku.messaging.requests.handler import RequestHandler
 
 if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 StateT = TypeVar('StateT', default=object)
 CommandT = TypeVar('CommandT', default=object)
-EventT = TypeVar('EventT', bound=INotification, default=INotification)
+EventT = TypeVar('EventT', bound=IEvent, default=IEvent)
 
 
 class DeciderCommandHandler(

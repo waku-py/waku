@@ -85,8 +85,8 @@ uv add waku --extra eventsourcing --extra eventsourcing-sqla
 
 ```mermaid
 graph TD
-    CMD[Command] --> Mediator[Mediator]
-    Mediator -->|dispatch| Handler[Command Handler]
+    CMD[Command] --> Bus[Message Bus]
+    Bus -->|dispatch| Handler[Command Handler]
     Handler -->|load| Repo[Repository]
     Repo --> Agg[Aggregate]
     Agg -->|raise events| Events[Domain Events]
@@ -94,14 +94,14 @@ graph TD
     Repo --> Store[Event Store]
     Store --> DB[(Storage)]
     Store --> Proj[Projections]
-    Handler -->|publish| Mediator
+    Handler -->|publish| Bus
 ```
 
-The extension builds on waku's [CQRS module](../cqrs/index.md) — commands, handlers, and the
-mediator are all part of the CQRS layer. Event sourcing adds aggregates, an event store, and
+The extension builds on waku's [CQRS module](../messaging/index.md) — commands, handlers, and the
+message bus are all part of the CQRS layer. Event sourcing adds aggregates, an event store, and
 projections on top:
 
-1. **Commands** enter through the [mediator](../cqrs/index.md)
+1. **Commands** enter through the [message bus](../messaging/index.md)
 2. **Command handlers** load aggregates from the repository
 3. **Aggregates** validate business rules and raise domain events
 4. The **repository** persists events to the event store

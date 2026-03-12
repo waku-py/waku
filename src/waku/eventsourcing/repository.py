@@ -14,7 +14,7 @@ from waku.eventsourcing.exceptions import AggregateNotFoundError
 from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Dishka needs runtime access
 
 if TYPE_CHECKING:
-    from waku.cqrs.contracts.notification import INotification
+    from waku.messaging.contracts.event import IEvent
 
 __all__ = ['EventSourcedRepository']
 
@@ -72,7 +72,7 @@ class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
         aggregate: AggregateT,
         *,
         idempotency_key: str | None = None,
-    ) -> tuple[int, list[INotification]]:
+    ) -> tuple[int, list[IEvent]]:
         stream_id = self._stream_id(aggregate_id)
         events = aggregate.collect_events()
         if not events:

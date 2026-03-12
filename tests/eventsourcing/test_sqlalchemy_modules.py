@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from waku.cqrs.contracts.notification import INotification
 from waku.di import Scope, contextual
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.modules import (
@@ -21,6 +20,7 @@ from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
 from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
 from waku.eventsourcing.upcasting import rename_field
+from waku.messaging.contracts.event import IEvent
 from waku.modules import module
 from waku.testing import create_test_app
 
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class NoteCreatedV2(INotification):
+class NoteCreatedV2(IEvent):
     heading: str
 
 
@@ -47,7 +47,7 @@ class NoteV2(EventSourcedAggregate):
     def edit(self, content: str) -> None:
         self._raise_event(NoteEdited(content=content))
 
-    def _apply(self, event: INotification) -> None:
+    def _apply(self, event: IEvent) -> None:
         match event:
             case NoteCreatedV2(heading=heading):
                 self.heading = heading

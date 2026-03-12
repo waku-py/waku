@@ -9,8 +9,8 @@ from waku.eventsourcing.serialization.interfaces import IEventSerializer, ISnaps
 from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa: TC001  # Dishka needs runtime access
 
 if TYPE_CHECKING:
-    from waku.cqrs.contracts.notification import INotification
     from waku.eventsourcing.contracts.aggregate import StateT
+    from waku.messaging.contracts.event import IEvent
 
 __all__ = ['JsonEventSerializer', 'JsonSnapshotStateSerializer']
 
@@ -20,12 +20,12 @@ class JsonEventSerializer(IEventSerializer):
         self._registry = registry
 
     @override
-    def serialize(self, event: INotification, /) -> dict[str, Any]:
+    def serialize(self, event: IEvent, /) -> dict[str, Any]:
         validate_dataclass_instance(event)
         return cast('dict[str, Any]', default_retort.dump(event, type(event)))
 
     @override
-    def deserialize(self, data: dict[str, Any], event_type: str, /) -> INotification:
+    def deserialize(self, data: dict[str, Any], event_type: str, /) -> IEvent:
         cls = self._registry.resolve(event_type)
         return default_retort.load(data, cls)
 

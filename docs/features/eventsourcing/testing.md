@@ -77,7 +77,7 @@ AggregateSpec.for_(MyAggregate).given([events]).when(lambda agg: agg.do_somethin
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
 | `for_` | `aggregate_type: type[A]` | `AggregateSpec[A]` | Class method. Create a spec for the given aggregate type |
-| `given` | `events: Sequence[INotification]` | `AggregateSpec[A]` | Replay prior events via `load_from_history()` |
+| `given` | `events: Sequence[IEvent]` | `AggregateSpec[A]` | Replay prior events via `load_from_history()` |
 | `when` | `action: Callable[[A], None]` | `_AggregateWhenResult[A]` | Execute an action (lambda) against the hydrated aggregate |
 | `then_state` | `predicate: Callable[[A], Any]` | `None` | Assert state built from `given()` events alone (no action) |
 
@@ -85,7 +85,7 @@ AggregateSpec.for_(MyAggregate).given([events]).when(lambda agg: agg.do_somethin
 
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
-| `then` | `expected_events: Sequence[INotification]` | `None` | Assert the action produced exactly these events |
+| `then` | `expected_events: Sequence[IEvent]` | `None` | Assert the action produced exactly these events |
 | `then_no_events` | — | `None` | Assert the action produced zero events |
 | `then_raises` | `exception_type: type[Exception]`, `match: str | None = None` | `None` | Assert the action raises this exception |
 | `then_state` | `predicate: Callable[[A], Any]` | `None` | Assert aggregate state *after* the action and produced events |

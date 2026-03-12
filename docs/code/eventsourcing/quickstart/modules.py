@@ -1,5 +1,5 @@
 from waku import module
-from waku.cqrs import MediatorExtension, MediatorModule
+from waku.messaging import MessagingExtension, MessagingModule
 from waku.eventsourcing import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
@@ -19,7 +19,7 @@ from app.repository import BankAccountRepository
             repository=BankAccountRepository,
             event_types=[AccountOpened, MoneyDeposited, MoneyWithdrawn],
         ),
-        MediatorExtension()
+        MessagingExtension()
         .bind_request(OpenAccountCommand, OpenAccountHandler)
         .bind_request(DepositCommand, DepositHandler),
     ],
@@ -32,7 +32,7 @@ class BankModule:
     imports=[
         BankModule,
         EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore)),
-        MediatorModule.register(),
+        MessagingModule.register(),
     ],
 )
 class AppModule:

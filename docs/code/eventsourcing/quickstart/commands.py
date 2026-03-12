@@ -2,19 +2,19 @@ from dataclasses import dataclass
 
 from typing_extensions import override
 
-from waku.cqrs import Request, Response
+from waku.messaging import IRequest
 from waku.eventsourcing import EventSourcedCommandHandler
 
 from app.aggregate import BankAccount
 
 
 @dataclass(frozen=True, kw_only=True)
-class OpenAccountResult(Response):
+class OpenAccountResult:
     account_id: str
 
 
 @dataclass(frozen=True, kw_only=True)
-class OpenAccountCommand(Request[OpenAccountResult]):
+class OpenAccountCommand(IRequest[OpenAccountResult]):
     account_id: str
     owner: str
 
@@ -38,12 +38,12 @@ class OpenAccountHandler(EventSourcedCommandHandler[OpenAccountCommand, OpenAcco
 
 
 @dataclass(frozen=True, kw_only=True)
-class DepositResult(Response):
+class DepositResult:
     balance: int
 
 
 @dataclass(frozen=True, kw_only=True)
-class DepositCommand(Request[DepositResult]):
+class DepositCommand(IRequest[DepositResult]):
     account_id: str
     amount: int
 

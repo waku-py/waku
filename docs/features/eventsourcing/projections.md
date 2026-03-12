@@ -435,7 +435,7 @@ In event sourcing, the event store is already a durable, ordered log of everythi
 happened — it naturally serves as a [transactional outbox](https://microservices.io/patterns/data/transactional-outbox.html).
 
 The `publisher.publish()` call in command handlers is an **in-process convenience** — it
-dispatches mediator notifications to other handlers within the same process. It is not
+dispatches events to other handlers within the same process. It is not
 a reliability mechanism. If the process crashes after saving events but before publishing,
 the in-process notifications are lost.
 

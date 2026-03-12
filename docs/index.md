@@ -93,12 +93,12 @@ sourcing — so your codebase stays manageable as it scales.
 
 <div class="grid cards feature-cards" markdown>
 
--   :material-swap-horizontal: **CQRS & Mediator**
+-   :material-swap-horizontal: **CQRS & Message Bus**
 
     ---
 
     DI alone doesn't decouple components — you need events.
-    The [mediator](features/cqrs/index.md) dispatches commands, queries, and events
+    The [message bus](features/messaging/index.md) dispatches commands, queries, and events
     so components never reference each other directly.
     Pipeline behaviors handle cross-cutting concerns.
 

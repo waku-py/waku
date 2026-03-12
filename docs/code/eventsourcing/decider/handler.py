@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from typing_extensions import override
 
-from waku.cqrs import Request, Response
+from waku.messaging import IRequest
 from waku.eventsourcing import DeciderCommandHandler
 
 from app.decider import BankCommand, BankEvent, OpenAccount
@@ -10,12 +10,12 @@ from app.state import BankAccountState
 
 
 @dataclass(frozen=True, kw_only=True)
-class OpenAccountResult(Response):
+class OpenAccountResult:
     owner: str
 
 
 @dataclass(frozen=True, kw_only=True)
-class OpenAccountRequest(Request[OpenAccountResult]):
+class OpenAccountRequest(IRequest[OpenAccountResult]):
     account_id: str
     owner: str
 

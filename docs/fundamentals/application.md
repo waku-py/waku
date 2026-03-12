@@ -61,15 +61,15 @@ you then pass down to framework-specific factory methods (API server, CLI, messa
 
 ```python linenums="1" title="app/application.py"
 from waku import WakuApplication, WakuFactory, module
-from waku.cqrs import MediatorConfig, MediatorModule
+from waku.messaging import MessagingConfig, MessagingModule
 
 from app.settings import Settings
 
 
 @module(
     imports=[
-        MediatorModule.register(
-            MediatorConfig(pipeline_behaviors=[...]),
+        MessagingModule.register(
+            MessagingConfig(pipeline_behaviors=[...]),
         ),
         SettingsModule,
         InfraModule,

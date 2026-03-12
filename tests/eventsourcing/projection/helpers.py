@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
-from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import NoStream, StreamId
 from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
 from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection
+from waku.messaging.contracts.event import IEvent
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -19,12 +19,12 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class SampleEvent(INotification):
+class SampleEvent(IEvent):
     value: int
 
 
 @dataclass(frozen=True)
-class OtherEvent(INotification):
+class OtherEvent(IEvent):
     label: str
 
 

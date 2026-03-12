@@ -1,6 +1,6 @@
 ---
 title: Features
-description: Built-in features — CQRS mediator, module validation, and event sourcing.
+description: Built-in features — CQRS message bus, module validation, and event sourcing.
 tags:
   - concept
 ---
@@ -12,11 +12,11 @@ an extension module that you import and configure in your application.
 
 <div class="grid cards" markdown>
 
--   :material-swap-horizontal: **[Mediator (CQRS)](cqrs/index.md)**
+-   :material-swap-horizontal: **[Message Bus (CQRS)](messaging/index.md)**
 
     ---
 
-    Command/query separation with pipeline behaviors, event handlers, and a mediator dispatcher
+    Command/query separation with pipeline behaviors, event handlers, and a message bus dispatcher
 
 -   :material-check-decagram: **[Validation](validation.md)**
 

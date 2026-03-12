@@ -19,15 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 from typing_extensions import override
 
 from waku import WakuFactory, module
-from waku.cqrs import (
-    EventHandler,
-    IMediator,
-    INotification,
-    MediatorExtension,
-    MediatorModule,
-    Request,
-    Response,
-)
 from waku.di import object_, scoped
 from waku.eventsourcing import (
     EventSourcedAggregate,
@@ -40,6 +31,14 @@ from waku.eventsourcing import (
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
 from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
+from waku.messaging import (
+    EventHandler,
+    IEvent,
+    IMessageBus,
+    IRequest,
+    MessagingExtension,
+    MessagingModule,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -51,19 +50,19 @@ DATABASE_URL = 'postgresql+psycopg://waku:waku@localhost:15432/waku_es'
 
 
 @dataclass(frozen=True, kw_only=True)
-class AccountOpened(INotification):
+class AccountOpened(IEvent):
     account_id: str
     owner: str
 
 
 @dataclass(frozen=True, kw_only=True)
-class MoneyDeposited(INotification):
+class MoneyDeposited(IEvent):
     account_id: str
     amount: int
 
 
 @dataclass(frozen=True, kw_only=True)
-class MoneyWithdrawn(INotification):
+class MoneyWithdrawn(IEvent):
     account_id: str
     amount: int
 
@@ -94,7 +93,7 @@ class BankAccount(EventSourcedAggregate):
         self._raise_event(MoneyWithdrawn(account_id=account_id, amount=amount))
 
     @override
-    def _apply(self, event: INotification) -> None:
+    def _apply(self, event: IEvent) -> None:
         match event:
             case AccountOpened(account_id=account_id, owner=owner):
                 self.account_id = account_id
@@ -116,12 +115,12 @@ class BankAccountRepository(EventSourcedRepository[BankAccount]):
 
 
 @dataclass(frozen=True, kw_only=True)
-class OpenAccountResult(Response):
+class OpenAccountResult:
     account_id: str
 
 
 @dataclass(frozen=True, kw_only=True)
-class OpenAccountCommand(Request[OpenAccountResult]):
+class OpenAccountCommand(IRequest[OpenAccountResult]):
     account_id: str
     owner: str
 
@@ -145,12 +144,12 @@ class OpenAccountHandler(EventSourcedCommandHandler[OpenAccountCommand, OpenAcco
 
 
 @dataclass(frozen=True, kw_only=True)
-class DepositResult(Response):
+class DepositResult:
     balance: int
 
 
 @dataclass(frozen=True, kw_only=True)
-class DepositCommand(Request[DepositResult]):
+class DepositCommand(IRequest[DepositResult]):
     account_id: str
     amount: int
 
@@ -211,7 +210,7 @@ es_config = EventSourcingConfig(
             repository=BankAccountRepository,
             event_types=[AccountOpened, MoneyDeposited, MoneyWithdrawn],
         ),
-        MediatorExtension()
+        MessagingExtension()
         .bind_request(OpenAccountCommand, OpenAccountHandler)
         .bind_request(DepositCommand, DepositHandler)
         .bind_event(AccountOpened, [AccountOpenedHandler])
@@ -226,7 +225,7 @@ class BankModule:
     imports=[
         BankModule,
         EventSourcingModule.register(es_config),
-        MediatorModule.register(),
+        MessagingModule.register(),
     ],
     providers=[
         object_(engine, provided_type=AsyncEngine),
@@ -248,15 +247,15 @@ async def main() -> None:
         app = WakuFactory(AppModule).create()
 
         async with app, app.container() as container:
-            mediator = await container.get(IMediator)
+            bus = await container.get(IMessageBus)
 
-            result = await mediator.send(OpenAccountCommand(account_id='acc-1', owner='dex'))
+            result = await bus.invoke(OpenAccountCommand(account_id='acc-1', owner='dex'))
             logger.info('Account opened: %s', result)
 
-            result2 = await mediator.send(DepositCommand(account_id='acc-1', amount=500))
+            result2 = await bus.invoke(DepositCommand(account_id='acc-1', amount=500))
             logger.info('Balance after deposit: %d', result2.balance)  # ty: ignore[unresolved-attribute]
 
-            result3 = await mediator.send(DepositCommand(account_id='acc-1', amount=300))
+            result3 = await bus.invoke(DepositCommand(account_id='acc-1', amount=300))
             logger.info('Balance after second deposit: %d', result3.balance)  # ty: ignore[unresolved-attribute]
     finally:
         async with engine.begin() as conn:

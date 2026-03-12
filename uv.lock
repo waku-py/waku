@@ -1541,7 +1541,7 @@ dev = [{ name = "pysentry-rs", specifier = "==0.4.3" }]
 docs = [
     { name = "mkdocstrings", extras = ["python"], specifier = ">=1.0.3" },
     { name = "pymdown-extensions", specifier = ">=10.21" },
-    { name = "zensical", specifier = ">=0.0.24" },
+    { name = "zensical", specifier = "==0.0.24" },
 ]
 lint = [
     { name = "deptry", specifier = "==0.24.0" },

@@ -11,42 +11,42 @@ if TYPE_CHECKING:
 
     from pytest_mock import MockerFixture
 
-    from waku.cqrs.interfaces import IPublisher
     from waku.eventsourcing.contracts.aggregate import IDecider
     from waku.eventsourcing.decider.repository import DeciderRepository
+    from waku.messaging.interfaces import IPublisher
 
     from tests.eventsourcing.decider.conftest import CounterRepository
 from typing_extensions import override
 
-from waku.cqrs.contracts.request import Request, Response
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.decider.handler import DeciderCommandHandler, DeciderVoidCommandHandler
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, EventSourcingError
+from waku.messaging.contracts.request import IRequest
 
 from tests.eventsourcing.helpers import RecordingContext, fail_save_n_times
 from tests.eventsourcing.test_decider import CounterDecider, CounterState, Increment, Incremented
 
 
 @dataclass(frozen=True, kw_only=True)
-class CounterResponse(Response):
+class CounterResponse:
     value: int
     version: int
 
 
 @dataclass(frozen=True, kw_only=True)
-class IncrementCounterCommand(Request['CounterResponse']):
+class IncrementCounterCommand(IRequest['CounterResponse']):
     counter_id: str
     amount: int = 1
 
 
 @dataclass(frozen=True, kw_only=True)
-class CreateCounterCommand(Request['CounterResponse']):
+class CreateCounterCommand(IRequest['CounterResponse']):
     counter_id: str
     amount: int = 1
 
 
 @dataclass(frozen=True, kw_only=True)
-class IncrementCounterVoidCommand(Request[None]):
+class IncrementCounterVoidCommand(IRequest):
     counter_id: str
     amount: int = 1
 
@@ -104,7 +104,7 @@ class TwoAttemptIncrementHandler(IncrementCounterHandler):
 
 
 @dataclass(frozen=True, kw_only=True)
-class IdempotentCreateCounterCommand(Request['CounterResponse']):
+class IdempotentCreateCounterCommand(IRequest['CounterResponse']):
     counter_id: str
     amount: int = 1
     idempotency_key: str = ''

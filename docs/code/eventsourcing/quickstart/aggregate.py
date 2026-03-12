@@ -1,6 +1,6 @@
 from typing_extensions import override
 
-from waku.cqrs import INotification
+from waku.messaging import IEvent
 from waku.eventsourcing import EventSourcedAggregate
 
 from app.events import AccountOpened, MoneyDeposited, MoneyWithdrawn
@@ -29,7 +29,7 @@ class BankAccount(EventSourcedAggregate):
         self._raise_event(MoneyWithdrawn(account_id=account_id, amount=amount))
 
     @override
-    def _apply(self, event: INotification) -> None:
+    def _apply(self, event: IEvent) -> None:
         match event:
             case AccountOpened(account_id=account_id, owner=owner):
                 self.account_id = account_id

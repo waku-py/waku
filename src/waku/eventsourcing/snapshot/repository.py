@@ -16,8 +16,8 @@ from waku.eventsourcing.snapshot.registry import SnapshotConfigRegistry  # noqa:
 from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Dishka needs runtime access
 
 if TYPE_CHECKING:
-    from waku.cqrs.contracts.notification import INotification
     from waku.eventsourcing.snapshot.interfaces import Snapshot
+    from waku.messaging.contracts.event import IEvent
 
 __all__ = ['SnapshotEventSourcedRepository']
 
@@ -75,7 +75,7 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
         aggregate: AggregateT,
         *,
         idempotency_key: str | None = None,
-    ) -> tuple[int, list[INotification]]:
+    ) -> tuple[int, list[IEvent]]:
         new_version, events = await super().save(aggregate_id, aggregate, idempotency_key=idempotency_key)
 
         if events and self._snapshot_manager.should_save(aggregate_id, new_version):

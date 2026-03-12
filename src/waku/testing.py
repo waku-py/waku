@@ -15,7 +15,7 @@ from waku.factory import WakuFactory
 from waku.modules import module
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterator, Sequence
+    from collections.abc import AsyncGenerator, Generator, Sequence
 
     from dishka import Provider
     from dishka.dependency_source import Factory
@@ -41,7 +41,7 @@ def override(
     container: AsyncContainer,
     *providers: BaseProvider,
     context: dict[Any, Any] | None = None,
-) -> Iterator[None]:
+) -> Generator[None]:
     """Temporarily override providers and/or context in an AsyncContainer for testing.
 
     Args:
@@ -151,7 +151,7 @@ async def create_test_app(
     extensions: Sequence[ModuleExtension] = (),
     app_extensions: Sequence[ApplicationExtension] = DEFAULT_EXTENSIONS,
     context: dict[Any, Any] | None = None,
-) -> AsyncIterator[WakuApplication]:
+) -> AsyncGenerator[WakuApplication]:
     """Create a minimal test application with given configuration.
 
     Useful for testing extensions and module configurations in isolation

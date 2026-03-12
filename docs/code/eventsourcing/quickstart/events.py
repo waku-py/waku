@@ -1,21 +1,21 @@
 from dataclasses import dataclass
 
-from waku.cqrs import INotification
+from waku.messaging import IEvent
 
 
 @dataclass(frozen=True, kw_only=True)
-class AccountOpened(INotification):
+class AccountOpened(IEvent):
     account_id: str
     owner: str
 
 
 @dataclass(frozen=True, kw_only=True)
-class MoneyDeposited(INotification):
+class MoneyDeposited(IEvent):
     account_id: str
     amount: int
 
 
 @dataclass(frozen=True, kw_only=True)
-class MoneyWithdrawn(INotification):
+class MoneyWithdrawn(IEvent):
     account_id: str
     amount: int

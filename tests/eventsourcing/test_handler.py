@@ -6,14 +6,14 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from typing_extensions import override
 
-from waku.cqrs import MediatorExtension, MediatorModule, Request
-from waku.cqrs.interfaces import IMediator, IPublisher
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, EventSourcingError
 from waku.eventsourcing.handler import EventSourcedVoidCommandHandler
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
+from waku.messaging import IRequest, MessagingExtension, MessagingModule
+from waku.messaging.interfaces import IMessageBus, IPublisher
 from waku.modules import module
 from waku.testing import create_test_app
 
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True, kw_only=True)
-class CreateNote(Request[None]):
+class CreateNote(IRequest):
     note_id: str
     title: str
 
@@ -48,7 +48,7 @@ class CreateNoteHandler(EventSourcedVoidCommandHandler[CreateNote, Note]):
 
 
 @dataclass(frozen=True, kw_only=True)
-class CreateNoteWithKey(Request[None]):
+class CreateNoteWithKey(IRequest):
     note_id: str
     title: str
     idempotency_key: str
@@ -73,7 +73,7 @@ class CreateNoteWithIdempotencyKeyHandler(EventSourcedVoidCommandHandler[CreateN
 
 
 @dataclass(frozen=True, kw_only=True)
-class EditNote(Request[None]):
+class EditNote(IRequest):
     note_id: str
     content: str
 
@@ -203,19 +203,19 @@ async def test_event_sourced_command_handler_creates_and_persists_aggregate() ->
     @module(
         imports=[
             EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore)),
-            MediatorModule.register(),
+            MessagingModule.register(),
         ],
         extensions=[
             EventSourcingExtension().bind_aggregate(repository=NoteRepository, event_types=[NoteCreated, NoteEdited]),
-            MediatorExtension().bind_request(CreateNote, CreateNoteHandler),
+            MessagingExtension().bind_request(CreateNote, CreateNoteHandler),
         ],
     )
     class NoteModule:
         pass
 
     async with create_test_app(imports=[NoteModule]) as app, app.container() as container:
-        mediator = await container.get(IMediator)
-        await mediator.send(CreateNote(note_id='n-1', title='Hello'))
+        bus = await container.get(IMessageBus)
+        await bus.invoke(CreateNote(note_id='n-1', title='Hello'))
 
         repo = await container.get(NoteRepository)
         loaded = await repo.load('n-1')

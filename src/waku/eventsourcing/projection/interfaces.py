@@ -11,9 +11,9 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import ClassVar
 
-    from waku.cqrs.contracts.notification import INotification
     from waku.eventsourcing.contracts.event import StoredEvent
     from waku.eventsourcing.projection.checkpoint import Checkpoint
+    from waku.messaging.contracts.event import IEvent
 
 __all__ = [
     'ErrorPolicy',
@@ -55,7 +55,7 @@ class ICatchUpProjection(IProjection, ABC):
     When ``None`` (default), all events are delivered.
     """
 
-    event_types: ClassVar[Sequence[type[INotification]] | None] = None
+    event_types: ClassVar[Sequence[type[IEvent]] | None] = None
 
     async def on_skip(self, events: Sequence[StoredEvent], error: Exception) -> None:
         pass

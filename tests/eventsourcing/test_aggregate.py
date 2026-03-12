@@ -4,17 +4,17 @@ from dataclasses import dataclass
 
 import pytest
 
-from waku.cqrs.contracts.notification import INotification
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
+from waku.messaging.contracts.event import IEvent
 
 
 @dataclass(frozen=True)
-class TaskCreated(INotification):
+class TaskCreated(IEvent):
     title: str
 
 
 @dataclass(frozen=True)
-class TaskCompleted(INotification):
+class TaskCompleted(IEvent):
     pass
 
 
@@ -33,7 +33,7 @@ class TaskAggregate(EventSourcedAggregate):
             raise ValueError(msg)
         self._raise_event(TaskCompleted())
 
-    def _apply(self, event: INotification) -> None:
+    def _apply(self, event: IEvent) -> None:
         match event:
             case TaskCreated(title=title):
                 self.title = title
