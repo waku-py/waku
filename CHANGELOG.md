@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v0.37.0 (2026-03-12)
+
+### ♻️ Refactoring
+
+- **messaging**: Replace cqrs with messaging
+  ([`4361f4f`](https://github.com/waku-py/waku/commit/4361f4fb73a2f60a7f9745b8d0763758c7746e78))
+
+### 💥 Breaking Changes
+
+- **messaging**: Waku.cqrs module replaced by waku.messaging. Mediator → MessageBus, IMediator →
+  IMessageBus(ISender, IPublisher). ISender gains invoke() (request/response) + send()
+  (fire-and-forget).
+
+
 ## v0.36.0 (2026-03-09)
 
 ### ✨ Features
