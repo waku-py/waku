@@ -1,40 +1,17 @@
 from __future__ import annotations
 
 import abc
-from typing import Generic, Protocol
+from typing import Generic
 
 from waku.messaging.contracts.event import EventT
 
 __all__ = [
     'EventHandler',
-    'IEventHandler',
 ]
 
 
-class IEventHandler(Protocol[EventT]):
-    """Protocol for event handlers.
-
-    This protocol allows structural subtyping - any class with a matching
-    `handle` method signature is compatible.
-
-    Example::
-
-        class OrderPlacedHandler(IEventHandler[OrderPlaced]):
-            async def handle(self, event: OrderPlaced, /) -> None:
-                await self._send_confirmation_email(event.order_id)
-
-    """
-
-    async def handle(self, event: EventT, /) -> None:
-        """Handle the event."""
-        ...
-
-
-class EventHandler(IEventHandler[EventT], abc.ABC, Generic[EventT]):
+class EventHandler(abc.ABC, Generic[EventT]):
     """Abstract base class for event handlers.
-
-    Use this class when you want explicit ABC inheritance and type checking.
-    For structural subtyping, implement IEventHandler directly.
 
     Example::
 

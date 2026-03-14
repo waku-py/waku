@@ -8,7 +8,7 @@ from waku.di import AsyncContainer
 from waku.messaging import IPipelineBehavior
 from waku.messaging.contracts.event import EventT, IEvent
 from waku.messaging.contracts.request import IRequest, ResponseT
-from waku.messaging.events.handler import IEventHandler
+from waku.messaging.events.handler import EventHandler
 from waku.messaging.events.publish import EventPublisher
 from waku.messaging.exceptions import RequestHandlerNotFound
 from waku.messaging.interfaces import IMessageBus
@@ -92,10 +92,10 @@ class MessageBus(IMessageBus):
     async def _resolve_event_handlers(
         self,
         event_type: type[IEvent],
-    ) -> Sequence[IEventHandler[EventT]]:
+    ) -> Sequence[EventHandler[EventT]]:
         if not self._registry.event_map.has_handlers(event_type):
             return ()
 
         handler_type = self._registry.event_map.get_handler_type(event_type)
         handlers = await self._container.get(Sequence[handler_type])  # type: ignore[valid-type]
-        return cast('Sequence[IEventHandler[EventT]]', handlers)
+        return cast('Sequence[EventHandler[EventT]]', handlers)

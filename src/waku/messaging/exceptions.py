@@ -8,8 +8,8 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.event import IEvent
     from waku.messaging.contracts.pipeline import IPipelineBehavior
     from waku.messaging.contracts.request import IRequest
-    from waku.messaging.events.handler import IEventHandler
-    from waku.messaging.requests.handler import IRequestHandler
+    from waku.messaging.events.handler import EventHandler
+    from waku.messaging.requests.handler import RequestHandler
 
 __all__ = [
     'EventHandlerAlreadyRegistered',
@@ -43,7 +43,7 @@ class RequestHandlerAlreadyRegistered(MessagingError, KeyError):  # noqa: N818
         handler_type: The type of handler that was already registered.
     """
 
-    def __init__(self, request_type: type[IRequest[Any]], handler_type: type[IRequestHandler[Any, Any]]) -> None:
+    def __init__(self, request_type: type[IRequest[Any]], handler_type: type[RequestHandler[Any, Any]]) -> None:
         self.request_type = request_type
         self.handler_type = handler_type
 
@@ -73,7 +73,7 @@ class EventHandlerAlreadyRegistered(MessagingError, KeyError):  # noqa: N818
         handler_type: The type of handler that was already registered.
     """
 
-    def __init__(self, event_type: type[IEvent], handler_type: type[IEventHandler[Any]]) -> None:
+    def __init__(self, event_type: type[IEvent], handler_type: type[EventHandler[Any]]) -> None:
         self.event_type = event_type
         self.handler_type = handler_type
 
