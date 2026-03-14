@@ -1,40 +1,17 @@
 from __future__ import annotations
 
 import abc
-from typing import Generic, Protocol
+from typing import Generic
 
 from waku.messaging.contracts.request import RequestT, ResponseT
 
 __all__ = [
-    'IRequestHandler',
     'RequestHandler',
 ]
 
 
-class IRequestHandler(Protocol[RequestT, ResponseT]):
-    """Protocol for request handlers (commands/queries).
-
-    This protocol allows structural subtyping - any class with a matching
-    `handle` method signature is compatible.
-
-    Example::
-
-        class GetUserQueryHandler(IRequestHandler[GetUserQuery, UserDTO]):
-            async def handle(self, request: GetUserQuery, /) -> UserDTO:
-                return await self._repository.get(request.user_id)
-
-    """
-
-    async def handle(self, request: RequestT, /) -> ResponseT:
-        """Handle the request and return a response."""
-        ...
-
-
-class RequestHandler(IRequestHandler[RequestT, ResponseT], abc.ABC, Generic[RequestT, ResponseT]):
-    """Abstract base class for request handlers.
-
-    Use this class when you want explicit ABC inheritance and type checking.
-    For structural subtyping, implement IRequestHandler directly.
+class RequestHandler(abc.ABC, Generic[RequestT, ResponseT]):
+    """Abstract base class for request handlers (commands/queries).
 
     Command handler example::
 
