@@ -3,7 +3,7 @@ title: Events
 description: Event definitions, event handlers, publishers, and cross-module fan-out.
 tags:
   - messaging
-  - cqrs
+  - message-bus
   - guide
 ---
 
@@ -84,9 +84,6 @@ class UpdateOrderStats(EventHandler[OrderPlaced]):
         await self._stats_repo.increment_orders()
 ```
 
-`IEventHandler[TEvent]` is the protocol equivalent — use it when you cannot inherit from
-`EventHandler` (e.g., a handler that implements multiple protocols).
-
 ---
 
 ## Registration
@@ -150,7 +147,7 @@ If no handlers are registered for an event type, `publish` is a no-op — it doe
     In domain-driven architectures, aggregates collect events internally. An infrastructure
     service bridges them to the message bus:
 
-    ```python
+    ```python linenums="1"
     class EventDispatcher:
         def __init__(self, publisher: IPublisher) -> None:
             self._publisher = publisher
@@ -192,5 +189,5 @@ MessagingModule.register(
 
 - **[Requests](requests.md)** — commands, queries, and request handlers
 - **[Pipeline Behaviors](pipeline.md)** — cross-cutting middleware for request handling
-- **[Message Bus (CQRS)](index.md)** — setup, interfaces, and complete example
+- **[Message Bus](index.md)** — setup, interfaces, and complete example
 - **[Event Sourcing](../eventsourcing/index.md)** — event-sourced aggregates, deciders, and projections

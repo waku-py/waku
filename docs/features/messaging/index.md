@@ -1,30 +1,32 @@
 ---
 title: Messaging
-description: Command/query separation with pipeline behaviors, event handlers, and a message bus dispatcher.
+description: Message dispatching with pipeline behaviors, event handlers, and a message bus.
 tags:
   - messaging
+  - message-bus
   - cqrs
   - concept
 ---
 
-# Message Bus (CQRS)
+# Message Bus
 
 ## Introduction
 
-**CQRS** (Command Query Responsibility Segregation) separates read and write operations into
-distinct models:
-
-- **Commands** change state and optionally return a result.
-- **Queries** read state without side effects.
-- **Events** (notifications) broadcast that something happened — zero or more handlers react.
-
-The **Message Bus** decouples the sender of a request from the handler that processes it.
-Instead of calling a handler directly, you pass a request object to the message bus, which looks up
+The **Message Bus** decouples the sender of a message from the handler that processes it.
+Instead of calling a handler directly, you pass a message object to the bus, which looks up
 the correct handler and dispatches it through a pipeline of cross-cutting behaviors.
+
+- **Requests** (commands/queries) are dispatched to exactly one handler.
+- **Events** (notifications) are broadcast to zero or more handlers (fan-out).
+
+!!! info "Relationship to CQRS"
+    CQRS (Command Query Responsibility Segregation) is an architectural pattern that separates
+    read and write models. The message bus provides the infrastructure for CQRS — combined with
+    [Event Sourcing](../eventsourcing/index.md), it enables full CQRS+ES architectures.
 
 ```mermaid
 graph LR
-    Caller -->|invoke| ISender
+    Caller -->|invoke / send| ISender
     ISender -->|dispatch| Pipeline[Pipeline Behaviors]
     Pipeline --> Handler[Request Handler]
     Handler -->|response| ISender
@@ -39,7 +41,7 @@ graph LR
     `ISender`, `IPublisher`, and `IMessageBus` all resolve to the same message bus instance.
     Inject only the interface you need — see [Interfaces](#interfaces) below.
 
-waku's CQRS implementation is inspired by [MediatR](https://github.com/jbogard/MediatR) (.NET)
+waku's messaging subsystem is inspired by [Wolverine](https://wolverine.netlify.app/) (.NET)
 and integrates with the module system, dependency injection, and extension lifecycle.
 
 ---
@@ -63,11 +65,10 @@ class AppModule:
 
 ### MessagingConfig
 
-| Option                            | Type                                | Default                    | Description                                              |
-|-----------------------------------|-------------------------------------|----------------------------|----------------------------------------------------------|
-| `message_bus_implementation_type` | `type[IMessageBus]`                 | `MessageBus`               | Concrete message bus class for request/event dispatching |
-| `event_publisher`                 | `type[EventPublisher]`              | `SequentialEventPublisher` | Strategy for dispatching events to handlers              |
-| `pipeline_behaviors`              | `Sequence[type[IPipelineBehavior]]` | `()`                       | Global pipeline behaviors applied to every request       |
+| Option               | Type                                | Default                    | Description                                        |
+|----------------------|-------------------------------------|----------------------------|----------------------------------------------------|
+| `event_publisher`    | `type[EventPublisher]`              | `SequentialEventPublisher` | Strategy for dispatching events to handlers        |
+| `pipeline_behaviors` | `Sequence[type[IPipelineBehavior]]` | `()`                       | Global pipeline behaviors applied to every request |
 
 Passing `None` (or no argument) to `MessagingModule.register()` uses the defaults:
 
@@ -87,11 +88,11 @@ registry) are available to every module in the application without explicit impo
 waku provides three message bus interfaces at different levels of access. Inject only the interface
 you need to enforce the principle of least privilege:
 
-| Interface     | Methods                  | Use when                                               |
-|---------------|--------------------------|--------------------------------------------------------|
-| `IMessageBus` | `invoke()` + `publish()` | The component both sends requests and publishes events |
-| `ISender`     | `invoke()`               | The component only dispatches commands/queries         |
-| `IPublisher`  | `publish()`              | The component only broadcasts events                   |
+| Interface     | Methods                              | Use when                                               |
+|---------------|--------------------------------------|--------------------------------------------------------|
+| `IMessageBus` | `invoke()` + `send()` + `publish()`  | The component needs full bus access                    |
+| `ISender`     | `invoke()` + `send()`               | The component only dispatches commands/queries         |
+| `IPublisher`  | `publish()`                          | The component only broadcasts events                   |
 
 `IMessageBus` extends both `ISender` and `IPublisher`:
 
@@ -102,12 +103,18 @@ from waku.messaging import IMessageBus, IPublisher, ISender
 # Full access
 async def handle_order(bus: IMessageBus) -> None:
     result = await bus.invoke(ProcessOrder(order_id='ORD-1'))
+    await bus.send(ArchiveOrder(order_id='ORD-1'))
     await bus.publish(OrderPlaced(order_id='ORD-1', customer_id='CUST-1'))
 
 
 # Send-only: cannot publish events
 async def query_user(sender: ISender) -> UserDTO:
     return await sender.invoke(GetUserQuery(user_id='USR-1'))
+
+
+# Fire-and-forget: no response, outbox-capable
+async def enqueue_cleanup(sender: ISender) -> None:
+    await sender.send(CleanupExpiredOrders())
 
 
 # Publish-only: cannot send requests
@@ -117,6 +124,54 @@ async def broadcast_event(publisher: IPublisher) -> None:
 
 All three interfaces are automatically registered in the DI container by `MessagingModule`.
 dishka resolves `ISender` and `IPublisher` to the same `MessageBus` instance as `IMessageBus`.
+
+---
+
+## Dispatch Methods
+
+The bus offers three dispatch methods with distinct semantics:
+
+| Method      | Returns    | Handlers | Description                                          |
+|-------------|------------|----------|------------------------------------------------------|
+| `invoke()`  | `TResponse` | Exactly 1 | In-process request/response. Always local.          |
+| `send()`    | `None`     | Exactly 1 | Fire-and-forget. The caller does not wait for a result. |
+| `publish()` | `None`     | 0 or more | Fan-out to all subscribers.                         |
+
+### `invoke()` — request/response
+
+Use `invoke()` when you need the handler's result. The request travels through the pipeline
+and returns a typed response:
+
+```python linenums="1"
+confirmation = await sender.invoke(
+    PlaceOrder(customer_id='CUST-1', product_id='PROD-42'),
+)
+print(confirmation.order_id)
+```
+
+### `send()` — fire-and-forget
+
+Use `send()` when you want to dispatch a command without waiting for a response. The request
+still goes through the same handler and pipeline, but the return value is discarded:
+
+```python linenums="1"
+await sender.send(ArchiveOrder(order_id='ORD-1'))
+```
+
+!!! tip "When to use `send()` vs `invoke()`"
+    Prefer `send()` for side-effect-only commands where the caller does not need a result.
+    Prefer `invoke()` when the caller depends on the handler's response.
+
+### `publish()` — event fan-out
+
+Use `publish()` to broadcast an event to all registered handlers. If no handlers are registered,
+the call is a no-op:
+
+```python linenums="1"
+await publisher.publish(OrderPlaced(order_id='ORD-1', customer_id='CUST-1'))
+```
+
+See [Events](events.md) for details on event handlers and publisher strategies.
 
 ---
 
