@@ -87,7 +87,7 @@ jobs:
           check-latest: true
 
       - name: Setup | Install UV
-        uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7
+        uses: astral-sh/setup-uv@e06108dd0aef18192324c70427afc47652e63a82 # v7
         with:
           enable-cache: true
 
@@ -157,7 +157,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup | Install UV
-        uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7
+        uses: astral-sh/setup-uv@e06108dd0aef18192324c70427afc47652e63a82 # v7
         with:
           enable-cache: true
 
@@ -208,7 +208,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup | Install UV
-        uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7
+        uses: astral-sh/setup-uv@e06108dd0aef18192324c70427afc47652e63a82 # v7
         with:
           enable-cache: true
 
@@ -263,7 +263,7 @@ jobs:
           check-latest: true
 
       - name: Setup | Install UV
-        uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7
+        uses: astral-sh/setup-uv@e06108dd0aef18192324c70427afc47652e63a82 # v7
         with:
           enable-cache: true
 
