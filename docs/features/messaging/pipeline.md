@@ -3,7 +3,7 @@ title: Pipeline Behaviors
 description: Cross-cutting middleware that wraps request handling with before/after logic.
 tags:
   - messaging
-  - cqrs
+  - message-bus
   - guide
 ---
 
@@ -34,8 +34,7 @@ import logging
 
 from typing_extensions import override
 
-from waku.messaging import IPipelineBehavior, NextHandlerType
-from waku.messaging.contracts import RequestT, ResponseT
+from waku.messaging import IPipelineBehavior, NextHandlerType, RequestT, ResponseT
 
 logger = logging.getLogger(__name__)
 
@@ -117,4 +116,4 @@ The response then unwinds back through the chain in reverse order.
 
 - **[Requests](requests.md)** — commands, queries, and request handlers
 - **[Events](events.md)** — event definitions, handlers, and publishers
-- **[Message Bus (CQRS)](index.md)** — setup, interfaces, and complete example
+- **[Message Bus](index.md)** — setup, interfaces, and complete example

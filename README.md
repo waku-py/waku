@@ -253,8 +253,8 @@ This project is licensed under the terms of the [MIT License](https://github.com
 
 - [dishka](https://github.com/reagento/dishka/) – Dependency Injection framework powering `waku` IoC container.
 - [NestJS](https://nestjs.com/) – Inspiration for modular architecture and design patterns.
-- [MediatR (C#)](https://github.com/jbogard/MediatR) – Inspiration for the CQRS subsystem.
+- [Wolverine (C#)](https://wolverine.netlify.app/) – Inspiration for messaging, transport model, and pipeline architecture.
+- [Marten (C#)](https://martendb.io/) – Inspiration for event sourcing, projections, and document store design.
 - [Emmett](https://event-driven-io.github.io/emmett/) – Functional-first event sourcing patterns.
-- [Marten](https://martendb.io/events/) – Projection lifecycle taxonomy.
 - [Eventuous](https://eventuous.dev/) – Event store interface design.
 - [Jérémie Chassaing](https://thinkbeforecoding.com/post/2021/12/17/functional-event-sourcing-decider) – Decider pattern formalization.
