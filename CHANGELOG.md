@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.38.0 (2026-03-14)
+
+### 📖 Documentation
+
+- **messaging**: Update documentation for Critter Stack transition
+  ([`3ab4e33`](https://github.com/waku-py/waku/commit/3ab4e33cbc4a68728256f44c652e8c627103429d))
+
+### ♻️ Refactoring
+
+- **messaging**: Remove IRequestHandler and IEventHandler protocols
+  ([`3f428c8`](https://github.com/waku-py/waku/commit/3f428c814c574b0da9589e7e81281d597e034a6b))
+
+
 ## v0.37.0 (2026-03-12)
 
 ### ♻️ Refactoring
