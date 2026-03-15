@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.39.0 (2026-03-15)
+
+### ♻️ Refactoring
+
+- **messaging**: Redesign pipeline behaviors
+  ([`dcfb664`](https://github.com/waku-py/waku/commit/dcfb664cd62cd5429be8e1bfbe960f5ae87b0c05))
+
+
 ## v0.38.0 (2026-03-14)
 
 ### 📖 Documentation
