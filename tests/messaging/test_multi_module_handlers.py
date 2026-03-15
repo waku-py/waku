@@ -16,7 +16,7 @@ from waku.messaging import (
     MessagingModule,
     RequestHandler,
 )
-from waku.messaging.contracts.pipeline import IPipelineBehavior, NextHandlerType
+from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
 from waku.messaging.registry import MessageRegistry
 
 
@@ -150,23 +150,23 @@ async def test_multi_module_pipeline_behaviors_all_resolved() -> None:
         @override
         async def handle(
             self,
-            request: ProcessOrder,
+            message: ProcessOrder,
             /,
-            next_handler: NextHandlerType[ProcessOrder, ProcessOrderResult],
+            call_next: CallNext[ProcessOrderResult],
         ) -> ProcessOrderResult:
             called.append('global_logging')
-            return await next_handler(request)
+            return await call_next()
 
     class RequestValidationBehavior(IPipelineBehavior[ProcessOrder, ProcessOrderResult]):
         @override
         async def handle(
             self,
-            request: ProcessOrder,
+            message: ProcessOrder,
             /,
-            next_handler: NextHandlerType[ProcessOrder, ProcessOrderResult],
+            call_next: CallNext[ProcessOrderResult],
         ) -> ProcessOrderResult:
             called.append('request_validation')
-            return await next_handler(request)
+            return await call_next()
 
     @module(
         extensions=[

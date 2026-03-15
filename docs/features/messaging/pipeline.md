@@ -1,6 +1,6 @@
 ---
 title: Pipeline Behaviors
-description: Cross-cutting middleware that wraps request handling with before/after logic.
+description: Cross-cutting middleware that wraps message handling with before/after logic.
 tags:
   - messaging
   - message-bus
@@ -9,9 +9,9 @@ tags:
 
 # Pipeline Behaviors
 
-Pipeline behaviors are cross-cutting middleware that wrap request handling. They form a chain
-similar to HTTP middleware: each behavior can run logic before and after the next handler, modify
-the request, short-circuit the pipeline, or handle exceptions.
+Pipeline behaviors are cross-cutting middleware that wrap message handling. They form a chain
+similar to HTTP middleware: each behavior can run logic before and after the next handler,
+short-circuit the pipeline, or handle exceptions.
 
 ```mermaid
 graph LR
@@ -27,42 +27,42 @@ graph LR
 
 ## Defining a Behavior
 
-Implement `IPipelineBehavior[RequestT, ResponseT]`:
+Implement `IPipelineBehavior[MessageT, ResponseT]`:
 
 ```python linenums="1"
 import logging
 
 from typing_extensions import override
 
-from waku.messaging import IPipelineBehavior, NextHandlerType, RequestT, ResponseT
+from waku.messaging import CallNext, IPipelineBehavior, MessageT, ResponseT
 
 logger = logging.getLogger(__name__)
 
 
-class LoggingBehavior(IPipelineBehavior[RequestT, ResponseT]):
+class LoggingBehavior(IPipelineBehavior[MessageT, ResponseT]):
     @override
     async def handle(
         self,
-        request: RequestT,
+        message: MessageT,
         /,
-        next_handler: NextHandlerType[RequestT, ResponseT],
+        call_next: CallNext[ResponseT],
     ) -> ResponseT:
-        request_name = type(request).__name__
-        logger.info('Handling %s', request_name)
-        response = await next_handler(request)
-        logger.info('Handled %s', request_name)
+        name = type(message).__name__
+        logger.info('Handling %s', name)
+        response = await call_next()
+        logger.info('Handled %s', name)
         return response
 ```
 
 !!! warning
-    Every behavior **must** call `await next_handler(request)` to continue the pipeline. Omitting
+    Every behavior **must** call `await call_next()` to continue the pipeline. Omitting
     this call short-circuits the chain — the actual handler never executes.
 
 ---
 
 ## Global Behaviors
 
-Register behaviors that apply to **every** request via `MessagingConfig`:
+Register behaviors that apply to **every** message (requests and events) via `MessagingConfig`:
 
 ```python linenums="1"
 from waku.messaging import MessagingConfig, MessagingModule
@@ -102,13 +102,39 @@ class UsersModule:
 
 ---
 
+## Per-event Behaviors
+
+Attach behaviors to a specific event type via `bind_event`:
+
+```python linenums="1"
+from waku import module
+from waku.messaging import MessagingExtension
+
+
+@module(
+    extensions=[
+        MessagingExtension().bind_event(
+            OrderPlaced,
+            [SendEmailHandler, UpdateStatsHandler],
+            behaviors=[AuditBehavior],
+        ),
+    ],
+)
+class OrderModule:
+    pass
+```
+
+Each event handler gets its own pipeline invocation — behaviors run independently per handler.
+
+---
+
 ## Execution Order
 
-When a request is dispatched, behaviors execute in this order:
+Behaviors execute in this order:
 
 1. **Global behaviors** (from `MessagingConfig.pipeline_behaviors`, in order)
-2. **Per-request behaviors** (from `bind_request(..., behaviors=[...])`, in order)
-3. **Request handler**
+2. **Per-message-type behaviors** (from `bind_request` or `bind_event` `behaviors=[...]`, in order)
+3. **Handler**
 
 The response then unwinds back through the chain in reverse order.
 

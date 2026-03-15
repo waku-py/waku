@@ -14,63 +14,45 @@ from typing import Any
 
 from waku import WakuFactory, module
 from waku.messaging import (
+    CallNext,
     IMessageBus,
     IPipelineBehavior,
     IRequest,
+    MessageT,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
-    NextHandlerType,
     RequestHandler,
+    ResponseT,
 )
-from waku.messaging.contracts.request import RequestT, ResponseT
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class LoggingBehavior(IPipelineBehavior[RequestT, ResponseT]):
+class LoggingBehavior(IPipelineBehavior[MessageT, ResponseT]):
     """A pipeline behavior that logs request/response details."""
 
     def __init__(self) -> None:
         self._logger = logging.getLogger('cqrs.logger')
         self._log_level = logging.INFO
 
-    async def handle(self, request: RequestT, /, next_handler: NextHandlerType[RequestT, ResponseT]) -> ResponseT:
-        """Log request, process it through the pipeline, and log the response.
+    async def handle(self, message: MessageT, /, call_next: CallNext[ResponseT]) -> ResponseT:
+        request_name = type(message).__name__
 
-        Args:
-            request: The request object.
-            next_handler: The next handler in the pipeline.
-
-        Returns:
-            ResponseT: The response from the next handler.
-        """
-        request_name = type(request).__name__
-
-        self._logger.log(
-            self._log_level,
-            'Processing request %s: %s',
-            request_name,
-            request,
-        )
+        self._logger.log(self._log_level, 'Processing request %s: %s', request_name, message)
 
         try:
-            response = await next_handler(request)
+            response = await call_next()
         except Exception as err:
             self._logger.error('Error processing request %s: %s', request_name, err)
             raise
 
-        self._logger.log(
-            self._log_level,
-            'Completed request %s with response: %s',
-            request_name,
-            response,
-        )
+        self._logger.log(self._log_level, 'Completed request %s with response: %s', request_name, response)
         return response
 
 
-class ValidationBehavior(IPipelineBehavior[RequestT, ResponseT]):
+class ValidationBehavior(IPipelineBehavior[MessageT, ResponseT]):
     """A pipeline behavior that validates requests before processing."""
 
     class ValidationError(Exception):
@@ -83,35 +65,14 @@ class ValidationBehavior(IPipelineBehavior[RequestT, ResponseT]):
             errors = '; '.join(f'{key}: {value}' for key, value in self.errors.items())
             return f'Validation failed: {errors}'
 
-    async def handle(self, request: RequestT, /, next_handler: NextHandlerType[RequestT, ResponseT]) -> ResponseT:
-        """Validate the request before passing it to the next handler.
-
-        Args:
-            request: The request object.
-            next_handler: The next handler in the pipeline.
-
-        Returns:
-            ResponseT: The response from the next handler.
-
-        Raises:
-            ValidationError: If validation fails.
-        """
-        errors = await self._validate(request)
+    async def handle(self, message: MessageT, /, call_next: CallNext[ResponseT]) -> ResponseT:
+        errors = await self._validate(message)
         if errors:
             raise self.ValidationError(errors)
+        return await call_next()
 
-        return await next_handler(request)
-
-    async def _validate(self, request: RequestT) -> dict[str, Any]:  # noqa: ARG002
-        """Validate the request and return any validation errors.
-
-        Args:
-            request: The request to validate.
-
-        Returns:
-            dict[str, Any]: A dictionary of validation errors, or an empty dict if validation passed.
-        """
-        return {}  # Default implementation performs no validation
+    async def _validate(self, message: MessageT) -> dict[str, Any]:  # noqa: ARG002
+        return {}
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -130,48 +91,27 @@ class GetUserQuery(IRequest[UserResponse]):
     user_id: str
 
 
-# 1. Simple Handler Implementation
 class GetUserQueryHandler(RequestHandler[GetUserQuery, UserResponse]):
     """Handler for the GetUserQuery."""
 
     async def handle(self, request: GetUserQuery, /) -> UserResponse:
-        """Process the query and return a user response.
-
-        Args:
-            request: The query containing the user_id.
-
-        Returns:
-            UserResponse: The user information response.
-        """
         if request.user_id == '1':
             return UserResponse(id='1', name='John Doe', email='john@example.com')
         return UserResponse(id=request.user_id, name=f'User {request.user_id}')
 
 
-# 2. Type-specific Validation Behavior
 class UserQueryValidationBehavior(ValidationBehavior[GetUserQuery, UserResponse]):
     """Specific validation behavior for user queries."""
 
-    async def _validate(self, request: GetUserQuery) -> dict[str, Any]:
-        """Validate the GetUserQuery request.
-
-        Args:
-            request: The GetUserQuery to validate.
-
-        Returns:
-            dict[str, Any]: A dictionary of validation errors, or an empty dict if validation passed.
-        """
+    async def _validate(self, message: GetUserQuery) -> dict[str, Any]:
         errors: dict[str, Any] = {}
-
-        if not request.user_id:
+        if not message.user_id:
             errors['user_id'] = 'User ID cannot be empty'
-        elif not request.user_id.isalnum():
+        elif not message.user_id.isalnum():
             errors['user_id'] = 'User ID must contain only letters and numbers'
-
         return errors
 
 
-# 3. Application Setup
 @module(
     extensions=[
         (
@@ -201,7 +141,6 @@ class AppModule:
     """Main application module."""
 
 
-# 4. Application Creation and Usage
 async def main() -> None:
     """Main function to demonstrate pipeline behaviors."""
     app = WakuFactory(AppModule).create()
@@ -209,11 +148,9 @@ async def main() -> None:
     async with app, app.container() as container:
         bus = await container.get(IMessageBus)
 
-        # Send a valid query
         result = await bus.invoke(GetUserQuery(user_id='1'))
         logger.info('Query result: %s', result)
 
-        # Send an invalid query - will raise ValidationError
         try:
             await bus.invoke(GetUserQuery(user_id=''))
         except ValidationBehavior.ValidationError as err:

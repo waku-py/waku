@@ -1,5 +1,5 @@
-from waku.messaging.pipeline.chain import PipelineBehaviorWrapper
+from waku.messaging.pipeline.executor import PipelineExecutor
 
 __all__ = [
-    'PipelineBehaviorWrapper',
+    'PipelineExecutor',
 ]

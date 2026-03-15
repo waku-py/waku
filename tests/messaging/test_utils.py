@@ -4,7 +4,7 @@ from typing import Generic, TypeVar
 import pytest
 
 from waku.messaging import IRequest
-from waku.messaging.utils import get_request_response_type
+from waku.messaging._introspection import get_request_response_type  # noqa: PLC2701
 
 _T = TypeVar('_T')
 

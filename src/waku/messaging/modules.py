@@ -10,9 +10,9 @@ from waku.messaging.contracts.event import EventT
 from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.contracts.request import RequestT
 from waku.messaging.events.handler import EventHandler
-from waku.messaging.events.publish import EventPublisher, SequentialEventPublisher
 from waku.messaging.impl import MessageBus
 from waku.messaging.interfaces import IMessageBus
+from waku.messaging.pipeline.map import PipelineBehaviorMapEntry
 from waku.messaging.registry import MessageRegistry
 from waku.messaging.requests.handler import RequestHandler
 from waku.modules import DynamicModule, ModuleMetadataRegistry, module
@@ -35,7 +35,6 @@ class MessagingConfig:
     """Configuration for the messaging extension.
 
     Attributes:
-        event_publisher: The implementation class for publishing events. Defaults to `SequentialEventPublisher`.
         pipeline_behaviors: A sequence of pipeline behavior configurations that will be applied
             to the messaging pipeline. Behaviors are executed in the order they are defined.
             Defaults to an empty sequence.
@@ -51,7 +50,6 @@ class MessagingConfig:
         ```
     """
 
-    event_publisher: type[EventPublisher] = SequentialEventPublisher
     pipeline_behaviors: Sequence[type[IPipelineBehavior[Any, Any]]] = ()
 
 
@@ -68,18 +66,11 @@ class MessagingModule:
         return DynamicModule(
             parent_module=cls,
             providers=[
-                *cls._create_bus_providers(config_),
+                scoped(WithParents[IMessageBus], MessageBus),  # ty:ignore[not-subscriptable]
                 *cls._create_pipeline_behavior_providers(config_),
             ],
             extensions=[MessageRegistryAggregator()],
             is_global=True,
-        )
-
-    @staticmethod
-    def _create_bus_providers(config: MessagingConfig) -> _HandlerProviders:
-        return (
-            scoped(WithParents[IMessageBus], MessageBus),  # ty:ignore[not-subscriptable]
-            scoped(EventPublisher, config.event_publisher),
         )
 
     @staticmethod
@@ -106,15 +97,21 @@ class MessagingExtension(OnModuleConfigure):
     ) -> Self:
         self._registry.request_map.bind(request_type, handler_type)
         if behaviors:
-            self._registry.behavior_map.bind(request_type, behaviors)
+            request_entry: PipelineBehaviorMapEntry[Any, Any] = PipelineBehaviorMapEntry.for_request(request_type)
+            self._registry.behavior_map.bind(request_entry, behaviors)
         return self
 
     def bind_event(
         self,
         event_type: type[EventT],
         handler_types: list[type[EventHandler[EventT]]],
+        *,
+        behaviors: list[type[IPipelineBehavior[EventT, None]]] | None = None,
     ) -> Self:
         self._registry.event_map.bind(event_type, handler_types)
+        if behaviors:
+            event_entry: PipelineBehaviorMapEntry[Any, Any] = PipelineBehaviorMapEntry.for_event(event_type)
+            self._registry.behavior_map.bind(event_entry, behaviors)
         return self
 
     @property

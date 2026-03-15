@@ -4,18 +4,16 @@ from typing import Any, Protocol, runtime_checkable
 
 from typing_extensions import TypeVar
 
+from waku.messaging.contracts.message import IMessage, ResponseT
+
 __all__ = [
     'IRequest',
     'RequestT',
-    'ResponseT',
 ]
 
 
-ResponseT = TypeVar('ResponseT', default=None, covariant=True)  # noqa: PLC0105
-
-
 @runtime_checkable
-class IRequest(Protocol[ResponseT]):
+class IRequest(IMessage, Protocol[ResponseT]):
     """Marker interface for request-type objects (commands/queries).
 
     Example::

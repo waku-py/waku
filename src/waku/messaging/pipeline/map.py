@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from collections.abc import MutableMapping
 from dataclasses import dataclass, field
-from typing import Any, Generic, Self, TypeAlias
+from typing import TYPE_CHECKING, Any, Generic, Self, TypeAlias
 
+from waku.messaging._introspection import get_request_response_type
+from waku.messaging.contracts.message import IMessage, MessageT, ResponseT
 from waku.messaging.contracts.pipeline import IPipelineBehavior
-from waku.messaging.contracts.request import IRequest, RequestT, ResponseT
 from waku.messaging.exceptions import MapFrozenError, PipelineBehaviorAlreadyRegistered
-from waku.messaging.utils import get_request_response_type
+
+if TYPE_CHECKING:
+    from waku.messaging.contracts.event import IEvent
+    from waku.messaging.contracts.request import IRequest
 
 __all__ = [
     'PipelineBehaviorMap',
@@ -16,25 +20,30 @@ __all__ = [
 ]
 
 
-@dataclass(frozen=True, slots=True)
-class PipelineBehaviorMapEntry(Generic[RequestT, ResponseT]):
-    request_type: type[IRequest[ResponseT]]
-    di_lookup_type: type[IPipelineBehavior[RequestT, ResponseT]]
-    behavior_types: list[type[IPipelineBehavior[RequestT, ResponseT]]] = field(default_factory=list)
+@dataclass(slots=True)
+class PipelineBehaviorMapEntry(Generic[MessageT, ResponseT]):
+    message_type: type[IMessage]
+    di_lookup_type: type[IPipelineBehavior[MessageT, ResponseT]]
+    behavior_types: list[type[IPipelineBehavior[Any, Any]]] = field(default_factory=list)
 
     @classmethod
     def for_request(cls, request_type: type[IRequest[ResponseT]]) -> Self:
         response_type = get_request_response_type(request_type)
         di_lookup_type = IPipelineBehavior[request_type, response_type]  # type: ignore[valid-type]
-        return cls(request_type=request_type, di_lookup_type=di_lookup_type)  # type: ignore[type-abstract]
+        return cls(message_type=request_type, di_lookup_type=di_lookup_type)  # type: ignore[type-abstract]
 
-    def add(self, behavior_type: type[IPipelineBehavior[RequestT, ResponseT]]) -> None:
+    @classmethod
+    def for_event(cls, event_type: type[IEvent]) -> Self:
+        di_lookup_type = IPipelineBehavior[event_type, None]  # type: ignore[valid-type]
+        return cls(message_type=event_type, di_lookup_type=di_lookup_type)  # type: ignore[type-abstract]
+
+    def add(self, behavior_type: type[IPipelineBehavior[Any, Any]]) -> None:
         if behavior_type in self.behavior_types:
-            raise PipelineBehaviorAlreadyRegistered(self.request_type, behavior_type)
+            raise PipelineBehaviorAlreadyRegistered(self.message_type, behavior_type)
         self.behavior_types.append(behavior_type)
 
 
-PipelineBehaviorMapRegistry: TypeAlias = MutableMapping[type[RequestT], PipelineBehaviorMapEntry[RequestT, ResponseT]]
+PipelineBehaviorMapRegistry: TypeAlias = MutableMapping[type[MessageT], PipelineBehaviorMapEntry[MessageT, ResponseT]]
 
 
 class PipelineBehaviorMap:
@@ -51,35 +60,42 @@ class PipelineBehaviorMap:
 
     def bind(
         self,
-        request_type: type[RequestT],
-        behavior_types: list[type[IPipelineBehavior[RequestT, ResponseT]]],
+        entry: PipelineBehaviorMapEntry[Any, Any],
+        behavior_types: list[type[IPipelineBehavior[Any, Any]]],
     ) -> Self:
         if self._frozen:
             raise MapFrozenError
-        if request_type not in self._registry:
-            self._registry[request_type] = PipelineBehaviorMapEntry.for_request(request_type)
+        if entry.message_type not in self._registry:
+            self._registry[entry.message_type] = entry
 
-        entry = self._registry[request_type]
+        existing = self._registry[entry.message_type]
         for behavior_type in behavior_types:
-            entry.add(behavior_type)
+            existing.add(behavior_type)
         return self
 
     def merge(self, other: PipelineBehaviorMap) -> Self:
         if self._frozen:
             raise MapFrozenError
-        for request_type, entry in other._registry.items():
-            self.bind(request_type, entry.behavior_types)
+        for other_entry in other._registry.values():
+            if other_entry.message_type not in self._registry:
+                self._registry[other_entry.message_type] = PipelineBehaviorMapEntry(
+                    message_type=other_entry.message_type,
+                    di_lookup_type=other_entry.di_lookup_type,
+                )
+            target = self._registry[other_entry.message_type]
+            for behavior_type in other_entry.behavior_types:
+                target.add(behavior_type)
         return self
 
     @property
     def registry(self) -> PipelineBehaviorMapRegistry[Any, Any]:
         return self._registry
 
-    def has_behaviors(self, request_type: type[RequestT]) -> bool:
-        return request_type in self._registry and len(self._registry[request_type].behavior_types) > 0
+    def has_behaviors(self, message_type: type[Any]) -> bool:
+        return message_type in self._registry and len(self._registry[message_type].behavior_types) > 0
 
-    def get_lookup_type(self, request_type: type[RequestT]) -> type[IPipelineBehavior[Any, Any]]:
-        return self._registry[request_type].di_lookup_type
+    def get_lookup_type(self, message_type: type[Any]) -> type[IPipelineBehavior[Any, Any]]:
+        return self._registry[message_type].di_lookup_type
 
     def __bool__(self) -> bool:
         return bool(self._registry)

@@ -3,7 +3,8 @@ from __future__ import annotations
 import abc
 from typing import Generic
 
-from waku.messaging.contracts.request import RequestT, ResponseT
+from waku.messaging.contracts.message import ResponseT
+from waku.messaging.contracts.request import RequestT
 
 __all__ = [
     'RequestHandler',

@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING, Any, overload
 
 if TYPE_CHECKING:
     from waku.messaging.contracts.event import IEvent
-    from waku.messaging.contracts.request import IRequest, ResponseT
+    from waku.messaging.contracts.message import ResponseT
+    from waku.messaging.contracts.request import IRequest
 
 __all__ = [
     'IMessageBus',

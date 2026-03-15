@@ -10,7 +10,8 @@ from typing_extensions import TypeVar, override
 from waku.eventsourcing._retry import execute_with_optimistic_retry
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.repository import EventSourcedRepository  # noqa: TC001  # Dishka needs runtime access
-from waku.messaging.contracts.request import RequestT, ResponseT
+from waku.messaging.contracts.message import ResponseT
+from waku.messaging.contracts.request import RequestT
 from waku.messaging.interfaces import IPublisher  # noqa: TC001  # Dishka needs runtime access
 from waku.messaging.requests.handler import RequestHandler
 

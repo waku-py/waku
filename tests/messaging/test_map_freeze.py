@@ -6,12 +6,12 @@ import pytest
 from typing_extensions import override
 
 from waku.messaging.contracts.event import IEvent
-from waku.messaging.contracts.pipeline import IPipelineBehavior, NextHandlerType
+from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.events.handler import EventHandler
 from waku.messaging.events.map import EventMap
 from waku.messaging.exceptions import MapFrozenError
-from waku.messaging.pipeline.map import PipelineBehaviorMap
+from waku.messaging.pipeline.map import PipelineBehaviorMap, PipelineBehaviorMapEntry
 from waku.messaging.requests.handler import RequestHandler
 from waku.messaging.requests.map import RequestMap
 
@@ -46,11 +46,11 @@ class DummyBehavior(IPipelineBehavior[DummyRequest, DummyResponse]):
     @override
     async def handle(
         self,
-        request: DummyRequest,
+        message: DummyRequest,
         /,
-        next_handler: NextHandlerType[DummyRequest, DummyResponse],
+        call_next: CallNext[DummyResponse],
     ) -> DummyResponse:
-        return DummyResponse(value='ok')  # pragma: no cover
+        return await call_next()  # pragma: no cover
 
 
 def _bind_request(m: RequestMap) -> None:
@@ -58,7 +58,7 @@ def _bind_request(m: RequestMap) -> None:
 
 
 def _bind_behavior(m: PipelineBehaviorMap) -> None:
-    m.bind(DummyRequest, [DummyBehavior])  # ty: ignore[invalid-argument-type]
+    m.bind(PipelineBehaviorMapEntry.for_request(DummyRequest), [DummyBehavior])
 
 
 def test_request_map_bind_after_freeze_raises() -> None:

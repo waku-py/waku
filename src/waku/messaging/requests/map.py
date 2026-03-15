@@ -2,14 +2,17 @@ from __future__ import annotations
 
 from collections.abc import MutableMapping
 from dataclasses import dataclass
-from typing import Any, Generic, Self, TypeAlias
+from typing import TYPE_CHECKING, Any, Generic, Self, TypeAlias
 
 from typing_extensions import TypeVar
 
-from waku.messaging.contracts.request import IRequest, RequestT, ResponseT
+from waku.messaging._introspection import get_request_response_type
+from waku.messaging.contracts.request import IRequest, RequestT
 from waku.messaging.exceptions import MapFrozenError, RequestHandlerAlreadyRegistered
 from waku.messaging.requests.handler import RequestHandler
-from waku.messaging.utils import get_request_response_type
+
+if TYPE_CHECKING:
+    from waku.messaging.contracts.message import ResponseT
 
 __all__ = [
     'RequestMap',

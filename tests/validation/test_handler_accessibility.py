@@ -15,7 +15,7 @@ from waku.messaging import (
     MessagingModule,
     RequestHandler,
 )
-from waku.messaging.contracts.pipeline import IPipelineBehavior, NextHandlerType
+from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
 from waku.validation import ValidationExtension
 from waku.validation.rules import DependenciesAccessibleRule
 
@@ -94,11 +94,11 @@ class ValidationBehavior(IPipelineBehavior[ProcessCommand, ProcessResult]):
     @override
     async def handle(
         self,
-        request: ProcessCommand,
+        message: ProcessCommand,
         /,
-        next_handler: NextHandlerType[ProcessCommand, ProcessResult],
+        call_next: CallNext[ProcessResult],
     ) -> ProcessResult:
-        return await next_handler(request)  # pragma: no cover
+        return await call_next()  # pragma: no cover
 
 
 async def test_pipeline_behavior_deps_validated_against_originating_module() -> None:
