@@ -159,31 +159,10 @@ If no handlers are registered for an event type, `publish` is a no-op — it doe
 
 ---
 
-## Event Publishers
+## Event Dispatch
 
-The event publisher strategy controls **how** event handlers are invoked when you call
-`bus.publish()`.
-
-| Publisher                  | Behavior                                                                                                                                                      |
-|----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `SequentialEventPublisher` | Handlers execute one after another. If a handler raises, subsequent handlers do **not** run. This is the default.                                             |
-| `GroupEventPublisher`      | Handlers execute concurrently via `anyio.create_task_group()`. If any handler raises, the task group cancels remaining handlers and propagates the exception. |
-
-Configure the publisher in `MessagingConfig`:
-
-```python linenums="1"
-from waku.messaging import MessagingConfig, MessagingModule
-from waku.messaging.events import GroupEventPublisher
-
-MessagingModule.register(
-    MessagingConfig(event_publisher=GroupEventPublisher),
-)
-```
-
-!!! tip
-    Use `SequentialEventPublisher` when handler ordering matters or when handlers share
-    transactional context. Use `GroupEventPublisher` for independent handlers that benefit
-    from concurrent execution.
+When `bus.publish()` is called, handlers execute sequentially in registration order.
+If a handler raises, subsequent handlers do **not** run.
 
 ## Further reading
 

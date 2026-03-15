@@ -65,10 +65,9 @@ class AppModule:
 
 ### MessagingConfig
 
-| Option               | Type                                | Default                    | Description                                        |
-|----------------------|-------------------------------------|----------------------------|----------------------------------------------------|
-| `event_publisher`    | `type[EventPublisher]`              | `SequentialEventPublisher` | Strategy for dispatching events to handlers        |
-| `pipeline_behaviors` | `Sequence[type[IPipelineBehavior]]` | `()`                       | Global pipeline behaviors applied to every request |
+| Option               | Type                                | Default | Description                                         |
+|----------------------|-------------------------------------|---------|-----------------------------------------------------|
+| `pipeline_behaviors` | `Sequence[type[IPipelineBehavior]]` | `()`    | Global pipeline behaviors applied to every message  |
 
 Passing `None` (or no argument) to `MessagingModule.register()` uses the defaults:
 

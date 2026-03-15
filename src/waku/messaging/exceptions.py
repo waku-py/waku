@@ -85,13 +85,13 @@ class PipelineBehaviorAlreadyRegistered(MessagingError, KeyError):  # noqa: N818
     """Raised when a pipeline behavior is already registered.
 
     Attributes:
-        request_type: The type of request that caused the error.
+        message_type: The type of message that caused the error.
         behavior_type: The type of behavior that was already registered.
     """
 
-    def __init__(self, request_type: type[IRequest[Any]], behavior_type: type[IPipelineBehavior[Any, Any]]) -> None:
-        self.request_type = request_type
+    def __init__(self, message_type: type[Any], behavior_type: type[IPipelineBehavior[Any, Any]]) -> None:
+        self.message_type = message_type
         self.behavior_type = behavior_type
 
     def __str__(self) -> str:
-        return f'{self.behavior_type.__name__} already registered for {self.request_type.__name__} request'
+        return f'{self.behavior_type.__name__} already registered for {self.message_type.__name__}'
