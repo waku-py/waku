@@ -61,7 +61,7 @@ lint = [
   "ruff==0.15.6",
 ]
 test = [
-  "coverage==7.13.4",
+  "coverage==7.13.5",
   "psycopg[binary]>=3.3.3",
   "pytest==9.0.2",
   "pytest-clarity==1.0.1",
