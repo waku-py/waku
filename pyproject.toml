@@ -55,7 +55,7 @@ docs = [
   "zensical==0.0.27",
 ]
 lint = [
-  "deptry==0.24.0",
+  "deptry==0.25.1",
   "gitlint==0.19.1",
   "prek==0.3.5",
   "ruff==0.15.6",
