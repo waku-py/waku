@@ -164,6 +164,13 @@ If no handlers are registered for an event type, `publish` is a no-op — it doe
 When `bus.publish()` is called, handlers execute sequentially in registration order.
 If a handler raises, subsequent handlers do **not** run.
 
+!!! note "Ordering with routed handlers"
+    The sequential guarantee applies to **inline** execution. When some handlers are
+    [routed to endpoints](routing.md#additive-routing), inline and routed handlers
+    run independently — there is no ordering guarantee across the boundary.
+    Inline handlers execute immediately in the caller's scope, while routed handlers
+    are processed asynchronously by endpoint workers.
+
 ## Further reading
 
 - **[Requests](requests.md)** — commands, queries, and request handlers

@@ -6,16 +6,9 @@ from typing import TypeAlias
 import pytest
 
 from waku.eventsourcing.testing import DeciderSpec
+from waku.messaging import IEvent
 
-
-@dataclass(frozen=True)
-class CounterState:
-    value: int = 0
-
-
-@dataclass(frozen=True)
-class Increment:
-    amount: int = 1
+from tests.eventsourcing.domain import CounterState, Increment, Incremented
 
 
 @dataclass(frozen=True)
@@ -29,12 +22,7 @@ class Noop:
 
 
 @dataclass(frozen=True)
-class Incremented:
-    amount: int
-
-
-@dataclass(frozen=True)
-class Decremented:
+class Decremented(IEvent):
     amount: int
 
 

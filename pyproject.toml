@@ -8,7 +8,7 @@ version = "0.39.0"
 description = "Python framework for backends that grow"
 readme = "README.md"
 license = "MIT"
-keywords = ["architecture", "modular", "decoupled", "framework", "dishka", "ioc", "di", "messaging", "eventstore", "eventsourcing"]
+keywords = ["architecture", "modular", "decoupled", "framework", "dishka", "ioc", "di", "messaging", "eventstore", "eventsourcing", "cqrs", "wolverine", "critter"]
 authors = [
   { name = "Daniil Kharkov", email = "fadeddexofan@gmail.com" },
   { name = "Doctor", email = "thirvondukr@gmail.com" },
@@ -52,31 +52,31 @@ dev = [
 docs = [
   "mkdocstrings[python]>=1.0.3",
   "pymdown-extensions>=10.21",
-  "zensical==0.0.27",
+  "zensical==0.0.28",
 ]
 lint = [
-  "deptry==0.24.0",
+  "deptry==0.25.1",
   "gitlint==0.19.1",
-  "prek==0.3.5",
-  "ruff==0.15.6",
+  "prek==0.3.6",
+  "ruff==0.15.7",
 ]
 test = [
-  "coverage==7.13.4",
+  "coverage==7.13.5",
   "psycopg[binary]>=3.3.3",
   "pytest==9.0.2",
   "pytest-clarity==1.0.1",
-  "pytest-cov==7.0.0",
+  "pytest-cov==7.1.0",
   "pytest-deadfixtures==3.1.0",
   "pytest-mock==3.15.1",
   "pytest-randomly==4.0.1",
   "pytest-timeout==2.4.0",
   "sqlalchemy[asyncio]>=2.0.48",
-  "testcontainers[postgres]>=4.14.1",
+  "testcontainers[postgres]>=4.14.2",
   "uvloop==0.22.1; sys_platform != 'win32' and python_version < '3.14'",
 ]
 typecheck = [
   "mypy==1.19.1",
-  "pyrefly==0.56.0",
+  "pyrefly==0.57.1",
   "ty==0.0.20",
 ]
 

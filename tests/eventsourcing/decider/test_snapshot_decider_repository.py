@@ -21,7 +21,7 @@ from waku.eventsourcing.snapshot.registry import SnapshotConfig, SnapshotConfigR
 from waku.eventsourcing.snapshot.strategy import EventCountStrategy
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
-from tests.eventsourcing.test_decider import CounterDecider, CounterState, Increment, Incremented
+from tests.eventsourcing.domain import CounterDecider, CounterState, Increment, Incremented
 
 
 class CounterSnapshotRepository(SnapshotDeciderRepository[CounterState, Increment, Incremented]):

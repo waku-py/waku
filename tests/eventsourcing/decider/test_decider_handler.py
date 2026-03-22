@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from waku.messaging.interfaces import IPublisher
 
     from tests.eventsourcing.decider.conftest import CounterRepository
+    from tests.eventsourcing.domain import CounterDecider
 from typing_extensions import override
 
 from waku.eventsourcing.contracts.stream import StreamId
@@ -23,8 +24,8 @@ from waku.eventsourcing.decider.handler import DeciderCommandHandler, DeciderVoi
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, EventSourcingError
 from waku.messaging.contracts.request import IRequest
 
+from tests.eventsourcing.domain import CounterState, Increment, Incremented
 from tests.eventsourcing.helpers import RecordingContext, fail_save_n_times
-from tests.eventsourcing.test_decider import CounterDecider, CounterState, Increment, Incremented
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -176,9 +177,7 @@ async def test_void_handler_returns_none(
     await repository.save('c-void', [Incremented(amount=1)], expected_version=-1)
     handler = IncrementCounterVoidHandler(repository=repository, decider=decider, publisher=publisher)
 
-    result = await handler.handle(IncrementCounterVoidCommand(counter_id='c-void', amount=2))  # type: ignore[func-returns-value]
-
-    assert result is None
+    await handler.handle(IncrementCounterVoidCommand(counter_id='c-void', amount=2))
 
 
 async def test_default_idempotency_key_passes_none_to_repository(

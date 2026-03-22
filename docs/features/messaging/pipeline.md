@@ -142,4 +142,5 @@ The response then unwinds back through the chain in reverse order.
 
 - **[Requests](requests.md)** — commands, queries, and request handlers
 - **[Events](events.md)** — event definitions, handlers, and publishers
+- **[Routing & Endpoints](routing.md)** — route messages to background endpoints
 - **[Message Bus](index.md)** — setup, interfaces, and complete example

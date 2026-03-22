@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import functools
 import typing
 
 from typing_extensions import get_original_bases
@@ -38,7 +37,6 @@ def _extract_response_from_bases(cls: type) -> type[ResponseT] | None:
     return None
 
 
-@functools.cache
 def get_request_response_type(request_type: type[IRequest[ResponseT]]) -> type[ResponseT]:
     """Extract the response type from an IRequest implementation.
 

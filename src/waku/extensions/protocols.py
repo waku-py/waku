@@ -123,4 +123,11 @@ class OnModuleDestroy(Protocol):
 ApplicationExtension: TypeAlias = (
     OnApplicationInit | AfterApplicationInit | OnApplicationShutdown | OnModuleRegistration
 )
-ModuleExtension: TypeAlias = OnModuleConfigure | OnModuleInit | OnModuleDestroy | OnModuleRegistration
+ModuleExtension: TypeAlias = (
+    OnModuleConfigure
+    | OnModuleInit
+    | OnModuleDestroy
+    | OnModuleRegistration
+    | AfterApplicationInit
+    | OnApplicationShutdown
+)

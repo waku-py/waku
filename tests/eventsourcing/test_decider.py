@@ -1,48 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from functools import reduce
-from typing import TYPE_CHECKING
 
 import pytest
 
-if TYPE_CHECKING:
-    from waku.eventsourcing.contracts.aggregate import IDecider
-
-
-@dataclass(frozen=True)
-class CounterState:
-    value: int = 0
-
-
-@dataclass(frozen=True)
-class Increment:
-    amount: int = 1
-
-
-@dataclass(frozen=True)
-class Incremented:
-    amount: int
-
-
-class CounterDecider:
-    def initial_state(self) -> CounterState:  # noqa: PLR6301
-        return CounterState()
-
-    def decide(self, command: Increment, state: CounterState) -> list[Incremented]:  # noqa: ARG002, PLR6301
-        if command.amount <= 0:
-            msg = 'Amount must be positive'
-            raise ValueError(msg)
-        return [Incremented(amount=command.amount)]
-
-    def evolve(self, state: CounterState, event: Incremented) -> CounterState:  # noqa: PLR6301
-        return CounterState(value=state.value + event.amount)
-
-
-if TYPE_CHECKING:
-
-    def _assert_protocol_conformance(decider: CounterDecider) -> IDecider[CounterState, Increment, Incremented]:
-        return decider
+from tests.eventsourcing.domain import CounterDecider, CounterState, Increment, Incremented
 
 
 def test_initial_state_returns_default_state() -> None:

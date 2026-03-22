@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
+from typing_extensions import override
+
+from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate, IDecider
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.messaging.contracts.event import IEvent
 
@@ -75,3 +77,35 @@ class Note(EventSourcedAggregate):
 
 class NoteRepository(EventSourcedRepository[Note]):
     pass
+
+
+@dataclass(frozen=True)
+class CounterState:
+    value: int = 0
+
+
+@dataclass(frozen=True)
+class Increment:
+    amount: int = 1
+
+
+@dataclass(frozen=True)
+class Incremented(IEvent):
+    amount: int
+
+
+class CounterDecider(IDecider[CounterState, Increment, Incremented]):
+    @override
+    def initial_state(self) -> CounterState:
+        return CounterState()
+
+    @override
+    def decide(self, command: Increment, state: CounterState) -> list[Incremented]:
+        if command.amount <= 0:
+            msg = 'Amount must be positive'
+            raise ValueError(msg)
+        return [Incremented(amount=command.amount)]
+
+    @override
+    def evolve(self, state: CounterState, event: Incremented) -> CounterState:
+        return CounterState(value=state.value + event.amount)

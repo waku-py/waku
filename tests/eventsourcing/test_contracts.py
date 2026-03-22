@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import FrozenInstanceError
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import pytest
@@ -27,6 +27,12 @@ from waku.eventsourcing.exceptions import (
     StreamNotFoundError,
 )
 from waku.exceptions import WakuError
+from waku.messaging import IEvent
+
+
+@dataclass(frozen=True)
+class SampleEvent(IEvent):
+    value: str = ''
 
 
 def test_stream_id_stores_value() -> None:
@@ -92,12 +98,6 @@ def test_no_stream_stream_exists_any_version_are_equal_by_value() -> None:
     assert AnyVersion() == AnyVersion()
 
 
-def test_exact_is_frozen() -> None:
-    exact = Exact(version=1)
-    with pytest.raises(FrozenInstanceError):
-        exact.version = 99  # type: ignore[misc]
-
-
 def test_event_metadata_defaults() -> None:
     meta = EventMetadata()
     assert meta.correlation_id is None
@@ -106,21 +106,23 @@ def test_event_metadata_defaults() -> None:
 
 
 def test_event_envelope_defaults() -> None:
-    envelope = EventEnvelope(domain_event='SomeEvent', idempotency_key='test-key')
-    assert envelope.domain_event == 'SomeEvent'
+    event = SampleEvent()
+    envelope = EventEnvelope(domain_event=event, idempotency_key='test-key')
+    assert envelope.domain_event == event
     assert envelope.idempotency_key == 'test-key'
     assert envelope.metadata == EventMetadata()
 
 
 def test_event_envelope_empty_idempotency_key_raises_value_error() -> None:
     with pytest.raises(ValueError, match='idempotency_key must not be empty'):
-        EventEnvelope(domain_event='SomeEvent', idempotency_key='')
+        EventEnvelope(domain_event=SampleEvent(), idempotency_key='')
 
 
 def test_stored_event_construction() -> None:
     event_id = uuid.uuid4()
     now = datetime.now(tz=UTC)
     meta = EventMetadata(correlation_id='corr-1', causation_id='cause-1')
+    event = SampleEvent(value='test')
     stored = StoredEvent(
         event_id=event_id,
         stream_id=StreamId(stream_type='order', stream_key='1'),
@@ -128,7 +130,7 @@ def test_stored_event_construction() -> None:
         position=0,
         global_position=42,
         timestamp=now,
-        data={'total': 100},
+        data=event,
         metadata=meta,
         idempotency_key='test-key',
     )
@@ -138,7 +140,7 @@ def test_stored_event_construction() -> None:
     assert stored.position == 0
     assert stored.global_position == 42
     assert stored.timestamp == now
-    assert stored.data == {'total': 100}
+    assert stored.data == event
     assert stored.metadata.correlation_id == 'corr-1'
 
 

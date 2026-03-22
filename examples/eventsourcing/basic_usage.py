@@ -223,11 +223,11 @@ async def main() -> None:
 
         # Deposit money
         result2 = await bus.invoke(DepositCommand(account_id='acc-1', amount=500))
-        logger.info('Balance after deposit: %d', result2.balance)  # ty: ignore[unresolved-attribute]
+        logger.info('Balance after deposit: %d', result2.balance)
 
         # Deposit more
         result3 = await bus.invoke(DepositCommand(account_id='acc-1', amount=300))
-        logger.info('Balance after second deposit: %d', result3.balance)  # ty: ignore[unresolved-attribute]
+        logger.info('Balance after second deposit: %d', result3.balance)
 
 
 if __name__ == '__main__':

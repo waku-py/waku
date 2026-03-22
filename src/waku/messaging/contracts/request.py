@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Generic
 
 from typing_extensions import TypeVar
 
@@ -12,8 +12,7 @@ __all__ = [
 ]
 
 
-@runtime_checkable
-class IRequest(IMessage, Protocol[ResponseT]):
+class IRequest(IMessage, Generic[ResponseT]):
     """Marker interface for request-type objects (commands/queries).
 
     Example::

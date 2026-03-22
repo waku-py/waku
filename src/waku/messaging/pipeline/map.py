@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import MutableMapping
+from collections.abc import Iterator, MutableMapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generic, Self, TypeAlias
 
@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 __all__ = [
     'PipelineBehaviorMap',
     'PipelineBehaviorMapEntry',
-    'PipelineBehaviorMapRegistry',
 ]
 
 
@@ -76,7 +75,7 @@ class PipelineBehaviorMap:
     def merge(self, other: PipelineBehaviorMap) -> Self:
         if self._frozen:
             raise MapFrozenError
-        for other_entry in other._registry.values():
+        for other_entry in other.entries():
             if other_entry.message_type not in self._registry:
                 self._registry[other_entry.message_type] = PipelineBehaviorMapEntry(
                     message_type=other_entry.message_type,
@@ -87,14 +86,16 @@ class PipelineBehaviorMap:
                 target.add(behavior_type)
         return self
 
-    @property
-    def registry(self) -> PipelineBehaviorMapRegistry[Any, Any]:
-        return self._registry
+    def entries(self) -> Iterator[PipelineBehaviorMapEntry[Any, Any]]:
+        yield from self._registry.values()
 
-    def has_behaviors(self, message_type: type[Any]) -> bool:
+    def has_behaviors(self, message_type: type[IMessage]) -> bool:
         return message_type in self._registry and len(self._registry[message_type].behavior_types) > 0
 
-    def get_lookup_type(self, message_type: type[Any]) -> type[IPipelineBehavior[Any, Any]]:
+    def get_behavior_types(self, message_type: type[IMessage]) -> Sequence[type[IPipelineBehavior[Any, Any]]]:
+        return self._registry[message_type].behavior_types
+
+    def get_lookup_type(self, message_type: type[IMessage]) -> type[IPipelineBehavior[Any, Any]]:
         return self._registry[message_type].di_lookup_type
 
     def __bool__(self) -> bool:
