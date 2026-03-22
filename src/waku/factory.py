@@ -9,7 +9,13 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 from dishka import STRICT_VALIDATION, make_async_container
 
 from waku.application import WakuApplication
-from waku.extensions import DEFAULT_EXTENSIONS, ExtensionRegistry
+from waku.extensions import (
+    DEFAULT_EXTENSIONS,
+    AfterApplicationInit,
+    ExtensionRegistry,
+    OnApplicationInit,
+    OnApplicationShutdown,
+)
 from waku.modules import ModuleRegistryBuilder
 
 if TYPE_CHECKING:
@@ -75,6 +81,8 @@ class WakuFactory:
         for module in modules:
             for module_extension in module.extensions:
                 extension_registry.register_module_extension(module.target, module_extension)
+                if isinstance(module_extension, (OnApplicationInit, AfterApplicationInit, OnApplicationShutdown)):
+                    extension_registry.register_application_extension(module_extension)
         return extension_registry
 
     def _build_container(self, providers: Sequence[BaseProvider]) -> AsyncContainer:

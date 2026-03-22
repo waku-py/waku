@@ -6,10 +6,11 @@ import pytest
 
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
+from waku.messaging import IEvent
 
 
 @dataclass(frozen=True)
-class OrderCreated:
+class OrderCreated(IEvent):
     order_id: str
     amount: int
 
@@ -21,7 +22,7 @@ class Address:
 
 
 @dataclass(frozen=True)
-class CustomerCreated:
+class CustomerCreated(IEvent):
     name: str
     address: Address
 
@@ -67,9 +68,9 @@ def test_round_trip_nested_dataclass(event_serializer: JsonEventSerializer) -> N
 
 def test_serialize_non_dataclass_raises(event_serializer: JsonEventSerializer) -> None:
     with pytest.raises(TypeError, match='Expected a dataclass instance'):
-        event_serializer.serialize('not a dataclass')
+        event_serializer.serialize('not a dataclass')  # type: ignore[arg-type]
 
 
 def test_serialize_dataclass_type_raises(event_serializer: JsonEventSerializer) -> None:
     with pytest.raises(TypeError, match='Expected a dataclass instance'):
-        event_serializer.serialize(OrderCreated)
+        event_serializer.serialize(OrderCreated)  # type: ignore[arg-type]

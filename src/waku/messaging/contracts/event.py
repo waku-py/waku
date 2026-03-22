@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol, TypeVar
+from typing import TypeVar
 
 from waku.messaging.contracts.message import IMessage
 
@@ -10,7 +10,7 @@ __all__ = [
 ]
 
 
-class IEvent(IMessage, Protocol):
+class IEvent(IMessage):
     """Marker interface for event-type objects.
 
     This is a pure marker protocol with no required attributes or methods.

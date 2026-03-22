@@ -253,10 +253,10 @@ async def main() -> None:
             logger.info('Account opened: %s', result)
 
             result2 = await bus.invoke(DepositCommand(account_id='acc-1', amount=500))
-            logger.info('Balance after deposit: %d', result2.balance)  # ty: ignore[unresolved-attribute]
+            logger.info('Balance after deposit: %d', result2.balance)
 
             result3 = await bus.invoke(DepositCommand(account_id='acc-1', amount=300))
-            logger.info('Balance after second deposit: %d', result3.balance)  # ty: ignore[unresolved-attribute]
+            logger.info('Balance after second deposit: %d', result3.balance)
     finally:
         async with engine.begin() as conn:
             await conn.run_sync(metadata.drop_all)

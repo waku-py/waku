@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Protocol
-
 from typing_extensions import TypeVar
 
 __all__ = [
@@ -11,7 +9,7 @@ __all__ = [
 ]
 
 
-class IMessage(Protocol):
+class IMessage:
     __slots__ = ()
 
 

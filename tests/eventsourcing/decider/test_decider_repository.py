@@ -11,7 +11,7 @@ from tests.eventsourcing.decider.conftest import (  # noqa: TC002  # needed for 
     CounterRepository,
     LimitedCounterRepository,
 )
-from tests.eventsourcing.test_decider import CounterState, Increment, Incremented
+from tests.eventsourcing.domain import CounterState, Increment, Incremented
 
 
 async def test_load_empty_stream_returns_initial_state_with_version_minus_one(

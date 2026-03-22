@@ -54,7 +54,7 @@ class DummyBehavior(IPipelineBehavior[DummyRequest, DummyResponse]):
 
 
 def _bind_request(m: RequestMap) -> None:
-    m.bind(DummyRequest, DummyHandler)  # ty: ignore[invalid-argument-type]
+    m.bind(DummyRequest, DummyHandler)
 
 
 def _bind_behavior(m: PipelineBehaviorMap) -> None:

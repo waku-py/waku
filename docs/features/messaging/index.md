@@ -65,9 +65,11 @@ class AppModule:
 
 ### MessagingConfig
 
-| Option               | Type                                | Default | Description                                         |
-|----------------------|-------------------------------------|---------|-----------------------------------------------------|
-| `pipeline_behaviors` | `Sequence[type[IPipelineBehavior]]` | `()`    | Global pipeline behaviors applied to every message  |
+| Option               | Type                                           | Default | Description                                                        |
+|----------------------|------------------------------------------------|---------|--------------------------------------------------------------------|
+| `pipeline_behaviors` | `Sequence[type[IPipelineBehavior]]`            | `()`    | Global pipeline behaviors applied to every message                 |
+| `endpoints`          | `Sequence[EndpointEntry]`                      | `()`    | Available message endpoints (see [Routing](routing.md))            |
+| `routing`            | `Sequence[RouteDescriptor \| ModuleRouteDescriptor]` | `()`    | Route descriptors mapping messages to endpoints (see [Routing](routing.md)) |
 
 Passing `None` (or no argument) to `MessagingModule.register()` uses the defaults:
 
@@ -302,11 +304,14 @@ async def main() -> None:
 
 ## Next steps
 
-| Topic                             | Description                                   |
-|-----------------------------------|-----------------------------------------------|
-| [Requests](requests.md)           | Commands, queries, and request handlers       |
-| [Events](events.md)               | Event definitions, handlers, and publishers   |
-| [Pipeline Behaviors](pipeline.md) | Cross-cutting middleware for request handling |
+| Topic                                  | Description                                        |
+|----------------------------------------|----------------------------------------------------|
+| [Requests](requests.md)               | Commands, queries, and request handlers            |
+| [Events](events.md)                   | Event definitions, handlers, and publishers        |
+| [Pipeline Behaviors](pipeline.md)     | Cross-cutting middleware for request handling       |
+| [Routing & Endpoints](routing.md)     | Route messages to background endpoints             |
+| [Message Context](context.md)         | Correlation tracking across message chains         |
+| [Transactions](transactions.md)       | Unit of work and transactional pipeline behavior   |
 
 ## Further reading
 

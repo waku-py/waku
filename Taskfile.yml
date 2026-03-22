@@ -88,7 +88,7 @@ tasks:
 
   typecheck:
     desc: Run all typecheckers
-    deps: [ ty, pyrefly, mypy ]
+    deps: [ pyrefly, mypy ]
 
   mypy:
     desc: Type check code with MyPy

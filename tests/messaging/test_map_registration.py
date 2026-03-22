@@ -79,10 +79,9 @@ class _Behavior(IPipelineBehavior[_Request, _Response]):
 
 def test_request_map_rejects_duplicate_handler() -> None:
     m = RequestMap()
-    m.bind(_Request, _Handler)  # ty: ignore[invalid-argument-type]
-
+    m.bind(_Request, _Handler)
     with pytest.raises(RequestHandlerAlreadyRegistered, match='_Request already exists in registry'):
-        m.bind(_Request, _AnotherHandler)  # ty: ignore[invalid-argument-type]
+        m.bind(_Request, _AnotherHandler)
 
 
 def test_event_map_rejects_duplicate_handler() -> None:
@@ -114,8 +113,7 @@ def test_pipeline_map_rejects_duplicate_event_behavior() -> None:
 
 def test_request_map_merge_combines_entries() -> None:
     m1 = RequestMap()
-    m1.bind(_Request, _Handler)  # ty: ignore[invalid-argument-type]
-
+    m1.bind(_Request, _Handler)
     m2 = RequestMap()
     m2.merge(m1)
 
@@ -150,7 +148,7 @@ def test_pipeline_map_merge_appends_to_existing_entry() -> None:
     m2.bind(PipelineBehaviorMapEntry.for_event(_Event), [_Behavior])
     m2.merge(m1)
 
-    assert len(m2.registry[_Event].behavior_types) == 2
+    assert len(m2.get_behavior_types(_Event)) == 2
 
 
 # --- Truthiness ---
@@ -162,7 +160,7 @@ def test_request_map_is_falsy_when_empty() -> None:
 
 def test_request_map_is_truthy_after_bind() -> None:
     m = RequestMap()
-    m.bind(_Request, _Handler)  # ty: ignore[invalid-argument-type]
+    m.bind(_Request, _Handler)
     assert m
 
 
@@ -184,3 +182,8 @@ def test_pipeline_map_is_truthy_after_bind() -> None:
     m = PipelineBehaviorMap()
     m.bind(PipelineBehaviorMapEntry.for_request(_Request), [_Behavior])
     assert m
+
+
+def test_event_map_get_handler_types_returns_empty_for_unknown() -> None:
+    m = EventMap()
+    assert m.get_handler_types(_Event) == ()

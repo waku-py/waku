@@ -1,32 +1,44 @@
-from collections.abc import Sequence
-from typing import Any, cast, overload
+from __future__ import annotations
 
-from dishka.exceptions import NoFactoryError
+from typing import TYPE_CHECKING, Any, overload
+
 from typing_extensions import override
 
-from waku.di import AsyncContainer
-from waku.messaging import IPipelineBehavior
-from waku.messaging.contracts.event import IEvent
-from waku.messaging.contracts.message import ResponseT
-from waku.messaging.contracts.request import IRequest
-from waku.messaging.events.handler import EventHandler
-from waku.messaging.exceptions import RequestHandlerNotFound
+from waku.di import AsyncContainer  # noqa: TC001  # Dishka needs runtime access
+from waku.messaging.context import (
+    MessageContext,
+    reset_message_context,
+    set_message_context,
+    try_get_message_context,
+)
+from waku.messaging.contracts.factory import EnvelopeFactory  # noqa: TC001  # Dishka needs runtime access
+from waku.messaging.dispatcher import MessageDispatcher  # noqa: TC001  # Dishka needs runtime access
 from waku.messaging.interfaces import IMessageBus
-from waku.messaging.pipeline import PipelineExecutor
-from waku.messaging.registry import MessageRegistry
-from waku.messaging.requests.handler import RequestHandler
+from waku.messaging.router import MessageRouter  # noqa: TC001  # Dishka needs runtime access
+
+if TYPE_CHECKING:
+    from contextvars import Token
+
+    from waku.messaging.contracts.envelope import MessageEnvelope
+    from waku.messaging.contracts.event import IEvent
+    from waku.messaging.contracts.message import ResponseT
+    from waku.messaging.contracts.request import IRequest
 
 
 class MessageBus(IMessageBus):
-    __slots__ = ('_container', '_registry')
+    __slots__ = ('_container', '_dispatcher', '_envelope_factory', '_router')
 
     def __init__(
         self,
         container: AsyncContainer,
-        registry: MessageRegistry,
+        dispatcher: MessageDispatcher,
+        envelope_factory: EnvelopeFactory,
+        router: MessageRouter,
     ) -> None:
         self._container = container
-        self._registry = registry
+        self._dispatcher = dispatcher
+        self._envelope_factory = envelope_factory
+        self._router = router
 
     @overload
     async def invoke(self, request: IRequest[None], /) -> None: ...
@@ -36,60 +48,67 @@ class MessageBus(IMessageBus):
 
     @override
     async def invoke(self, request: IRequest[Any], /) -> Any:
-        request_type = type(request)
-        handler = await self._resolve_request_handler(request_type)  # pyrefly: ignore[bad-argument-type]
-        behaviors = await self._resolve_behaviors(request_type)  # pyrefly: ignore[bad-argument-type]
-
-        return await PipelineExecutor.execute(
-            message=request,
-            handler=handler,
-            behaviors=behaviors,
-        )
+        envelope = self._create_envelope(request)
+        token = self._set_context(envelope)
+        try:
+            return await self._dispatcher.invoke_request(request)
+        finally:
+            self._reset_context(token)
 
     @override
     async def send(self, request: IRequest[Any], /) -> None:
-        await self.invoke(request)
+        envelope = self._create_envelope(request)
+        endpoints = self._router.resolve(type(request))
+        if not endpoints:
+            token = self._set_context(envelope)
+            try:
+                await self._dispatcher.invoke_request(request)
+            finally:
+                self._reset_context(token)
+        else:
+            for endpoint in endpoints:
+                await endpoint.dispatch(envelope, self._container)
 
     @override
     async def publish(self, event: IEvent, /) -> None:
-        event_type = type(event)
-        handlers = await self._resolve_event_handlers(event_type)  # pyrefly: ignore[bad-argument-type]
-        behaviors = await self._resolve_behaviors(event_type)  # pyrefly: ignore[bad-argument-type]
+        envelope = self._create_envelope(event)
+        endpoints = self._router.resolve(type(event))
+        if not endpoints:
+            token = self._set_context(envelope)
+            try:
+                await self._dispatcher.publish_event(event)
+            finally:
+                self._reset_context(token)
+        else:
+            excluded = self._router.routed_handler_types(type(event))
+            token = self._set_context(envelope)
+            try:
+                await self._dispatcher.publish_event_excluding(event, exclude=excluded)
+            finally:
+                self._reset_context(token)
+            for endpoint in endpoints:
+                await endpoint.dispatch(envelope, self._container)
 
-        for handler in handlers:
-            await PipelineExecutor.execute(message=event, handler=handler, behaviors=behaviors)
+    def _create_envelope(self, message: Any) -> MessageEnvelope[Any]:
+        ctx = try_get_message_context()
+        if ctx is not None:
+            return self._envelope_factory.create(
+                message,
+                correlation_id=ctx.correlation_id,
+                causation_id=ctx.message_id,
+            )
+        return self._envelope_factory.create(message)
 
-    async def _resolve_request_handler(
-        self,
-        request_type: type[IRequest[ResponseT]],
-    ) -> RequestHandler[IRequest[ResponseT], ResponseT]:
-        if not self._registry.request_map.has_handler(request_type):
-            raise RequestHandlerNotFound(request_type)
+    @staticmethod
+    def _set_context(envelope: MessageEnvelope[Any]) -> Token[MessageContext | None]:
+        ctx = MessageContext(
+            correlation_id=envelope.correlation_id,
+            causation_id=envelope.causation_id,
+            message_id=envelope.message_id,
+            headers=envelope.headers,
+        )
+        return set_message_context(ctx)
 
-        handler_type = self._registry.request_map.get_handler_type(request_type)
-        return cast('RequestHandler[IRequest[ResponseT], ResponseT]', await self._container.get(handler_type))
-
-    async def _resolve_behaviors(self, message_type: type[Any]) -> Sequence[IPipelineBehavior[Any, Any]]:
-        try:
-            global_behaviors = await self._container.get(Sequence[IPipelineBehavior[Any, Any]])
-        except NoFactoryError:
-            global_behaviors = ()
-
-        if not self._registry.behavior_map.has_behaviors(message_type):
-            return global_behaviors
-
-        lookup_type = self._registry.behavior_map.get_lookup_type(message_type)
-        scoped_behaviors = await self._container.get(Sequence[lookup_type])  # type: ignore[valid-type]
-
-        return (*global_behaviors, *scoped_behaviors)
-
-    async def _resolve_event_handlers(
-        self,
-        event_type: type[IEvent],
-    ) -> Sequence[EventHandler[IEvent]]:
-        if not self._registry.event_map.has_handlers(event_type):
-            return ()
-
-        handler_type = self._registry.event_map.get_handler_type(event_type)
-        handlers = await self._container.get(Sequence[handler_type])  # type: ignore[valid-type]
-        return cast('Sequence[EventHandler[IEvent]]', handlers)  # pyrefly: ignore[redundant-cast]
+    @staticmethod
+    def _reset_context(token: Token[MessageContext | None]) -> None:
+        reset_message_context(token)

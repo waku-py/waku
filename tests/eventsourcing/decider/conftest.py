@@ -9,7 +9,7 @@ from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.messaging.interfaces import IPublisher
 
-from tests.eventsourcing.test_decider import CounterDecider, CounterState, Increment, Incremented
+from tests.eventsourcing.domain import CounterDecider, CounterState, Increment, Incremented
 
 if TYPE_CHECKING:
     from unittest.mock import AsyncMock

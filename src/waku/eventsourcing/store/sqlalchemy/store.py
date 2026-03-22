@@ -39,6 +39,7 @@ from waku.eventsourcing.upcasting.chain import UpcasterChain  # noqa: TC001  # D
 if TYPE_CHECKING:
     from waku.eventsourcing.contracts.event import EventEnvelope
     from waku.eventsourcing.contracts.stream import ExpectedVersion
+    from waku.messaging.contracts.event import IEvent
 
 __all__ = [
     'SqlAlchemyEventStore',
@@ -356,7 +357,7 @@ class SqlAlchemyEventStore(IEventStore):
     ) -> list[StoredEvent]:
         key = str(stream_id)
         rows: list[dict[str, Any]] = []
-        envelopes_data: list[tuple[uuid.UUID, str, datetime, object, EventMetadata]] = []
+        envelopes_data: list[tuple[uuid.UUID, str, datetime, IEvent, EventMetadata]] = []
 
         position = start_position
         for envelope in events:

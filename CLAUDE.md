@@ -15,14 +15,22 @@ Waku is a modular, type-safe Python framework (3.11+) inspired by NestJS, built 
 
 ```
 src/waku/
+├── uow.py           # IUnitOfWork protocol (general infrastructure concern)
 ├── messaging/       # Messaging: IRequest, IEvent, Pipeline behaviors, MessageBus
-│   ├── contracts/   # IRequest, IEvent, IPipelineBehavior interfaces
+│   ├── contracts/   # IRequest, IEvent, IPipelineBehavior, MessageEnvelope, EnvelopeFactory
+│   ├── context.py   # MessageContext (ContextVar-based, correlation/causation propagation)
+│   ├── dispatcher.py # MessageDispatcher (handler/behavior resolution, no routing)
+│   ├── endpoints/   # Endpoint model (ABC, LocalQueueEndpoint, EndpointEntry)
+│   ├── behaviors/   # Pipeline behaviors (TransactionalBehavior)
 │   ├── events/      # EventHandler implementations
-│   ├── pipeline/    # Pipeline behavior chain
+│   ├── pipeline/    # PipelineExecutor, behavior chain
 │   ├── requests/    # RequestHandler implementations
-│   ├── impl.py      # MessageBus implementation
+│   ├── router.py    # MessageRouter, RoutingTable, route()/route_module() helpers
+│   ├── transport/   # ITransport protocol (external transports)
+│   ├── sqla/        # SQLAlchemy adapters (SqlAlchemyUnitOfWork)
+│   ├── impl.py      # MessageBus (thin routing facade)
 │   ├── interfaces.py # IMessageBus, ISender, IPublisher
-│   └── modules.py   # MessagingModule, MessagingConfig, MessagingExtension
+│   └── modules.py   # MessagingModule, MessagingConfig, MessagingExtension, EndpointLifecycleExtension
 ├── di/              # DI helpers wrapping dishka (scoped, singleton, transient, etc.)
 ├── eventsourcing/   # Event sourcing extension
 │   ├── contracts/   # Aggregate, Event envelope, Stream primitives
@@ -81,11 +89,19 @@ Modules use `@module(providers=[], imports=[], exports=[], extensions=[])` decor
 Provider helpers from `waku.di`: `singleton`, `scoped`, `transient`, `contextual`, `object_`, `many`, `provider`, `activator`. The `provided_type=` kwarg maps implementation to interface. Conditional activation via `when=Marker(...)` / `when=Has(Type)`.
 
 ### Messaging + Message Bus
-- `IRequest[TResponse]` for commands/queries, `IEvent` for notifications
+- `IRequest[TResponse]` for commands/queries, `IEvent` for notifications (plain marker classes, not Protocols)
 - `RequestHandler[TRequest, TResponse]` and `EventHandler[TEvent]`
-- `IPipelineBehavior` for cross-cutting concerns (logging, validation, etc.)
-- `MessageBus` dispatches via `ISender.invoke()` (request/response), `ISender.send()` (fire-and-forget), and `IPublisher.publish()` (fan-out)
+- `IPipelineBehavior` for cross-cutting concerns (logging, validation, transactions)
+- `MessageBus` is a **thin routing facade**: creates `MessageEnvelope`, sets `MessageContext`, delegates to `MessageDispatcher` (inline) or `Endpoint` (routed)
+- `MessageDispatcher` handles handler/behavior resolution and `PipelineExecutor` invocation — no routing logic
 - `IMessageBus(ISender, IPublisher)` — unified bus interface; inject narrowest needed
+- `ISender.invoke()` (request/response, always inline), `ISender.send()` (fire-and-forget, routable), `IPublisher.publish()` (fan-out, routable with additive routing)
+- `MessageContext` — ContextVar-based correlation/causation propagation (`get_message_context()` in handlers)
+- `MessageEnvelope[T]` — immutable wrapper with message_id, correlation_id, causation_id, headers
+- Endpoint model: `LocalQueueEndpoint` (anyio memory streams, background worker), `EndpointEntry` config
+- Routing: `route(Type).to('uri')` (per-type), `route_module(Module).events_to('uri')` (module-level)
+- `TransactionalBehavior` — UoW commit/rollback pipeline behavior
+- `IUnitOfWork` protocol at `src/waku/uow.py` (top-level, not messaging-specific)
 - Integration: `@module(imports=[MessagingModule.register(config=MessagingConfig())])`
 
 ### Event Sourcing

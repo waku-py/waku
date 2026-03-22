@@ -17,8 +17,10 @@ from tests.eventsourcing.store.domain import ItemAdded, OrderCreated
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from waku.messaging import IEvent
 
-def make_envelope(event: object) -> EventEnvelope:
+
+def make_envelope(event: IEvent) -> EventEnvelope:
     return EventEnvelope(domain_event=event, idempotency_key=str(uuid.uuid4()))
 
 

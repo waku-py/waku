@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import MutableMapping
+from collections.abc import Iterator, MutableMapping, Sequence
 from dataclasses import dataclass, field
 from typing import Generic, Self, TypeAlias
 
@@ -13,7 +13,6 @@ from waku.messaging.exceptions import EventHandlerAlreadyRegistered, MapFrozenEr
 __all__ = [
     'EventMap',
     'EventMapEntry',
-    'EventMapRegistry',
 ]
 
 _EventT = TypeVar('_EventT', bound=IEvent, default=IEvent)
@@ -65,13 +64,21 @@ class EventMap:
     def merge(self, other: EventMap) -> Self:
         if self._frozen:
             raise MapFrozenError
-        for event_type, entry in other._registry.items():
-            self.bind(event_type, entry.handler_types)
+        for entry in other.entries():
+            self.bind(entry.event_type, entry.handler_types)
         return self
 
-    @property
-    def registry(self) -> EventMapRegistry:
-        return self._registry
+    def entries(self) -> Iterator[EventMapEntry[IEvent]]:
+        yield from self._registry.values()
+
+    def event_types(self) -> Iterator[type[IEvent]]:
+        yield from self._registry
+
+    def get_handler_types(self, event_type: type[IEvent]) -> Sequence[type[EventHandler[IEvent]]]:
+        entry = self._registry.get(event_type)
+        if entry is None:
+            return ()
+        return entry.handler_types
 
     def has_handlers(self, event_type: type[IEvent]) -> bool:
         return event_type in self._registry and len(self._registry[event_type].handler_types) > 0

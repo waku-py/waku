@@ -77,7 +77,7 @@ async def test_multi_module_event_handlers_all_resolved() -> None:
 
     async with app, app.container() as container:
         message_registry = await container.get(MessageRegistry)
-        assert len(message_registry.event_map.registry[OrderPlaced].handler_types) == 3
+        assert len(message_registry.event_map.get_handler_types(OrderPlaced)) == 3
 
         handler_type = message_registry.event_map.get_handler_type(OrderPlaced)
         handlers = await container.get(Sequence[handler_type])  # type: ignore[valid-type]

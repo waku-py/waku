@@ -31,15 +31,15 @@ class MessageRegistry:
         self.behavior_map.freeze()
 
     def handler_providers(self) -> Iterator[Provider]:
-        for entry in self.request_map.registry.values():
+        for entry in self.request_map.entries():
             yield scoped(entry.di_lookup_type, entry.handler_type)
-        for entry in self.event_map.registry.values():
+        for entry in self.event_map.entries():
             yield many(entry.di_lookup_type, *entry.handler_types, collect=False)
-        for entry in self.behavior_map.registry.values():
+        for entry in self.behavior_map.entries():
             yield many(entry.di_lookup_type, *entry.behavior_types, collect=False)
 
     def collector_providers(self) -> Iterator[Provider]:
-        for entry in self.event_map.registry.values():
+        for entry in self.event_map.entries():
             yield many(entry.di_lookup_type, collect=True)
-        for entry in self.behavior_map.registry.values():
+        for entry in self.behavior_map.entries():
             yield many(entry.di_lookup_type, collect=True)

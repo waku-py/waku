@@ -2,26 +2,23 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 from waku.eventsourcing.contracts.event import EventEnvelope
-
-if TYPE_CHECKING:
-    from waku.messaging import IEvent
+from waku.messaging import IEvent
 
 
 @dataclass(frozen=True)
-class OrderCreated:
+class OrderCreated(IEvent):
     order_id: str
 
 
 @dataclass(frozen=True)
-class ItemAdded:
+class ItemAdded(IEvent):
     item_name: str
 
 
 @dataclass(frozen=True)
-class OrderShipped:
+class OrderShipped(IEvent):
     tracking_number: str
 
 

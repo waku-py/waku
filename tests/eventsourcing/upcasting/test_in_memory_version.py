@@ -6,10 +6,11 @@ from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import NoStream, StreamId
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
+from waku.messaging import IEvent
 
 
 @dataclass(frozen=True)
-class OrderCreated:
+class OrderCreated(IEvent):
     order_id: str
 
 

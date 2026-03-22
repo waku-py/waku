@@ -82,14 +82,15 @@ repos:
         fail_fast: true
         stages: [ pre-push, manual ]  # Run on push only to speed up commits
 
-      - id: typecheck-ty
-        name: Run type checking with Ty
-        entry: task ty -- --output-format=concise
-        types: [ python ]
-        language: system
-        pass_filenames: false
-        fail_fast: true
-        stages: [ pre-commit, pre-push, manual ]
+      # TODO: re-enable ty when it passes more typing conformance tests
+      # - id: typecheck-ty
+      #   name: Run type checking with Ty
+      #   entry: task ty -- --output-format=concise
+      #   types: [ python ]
+      #   language: system
+      #   pass_filenames: false
+      #   fail_fast: true
+      #   stages: [ pre-commit, pre-push, manual ]
 
       - id: typecheck-pyrefly
         name: Run type checking with pyrefly

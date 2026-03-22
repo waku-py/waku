@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import MutableMapping
+from collections.abc import Iterator, MutableMapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic, Self, TypeAlias
 
@@ -17,7 +17,6 @@ if TYPE_CHECKING:
 __all__ = [
     'RequestMap',
     'RequestMapEntry',
-    'RequestMapRegistry',
 ]
 
 _MapReqT = TypeVar('_MapReqT', bound='IRequest[Any]', default='IRequest[Any]')
@@ -66,9 +65,8 @@ class RequestMap:
             self.bind(request_type, entry.handler_type)
         return self
 
-    @property
-    def registry(self) -> RequestMapRegistry:
-        return self._registry
+    def entries(self) -> Iterator[RequestMapEntry[IRequest[Any], Any]]:
+        yield from self._registry.values()
 
     def has_handler(self, request_type: type[RequestT]) -> bool:
         return request_type in self._registry

@@ -13,7 +13,7 @@ from waku.modules import module
 from waku.testing import create_test_app
 
 from tests.eventsourcing.decider.conftest import CounterRepository
-from tests.eventsourcing.test_decider import CounterDecider, CounterState, Increment, Incremented
+from tests.eventsourcing.domain import CounterDecider, CounterState, Increment, Incremented
 
 
 @dataclass(frozen=True, kw_only=True)

@@ -11,15 +11,16 @@ from waku.eventsourcing.exceptions import (
     UnknownEventTypeError,
 )
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
+from waku.messaging import IEvent
 
 
 @dataclass(frozen=True)
-class OrderCreated:
+class OrderCreated(IEvent):
     order_id: str
 
 
 @dataclass(frozen=True)
-class ItemAdded:
+class ItemAdded(IEvent):
     item_name: str
 
 
