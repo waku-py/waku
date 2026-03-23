@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
     from waku.eventsourcing.contracts.aggregate import IDecider
     from waku.eventsourcing.decider.repository import DeciderRepository
+    from waku.eventsourcing.store.in_memory import InMemoryEventStore
     from waku.messaging.interfaces import IPublisher
 
     from tests.eventsourcing.decider.conftest import CounterRepository
@@ -127,7 +128,7 @@ class IdempotentCreateCounterHandler(
         return CounterResponse(value=state.value, version=version)
 
     @override
-    def _idempotency_key(self, request: IdempotentCreateCounterCommand) -> str | None:
+    def _idempotency_key(self, request: IdempotentCreateCounterCommand, version: int) -> str | None:
         return request.idempotency_key or None
 
 
@@ -312,7 +313,7 @@ async def test_max_attempts_1_no_retry(
 
 def test_max_attempts_zero_raises_value_error() -> None:
     with pytest.raises(ValueError, match='max_attempts must be >= 1'):
-
+        # noinspection PyUnusedLocal
         class ZeroAttemptHandler(IncrementCounterHandler):
             max_attempts = 0
 
@@ -397,3 +398,41 @@ async def test_attempt_context_entered_per_retry_attempt(
 
     assert len(contexts) == 2
     assert all(c.entered == 1 and c.exited == 1 for c in contexts)
+
+
+async def test_idempotency_key_includes_current_version_in_stored_events(
+    repository: CounterRepository,
+    decider: CounterDecider,
+    publisher: AsyncMock,
+    event_store: InMemoryEventStore,
+) -> None:
+    await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
+    await repository.save('c-1', [Incremented(amount=5)], expected_version=0)
+
+    class VersionAwareHandler(
+        DeciderCommandHandler[IncrementCounterCommand, CounterResponse, CounterState, Increment, Incremented],
+    ):
+        @override
+        def _aggregate_id(self, request: IncrementCounterCommand) -> str:
+            return request.counter_id
+
+        @override
+        def _to_command(self, request: IncrementCounterCommand) -> Increment:
+            return Increment(amount=request.amount)
+
+        @override
+        def _to_response(self, state: CounterState, version: int) -> CounterResponse:
+            return CounterResponse(value=state.value, version=version)
+
+        @override
+        def _idempotency_key(self, request: IncrementCounterCommand, version: int) -> str | None:
+            return f'{request.counter_id}:increment:{version}'
+
+    handler = VersionAwareHandler(repository=repository, decider=decider, publisher=publisher)
+
+    await handler.handle(IncrementCounterCommand(counter_id='c-1', amount=3))
+
+    stream_id = StreamId.for_aggregate('Counter', 'c-1')
+    stored = await event_store.read_stream(stream_id)
+    last_event = stored[-1]
+    assert last_event.idempotency_key == 'c-1:increment:1:0'

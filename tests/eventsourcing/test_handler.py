@@ -68,7 +68,7 @@ class CreateNoteWithIdempotencyKeyHandler(EventSourcedVoidCommandHandler[CreateN
         aggregate.create(request.title)
 
     @override
-    def _idempotency_key(self, request: CreateNoteWithKey) -> str | None:
+    def _idempotency_key(self, request: CreateNoteWithKey, version: int) -> str | None:
         return request.idempotency_key
 
 
@@ -96,14 +96,14 @@ class TwoAttemptEditNoteHandler(EditNoteHandler):
     max_attempts = 2
 
 
-def _make_handler_deps(mocker: MockerFixture) -> tuple[NoteRepository, AsyncMock]:
+def _make_handler_deps(mocker: MockerFixture) -> tuple[NoteRepository, AsyncMock, InMemoryEventStore]:
     registry = EventTypeRegistry()
     registry.register(NoteCreated)
     registry.register(NoteEdited)
     event_store = InMemoryEventStore(registry=registry)
     repo = NoteRepository(event_store=event_store)
     publisher: AsyncMock = mocker.AsyncMock(spec=IPublisher)
-    return repo, publisher
+    return repo, publisher, event_store
 
 
 async def _create_note(repo: NoteRepository, publisher: AsyncMock, note_id: str = 'n-1') -> None:
@@ -113,7 +113,7 @@ async def _create_note(repo: NoteRepository, publisher: AsyncMock, note_id: str 
 
 
 async def test_retry_succeeds_on_second_attempt(mocker: MockerFixture) -> None:
-    repo, publisher = _make_handler_deps(mocker)
+    repo, publisher, _ = _make_handler_deps(mocker)
     await _create_note(repo, publisher)
 
     handler = EditNoteHandler(repository=repo, publisher=publisher)
@@ -128,7 +128,7 @@ async def test_retry_succeeds_on_second_attempt(mocker: MockerFixture) -> None:
 
 
 async def test_retry_exhausted_raises_concurrency_error(mocker: MockerFixture) -> None:
-    repo, publisher = _make_handler_deps(mocker)
+    repo, publisher, _ = _make_handler_deps(mocker)
     await _create_note(repo, publisher)
 
     handler = TwoAttemptEditNoteHandler(repository=repo, publisher=publisher)
@@ -145,7 +145,7 @@ async def test_retry_exhausted_raises_concurrency_error(mocker: MockerFixture) -
 
 
 async def test_creation_command_creates_aggregate_via_create_aggregate(mocker: MockerFixture) -> None:
-    repo, publisher = _make_handler_deps(mocker)
+    repo, publisher, _ = _make_handler_deps(mocker)
     handler = CreateNoteHandler(repository=repo, publisher=publisher)
 
     await handler.handle(CreateNote(note_id='n-new', title='Brand New'))
@@ -157,7 +157,7 @@ async def test_creation_command_creates_aggregate_via_create_aggregate(mocker: M
 
 
 async def test_creation_command_not_retried(mocker: MockerFixture) -> None:
-    repo, publisher = _make_handler_deps(mocker)
+    repo, publisher, _ = _make_handler_deps(mocker)
     handler = CreateNoteHandler(repository=repo, publisher=publisher)
     conflict = ConcurrencyConflictError(
         stream_id=StreamId.for_aggregate('Note', 'n-1'), expected_version=-1, actual_version=0
@@ -171,7 +171,7 @@ async def test_creation_command_not_retried(mocker: MockerFixture) -> None:
 
 
 async def test_max_attempts_1_no_retry(mocker: MockerFixture) -> None:
-    repo, publisher = _make_handler_deps(mocker)
+    repo, publisher, _ = _make_handler_deps(mocker)
     await _create_note(repo, publisher)
 
     handler = NoRetryEditNoteHandler(repository=repo, publisher=publisher)
@@ -187,7 +187,7 @@ async def test_max_attempts_1_no_retry(mocker: MockerFixture) -> None:
 
 
 async def test_non_concurrency_error_not_retried(mocker: MockerFixture) -> None:
-    repo, publisher = _make_handler_deps(mocker)
+    repo, publisher, _ = _make_handler_deps(mocker)
     await _create_note(repo, publisher)
 
     handler = EditNoteHandler(repository=repo, publisher=publisher)
@@ -259,7 +259,7 @@ async def test_idempotency_key_passed_to_repository_save(mocker: MockerFixture) 
 
 def test_max_attempts_zero_raises_value_error() -> None:
     with pytest.raises(ValueError, match='max_attempts must be >= 1'):
-
+        # noinspection PyUnusedLocal
         class ZeroAttemptHandler(EditNoteHandler):
             max_attempts = 0
 
@@ -288,7 +288,7 @@ class EditNoteWithContextHandler(EventSourcedVoidCommandHandler[EditNote, Note])
 
 
 async def test_attempt_context_entered_per_attempt(mocker: MockerFixture) -> None:
-    repo, publisher = _make_handler_deps(mocker)
+    repo, publisher, _ = _make_handler_deps(mocker)
     await _create_note(repo, publisher)
     ctx = RecordingContext()
 
@@ -300,7 +300,7 @@ async def test_attempt_context_entered_per_attempt(mocker: MockerFixture) -> Non
 
 
 async def test_attempt_context_entered_per_retry_attempt(mocker: MockerFixture) -> None:
-    repo, publisher = _make_handler_deps(mocker)
+    repo, publisher, _ = _make_handler_deps(mocker)
     await _create_note(repo, publisher)
 
     contexts: list[RecordingContext] = []
@@ -332,3 +332,33 @@ async def test_attempt_context_entered_per_retry_attempt(mocker: MockerFixture) 
 
     assert len(contexts) == 2
     assert all(c.entered == 1 and c.exited == 1 for c in contexts)
+
+
+async def test_idempotency_key_includes_current_version_in_stored_events(mocker: MockerFixture) -> None:
+    repo, publisher, event_store = _make_handler_deps(mocker)
+    await _create_note(repo, publisher)
+    note = await repo.load('n-1')
+    note.edit('extra edit')
+    await repo.save('n-1', note)
+
+    class VersionAwareHandler(EventSourcedVoidCommandHandler[EditNote, Note]):
+        @override
+        def _aggregate_id(self, request: EditNote) -> str:
+            return request.note_id
+
+        @override
+        async def _execute(self, request: EditNote, aggregate: Note) -> None:
+            aggregate.edit(request.content)
+
+        @override
+        def _idempotency_key(self, request: EditNote, version: int) -> str | None:
+            return f'{request.note_id}:edit:{version}'
+
+    handler = VersionAwareHandler(repository=repo, publisher=publisher)
+
+    await handler.handle(EditNote(note_id='n-1', content='Updated'))
+
+    stream_id = StreamId.for_aggregate('Note', 'n-1')
+    stored = await event_store.read_stream(stream_id)
+    last_event = stored[-1]
+    assert last_event.idempotency_key == 'n-1:edit:1:0'

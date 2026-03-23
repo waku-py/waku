@@ -81,7 +81,7 @@ abstract methods and provides two optional hooks:
 | `_execute(request, aggregate) -> None` | Yes | Execute business logic on the aggregate |
 | `_to_response(aggregate) -> ResponseT` | Yes | Convert the aggregate to a response value |
 | `_is_creation_command(request) -> bool` | No | Return `True` for commands that create new aggregates (default: `False`) |
-| `_idempotency_key(request) -> str | None` | No | Return a deduplication token (default: `None`) — see [Idempotency](#idempotency) |
+| `_idempotency_key(request, version) -> str | None` | No | Return a deduplication token (default: `None`) — see [Idempotency](#idempotency) |
 | `_create_attempt_context() -> AbstractAsyncContextManager` | No | Return a context manager entered/exited per retry attempt (default: `nullcontext()`) — see [Per-Attempt Context](#per-attempt-context) |
 
 `EventSourcedVoidCommandHandler[RequestT, AggregateT]` pre-implements `_to_response()`
@@ -146,14 +146,14 @@ A decider implements three methods from the `IDecider` protocol:
 ```
 
 `DeciderCommandHandler[RequestT, ResponseT, StateT, CommandT, EventT]` requires
-overriding three abstract methods and provides one optional hook:
+overriding three abstract methods and provides two optional hooks:
 
 | Method | Abstract | Description |
 |--------|----------|-------------|
 | `_aggregate_id(request) -> str` | Yes | Extract the aggregate identifier from the request |
 | `_to_command(request) -> CommandT` | Yes | Convert the CQRS request to a domain command |
 | `_to_response(state, version) -> ResponseT` | Yes | Convert the final state and version to a response |
-| `_idempotency_key(request) -> str | None` | No | Return a deduplication token (default: `None`) |
+| `_idempotency_key(request, version) -> str | None` | No | Return a deduplication token (default: `None`) |
 | `_create_attempt_context() -> AbstractAsyncContextManager` | No | Return a context manager entered/exited per retry attempt (default: `nullcontext()`) — see [Per-Attempt Context](#per-attempt-context) |
 
 !!! note
@@ -290,13 +290,13 @@ the retry loop re-loads the now-existing stream and the decider handles it
 ### Idempotency
 
 Command handlers support idempotent event appends through the `_idempotency_key()` hook.
-Override it to extract a deduplication token from the incoming request:
+Override it to build a deduplication token from the request and the current stream `version`:
 
 === "OOP Aggregate"
 
     ```python
     class OpenAccountHandler(EventSourcedCommandHandler[OpenAccountCommand, OpenAccountResult, BankAccount]):
-        def _idempotency_key(self, request: OpenAccountCommand) -> str | None:
+        def _idempotency_key(self, request: OpenAccountCommand, version: int) -> str | None:
             return request.idempotency_key  # (1)
     ```
 
@@ -306,11 +306,28 @@ Override it to extract a deduplication token from the incoming request:
 
     ```python
     class OpenAccountDeciderHandler(
-        DeciderCommandHandler[OpenAccountRequest, OpenAccountResult, BankAccountState, BankCommand, BankEvent],
+        DeciderCommandHandler[
+            OpenAccountRequest,
+            OpenAccountResult,
+            BankAccountState,
+            BankCommand,
+            BankEvent,
+        ],
     ):
-        def _idempotency_key(self, request: OpenAccountRequest) -> str | None:
-            return request.idempotency_key
+        def _idempotency_key(self, request: OpenAccountRequest, version: int) -> str | None:
+            return request.idempotency_key  # (1)
     ```
+
+    1. Return `None` (the default) to skip deduplication and use random UUIDs.
+
+The `version` parameter is the stream version at the time the aggregate or state was loaded
+(`-1` for creation commands). This enables three idempotency strategies:
+
+| Strategy | Key | Use case |
+|----------|-----|----------|
+| **Client-provided ID** | `request.command_id` | Client sends a unique ID per action; version ignored |
+| **Version-aware key** | `f'{request.account_id}:deposit:{version}'` | Repeatable commands — retry-safe, yet allows re-execution after state changes |
+| **Static key** | `f'{request.account_id}:open'` | Terminal actions — once per aggregate, version ignored |
 
 When an `idempotency_key` is provided, the repository generates per-event keys in the format
 `{idempotency_key}:0`, `{idempotency_key}:1`, etc. Retrying the same command with the same key

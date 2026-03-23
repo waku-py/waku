@@ -54,11 +54,11 @@ class DeciderCommandHandler(
     async def handle(self, request: RequestT, /) -> ResponseT:
         aggregate_id: str = self._aggregate_id(request)
         command: CommandT = self._to_command(request)
-        idempotency_key: str | None = self._idempotency_key(request)
         logger.debug('Handling %s for %s', type(request).__name__, aggregate_id)
 
         async def _attempt() -> ResponseT:
             state, version = await self._repository.load(aggregate_id)
+            idempotency_key = self._idempotency_key(request, version)
 
             events = self._decider.decide(command, state)
             for event in events:
@@ -91,7 +91,13 @@ class DeciderCommandHandler(
     @abc.abstractmethod
     def _to_command(self, request: RequestT) -> CommandT: ...
 
-    def _idempotency_key(self, request: RequestT) -> str | None:  # noqa: ARG002, PLR6301
+    def _idempotency_key(self, request: RequestT, version: int) -> str | None:  # noqa: ARG002, PLR6301
+        """Return a deduplication token for idempotent event appends.
+
+        Args:
+            request: The incoming command request.
+            version: Stream version at load time (``-1`` for new streams).
+        """
         return None
 
     def _create_attempt_context(self) -> AbstractAsyncContextManager[Any]:  # noqa: PLR6301

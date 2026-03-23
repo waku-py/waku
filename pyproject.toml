@@ -11,13 +11,11 @@ license = "MIT"
 keywords = ["architecture", "modular", "decoupled", "framework", "dishka", "ioc", "di", "messaging", "eventstore", "eventsourcing", "cqrs", "wolverine", "critter"]
 authors = [
   { name = "Daniil Kharkov", email = "fadeddexofan@gmail.com" },
-  { name = "Doctor", email = "thirvondukr@gmail.com" },
 ]
 requires-python = ">=3.11"
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3 :: Only",
@@ -57,7 +55,7 @@ docs = [
 lint = [
   "deptry==0.25.1",
   "gitlint==0.19.1",
-  "prek==0.3.6",
+  "prek==0.3.8",
   "ruff==0.15.7",
 ]
 test = [
