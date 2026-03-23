@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v0.40.0 (2026-03-23)
+
+### ✨ Features
+
+- **messaging**: Unified bus with endpoint routing and transactions
+  ([`572b493`](https://github.com/waku-py/waku/commit/572b493ee5fd82f2fe305cee4e3d05546e4f0801))
+
+### 💥 Breaking Changes
+
+- **messaging**: `MessageBus` constructor now requires `MessageDispatcher`, `EnvelopeFactory`, and
+  `MessageRouter`. `IRequest` and `IEvent` are no longer Protocols — domain types must explicitly
+  subclass them.
+
+
 ## v0.39.0 (2026-03-15)
 
 ### ♻️ Refactoring
