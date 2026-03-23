@@ -2,23 +2,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from waku.messaging.contracts.message import IMessage
     from waku.messaging.endpoints.base import Endpoint, EndpointEntry
+    from waku.messaging.events.handler import EventHandler
 
 _EMPTY_TYPE_ROUTES: Mapping[type[IMessage], tuple[str, ...]] = MappingProxyType({})
-_EMPTY_HANDLER_ROUTES: Mapping[type[IMessage], frozenset[type]] = MappingProxyType({})
+_EMPTY_HANDLER_ROUTES: Mapping[type[IMessage], frozenset[type[EventHandler[Any]]]] = MappingProxyType({})
 
 
 @dataclass(frozen=True, slots=True)
 class RoutingTable:
     entries: tuple[EndpointEntry, ...] = ()
     type_routes: Mapping[type[IMessage], tuple[str, ...]] = field(default_factory=lambda: _EMPTY_TYPE_ROUTES)
-    handler_routes: Mapping[type[IMessage], frozenset[type]] = field(default_factory=lambda: _EMPTY_HANDLER_ROUTES)
+    handler_routes: Mapping[type[IMessage], frozenset[type[EventHandler[Any]]]] = field(
+        default_factory=lambda: _EMPTY_HANDLER_ROUTES
+    )
 
 
 class MessageRouter:
@@ -27,7 +30,7 @@ class MessageRouter:
     def __init__(
         self,
         routes: dict[type[IMessage], list[Endpoint]],
-        handler_routes: dict[type[IMessage], frozenset[type]],
+        handler_routes: dict[type[IMessage], frozenset[type[EventHandler[Any]]]],
         endpoints: Sequence[Endpoint] = (),
     ) -> None:
         self._routes: dict[type[IMessage], tuple[Endpoint, ...]] = {k: tuple(v) for k, v in routes.items()}
@@ -41,7 +44,7 @@ class MessageRouter:
     def resolve(self, message_type: type[IMessage]) -> tuple[Endpoint, ...]:
         return self._routes.get(message_type, ())
 
-    def routed_handler_types(self, message_type: type[IMessage]) -> frozenset[type]:
+    def routed_handler_types(self, message_type: type[IMessage]) -> frozenset[type[EventHandler[Any]]]:
         return self._handler_routes.get(message_type, frozenset())
 
 

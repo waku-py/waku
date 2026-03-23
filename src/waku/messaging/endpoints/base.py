@@ -13,8 +13,9 @@ if TYPE_CHECKING:
 
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.message import IMessage
+    from waku.messaging.events.handler import EventHandler
 
-HandlerSubscriptions: TypeAlias = 'Mapping[type[IMessage], frozenset[type]]'
+HandlerSubscriptions: TypeAlias = 'Mapping[type[IMessage], frozenset[type[EventHandler[Any]]]]'
 
 _EMPTY_SUBSCRIPTIONS: HandlerSubscriptions = MappingProxyType({})
 

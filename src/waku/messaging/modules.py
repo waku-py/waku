@@ -180,13 +180,15 @@ class MessageRegistryAggregator(OnModuleRegistration):
         context: Mapping[Any, Any] | None,
     ) -> None:
         aggregated = MessageRegistry()
-        module_event_types: dict[type, list[type[IEvent]]] = {}
+        module_routing_map: dict[type, dict[type[IEvent], list[type[EventHandler[Any]]]]] = {}
 
         for module_type, ext in registry.find_extensions(MessagingExtension):
             aggregated.merge(ext.registry)
-            event_types = list(ext.registry.event_map.event_types())
-            if event_types:
-                module_event_types[module_type] = event_types
+            event_handlers: dict[type[IEvent], list[type[EventHandler[Any]]]] = {}
+            for entry in ext.registry.event_map.entries():
+                event_handlers[entry.event_type] = list(entry.handler_types)
+            if event_handlers:
+                module_routing_map[module_type] = event_handlers
             for provider in ext.registry.handler_providers():
                 registry.add_provider(module_type, provider)
 
@@ -199,7 +201,7 @@ class MessageRegistryAggregator(OnModuleRegistration):
         routing_table = RoutingTableBuilder(
             self._config,
             aggregated=aggregated,
-            module_event_types=module_event_types,
+            module_routing_map=module_routing_map,
         ).build()
         registry.add_provider(owning_module, object_(routing_table))
         registry.add_provider(owning_module, singleton(MessageRouter, _create_router))

@@ -135,7 +135,7 @@ The bus offers three dispatch methods with distinct semantics:
 | Method      | Returns    | Handlers | Description                                          |
 |-------------|------------|----------|------------------------------------------------------|
 | `invoke()`  | `TResponse` | Exactly 1 | In-process request/response. Always local.          |
-| `send()`    | `None`     | Exactly 1 | Fire-and-forget. The caller does not wait for a result. |
+| `send()`    | `None`     | Exactly 1 | Fire-and-forget. Routable to [endpoints](routing.md). |
 | `publish()` | `None`     | 0 or more | Fan-out to all subscribers.                         |
 
 ### `invoke()` — request/response
@@ -152,8 +152,8 @@ print(confirmation.order_id)
 
 ### `send()` — fire-and-forget
 
-Use `send()` when you want to dispatch a command without waiting for a response. The request
-still goes through the same handler and pipeline, but the return value is discarded:
+Use `send()` when you want to dispatch a command without waiting for a response. By default it
+runs inline, but it can be [routed to an endpoint](routing.md) for background processing:
 
 ```python linenums="1"
 await sender.send(ArchiveOrder(order_id='ORD-1'))
