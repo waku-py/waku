@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.41.0 (2026-03-23)
+
+### ✨ Features
+
+- **es**: Pass stream version to `_idempotency_key` handler hook
+  ([`d127095`](https://github.com/waku-py/waku/commit/d1270958ab24b123b68b92650542e997a27272ea))
+
+
 ## v0.40.0 (2026-03-23)
 
 ### ✨ Features
