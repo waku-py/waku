@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from waku.messaging.contracts.event import IEvent
 from waku.messaging.contracts.message import IMessage
 from waku.messaging.endpoints.base import Endpoint
+from waku.messaging.events.handler import EventHandler
 from waku.messaging.router import (
     MessageRouter,
     ModuleRouteDescriptor,
@@ -35,12 +37,15 @@ class _MessageB(IMessage):
     pass
 
 
-class _HandlerA:
-    pass
+class _EventA(IEvent): ...
 
 
-class _HandlerB:
-    pass
+class _HandlerA(EventHandler[_EventA]):
+    async def handle(self, event: _EventA, /) -> None: ...  # pragma: no cover
+
+
+class _HandlerB(EventHandler[_EventA]):
+    async def handle(self, event: _EventA, /) -> None: ...  # pragma: no cover
 
 
 class _SomeModule:

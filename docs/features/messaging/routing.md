@@ -85,8 +85,8 @@ MessagingModule.register(config)
 ```
 
 When `bus.publish(OrderPlaced(...))` is called, handlers for `OrderPlaced` are dispatched to the
-`domain-events` endpoint. Handlers not covered by the route still run inline (see
-[Additive Routing](#additive-routing)).
+`domain-events` endpoint. For events, handlers in other modules that are not covered by the route
+still run inline (see [Additive Routing](#additive-routing)).
 
 ---
 
@@ -150,8 +150,10 @@ Routes are evaluated in this order:
 | Module-level route      | `route_module(OrdersModule).events_to('events')` |
 | Inline (default)        | No route configured                              |
 
-Routes are **additive** — if both a per-type and a module-level route match, the message is dispatched
-to all matching endpoints. When no route matches, the message runs inline.
+A **per-type route overrides** a module-level route for the same message type. If
+`route(OrderPlaced).to('priority')` and `route_module(OrdersModule).events_to('events')` both
+match `OrderPlaced`, only the per-type route applies. When no route matches, the message runs
+inline.
 
 ---
 
