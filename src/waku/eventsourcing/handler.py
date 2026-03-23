@@ -49,7 +49,6 @@ class EventSourcedCommandHandler(
     async def handle(self, request: RequestT, /) -> ResponseT:
         aggregate_id: str = self._aggregate_id(request)
         is_creation: bool = self._is_creation_command(request)
-        idempotency_key: str | None = self._idempotency_key(request)
         logger.debug('Handling %s for %s', type(request).__name__, aggregate_id)
 
         async def _attempt() -> ResponseT:
@@ -58,6 +57,7 @@ class EventSourcedCommandHandler(
             else:
                 aggregate = await self._repository.load(aggregate_id)
 
+            idempotency_key = self._idempotency_key(request, aggregate.version)
             await self._execute(request, aggregate)
 
             _, events = await self._repository.save(
@@ -89,7 +89,13 @@ class EventSourcedCommandHandler(
     def _is_creation_command(self, request: RequestT) -> bool:  # noqa: ARG002, PLR6301
         return False
 
-    def _idempotency_key(self, request: RequestT) -> str | None:  # noqa: ARG002, PLR6301
+    def _idempotency_key(self, request: RequestT, version: int) -> str | None:  # noqa: ARG002, PLR6301
+        """Return a deduplication token for idempotent event appends.
+
+        Args:
+            request: The incoming command request.
+            version: Stream version at load time (``-1`` for creation commands).
+        """
         return None
 
     def _create_attempt_context(self) -> AbstractAsyncContextManager[Any]:  # noqa: PLR6301
