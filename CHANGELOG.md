@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.41.1 (2026-03-23)
+
+### 🪲 Bug Fixes
+
+- **messaging**: Enforce per-type route precedence over module-level routes
+  ([`7091c57`](https://github.com/waku-py/waku/commit/7091c57d73cd8dd9db44ca8c065b778900d0133e))
+
+
 ## v0.41.0 (2026-03-23)
 
 ### ✨ Features
