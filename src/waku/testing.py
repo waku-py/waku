@@ -105,8 +105,10 @@ def override(
 
     _swap(container, new_container)
     container._cache[CONTAINER_KEY] = container  # noqa: SLF001
-    yield
-    _swap(new_container, container)
+    try:
+        yield
+    finally:
+        _swap(new_container, container)
 
 
 def _container_provider(container: AsyncContainer) -> BaseProvider:
@@ -120,7 +122,7 @@ def _container_provider(container: AsyncContainer) -> BaseProvider:
 
 def _extract_factories(registry: Registry) -> list[Factory]:
     return [
-        factory
+        factory.replace(when_override=None)
         for dep_key, factory in registry.factories.items()
         if (dep_key.type_hint is not AsyncContainer and factory.type is not FactoryType.CONTEXT)
     ]
