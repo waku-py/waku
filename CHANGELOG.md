@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.41.2 (2026-03-24)
+
+### 🪲 Bug Fixes
+
+- **di**: Fix `override()` for containers with existing overrides
+  ([`60b47be`](https://github.com/waku-py/waku/commit/60b47beb8fd4880824686aa7a0b7aee6a44ab7c5))
+
+
 ## v0.41.1 (2026-03-23)
 
 ### 🪲 Bug Fixes
