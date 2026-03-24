@@ -3,10 +3,11 @@ from dataclasses import dataclass
 from typing import Final
 
 import pytest
+from dishka.exceptions import NothingOverriddenError
 
 from waku import WakuApplication, WakuFactory
 from waku.di import AsyncContainer, Provider, Scope, contextual, object_, scoped, singleton, transient
-from waku.testing import override
+from waku.testing import create_test_app, override
 
 from tests.module_utils import create_basic_module
 
@@ -267,3 +268,103 @@ async def test_override_context_preserves_existing_values() -> None:
                 service = await request_container.get(MultiContextService)
                 assert service.val1 == 42
                 assert service.val2 == 'original'
+
+
+@pytest.mark.parametrize(
+    'base_override',
+    [
+        singleton(ISomeService, FakeSomeService),
+        object_(FakeSomeService(), provided_type=ISomeService),
+    ],
+)
+async def test_override_on_container_with_existing_overrides(base_override: Provider) -> None:
+    AppModule = create_basic_module(
+        providers=[
+            singleton(ISomeService, SomeService),
+            singleton(OtherService),
+        ],
+        name='AppModule',
+    )
+
+    async with create_test_app(
+        base=AppModule,
+        providers=[base_override],
+    ) as app:
+        with override(app.container, singleton(OtherService, FakeOtherService)):
+            async with app.container() as request_container:
+                service = await request_container.get(ISomeService)
+                assert isinstance(service, FakeSomeService)
+
+                other = await request_container.get(OtherService)
+                assert isinstance(other, FakeOtherService)
+
+
+async def test_override_restores_container() -> None:
+    AppModule = create_basic_module(
+        providers=[singleton(ISomeService, SomeService)],
+        name='AppModule',
+    )
+    application = WakuFactory(AppModule).create()
+
+    async with application:
+        with override(application.container, singleton(ISomeService, FakeSomeService)):
+            service = await application.container.get(ISomeService)
+            assert isinstance(service, FakeSomeService)
+
+        service = await application.container.get(ISomeService)
+        assert isinstance(service, SomeService)
+
+        msg = 'boom'
+        with (
+            pytest.raises(RuntimeError, match='boom'),
+            override(
+                application.container,
+                singleton(ISomeService, FakeSomeService),
+            ),
+        ):
+            raise RuntimeError(msg)
+
+        service = await application.container.get(ISomeService)
+        assert isinstance(service, SomeService)
+
+
+async def test_sequential_overrides_on_same_container() -> None:
+    AppModule = create_basic_module(
+        providers=[
+            singleton(ISomeService, SomeService),
+            singleton(OtherService),
+        ],
+        name='AppModule',
+    )
+    application = WakuFactory(AppModule).create()
+
+    async with application:
+        with override(application.container, singleton(ISomeService, FakeSomeService)):
+            service = await application.container.get(ISomeService)
+            assert isinstance(service, FakeSomeService)
+
+        with override(application.container, singleton(OtherService, FakeOtherService)):
+            other = await application.container.get(OtherService)
+            assert isinstance(other, FakeOtherService)
+
+            service = await application.container.get(ISomeService)
+            assert isinstance(service, SomeService)
+
+
+async def test_override_nonexistent_type_raises() -> None:
+    class Unregistered:
+        pass
+
+    class FakeUnregistered(Unregistered):
+        pass
+
+    AppModule = create_basic_module(
+        providers=[singleton(ISomeService, SomeService)],
+        name='AppModule',
+    )
+    application = WakuFactory(AppModule).create()
+
+    async with application:
+        with pytest.raises(NothingOverriddenError):
+            with override(application.container, singleton(Unregistered, FakeUnregistered)):
+                pass  # pragma: no cover
