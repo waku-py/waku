@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import abc
 import logging
-from typing import TYPE_CHECKING, ClassVar, Generic, TypeVar
+from typing import TYPE_CHECKING, ClassVar, Generic
 
 from waku.eventsourcing._stream_helpers import read_aggregate_stream
-from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
+from waku.eventsourcing.contracts.aggregate import AggregateT
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.interfaces import (
     ISnapshotStateSerializer,  # noqa: TC001  # Dishka needs runtime access
@@ -22,8 +22,6 @@ if TYPE_CHECKING:
 __all__ = ['SnapshotEventSourcedRepository']
 
 logger = logging.getLogger(__name__)
-
-AggregateT = TypeVar('AggregateT', bound=EventSourcedAggregate)
 
 
 class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC, Generic[AggregateT]):

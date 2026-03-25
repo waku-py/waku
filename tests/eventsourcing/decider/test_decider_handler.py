@@ -54,7 +54,7 @@ class IncrementCounterVoidCommand(IRequest):
 
 
 class IncrementCounterHandler(
-    DeciderCommandHandler[IncrementCounterCommand, CounterResponse, CounterState, Increment, Incremented],
+    DeciderCommandHandler[IncrementCounterCommand, CounterState, Increment, Incremented, CounterResponse],
 ):
     @override
     def _aggregate_id(self, request: IncrementCounterCommand) -> str:
@@ -70,7 +70,7 @@ class IncrementCounterHandler(
 
 
 class CreateCounterHandler(
-    DeciderCommandHandler[CreateCounterCommand, CounterResponse, CounterState, Increment, Incremented],
+    DeciderCommandHandler[CreateCounterCommand, CounterState, Increment, Incremented, CounterResponse],
 ):
     @override
     def _aggregate_id(self, request: CreateCounterCommand) -> str:
@@ -113,7 +113,7 @@ class IdempotentCreateCounterCommand(IRequest['CounterResponse']):
 
 
 class IdempotentCreateCounterHandler(
-    DeciderCommandHandler[IdempotentCreateCounterCommand, CounterResponse, CounterState, Increment, Incremented],
+    DeciderCommandHandler[IdempotentCreateCounterCommand, CounterState, Increment, Incremented, CounterResponse],
 ):
     @override
     def _aggregate_id(self, request: IdempotentCreateCounterCommand) -> str:
@@ -410,7 +410,7 @@ async def test_idempotency_key_includes_current_version_in_stored_events(
     await repository.save('c-1', [Incremented(amount=5)], expected_version=0)
 
     class VersionAwareHandler(
-        DeciderCommandHandler[IncrementCounterCommand, CounterResponse, CounterState, Increment, Incremented],
+        DeciderCommandHandler[IncrementCounterCommand, CounterState, Increment, Incremented, CounterResponse],
     ):
         @override
         def _aggregate_id(self, request: IncrementCounterCommand) -> str:

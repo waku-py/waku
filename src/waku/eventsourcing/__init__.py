@@ -1,4 +1,4 @@
-from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate, IDecider
+from waku.eventsourcing.contracts.aggregate import AggregateT, CommandT, EventSourcedAggregate, EventT, IDecider, StateT
 from waku.eventsourcing.contracts.event import DataT, EventEnvelope, EventMetadata, IMetadataEnricher, StoredEvent
 from waku.eventsourcing.contracts.stream import (
     AnyVersion,
@@ -65,10 +65,12 @@ from waku.eventsourcing.upcasting import (
 
 __all__ = [
     'AggregateNotFoundError',
+    'AggregateT',
     'AnyVersion',
     'CatchUpProjectionBinding',
     'CatchUpProjectionRegistry',
     'CatchUpProjectionRunner',
+    'CommandT',
     'ConcurrencyConflictError',
     'ConflictingEventTypeError',
     'DataT',
@@ -90,6 +92,7 @@ __all__ = [
     'EventSourcingError',
     'EventSourcingExtension',
     'EventSourcingModule',
+    'EventT',
     'EventType',
     'EventTypeSpec',
     'Exact',
@@ -112,6 +115,7 @@ __all__ = [
     'SnapshotMigrationChainError',
     'SnapshotOptions',
     'SnapshotTypeMismatchError',
+    'StateT',
     'StoredEvent',
     'StreamDeletedError',
     'StreamExists',

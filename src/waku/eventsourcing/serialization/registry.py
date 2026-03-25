@@ -34,7 +34,7 @@ class EventTypeRegistry:
             existing_version = self._type_to_version[event_type]
             if existing_name == type_name and existing_version == version:
                 return
-            raise ConflictingEventTypeError(event_type, existing_name, existing_version, type_name, version)
+            raise ConflictingEventTypeError(event_type.__name__, existing_name, existing_version, type_name, version)
 
         if type_name in self._name_to_type:
             raise DuplicateEventTypeError(type_name)

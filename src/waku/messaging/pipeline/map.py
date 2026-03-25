@@ -60,7 +60,7 @@ class PipelineBehaviorMap:
     def bind(
         self,
         entry: PipelineBehaviorMapEntry[Any, Any],
-        behavior_types: list[type[IPipelineBehavior[Any, Any]]],
+        behavior_types: Sequence[type[IPipelineBehavior[Any, Any]]],
     ) -> Self:
         if self._frozen:
             raise MapFrozenError

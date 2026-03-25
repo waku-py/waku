@@ -290,7 +290,7 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
         context: Mapping[Any, Any] | None,
     ) -> None:
         aggregated = EventSourcingRegistry()
-        all_aggregate_names: defaultdict[str, list[type]] = defaultdict(list)
+        all_aggregate_names: defaultdict[str, list[str]] = defaultdict(list)
         all_catch_up_bindings: list[CatchUpProjectionBinding] = []
 
         for module_type, ext in registry.find_extensions(EventSourcingExtension):
@@ -299,11 +299,11 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
             for provider in ext.registry.handler_providers():
                 registry.add_provider(module_type, provider)
             for name, repo_type in ext.aggregate_names():
-                all_aggregate_names[name].append(repo_type)
+                all_aggregate_names[name].append(repo_type.__qualname__)
 
-        for name, repos in all_aggregate_names.items():
-            if len(repos) > 1:
-                raise DuplicateAggregateNameError(name, repos)
+        for name, repo_names in all_aggregate_names.items():
+            if len(repo_names) > 1:
+                raise DuplicateAggregateNameError(name, repo_names)
 
         for provider in aggregated.collector_providers():
             registry.add_provider(owning_module, provider)

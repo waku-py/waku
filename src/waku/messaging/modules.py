@@ -116,7 +116,7 @@ class MessagingExtension(OnModuleConfigure):
         request_type: type[RequestT],
         handler_type: type[RequestHandler[RequestT, Any]],
         *,
-        behaviors: list[type[IPipelineBehavior[RequestT, Any]]] | None = None,
+        behaviors: Sequence[type[IPipelineBehavior[RequestT, Any]]] | None = None,
     ) -> Self:
         self._registry.request_map.bind(request_type, handler_type)
         if behaviors:
@@ -127,9 +127,9 @@ class MessagingExtension(OnModuleConfigure):
     def bind_event(
         self,
         event_type: type[EventT],
-        handler_types: list[type[EventHandler[EventT]]],
+        handler_types: Sequence[type[EventHandler[EventT]]],
         *,
-        behaviors: list[type[IPipelineBehavior[EventT, None]]] | None = None,
+        behaviors: Sequence[type[IPipelineBehavior[EventT, None]]] | None = None,
     ) -> Self:
         self._registry.event_map.bind(event_type, handler_types)
         if behaviors:

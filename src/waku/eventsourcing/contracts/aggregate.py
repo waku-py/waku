@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 __all__ = [
+    'AggregateT',
     'CommandT',
     'EventSourcedAggregate',
     'EventT',
@@ -17,13 +18,15 @@ __all__ = [
 ]
 
 StateT = TypeVar('StateT')
-CommandT = TypeVar('CommandT', contravariant=True)  # noqa: PLC0105
+CommandT = TypeVar('CommandT')
 EventT = TypeVar('EventT', bound=IEvent)
 
+_CommandT_contra = TypeVar('_CommandT_contra', contravariant=True)
 
-class IDecider(Protocol[StateT, CommandT, EventT]):
+
+class IDecider(Protocol[StateT, _CommandT_contra, EventT]):
     def initial_state(self) -> StateT: ...
-    def decide(self, command: CommandT, state: StateT) -> Sequence[EventT]: ...
+    def decide(self, command: _CommandT_contra, state: StateT) -> Sequence[EventT]: ...
     def evolve(self, state: StateT, event: EventT) -> StateT: ...
 
 
@@ -58,3 +61,6 @@ class EventSourcedAggregate(abc.ABC):
         for event in events:
             self._apply(event)
         self._version = version
+
+
+AggregateT = TypeVar('AggregateT', bound=EventSourcedAggregate)

@@ -211,13 +211,9 @@ def test_aggregate_not_found_error_carries_attrs() -> None:
 
 
 def test_duplicate_aggregate_name_error_carries_attrs() -> None:
-    class RepoA: ...
-
-    class RepoB: ...
-
-    error = DuplicateAggregateNameError('Order', [RepoA, RepoB])
+    error = DuplicateAggregateNameError('Order', ['RepoA', 'RepoB'])
     assert error.aggregate_name == 'Order'
-    assert error.repositories == [RepoA, RepoB]
+    assert error.repository_names == ['RepoA', 'RepoB']
     assert 'Order' in str(error)
     assert 'RepoA' in str(error)
     assert 'RepoB' in str(error)

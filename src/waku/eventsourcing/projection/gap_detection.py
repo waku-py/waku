@@ -4,7 +4,7 @@ import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
 __all__ = ['GapTracker']
 
@@ -23,7 +23,7 @@ class GapTracker:
     def known_gaps(self) -> dict[int, float]:
         return dict(self._known_gaps)
 
-    def safe_position(self, checkpoint: int, committed_positions: list[int]) -> int:
+    def safe_position(self, checkpoint: int, committed_positions: Sequence[int]) -> int:
         """Return the highest position the checkpoint can safely advance to.
 
         Args:

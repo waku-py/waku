@@ -69,11 +69,12 @@ class ConcurrencyConflictError(EventSourcingError):
 
 
 class DuplicateAggregateNameError(EventSourcingError):
-    def __init__(self, aggregate_name: str, repositories: list[type]) -> None:
+    def __init__(self, aggregate_name: str, repository_names: list[str]) -> None:
         self.aggregate_name = aggregate_name
-        self.repositories = repositories
-        repo_names = ', '.join(r.__name__ for r in repositories)
-        super().__init__(f'Duplicate aggregate name {aggregate_name!r} used by multiple repositories: {repo_names}')
+        self.repository_names = repository_names
+        super().__init__(
+            f'Duplicate aggregate name {aggregate_name!r} used by multiple repositories: {", ".join(repository_names)}'
+        )
 
 
 class UnknownEventTypeError(EventSourcingError):
@@ -91,22 +92,17 @@ class DuplicateEventTypeError(EventSourcingError):
 class ConflictingEventTypeError(EventSourcingError):
     def __init__(
         self,
-        event_type: type,
+        event_type_name: str,
         existing_name: str,
         existing_version: int,
         attempted_name: str,
         attempted_version: int,
     ) -> None:
-        self.event_type = event_type
-        self.existing_name = existing_name
-        self.existing_version = existing_version
-        self.attempted_name = attempted_name
-        self.attempted_version = attempted_version
         if existing_name != attempted_name:
             detail = f'name {existing_name!r} → {attempted_name!r}'
         else:
             detail = f'version v{existing_version} → v{attempted_version}'
-        super().__init__(f'Conflicting registration for event type {event_type.__name__!r}: {detail}')
+        super().__init__(f'Conflicting registration for event type {event_type_name!r}: {detail}')
 
 
 class SnapshotTypeMismatchError(EventSourcingError):

@@ -25,6 +25,7 @@ class _Response:
     value: str
 
 
+@dataclass(frozen=True)
 class _Request(IRequest[_Response]):
     pass
 

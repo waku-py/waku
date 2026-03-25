@@ -88,7 +88,7 @@ class RoutingTableBuilder:
             self._type_routes[event_type].append(descriptor.endpoint_uri)
             self._handler_routes[event_type].update(handler_types)
 
-    def _assemble(self, endpoint_entries_by_uri: dict[str, EndpointEntry]) -> RoutingTable:
+    def _assemble(self, endpoint_entries_by_uri: Mapping[str, EndpointEntry]) -> RoutingTable:
         frozen_type_routes = {msg_type: tuple(dict.fromkeys(uris)) for msg_type, uris in self._type_routes.items()}
         frozen_handler_routes = {
             msg_type: frozenset(handlers) for msg_type, handlers in self._handler_routes.items() if handlers
@@ -110,7 +110,7 @@ class RoutingTableBuilder:
         )
 
     @staticmethod
-    def _validate_endpoint_uri(uri: str, known: dict[str, EndpointEntry]) -> None:
+    def _validate_endpoint_uri(uri: str, known: Mapping[str, EndpointEntry]) -> None:
         if uri not in known:
             msg = f"Route references unknown endpoint URI '{uri}'. Known endpoints: {sorted(known)}"
             raise ImproperlyConfiguredError(msg)

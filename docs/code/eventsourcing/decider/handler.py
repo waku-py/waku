@@ -23,10 +23,10 @@ class OpenAccountRequest(IRequest[OpenAccountResult]):
 class OpenAccountDeciderHandler(
     DeciderCommandHandler[
         OpenAccountRequest,
-        OpenAccountResult,
         BankAccountState,
         BankCommand,
         BankEvent,
+        OpenAccountResult,
     ],
 ):
     @override
