@@ -104,7 +104,7 @@ class ModuleRegistryBuilder:
                 if isinstance(ext, OnModuleRegistration):
                     ext.on_module_registration(registry, module_type, read_only_context)
 
-    def _register_modules(self, post_order: list[tuple[ModuleType, ModuleMetadata]]) -> Module:
+    def _register_modules(self, post_order: Sequence[tuple[ModuleType, ModuleMetadata]]) -> Module:
         for type_, metadata in post_order:
             if metadata.id in self._modules:
                 continue

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic
 
 import anyio
 import pytest
 
-from waku.eventsourcing.contracts.aggregate import CommandT, EventSourcedAggregate, EventT, IDecider, StateT
+from waku.eventsourcing.contracts.aggregate import AggregateT, CommandT, EventT, IDecider, StateT
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -16,8 +16,6 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.event import IEvent
 
 __all__ = ['AggregateSpec', 'DeciderSpec', 'wait_for_all_projections', 'wait_for_projection']
-
-AggregateT = TypeVar('AggregateT', bound=EventSourcedAggregate)
 
 
 class DeciderSpec(Generic[StateT, CommandT, EventT]):

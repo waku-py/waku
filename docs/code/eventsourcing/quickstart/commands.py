@@ -19,7 +19,7 @@ class OpenAccountCommand(IRequest[OpenAccountResult]):
     owner: str
 
 
-class OpenAccountHandler(EventSourcedCommandHandler[OpenAccountCommand, OpenAccountResult, BankAccount]):
+class OpenAccountHandler(EventSourcedCommandHandler[OpenAccountCommand, BankAccount, OpenAccountResult]):
     @override
     def _is_creation_command(self, request: OpenAccountCommand) -> bool:
         return True
@@ -48,7 +48,7 @@ class DepositCommand(IRequest[DepositResult]):
     amount: int
 
 
-class DepositHandler(EventSourcedCommandHandler[DepositCommand, DepositResult, BankAccount]):
+class DepositHandler(EventSourcedCommandHandler[DepositCommand, BankAccount, DepositResult]):
     @override
     def _aggregate_id(self, request: DepositCommand) -> str:
         return request.account_id

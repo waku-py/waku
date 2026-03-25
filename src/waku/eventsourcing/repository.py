@@ -3,11 +3,11 @@ from __future__ import annotations
 import abc
 import logging
 import uuid
-from typing import TYPE_CHECKING, ClassVar, Generic, TypeVar
+from typing import TYPE_CHECKING, ClassVar, Generic
 
 from waku.eventsourcing._introspection import is_abstract, resolve_generic_args
 from waku.eventsourcing._stream_helpers import read_aggregate_stream
-from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
+from waku.eventsourcing.contracts.aggregate import AggregateT
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
 from waku.eventsourcing.exceptions import AggregateNotFoundError
@@ -19,8 +19,6 @@ if TYPE_CHECKING:
 __all__ = ['EventSourcedRepository']
 
 logger = logging.getLogger(__name__)
-
-AggregateT = TypeVar('AggregateT', bound=EventSourcedAggregate)
 
 
 class EventSourcedRepository(abc.ABC, Generic[AggregateT]):

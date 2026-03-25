@@ -72,7 +72,7 @@ Subclass `EventSourcedRepository` with the aggregate type parameter:
 --8<-- "docs/code/eventsourcing/quickstart/commands.py"
 ```
 
-`EventSourcedCommandHandler[RequestT, ResponseT, AggregateT]` requires overriding three
+`EventSourcedCommandHandler[RequestT, AggregateT, ResponseT]` requires overriding three
 abstract methods and provides two optional hooks:
 
 | Method | Abstract | Description |
@@ -145,7 +145,7 @@ A decider implements three methods from the `IDecider` protocol:
 --8<-- "docs/code/eventsourcing/decider/handler.py"
 ```
 
-`DeciderCommandHandler[RequestT, ResponseT, StateT, CommandT, EventT]` requires
+`DeciderCommandHandler[RequestT, StateT, CommandT, EventT, ResponseT]` requires
 overriding three abstract methods and provides two optional hooks:
 
 | Method | Abstract | Description |
@@ -186,7 +186,7 @@ aggregate directly. Loading a non-existent aggregate raises `AggregateNotFoundEr
 this protects against update commands accidentally hitting missing streams.
 
 ```python
-class OpenAccountHandler(EventSourcedCommandHandler[OpenAccountCommand, OpenAccountResult, BankAccount]):
+class OpenAccountHandler(EventSourcedCommandHandler[OpenAccountCommand, BankAccount, OpenAccountResult]):
     def _aggregate_id(self, request: OpenAccountCommand) -> str:
         return request.account_id
 
@@ -295,7 +295,7 @@ Override it to build a deduplication token from the request and the current stre
 === "OOP Aggregate"
 
     ```python
-    class OpenAccountHandler(EventSourcedCommandHandler[OpenAccountCommand, OpenAccountResult, BankAccount]):
+    class OpenAccountHandler(EventSourcedCommandHandler[OpenAccountCommand, BankAccount, OpenAccountResult]):
         def _idempotency_key(self, request: OpenAccountCommand, version: int) -> str | None:
             return request.idempotency_key  # (1)
     ```
@@ -308,10 +308,10 @@ Override it to build a deduplication token from the request and the current stre
     class OpenAccountDeciderHandler(
         DeciderCommandHandler[
             OpenAccountRequest,
-            OpenAccountResult,
             BankAccountState,
             BankCommand,
             BankEvent,
+            OpenAccountResult,
         ],
     ):
         def _idempotency_key(self, request: OpenAccountRequest, version: int) -> str | None:
@@ -392,7 +392,7 @@ subclass to change this:
 === "OOP Aggregate"
 
     ```python
-    class DepositHandler(EventSourcedCommandHandler[DepositCommand, DepositResult, BankAccount]):
+    class DepositHandler(EventSourcedCommandHandler[DepositCommand, BankAccount, DepositResult]):
         max_attempts = 5  # 1 initial + 4 retries
     ```
 
@@ -400,7 +400,7 @@ subclass to change this:
 
     ```python
     class DepositDeciderHandler(
-        DeciderCommandHandler[DepositRequest, DepositResult, BankAccountState, BankCommand, BankEvent],
+        DeciderCommandHandler[DepositRequest, BankAccountState, BankCommand, BankEvent, DepositResult],
     ):
         max_attempts = 5
     ```

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 from typing_extensions import override
 
-from waku.messaging.contracts.event import IEvent
+from waku.messaging.contracts.event import EventT, IEvent
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.endpoints.base import EndpointEntry, local_queue
 from waku.messaging.events.handler import EventHandler
@@ -13,6 +15,9 @@ from waku.messaging.registry import MessageRegistry
 from waku.messaging.requests.handler import RequestHandler
 from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor, RoutingTable
 from waku.messaging.routing_builder import ModuleRoutingMap, RoutingTableBuilder
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 class _TestEvent(IEvent): ...
@@ -27,8 +32,8 @@ class _DummyModule: ...
 
 
 def _make_registry_with_event(
-    event_type: type[IEvent],
-    handler_types: list[type],
+    event_type: type[EventT],
+    handler_types: Sequence[type[EventHandler[EventT]]],
 ) -> MessageRegistry:
     reg = MessageRegistry()
     reg.event_map.bind(event_type, handler_types)

@@ -50,7 +50,7 @@ class EventMap:
     def is_frozen(self) -> bool:
         return self._frozen
 
-    def bind(self, event_type: type[EventT], handler_types: list[type[EventHandler[EventT]]]) -> Self:
+    def bind(self, event_type: type[EventT], handler_types: Sequence[type[EventHandler[EventT]]]) -> Self:
         if self._frozen:
             raise MapFrozenError
         if event_type not in self._registry:

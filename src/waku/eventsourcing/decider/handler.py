@@ -5,12 +5,16 @@ import logging
 from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any, ClassVar, Generic
 
-from typing_extensions import TypeVar, override
+from typing_extensions import override
 
 from waku.eventsourcing._retry import execute_with_optimistic_retry
-from waku.eventsourcing.contracts.aggregate import IDecider  # noqa: TC001  # Dishka needs runtime access
+from waku.eventsourcing.contracts.aggregate import (
+    CommandT,
+    EventT,
+    IDecider,  # Dishka needs runtime access
+    StateT,
+)
 from waku.eventsourcing.decider.repository import DeciderRepository  # noqa: TC001  # Dishka needs runtime access
-from waku.messaging.contracts.event import IEvent
 from waku.messaging.contracts.message import ResponseT
 from waku.messaging.contracts.request import RequestT
 from waku.messaging.interfaces import IPublisher  # noqa: TC001  # Dishka needs runtime access
@@ -23,15 +27,11 @@ __all__ = ['DeciderCommandHandler', 'DeciderVoidCommandHandler']
 
 logger = logging.getLogger(__name__)
 
-StateT = TypeVar('StateT', default=object)
-CommandT = TypeVar('CommandT', default=object)
-EventT = TypeVar('EventT', bound=IEvent, default=IEvent)
-
 
 class DeciderCommandHandler(
     RequestHandler[RequestT, ResponseT],
     abc.ABC,
-    Generic[RequestT, ResponseT, StateT, CommandT, EventT],
+    Generic[RequestT, StateT, CommandT, EventT, ResponseT],
 ):
     max_attempts: ClassVar[int] = 3
 
@@ -112,7 +112,7 @@ class DeciderCommandHandler(
 
 
 class DeciderVoidCommandHandler(
-    DeciderCommandHandler[RequestT, None, StateT, CommandT, EventT],
+    DeciderCommandHandler[RequestT, StateT, CommandT, EventT, None],
     abc.ABC,
     Generic[RequestT, StateT, CommandT, EventT],
 ):

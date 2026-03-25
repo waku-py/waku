@@ -5,10 +5,10 @@ import logging
 from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any, ClassVar, Generic
 
-from typing_extensions import TypeVar, override
+from typing_extensions import override
 
 from waku.eventsourcing._retry import execute_with_optimistic_retry
-from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
+from waku.eventsourcing.contracts.aggregate import AggregateT
 from waku.eventsourcing.repository import EventSourcedRepository  # noqa: TC001  # Dishka needs runtime access
 from waku.messaging.contracts.message import ResponseT
 from waku.messaging.contracts.request import RequestT
@@ -22,13 +22,11 @@ __all__ = ['EventSourcedCommandHandler', 'EventSourcedVoidCommandHandler']
 
 logger = logging.getLogger(__name__)
 
-AggregateT = TypeVar('AggregateT', bound=EventSourcedAggregate, default=EventSourcedAggregate)
-
 
 class EventSourcedCommandHandler(
     RequestHandler[RequestT, ResponseT],
     abc.ABC,
-    Generic[RequestT, ResponseT, AggregateT],
+    Generic[RequestT, AggregateT, ResponseT],
 ):
     max_attempts: ClassVar[int] = 3
 
@@ -110,7 +108,7 @@ class EventSourcedCommandHandler(
 
 
 class EventSourcedVoidCommandHandler(
-    EventSourcedCommandHandler[RequestT, None, AggregateT],
+    EventSourcedCommandHandler[RequestT, AggregateT, None],
     abc.ABC,
     Generic[RequestT, AggregateT],
 ):
