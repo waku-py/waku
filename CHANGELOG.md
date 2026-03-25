@@ -2,6 +2,18 @@
 
 <!-- version list -->
 
+## v0.42.0 (2026-03-25)
+
+### ♻️ Refactoring
+
+- Consolidate TypeVars and tighten type signatures
+  ([`8604e56`](https://github.com/waku-py/waku/commit/8604e56ee38f092a81ae4e4afee7328d0caabc63))
+
+### 💥 Breaking Changes
+
+- Generic param order changed — ResponseT moved to last position:
+
+
 ## v0.41.2 (2026-03-24)
 
 ### 🪲 Bug Fixes
