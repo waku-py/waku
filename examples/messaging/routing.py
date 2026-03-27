@@ -90,9 +90,9 @@ class OrderAuditHandler(EventHandler[OrderPlaced]):
     extensions=[
         (
             MessagingExtension()
-            .bind_request(PlaceOrder, PlaceOrderHandler)
-            .bind_request(ShipOrder, ShipOrderHandler)
-            .bind_event(OrderPlaced, [OrderAuditHandler])
+            .bind(PlaceOrder, PlaceOrderHandler)
+            .bind(ShipOrder, ShipOrderHandler)
+            .bind(OrderPlaced, OrderAuditHandler)
         ),
     ],
 )
@@ -120,8 +120,8 @@ class HighPriorityAlertHandler(EventHandler[HighPriorityAlert]):
     extensions=[
         (
             MessagingExtension()
-            .bind_event(OrderPlaced, [OrderNotificationHandler])
-            .bind_event(HighPriorityAlert, [HighPriorityAlertHandler])
+            .bind(OrderPlaced, OrderNotificationHandler)
+            .bind(HighPriorityAlert, HighPriorityAlertHandler)
         ),
     ],
 )
@@ -144,7 +144,7 @@ class NotificationModule: ...
                 routing=[
                     # All events from NotificationModule are processed via the 'notifications' queue.
                     # OrderModule's handlers still run inline (additive routing).
-                    route_module(NotificationModule).events_to('notifications'),
+                    route_module(NotificationModule).to('notifications'),
                     # Per-type override: HighPriorityAlert goes to 'priority' queue
                     # instead of 'notifications', even though it belongs to NotificationModule.
                     route(HighPriorityAlert).to('priority'),

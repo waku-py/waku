@@ -1,10 +1,9 @@
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
-import pytest
-
 from waku.messaging import IRequest
-from waku.messaging._introspection import get_request_response_type  # noqa: PLC2701
+from waku.messaging._introspection import get_response_type  # noqa: PLC2701
+from waku.messaging.contracts.event import IEvent
 
 _T = TypeVar('_T')
 
@@ -41,26 +40,35 @@ class UnboundRequest(GenericMiddle[_T]):
     pass
 
 
+class SomeEvent(IEvent):
+    pass
+
+
 def test_extracts_response_from_irequest() -> None:
-    result = get_request_response_type(DirectIRequest)
-    assert result is UserResponse
+    result = get_response_type(DirectIRequest)
+    assert result is UserResponse  # type: ignore[comparison-overlap]
 
 
 def test_extracts_response_from_request_subclass() -> None:
-    result = get_request_response_type(RequestSubclass)
-    assert result is UserResponse
+    result = get_response_type(RequestSubclass)
+    assert result is UserResponse  # type: ignore[comparison-overlap]
 
 
 def test_extracts_response_from_nested_inheritance() -> None:
-    result = get_request_response_type(NestedRequestSubclass)
-    assert result is UserResponse
+    result = get_response_type(NestedRequestSubclass)
+    assert result is UserResponse  # type: ignore[comparison-overlap]
 
 
 def test_resolves_none_type_for_bare_irequest() -> None:
-    result = get_request_response_type(NoResponseType)
+    result = get_response_type(NoResponseType)
     assert result is type(None)
 
 
-def test_raises_type_error_for_unbound_typevar_request() -> None:
-    with pytest.raises(TypeError, match='Could not extract response type from UnboundRequest'):
-        get_request_response_type(UnboundRequest)
+def test_returns_none_type_for_event() -> None:
+    result = get_response_type(SomeEvent)
+    assert result is type(None)
+
+
+def test_returns_none_type_for_unbound_typevar_request() -> None:
+    result = get_response_type(UnboundRequest)
+    assert result is type(None)

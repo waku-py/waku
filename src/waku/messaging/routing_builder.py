@@ -2,29 +2,33 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
-from typing import TYPE_CHECKING, Any, assert_never
+from types import MappingProxyType
+from typing import TYPE_CHECKING
 
-from waku.messaging.contracts.event import IEvent
+from waku.messaging.endpoints.base import DEFAULT_ENDPOINT_URI, local_queue
 from waku.messaging.exceptions import ImproperlyConfiguredError
 from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor, RoutingTable
 
 if TYPE_CHECKING:
+    from waku.messaging.config import MessagingConfig
+    from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.contracts.message import IMessage
     from waku.messaging.endpoints.base import EndpointEntry
-    from waku.messaging.events.handler import EventHandler
-    from waku.messaging.modules import MessagingConfig
     from waku.messaging.registry import MessageRegistry
+    from waku.modules import ModuleType
 
-__all__ = ['ModuleRoutingMap', 'RoutingTableBuilder']
+__all__ = [
+    'ModuleRoutingMap',
+    'RoutingTableBuilder',
+]
 
-ModuleRoutingMap = Mapping[type, Mapping[type[IEvent], Sequence[type['EventHandler[Any]']]]]
+ModuleRoutingMap = Mapping['ModuleType', Mapping[type['IMessage'], Sequence['HandlerType']]]
 
 
 class RoutingTableBuilder:
     __slots__ = (
         '_config',
-        '_handler_routes',
+        '_endpoint_handlers',
         '_module_routing_map',
         '_per_type_overrides',
         '_registry',
@@ -42,71 +46,96 @@ class RoutingTableBuilder:
         self._registry = aggregated
         self._module_routing_map = module_routing_map
         self._type_routes: defaultdict[type[IMessage], list[str]] = defaultdict(list)
-        self._handler_routes: defaultdict[type[IMessage], set[type[EventHandler[Any]]]] = defaultdict(set)
+        self._endpoint_handlers: defaultdict[str, defaultdict[type[IMessage], set[HandlerType]]] = defaultdict(
+            lambda: defaultdict(set)
+        )
         self._per_type_overrides: set[type[IMessage]] = set()
 
     def build(self) -> RoutingTable:
-        endpoint_entries_by_uri = {entry.uri: entry for entry in self._config.endpoints}
+        endpoints = self._collect_endpoint_entries()
+        self._apply_routes(endpoints)
+        self._assign_unrouted_to_default()
+        self._ensure_default_endpoint(endpoints)
+        return self._assemble(endpoints)
 
-        route_descriptors: list[RouteDescriptor] = []
-        module_descriptors: list[ModuleRouteDescriptor] = []
+    def _collect_endpoint_entries(self) -> dict[str, EndpointEntry]:
+        return {entry.uri: entry for entry in self._config.endpoints}
+
+    def _apply_routes(self, endpoints: Mapping[str, EndpointEntry]) -> None:
+        per_type: list[RouteDescriptor] = []
+        module_level: list[ModuleRouteDescriptor] = []
 
         for descriptor in self._config.routing:
-            self._validate_endpoint_uri(descriptor.endpoint_uri, endpoint_entries_by_uri)
+            self._validate_endpoint_uri(descriptor.endpoint_uri, endpoints)
             match descriptor:
                 case RouteDescriptor():
-                    route_descriptors.append(descriptor)
-                case ModuleRouteDescriptor():
-                    module_descriptors.append(descriptor)
-                case _:
-                    assert_never(descriptor)
+                    per_type.append(descriptor)
+                case ModuleRouteDescriptor():  # pragma: no branch
+                    module_level.append(descriptor)
 
-        for descriptor in route_descriptors:
-            self._process_route(descriptor)
-        for descriptor in module_descriptors:
-            self._process_module_route(descriptor)
+        for descriptor in per_type:
+            self._apply_per_type_route(descriptor)
+        for descriptor in module_level:
+            self._apply_module_route(descriptor)
 
-        return self._assemble(endpoint_entries_by_uri)
-
-    def _process_route(self, descriptor: RouteDescriptor) -> None:
+    def _apply_per_type_route(self, descriptor: RouteDescriptor) -> None:
         msg_type = descriptor.message_type
         self._per_type_overrides.add(msg_type)
         self._type_routes[msg_type].append(descriptor.endpoint_uri)
 
-        if issubclass(msg_type, IEvent):
-            self._handler_routes[msg_type].update(self._registry.event_map.get_handler_types(msg_type))
+        handlers = self._registry.handler_map.get_handler_types(msg_type)
+        if not handlers:
+            msg = f"route() references '{msg_type.__qualname__}' which has no registered handlers"
+            raise ImproperlyConfiguredError(msg)
+        self._endpoint_handlers[descriptor.endpoint_uri][msg_type].update(handlers)
 
-    def _process_module_route(self, descriptor: ModuleRouteDescriptor) -> None:
+    def _apply_module_route(self, descriptor: ModuleRouteDescriptor) -> None:
         module_type = descriptor.module_type
         if module_type not in self._module_routing_map:
-            msg = f"route_module() references module '{module_type.__qualname__}' which has no registered events"
+            msg = f"route_module() references module '{module_type.__qualname__}' which has no registered handlers"
             raise ImproperlyConfiguredError(msg)
 
-        for event_type, handler_types in self._module_routing_map[module_type].items():
-            if event_type in self._per_type_overrides:
+        for msg_type, handler_types in self._module_routing_map[module_type].items():
+            if msg_type in self._per_type_overrides:
                 continue
-            self._type_routes[event_type].append(descriptor.endpoint_uri)
-            self._handler_routes[event_type].update(handler_types)
+            self._type_routes[msg_type].append(descriptor.endpoint_uri)
+            self._endpoint_handlers[descriptor.endpoint_uri][msg_type].update(handler_types)
 
-    def _assemble(self, endpoint_entries_by_uri: Mapping[str, EndpointEntry]) -> RoutingTable:
-        frozen_type_routes = {msg_type: tuple(dict.fromkeys(uris)) for msg_type, uris in self._type_routes.items()}
-        frozen_handler_routes = {
-            msg_type: frozenset(handlers) for msg_type, handlers in self._handler_routes.items() if handlers
-        }
+    def _assign_unrouted_to_default(self) -> None:
+        for msg_type, handlers in self._registry.handler_map.items():
+            all_handlers: set[HandlerType] = set(handlers)
+            routed = self._collect_routed_handlers(msg_type)
+            unrouted = all_handlers - routed
+            if unrouted:
+                self._type_routes[msg_type].append(DEFAULT_ENDPOINT_URI)
+                self._endpoint_handlers[DEFAULT_ENDPOINT_URI][msg_type].update(unrouted)
 
-        enriched_entries: list[EndpointEntry] = []
-        for uri, entry in endpoint_entries_by_uri.items():
-            subs: dict[type[IMessage], frozenset[type[EventHandler[Any]]]] = {}
-            for msg_type, uris in self._type_routes.items():
-                if uri in uris and msg_type in frozen_handler_routes:
-                    subs[msg_type] = frozen_handler_routes[msg_type]
+    def _collect_routed_handlers(self, msg_type: type[IMessage]) -> set[HandlerType]:
+        routed: set[HandlerType] = set()
+        for ep_handlers in self._endpoint_handlers.values():
+            routed.update(ep_handlers.get(msg_type, set()))
+        return routed
 
-            enriched_entries.append(replace(entry, handler_subscriptions=subs))
+    def _ensure_default_endpoint(self, endpoints: dict[str, EndpointEntry]) -> None:
+        if DEFAULT_ENDPOINT_URI in endpoints:
+            return
+        needs_default = any(DEFAULT_ENDPOINT_URI in uris for uris in self._type_routes.values())
+        if needs_default:
+            endpoints[DEFAULT_ENDPOINT_URI] = local_queue(DEFAULT_ENDPOINT_URI)
+
+    def _assemble(self, endpoints: Mapping[str, EndpointEntry]) -> RoutingTable:
+        type_routes = {msg_type: tuple(dict.fromkeys(uris)) for msg_type, uris in self._type_routes.items()}
+
+        endpoint_subscriptions: dict[str, dict[type[IMessage], frozenset[HandlerType]]] = {}
+        for uri, handlers_by_type in self._endpoint_handlers.items():
+            subs = {msg_type: frozenset(handlers) for msg_type, handlers in handlers_by_type.items() if handlers}
+            if subs:
+                endpoint_subscriptions[uri] = subs
 
         return RoutingTable(
-            entries=tuple(enriched_entries),
-            type_routes=frozen_type_routes,
-            handler_routes=frozen_handler_routes,
+            entries=tuple(endpoints.values()),
+            type_routes=MappingProxyType(type_routes),
+            endpoint_subscriptions=MappingProxyType(endpoint_subscriptions),
         )
 
     @staticmethod

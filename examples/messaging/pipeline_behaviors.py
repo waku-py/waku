@@ -115,7 +115,7 @@ class UserQueryValidationBehavior(ValidationBehavior[GetUserQuery, UserResponse]
 @module(
     extensions=[
         (
-            MessagingExtension().bind_request(
+            MessagingExtension().bind(
                 GetUserQuery,
                 GetUserQueryHandler,
                 behaviors=[UserQueryValidationBehavior],

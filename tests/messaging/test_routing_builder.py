@@ -5,19 +5,20 @@ from typing import TYPE_CHECKING
 import pytest
 from typing_extensions import override
 
-from waku.messaging.contracts.event import EventT, IEvent
+from waku.messaging.config import MessagingConfig
+from waku.messaging.contracts.event import IEvent
 from waku.messaging.contracts.request import IRequest
-from waku.messaging.endpoints.base import EndpointEntry, local_queue
-from waku.messaging.events.handler import EventHandler
-from waku.messaging.exceptions import ImproperlyConfiguredError
-from waku.messaging.modules import MessagingConfig
-from waku.messaging.registry import MessageRegistry
-from waku.messaging.requests.handler import RequestHandler
-from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor, RoutingTable
-from waku.messaging.routing_builder import ModuleRoutingMap, RoutingTableBuilder
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from waku.messaging.contracts.handler import HandlerType
+    from waku.messaging.contracts.message import IMessage
+
+from waku.messaging.endpoints.base import DEFAULT_ENDPOINT_URI, EndpointEntry, local_queue
+from waku.messaging.exceptions import ImproperlyConfiguredError
+from waku.messaging.handler import EventHandler, RequestHandler
+from waku.messaging.registry import MessageRegistry
+from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor
+from waku.messaging.routing_builder import ModuleRoutingMap, RoutingTableBuilder
 
 
 class _TestEvent(IEvent): ...
@@ -31,12 +32,13 @@ class _TestHandler(EventHandler[_TestEvent]):
 class _DummyModule: ...
 
 
-def _make_registry_with_event(
-    event_type: type[EventT],
-    handler_types: Sequence[type[EventHandler[EventT]]],
+def _make_registry_with_handlers(
+    message_type: type[IMessage],
+    *handler_types: HandlerType,
 ) -> MessageRegistry:
     reg = MessageRegistry()
-    reg.event_map.bind(event_type, handler_types)
+    for handler_type in handler_types:
+        reg.handler_map.bind(message_type, handler_type)
     reg.freeze()
     return reg
 
@@ -48,22 +50,31 @@ def _make_config(
     return MessagingConfig(endpoints=endpoints, routing=routing)
 
 
-def test_empty_config_produces_empty_routing_table() -> None:
+def test_empty_config_with_no_handlers_produces_empty_table() -> None:
     registry = MessageRegistry()
     config = _make_config()
     table = RoutingTableBuilder(config, aggregated=registry, module_routing_map={}).build()
-    assert table == RoutingTable()
+    assert table.entries == ()
+    assert table.type_routes == {}
+    assert table.endpoint_subscriptions == {}
 
 
-def test_route_descriptor_populates_type_and_handler_routes() -> None:
-    registry = _make_registry_with_event(_TestEvent, [_TestHandler])
+def test_config_with_handlers_auto_creates_default_endpoint() -> None:
+    registry = _make_registry_with_handlers(_TestEvent, _TestHandler)
+    config = _make_config()
+    table = RoutingTableBuilder(config, aggregated=registry, module_routing_map={}).build()
+    assert any(e.uri == DEFAULT_ENDPOINT_URI for e in table.entries)
+
+
+def test_route_descriptor_populates_type_routes_and_subscriptions() -> None:
+    registry = _make_registry_with_handlers(_TestEvent, _TestHandler)
     config = _make_config(
         endpoints=(local_queue('queue://test'),),
         routing=(RouteDescriptor(_TestEvent, 'queue://test'),),
     )
     table = RoutingTableBuilder(config, aggregated=registry, module_routing_map={}).build()
     assert table.type_routes[_TestEvent] == ('queue://test',)
-    assert table.handler_routes[_TestEvent] == frozenset({_TestHandler})
+    assert table.endpoint_subscriptions['queue://test'][_TestEvent] == frozenset({_TestHandler})
 
 
 def test_route_descriptor_with_unknown_uri_raises_error() -> None:
@@ -75,8 +86,8 @@ def test_route_descriptor_with_unknown_uri_raises_error() -> None:
         RoutingTableBuilder(config, aggregated=registry, module_routing_map={}).build()
 
 
-def test_module_route_descriptor_populates_type_and_handler_routes() -> None:
-    registry = _make_registry_with_event(_TestEvent, [_TestHandler])
+def test_module_route_descriptor_populates_type_routes_and_subscriptions() -> None:
+    registry = _make_registry_with_handlers(_TestEvent, _TestHandler)
     config = _make_config(
         endpoints=(local_queue('queue://test'),),
         routing=(ModuleRouteDescriptor(_DummyModule, 'queue://test'),),
@@ -85,7 +96,7 @@ def test_module_route_descriptor_populates_type_and_handler_routes() -> None:
     table = RoutingTableBuilder(config, aggregated=registry, module_routing_map=module_routing_map).build()
 
     assert table.type_routes[_TestEvent] == ('queue://test',)
-    assert table.handler_routes[_TestEvent] == frozenset({_TestHandler})
+    assert table.endpoint_subscriptions['queue://test'][_TestEvent] == frozenset({_TestHandler})
 
 
 def test_module_route_descriptor_with_unknown_uri_raises_error() -> None:
@@ -108,19 +119,18 @@ def test_module_route_descriptor_with_unknown_module_raises_error() -> None:
         RoutingTableBuilder(config, aggregated=MessageRegistry(), module_routing_map={}).build()
 
 
-def test_event_without_handlers_populates_type_routes_only() -> None:
+def test_route_without_handlers_raises_error() -> None:
     registry = MessageRegistry()
     registry.freeze()
     config = _make_config(
         endpoints=(local_queue('queue://events'),),
         routing=(RouteDescriptor(_TestEvent, 'queue://events'),),
     )
-    table = RoutingTableBuilder(config, aggregated=registry, module_routing_map={}).build()
-    assert _TestEvent in table.type_routes
-    assert _TestEvent not in table.handler_routes
+    with pytest.raises(ImproperlyConfiguredError, match='_TestEvent'):
+        RoutingTableBuilder(config, aggregated=registry, module_routing_map={}).build()
 
 
-def test_request_route_does_not_populate_handler_routes() -> None:
+def test_request_route_populates_type_routes_and_subscriptions() -> None:
     registry = MessageRegistry()
 
     class _Cmd(IRequest[None]): ...
@@ -129,7 +139,7 @@ def test_request_route_does_not_populate_handler_routes() -> None:
         @override
         async def handle(self, request: _Cmd, /) -> None: ...  # pragma: no cover
 
-    registry.request_map.bind(_Cmd, _CmdHandler)
+    registry.handler_map.bind(_Cmd, _CmdHandler)
     registry.freeze()
     config = _make_config(
         endpoints=(local_queue('queue://cmds'),),
@@ -137,7 +147,7 @@ def test_request_route_does_not_populate_handler_routes() -> None:
     )
     table = RoutingTableBuilder(config, aggregated=registry, module_routing_map={}).build()
     assert _Cmd in table.type_routes
-    assert _Cmd not in table.handler_routes
+    assert table.endpoint_subscriptions['queue://cmds'][_Cmd] == frozenset({_CmdHandler})
 
 
 @pytest.mark.parametrize(
@@ -156,7 +166,7 @@ def test_request_route_does_not_populate_handler_routes() -> None:
 def test_per_type_route_takes_precedence_over_module_route(
     routing: tuple[RouteDescriptor | ModuleRouteDescriptor, ...],
 ) -> None:
-    registry = _make_registry_with_event(_TestEvent, [_TestHandler])
+    registry = _make_registry_with_handlers(_TestEvent, _TestHandler)
     config = _make_config(
         endpoints=(local_queue('notifications'), local_queue('priority')),
         routing=routing,
@@ -167,7 +177,7 @@ def test_per_type_route_takes_precedence_over_module_route(
 
 
 def test_two_module_routes_for_same_event_are_additive() -> None:
-    registry = _make_registry_with_event(_TestEvent, [_TestHandler])
+    registry = _make_registry_with_handlers(_TestEvent, _TestHandler)
 
     class _ModA: ...
 
@@ -186,7 +196,6 @@ def test_two_module_routes_for_same_event_are_additive() -> None:
     }
     table = RoutingTableBuilder(config, aggregated=registry, module_routing_map=module_routing_map).build()
     assert set(table.type_routes[_TestEvent]) == {'queue-a', 'queue-b'}
-    assert table.handler_routes[_TestEvent] == frozenset({_TestHandler})
 
 
 def test_per_type_override_only_affects_overridden_event() -> None:
@@ -197,8 +206,8 @@ def test_per_type_override_only_affects_overridden_event() -> None:
         async def handle(self, event: _OtherEvent, /) -> None: ...  # pragma: no cover
 
     registry = MessageRegistry()
-    registry.event_map.bind(_TestEvent, [_TestHandler])
-    registry.event_map.bind(_OtherEvent, [_OtherHandler])
+    registry.handler_map.bind(_TestEvent, _TestHandler)
+    registry.handler_map.bind(_OtherEvent, _OtherHandler)
     registry.freeze()
 
     config = _make_config(
@@ -218,7 +227,7 @@ def test_per_type_override_only_affects_overridden_event() -> None:
 
 
 def test_duplicate_route_descriptors_are_deduplicated() -> None:
-    registry = _make_registry_with_event(_TestEvent, [_TestHandler])
+    registry = _make_registry_with_handlers(_TestEvent, _TestHandler)
     config = _make_config(
         endpoints=(local_queue('queue://test'),),
         routing=(
@@ -230,16 +239,77 @@ def test_duplicate_route_descriptors_are_deduplicated() -> None:
     assert table.type_routes[_TestEvent] == ('queue://test',)
 
 
-def test_endpoint_entries_enriched_with_handler_subscriptions() -> None:
-    registry = _make_registry_with_event(_TestEvent, [_TestHandler])
+def test_subscriptions_populated_for_routed_endpoint() -> None:
+    registry = _make_registry_with_handlers(_TestEvent, _TestHandler)
     config = _make_config(
         endpoints=(local_queue('routed-q'), local_queue('unused-q')),
         routing=(RouteDescriptor(_TestEvent, 'routed-q'),),
     )
     table = RoutingTableBuilder(config, aggregated=registry, module_routing_map={}).build()
 
-    routed_entry = next(e for e in table.entries if e.uri == 'routed-q')
-    unused_entry = next(e for e in table.entries if e.uri == 'unused-q')
+    assert table.endpoint_subscriptions['routed-q'][_TestEvent] == frozenset({_TestHandler})
+    assert 'unused-q' not in table.endpoint_subscriptions
 
-    assert routed_entry.handler_subscriptions[_TestEvent] == frozenset({_TestHandler})
-    assert unused_entry.handler_subscriptions == {}
+
+def test_explicit_default_endpoint_is_not_auto_created() -> None:
+    registry = _make_registry_with_handlers(_TestEvent, _TestHandler)
+    custom_default = local_queue(DEFAULT_ENDPOINT_URI, stop_timeout=99.0)
+    config = _make_config(endpoints=(custom_default,))
+    table = RoutingTableBuilder(config, aggregated=registry, module_routing_map={}).build()
+
+    default_entries = [e for e in table.entries if e.uri == DEFAULT_ENDPOINT_URI]
+    assert len(default_entries) == 1
+    assert default_entries[0].stop_timeout == 99.0  # type: ignore[union-attr]
+
+
+def test_unrouted_events_assigned_to_default_endpoint() -> None:
+    registry = _make_registry_with_handlers(_TestEvent, _TestHandler)
+    config = _make_config()
+    table = RoutingTableBuilder(config, aggregated=registry, module_routing_map={}).build()
+
+    assert table.endpoint_subscriptions[DEFAULT_ENDPOINT_URI][_TestEvent] == frozenset({_TestHandler})
+    assert _TestEvent in table.type_routes
+
+
+def test_partially_routed_event_splits_handlers() -> None:
+    class _HandlerA(EventHandler[_TestEvent]):
+        @override
+        async def handle(self, event: _TestEvent, /) -> None: ...  # pragma: no cover
+
+    class _HandlerB(EventHandler[_TestEvent]):
+        @override
+        async def handle(self, event: _TestEvent, /) -> None: ...  # pragma: no cover
+
+    registry = MessageRegistry()
+    registry.handler_map.bind(_TestEvent, _HandlerA)
+    registry.handler_map.bind(_TestEvent, _HandlerB)
+    registry.freeze()
+
+    class _ModA: ...
+
+    config = _make_config(
+        endpoints=(local_queue('queue-a'),),
+        routing=(ModuleRouteDescriptor(_ModA, 'queue-a'),),
+    )
+    module_routing_map: ModuleRoutingMap = {_ModA: {_TestEvent: [_HandlerA]}}
+    table = RoutingTableBuilder(config, aggregated=registry, module_routing_map=module_routing_map).build()
+
+    assert table.endpoint_subscriptions['queue-a'][_TestEvent] == frozenset({_HandlerA})
+    assert table.endpoint_subscriptions[DEFAULT_ENDPOINT_URI][_TestEvent] == frozenset({_HandlerB})
+
+
+def test_endpoint_with_empty_handler_list_excluded_from_subscriptions() -> None:
+    registry = MessageRegistry()
+    registry.freeze()
+
+    class _Mod: ...
+
+    config = _make_config(
+        endpoints=(local_queue('queue://routed'),),
+        routing=(ModuleRouteDescriptor(_Mod, 'queue://routed'),),
+    )
+    module_routing_map: ModuleRoutingMap = {_Mod: {_TestEvent: []}}
+    table = RoutingTableBuilder(config, aggregated=registry, module_routing_map=module_routing_map).build()
+
+    assert any(e.uri == 'queue://routed' for e in table.entries)
+    assert 'queue://routed' not in table.endpoint_subscriptions

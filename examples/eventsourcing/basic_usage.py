@@ -187,10 +187,10 @@ class MoneyDepositedHandler(EventHandler[MoneyDeposited]):
             event_types=[AccountOpened, MoneyDeposited, MoneyWithdrawn],
         ),
         MessagingExtension()
-        .bind_request(OpenAccountCommand, OpenAccountHandler)
-        .bind_request(DepositCommand, DepositHandler)
-        .bind_event(AccountOpened, [AccountOpenedHandler])
-        .bind_event(MoneyDeposited, [MoneyDepositedHandler]),
+        .bind(OpenAccountCommand, OpenAccountHandler)
+        .bind(DepositCommand, DepositHandler)
+        .bind(AccountOpened, AccountOpenedHandler)
+        .bind(MoneyDeposited, MoneyDepositedHandler),
     ],
 )
 class BankModule:

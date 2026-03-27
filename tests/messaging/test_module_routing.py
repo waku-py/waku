@@ -47,7 +47,7 @@ class _QueuedPaymentHandler(EventHandler[_PaymentReceived]):
         self.received.append(event.payment_id)
 
 
-class _InlineOrderHandler(EventHandler[_OrderPlaced]):
+class _DefaultQueueOrderHandler(EventHandler[_OrderPlaced]):
     received: ClassVar[list[str]] = []
 
     @override
@@ -66,7 +66,7 @@ class TestModuleRouting:
         with pytest.raises(ImproperlyConfiguredError, match='nonexistent'):
             async with create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind_event(_OrderPlaced, [_QueuedOrderHandler])],
+                extensions=[MessagingExtension().bind(_OrderPlaced, _QueuedOrderHandler)],
             ):
                 pass  # pragma: no cover
 
@@ -82,7 +82,7 @@ class TestModuleRouting:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind_event(_OrderPlaced, [_QueuedOrderHandler])],
+                extensions=[MessagingExtension().bind(_OrderPlaced, _QueuedOrderHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -99,8 +99,8 @@ class TestModuleRouting:
         @module(
             extensions=[
                 MessagingExtension()
-                .bind_event(_OrderPlaced, [_QueuedOrderHandler])
-                .bind_event(_PaymentReceived, [_QueuedPaymentHandler]),
+                .bind(_OrderPlaced, _QueuedOrderHandler)
+                .bind(_PaymentReceived, _QueuedPaymentHandler),
             ],
         )
         class DomainModule:
@@ -108,7 +108,7 @@ class TestModuleRouting:
 
         config = MessagingConfig(
             endpoints=[local_queue('domain-events')],
-            routing=[route_module(DomainModule).events_to('domain-events')],
+            routing=[route_module(DomainModule).to('domain-events')],
         )
 
         async with (
@@ -125,7 +125,7 @@ class TestModuleRouting:
         assert _QueuedPaymentHandler.received == ['PAY-20']
 
     @staticmethod
-    async def test_unrouted_event_executes_handler_inline() -> None:
+    async def test_unrouted_event_dispatches_through_default_endpoint() -> None:
         called: list[str] = []
 
         class InlineHandler(EventHandler[_OrderPlaced]):
@@ -140,7 +140,7 @@ class TestModuleRouting:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind_event(_OrderPlaced, [InlineHandler])],
+                extensions=[MessagingExtension().bind(_OrderPlaced, InlineHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -150,35 +150,35 @@ class TestModuleRouting:
         assert called == ['ORD-INLINE']
 
     @staticmethod
-    async def test_routed_event_still_runs_inline_handlers_from_other_modules() -> None:
+    async def test_partially_routed_event_runs_unrouted_handlers_via_default_endpoint() -> None:
         _QueuedOrderHandler.received.clear()
-        _InlineOrderHandler.received.clear()
+        _DefaultQueueOrderHandler.received.clear()
 
         @module(
-            extensions=[MessagingExtension().bind_event(_OrderPlaced, [_QueuedOrderHandler])],
+            extensions=[MessagingExtension().bind(_OrderPlaced, _QueuedOrderHandler)],
         )
         class QueuedModule:
             pass
 
         @module(
-            extensions=[MessagingExtension().bind_event(_OrderPlaced, [_InlineOrderHandler])],
+            extensions=[MessagingExtension().bind(_OrderPlaced, _DefaultQueueOrderHandler)],
         )
-        class InlineModule:
+        class DefaultQueueModule:
             pass
 
         config = MessagingConfig(
             endpoints=[local_queue('order-events')],
-            routing=[route_module(QueuedModule).events_to('order-events')],
+            routing=[route_module(QueuedModule).to('order-events')],
         )
 
         async with (
             create_test_app(
-                imports=[MessagingModule.register(config), QueuedModule, InlineModule],
+                imports=[MessagingModule.register(config), QueuedModule, DefaultQueueModule],
             ) as app,
             app.container() as container,
         ):
             bus = await container.get(IMessageBus)
             await bus.publish(_OrderPlaced(order_id='ORD-BOTH'))
 
-        assert _InlineOrderHandler.received == ['ORD-BOTH']
+        assert _DefaultQueueOrderHandler.received == ['ORD-BOTH']
         assert _QueuedOrderHandler.received == ['ORD-BOTH']

@@ -88,8 +88,8 @@ class MeetingCreatedEventHandler(EventHandler[MeetingCreatedEvent]):
     extensions=[
         (
             MessagingExtension()
-            .bind_request(CreateMeetingCommand, CreatingMeetingCommandHandler)
-            .bind_event(MeetingCreatedEvent, [MeetingCreatedEventHandler])
+            .bind(CreateMeetingCommand, CreatingMeetingCommandHandler)
+            .bind(MeetingCreatedEvent, MeetingCreatedEventHandler)
         ),
     ],
 )

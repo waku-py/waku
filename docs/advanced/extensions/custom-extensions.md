@@ -324,7 +324,7 @@ class PeriodicHealthReport(OnApplicationInit, OnApplicationShutdown):
 ## Fluent builder pattern
 
 Extensions that collect configuration benefit from a fluent builder API. The `MessagingExtension`
-in waku's messaging module is a good example — it chains `.bind_request()` and `.bind_event()` calls:
+in waku's messaging module is a good example — it chains `.bind()` calls:
 
 ```python linenums="1"
 from waku import module
@@ -335,8 +335,8 @@ from .contracts import CreateOrderCommand, OrderCreatedEvent
 
 messaging_ext = (
     MessagingExtension()
-    .bind_request(CreateOrderCommand, CreateOrderHandler)
-    .bind_event(OrderCreatedEvent, [OrderCreatedHandler])
+    .bind(CreateOrderCommand, CreateOrderHandler)
+    .bind(OrderCreatedEvent, OrderCreatedHandler)
 )
 
 @module(extensions=[messaging_ext])

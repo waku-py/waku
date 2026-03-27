@@ -44,7 +44,7 @@ async def test_bind_decider_integrates_with_di_and_message_bus() -> None:
                 decider=CounterDecider,
                 event_types=[Incremented],
             ),
-            MessagingExtension().bind_request(IncrementCounter, IncrementCounterHandler),
+            MessagingExtension().bind(IncrementCounter, IncrementCounterHandler),
         ],
     )
     class CounterModule:

@@ -97,7 +97,7 @@ from waku.messaging import MessagingExtension
 
 @module(
     extensions=[
-        MessagingExtension().bind_event(OrderPlaced, [SendConfirmationEmail, UpdateOrderStats]),
+        MessagingExtension().bind(OrderPlaced, SendConfirmationEmail, UpdateOrderStats),
     ],
 )
 class OrdersModule:
@@ -110,14 +110,14 @@ class OrdersModule:
 
     ```python linenums="1"
     @module(
-        extensions=[MessagingExtension().bind_event(OrderPlaced, [SendConfirmationEmail])],
+        extensions=[MessagingExtension().bind(OrderPlaced, SendConfirmationEmail)],
     )
     class NotificationModule:
         pass
 
 
     @module(
-        extensions=[MessagingExtension().bind_event(OrderPlaced, [UpdateOrderStats])],
+        extensions=[MessagingExtension().bind(OrderPlaced, UpdateOrderStats)],
     )
     class AnalyticsModule:
         pass

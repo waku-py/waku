@@ -8,16 +8,13 @@ from typing_extensions import override
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
 from waku.messaging.contracts.request import IRequest
-from waku.messaging.events.handler import EventHandler
-from waku.messaging.events.map import EventMap
 from waku.messaging.exceptions import (
-    EventHandlerAlreadyRegistered,
+    HandlerAlreadyRegistered,
     PipelineBehaviorAlreadyRegistered,
-    RequestHandlerAlreadyRegistered,
 )
+from waku.messaging.handler import EventHandler, RequestHandler
+from waku.messaging.handler_map import HandlerMap
 from waku.messaging.pipeline.map import PipelineBehaviorMap, PipelineBehaviorMapEntry
-from waku.messaging.requests.handler import RequestHandler
-from waku.messaging.requests.map import RequestMap
 
 
 @dataclass(frozen=True)
@@ -78,62 +75,68 @@ class _Behavior(IPipelineBehavior[_Request, _Response]):
 # --- Duplicate registration ---
 
 
-def test_request_map_rejects_duplicate_handler() -> None:
-    m = RequestMap()
+def test_handler_map_rejects_duplicate_handler() -> None:
+    m = HandlerMap()
     m.bind(_Request, _Handler)
-    with pytest.raises(RequestHandlerAlreadyRegistered, match='_Request already exists in registry'):
-        m.bind(_Request, _AnotherHandler)
+    with pytest.raises(HandlerAlreadyRegistered, match='_Handler already registered for _Request'):
+        m.bind(_Request, _Handler)
 
 
-def test_event_map_rejects_duplicate_handler() -> None:
-    m = EventMap()
-    m.bind(_Event, [_EventHandler])
+def test_handler_map_allows_multiple_handlers_for_events() -> None:
+    m = HandlerMap()
+    m.bind(_Event, _EventHandler)
+    m.bind(_Event, _Handler)
+    assert len(m.get_handler_types(_Event)) == 2
 
-    with pytest.raises(EventHandlerAlreadyRegistered, match='_EventHandler already registered for _Event'):
-        m.bind(_Event, [_EventHandler])
+
+def test_handler_map_rejects_same_handler_twice_for_event() -> None:
+    m = HandlerMap()
+    m.bind(_Event, _EventHandler)
+    with pytest.raises(HandlerAlreadyRegistered, match='_EventHandler already registered for _Event'):
+        m.bind(_Event, _EventHandler)
 
 
 def test_pipeline_map_rejects_duplicate_behavior() -> None:
     m = PipelineBehaviorMap()
-    m.bind(PipelineBehaviorMapEntry.for_request(_Request), [_Behavior])
+    m.bind(PipelineBehaviorMapEntry.for_message(_Request), [_Behavior])
 
     with pytest.raises(PipelineBehaviorAlreadyRegistered, match='_Behavior already registered for _Request'):
-        m.bind(PipelineBehaviorMapEntry.for_request(_Request), [_Behavior])
+        m.bind(PipelineBehaviorMapEntry.for_message(_Request), [_Behavior])
 
 
 def test_pipeline_map_rejects_duplicate_event_behavior() -> None:
     m = PipelineBehaviorMap()
-    m.bind(PipelineBehaviorMapEntry.for_event(_Event), [_EventBehavior])
+    m.bind(PipelineBehaviorMapEntry.for_message(_Event), [_EventBehavior])
 
     with pytest.raises(PipelineBehaviorAlreadyRegistered, match='_EventBehavior already registered for _Event'):
-        m.bind(PipelineBehaviorMapEntry.for_event(_Event), [_EventBehavior])
+        m.bind(PipelineBehaviorMapEntry.for_message(_Event), [_EventBehavior])
 
 
 # --- Merge ---
 
 
-def test_request_map_merge_combines_entries() -> None:
-    m1 = RequestMap()
+def test_handler_map_merge_combines_entries() -> None:
+    m1 = HandlerMap()
     m1.bind(_Request, _Handler)
-    m2 = RequestMap()
+    m2 = HandlerMap()
     m2.merge(m1)
 
-    assert m2.has_handler(_Request)
+    assert len(m2.get_handler_types(_Request)) > 0
 
 
-def test_event_map_merge_combines_entries() -> None:
-    m1 = EventMap()
-    m1.bind(_Event, [_EventHandler])
+def test_handler_map_merge_combines_event_entries() -> None:
+    m1 = HandlerMap()
+    m1.bind(_Event, _EventHandler)
 
-    m2 = EventMap()
+    m2 = HandlerMap()
     m2.merge(m1)
 
-    assert m2.has_handlers(_Event)
+    assert len(m2.get_handler_types(_Event)) > 0
 
 
 def test_pipeline_map_merge_combines_entries() -> None:
     m1 = PipelineBehaviorMap()
-    m1.bind(PipelineBehaviorMapEntry.for_request(_Request), [_Behavior])
+    m1.bind(PipelineBehaviorMapEntry.for_message(_Request), [_Behavior])
 
     m2 = PipelineBehaviorMap()
     m2.merge(m1)
@@ -143,48 +146,18 @@ def test_pipeline_map_merge_combines_entries() -> None:
 
 def test_pipeline_map_merge_appends_to_existing_entry() -> None:
     m1 = PipelineBehaviorMap()
-    m1.bind(PipelineBehaviorMapEntry.for_event(_Event), [_EventBehavior])
+    m1.bind(PipelineBehaviorMapEntry.for_message(_Event), [_EventBehavior])
 
     m2 = PipelineBehaviorMap()
-    m2.bind(PipelineBehaviorMapEntry.for_event(_Event), [_Behavior])
+    m2.bind(PipelineBehaviorMapEntry.for_message(_Event), [_Behavior])
     m2.merge(m1)
 
     assert len(m2.get_behavior_types(_Event)) == 2
 
 
-# --- Truthiness ---
+# --- Edge cases ---
 
 
-def test_request_map_is_falsy_when_empty() -> None:
-    assert not RequestMap()
-
-
-def test_request_map_is_truthy_after_bind() -> None:
-    m = RequestMap()
-    m.bind(_Request, _Handler)
-    assert m
-
-
-def test_event_map_is_falsy_when_empty() -> None:
-    assert not EventMap()
-
-
-def test_event_map_is_truthy_after_bind() -> None:
-    m = EventMap()
-    m.bind(_Event, [_EventHandler])
-    assert m
-
-
-def test_pipeline_map_is_falsy_when_empty() -> None:
-    assert not PipelineBehaviorMap()
-
-
-def test_pipeline_map_is_truthy_after_bind() -> None:
-    m = PipelineBehaviorMap()
-    m.bind(PipelineBehaviorMapEntry.for_request(_Request), [_Behavior])
-    assert m
-
-
-def test_event_map_get_handler_types_returns_empty_for_unknown() -> None:
-    m = EventMap()
+def test_handler_map_get_handler_types_returns_empty_for_unknown() -> None:
+    m = HandlerMap()
     assert m.get_handler_types(_Event) == ()

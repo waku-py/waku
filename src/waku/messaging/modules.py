@@ -1,84 +1,49 @@
-from collections import defaultdict
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Self, TypeAlias
+from collections.abc import Iterator, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Self, TypeAlias, TypeVar, overload
 
 from typing_extensions import override
 
 from waku.di import AsyncContainer, Provider, WithParents, many, object_, scoped, singleton, transient
 from waku.extensions import AfterApplicationInit, OnApplicationShutdown, OnModuleConfigure, OnModuleRegistration
+from waku.messaging.config import MessagingConfig
 from waku.messaging.context import MessageContext, get_message_context
-from waku.messaging.contracts.event import EventT
 from waku.messaging.contracts.factory import EnvelopeFactory
+from waku.messaging.contracts.message import IMessage
 from waku.messaging.contracts.pipeline import IPipelineBehavior
-from waku.messaging.contracts.request import RequestT
+from waku.messaging.contracts.request import IRequest
 from waku.messaging.dispatcher import MessageDispatcher
-from waku.messaging.endpoints.base import Endpoint, EndpointEntry, EndpointKind
+from waku.messaging.endpoints.base import Endpoint, EndpointEntry, ExternalEntry, LocalQueueEntry
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
-from waku.messaging.events.handler import EventHandler
+from waku.messaging.exceptions import HandlerAlreadyRegistered, ImproperlyConfiguredError, MultipleHandlersRegistered
 from waku.messaging.impl import MessageBus
 from waku.messaging.interfaces import IMessageBus
 from waku.messaging.pipeline.map import PipelineBehaviorMapEntry
 from waku.messaging.registry import MessageRegistry
-from waku.messaging.requests.handler import RequestHandler
-from waku.messaging.router import MessageRouter, ModuleRouteDescriptor, RouteDescriptor, RoutingTable
+from waku.messaging.router import MessageRouter, RoutingTable
 from waku.messaging.routing_builder import RoutingTableBuilder
 from waku.modules import DynamicModule, ModuleMetadataRegistry, module
 
 if TYPE_CHECKING:
     from waku.application import WakuApplication
-    from waku.messaging.contracts.event import IEvent
-    from waku.messaging.contracts.message import IMessage
+    from waku.messaging.contracts.handler import HandlerType
+    from waku.messaging.handler import EventHandler, MessageHandler, RequestHandler
     from waku.modules import ModuleMetadata, ModuleType
 
 __all__ = [
-    'MessagingConfig',
     'MessagingExtension',
     'MessagingModule',
 ]
 
 
 _HandlerProviders: TypeAlias = tuple[Provider, ...]
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class MessagingConfig:
-    """Configuration for the messaging extension.
-
-    Attributes:
-        pipeline_behaviors: A sequence of pipeline behavior configurations that will be applied
-            to the messaging pipeline. Behaviors are executed in the order they are defined.
-            Defaults to an empty sequence.
-        endpoints: A sequence of endpoint entries defining available message endpoints.
-            Defaults to an empty sequence.
-        routing: A sequence of route descriptors mapping messages to endpoints.
-            Defaults to an empty sequence.
-
-    Example:
-        ```python
-        config = MessagingConfig(
-            pipeline_behaviors=[
-                LoggingBehavior,
-                ValidationBehavior,
-            ]
-        )
-        ```
-    """
-
-    pipeline_behaviors: Sequence[type[IPipelineBehavior[Any, Any]]] = ()
-    endpoints: Sequence[EndpointEntry] = ()
-    routing: Sequence[RouteDescriptor | ModuleRouteDescriptor] = ()
+_ReqT = TypeVar('_ReqT', bound=IRequest[Any])
+_MsgT = TypeVar('_MsgT', bound=IMessage)
 
 
 @module()
 class MessagingModule:
     @classmethod
     def register(cls, config: MessagingConfig | None = None, /) -> DynamicModule:
-        """Application-level module for MessageBus setup.
-
-        Args:
-            config: Configuration for the messaging extension.
-        """
         config_ = config or MessagingConfig()
         return DynamicModule(
             parent_module=cls,
@@ -109,32 +74,39 @@ class MessagingExtension(OnModuleConfigure):
 
     @override
     def on_module_configure(self, metadata: 'ModuleMetadata') -> None:
-        pass
+        pass  # No-op: implements OnModuleConfigure for discovery via find_extensions()
 
-    def bind_request(
+    @overload
+    def bind(
         self,
-        request_type: type[RequestT],
-        handler_type: type[RequestHandler[RequestT, Any]],
+        message_type: type[_ReqT],
+        handler_type: 'type[RequestHandler[_ReqT, Any]]',
         *,
-        behaviors: Sequence[type[IPipelineBehavior[RequestT, Any]]] | None = None,
-    ) -> Self:
-        self._registry.request_map.bind(request_type, handler_type)
-        if behaviors:
-            request_entry: PipelineBehaviorMapEntry[Any, Any] = PipelineBehaviorMapEntry.for_request(request_type)
-            self._registry.behavior_map.bind(request_entry, behaviors)
-        return self
+        behaviors: Sequence[type[IPipelineBehavior[Any, Any]]] | None = None,
+    ) -> Self: ...
 
-    def bind_event(
+    @overload
+    def bind(
         self,
-        event_type: type[EventT],
-        handler_types: Sequence[type[EventHandler[EventT]]],
-        *,
-        behaviors: Sequence[type[IPipelineBehavior[EventT, None]]] | None = None,
+        message_type: type[_MsgT],
+        handler_type: 'type[EventHandler[_MsgT]]',
+        *additional_handlers: 'type[EventHandler[_MsgT]]',
+        behaviors: Sequence[type[IPipelineBehavior[Any, Any]]] | None = None,
+    ) -> Self: ...
+
+    def bind(
+        self,
+        message_type: type[IMessage],
+        handler_type: 'type[MessageHandler[Any, Any]]',
+        *additional_handlers: 'type[MessageHandler[Any, Any]]',
+        behaviors: Sequence[type[IPipelineBehavior[Any, Any]]] | None = None,
     ) -> Self:
-        self._registry.event_map.bind(event_type, handler_types)
+        self._registry.handler_map.bind(message_type, handler_type)
+        for additional in additional_handlers:
+            self._registry.handler_map.bind(message_type, additional)
         if behaviors:
-            event_entry: PipelineBehaviorMapEntry[Any, Any] = PipelineBehaviorMapEntry.for_event(event_type)
-            self._registry.behavior_map.bind(event_entry, behaviors)
+            entry: PipelineBehaviorMapEntry[Any, Any] = PipelineBehaviorMapEntry.for_message(message_type)
+            self._registry.behavior_map.bind(entry, behaviors)
         return self
 
     @property
@@ -142,28 +114,34 @@ class MessagingExtension(OnModuleConfigure):
         return self._registry
 
 
-def _create_router(routing_table: RoutingTable, container: AsyncContainer) -> MessageRouter:
-    endpoints_by_uri: dict[str, Endpoint] = {}
-    for entry in routing_table.entries:
-        if entry.kind == EndpointKind.LOCAL_QUEUE:
-            endpoints_by_uri[entry.uri] = LocalQueueEndpoint(
+def _build_router(routing_table: RoutingTable, container: AsyncContainer) -> MessageRouter:
+    endpoints_by_uri = {entry.uri: _create_endpoint(entry, routing_table, container) for entry in routing_table.entries}
+    return MessageRouter(
+        routes={
+            msg_type: tuple(endpoints_by_uri[uri] for uri in uris)
+            for msg_type, uris in routing_table.type_routes.items()
+        },
+        endpoints=tuple(endpoints_by_uri.values()),
+    )
+
+
+def _create_endpoint(
+    entry: EndpointEntry,
+    routing_table: RoutingTable,
+    container: AsyncContainer,
+) -> Endpoint:
+    match entry:
+        case LocalQueueEntry():
+            return LocalQueueEndpoint(
                 uri=entry.uri,
-                handler_subscriptions=dict(entry.handler_subscriptions),
+                handler_subscriptions=routing_table.endpoint_subscriptions.get(entry.uri, {}),
                 container=container,
                 stop_timeout=entry.stop_timeout,
+                max_buffer_size=entry.max_buffer_size,
             )
-
-    routes: defaultdict[type[IMessage], list[Endpoint]] = defaultdict(list)
-    for msg_type, uris in routing_table.type_routes.items():
-        for uri in uris:
-            if uri in endpoints_by_uri:
-                routes[msg_type].append(endpoints_by_uri[uri])
-
-    return MessageRouter(
-        routes=routes,
-        handler_routes=dict(routing_table.handler_routes),
-        endpoints=list(endpoints_by_uri.values()),
-    )
+        case ExternalEntry():  # pragma: no branch
+            msg = f"External endpoints are not yet supported (uri='{entry.uri}')"
+            raise ImproperlyConfiguredError(msg)
 
 
 class MessageRegistryAggregator(OnModuleRegistration):
@@ -180,19 +158,22 @@ class MessageRegistryAggregator(OnModuleRegistration):
         context: Mapping[Any, Any] | None,
     ) -> None:
         aggregated = MessageRegistry()
-        module_routing_map: dict[type, dict[type[IEvent], list[type[EventHandler[Any]]]]] = {}
+        module_routing_map: dict[ModuleType, dict[type[IMessage], Sequence[HandlerType]]] = {}
 
         for module_type, ext in registry.find_extensions(MessagingExtension):
-            aggregated.merge(ext.registry)
-            event_handlers: dict[type[IEvent], list[type[EventHandler[Any]]]] = {}
-            for entry in ext.registry.event_map.entries():
-                event_handlers[entry.event_type] = list(entry.handler_types)
-            if event_handlers:
-                module_routing_map[module_type] = event_handlers
-            for provider in ext.registry.handler_providers():
+            try:
+                aggregated.merge(ext.registry)
+            except HandlerAlreadyRegistered as exc:
+                msg = f'{exc} (from module {module_type.__qualname__})'
+                raise ImproperlyConfiguredError(msg) from exc
+            if ext.registry.handler_map:
+                module_routing_map[module_type] = dict(ext.registry.handler_map.items())
+            for provider in self._handler_providers(ext.registry):
                 registry.add_provider(module_type, provider)
 
-        for provider in aggregated.collector_providers():
+        self._validate_request_handler_counts(aggregated)
+
+        for provider in self._collector_providers(aggregated):
             registry.add_provider(owning_module, provider)
 
         aggregated.freeze()
@@ -204,7 +185,28 @@ class MessageRegistryAggregator(OnModuleRegistration):
             module_routing_map=module_routing_map,
         ).build()
         registry.add_provider(owning_module, object_(routing_table))
-        registry.add_provider(owning_module, singleton(MessageRouter, _create_router))
+        registry.add_provider(owning_module, singleton(MessageRouter, _build_router))
+
+    # TODO(m1b): add startup validation that every routed message type has at least one handler  # noqa: FIX002
+    #  subscription in endpoint_subscriptions — prevents silent publish to external queue with no consumer
+
+    @staticmethod
+    def _validate_request_handler_counts(registry: MessageRegistry) -> None:
+        for msg_type, handlers in registry.handler_map.items():
+            if issubclass(msg_type, IRequest) and len(handlers) > 1:
+                raise MultipleHandlersRegistered(msg_type)
+
+    @staticmethod
+    def _handler_providers(reg: MessageRegistry) -> Iterator[Provider]:
+        for handler_type in reg.handler_map.handler_types():
+            yield scoped(handler_type)
+        for entry in reg.behavior_map.entries():
+            yield many(entry.di_lookup_type, *entry.behavior_types, collect=False)
+
+    @staticmethod
+    def _collector_providers(reg: MessageRegistry) -> Iterator[Provider]:
+        for entry in reg.behavior_map.entries():
+            yield many(entry.di_lookup_type, collect=True)
 
 
 class EndpointLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):

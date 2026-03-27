@@ -11,8 +11,7 @@
 
 ### 💥 Breaking Changes
 
-- Generic param order changed — ResponseT moved to last position:
-
+- Generic param order changed — ResponseT moved to last position in ES related handlers
 
 ## v0.41.2 (2026-03-24)
 
@@ -744,7 +743,7 @@
 
 ### ⚙️ Build System
 
-- Make patch release only for `fix` & `perf` tags
+- Make patch release only for `fix` &amp; `perf` tags
   ([`b9cf6bf`](https://github.com/waku-py/waku/commit/b9cf6bf77047e21959f4e1bbe2a1bb1566cccd1c))
 
 ### 📖 Documentation

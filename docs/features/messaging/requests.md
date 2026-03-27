@@ -96,8 +96,8 @@ from waku.messaging import MessagingExtension
 @module(
     extensions=[
         MessagingExtension()
-            .bind_request(GetUserQuery, GetUserQueryHandler)
-            .bind_request(CreateUserCommand, CreateUserCommandHandler),
+            .bind(GetUserQuery, GetUserQueryHandler)
+            .bind(CreateUserCommand, CreateUserCommandHandler),
     ],
 )
 class UsersModule:
@@ -127,8 +127,9 @@ If the request declares `IRequest[None]`, `invoke()` returns `None`.
 
 ### `send()` — fire-and-forget
 
-Dispatches a request through the same handler and pipeline, but discards the return value.
-Use it for side-effect-only commands where the caller does not need a result:
+Dispatches a message through an [endpoint](routing.md) for background processing.
+Unlike `invoke()`, the message is handled asynchronously in a separate DI scope.
+Raises `NoRouteError` if no handler is registered for the message type:
 
 ```python linenums="1"
 async def create_user(sender: ISender) -> None:

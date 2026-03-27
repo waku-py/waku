@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from typing_extensions import override
 
@@ -13,7 +13,7 @@ from tests.data import A
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from waku.modules import ModuleMetadata, ModuleType
+    from waku.modules import HasModuleMetadata, ModuleMetadata, ModuleType
     from waku.modules._metadata_registry import ModuleMetadataRegistry
 
 
@@ -51,7 +51,7 @@ def test_repeated_factory_create_does_not_accumulate_providers() -> None:
 
 
 def test_repeated_factory_create_keeps_original_metadata_clean() -> None:
-    original_metadata: ModuleMetadata = _ChildModule.__module_metadata__  # type: ignore[attr-defined]
+    original_metadata: ModuleMetadata = cast('HasModuleMetadata', cast('object', _ChildModule)).__module_metadata__
     original_provider_count = len(original_metadata.providers)
 
     factory = WakuFactory(_ChildModule, extensions=[])

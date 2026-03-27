@@ -16,7 +16,7 @@ from app.repository import BankAccountDeciderRepository
             decider=BankAccountDecider,
             event_types=[AccountOpened, MoneyDeposited],
         ),
-        MessagingExtension().bind_request(OpenAccountRequest, OpenAccountDeciderHandler),
+        MessagingExtension().bind(OpenAccountRequest, OpenAccountDeciderHandler),
     ],
 )
 class BankDeciderModule:

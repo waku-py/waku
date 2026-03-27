@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import abc
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, overload
 
 if TYPE_CHECKING:
-    from waku.messaging.contracts.event import IEvent
-    from waku.messaging.contracts.message import ResponseT
+    from waku.messaging.contracts.message import IMessage, ResponseT
     from waku.messaging.contracts.request import IRequest
 
 __all__ = [
@@ -16,7 +15,7 @@ __all__ = [
 
 
 class ISender(abc.ABC):
-    """Send requests through the messaging pipeline to be handled by a single handler."""
+    """Send messages through the messaging pipeline."""
 
     @overload
     async def invoke(self, request: IRequest[None], /) -> None: ...
@@ -26,20 +25,30 @@ class ISender(abc.ABC):
 
     @abc.abstractmethod
     async def invoke(self, request: IRequest[ResponseT], /) -> ResponseT:
-        """In-process request/response. Always local, never routed externally."""
+        """In-process request/response. Always inline, never routed.
+
+        Requires exactly one handler registered for the request type.
+        Raises HandlerNotFound if zero, MultipleHandlersRegistered if >1.
+        """
 
     @abc.abstractmethod
-    async def send(self, request: IRequest[Any], /) -> None:
-        """Fire-and-forget. Routable through outbox/transport. No response."""
+    async def send(self, message: IMessage, /) -> None:
+        """Fire-and-forget. Routable through endpoints/transports.
+
+        Raises NoRouteError if no route is configured for the message type.
+        """
 
 
 class IPublisher(abc.ABC):
-    """Publish events to be handled by multiple handlers."""
+    """Publish messages to all subscribers."""
 
     @abc.abstractmethod
-    async def publish(self, event: IEvent, /) -> None:
-        """Fan-out to all subscribers. Routable through configured transport."""
+    async def publish(self, message: IMessage, /) -> None:
+        """Fan-out to all subscribers. Routable through endpoints/transports.
+
+        Silent no-op if no subscribers exist.
+        """
 
 
 class IMessageBus(ISender, IPublisher, abc.ABC):
-    """Unified bus — inject this when you need both capabilities."""
+    """Unified bus -- inject the narrowest interface needed."""

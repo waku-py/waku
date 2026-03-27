@@ -5,20 +5,19 @@ from typing import TYPE_CHECKING, Any
 from waku.exceptions import WakuError
 
 if TYPE_CHECKING:
-    from waku.messaging.contracts.event import IEvent
+    from waku.messaging.contracts.handler import HandlerType
+    from waku.messaging.contracts.message import IMessage
     from waku.messaging.contracts.pipeline import IPipelineBehavior
-    from waku.messaging.contracts.request import IRequest
-    from waku.messaging.events.handler import EventHandler
-    from waku.messaging.requests.handler import RequestHandler
 
 __all__ = [
-    'EventHandlerAlreadyRegistered',
+    'HandlerAlreadyRegistered',
+    'HandlerNotFound',
     'ImproperlyConfiguredError',
     'MapFrozenError',
     'MessagingError',
+    'MultipleHandlersRegistered',
+    'NoRouteError',
     'PipelineBehaviorAlreadyRegistered',
-    'RequestHandlerAlreadyRegistered',
-    'RequestHandlerNotFound',
 ]
 
 
@@ -35,61 +34,41 @@ class ImproperlyConfiguredError(MessagingError):
     """Raised when messaging configuration is invalid."""
 
 
-class RequestHandlerAlreadyRegistered(MessagingError, KeyError):  # noqa: N818
-    """Raised when a request handler is already registered.
-
-    Attributes:
-        request_type: The type of request that caused the error.
-        handler_type: The type of handler that was already registered.
-    """
-
-    def __init__(self, request_type: type[IRequest[Any]], handler_type: type[RequestHandler[Any, Any]]) -> None:
-        self.request_type = request_type
+class HandlerAlreadyRegistered(MessagingError):  # noqa: N818
+    def __init__(self, message_type: type[IMessage], handler_type: HandlerType) -> None:
+        self.message_type = message_type
         self.handler_type = handler_type
 
     def __str__(self) -> str:
-        return f'{self.request_type.__name__} already exists in registry with handler {self.handler_type.__name__}'
+        return f'{self.handler_type.__name__} already registered for {self.message_type.__name__}'
 
 
-class RequestHandlerNotFound(MessagingError, TypeError):  # noqa: N818
-    """Raised when a request handler is not found.
-
-    Attributes:
-        request_type: The type of request that caused the error.
-    """
-
-    def __init__(self, request_type: type[IRequest[Any]]) -> None:
-        self.request_type = request_type
+class HandlerNotFound(MessagingError):  # noqa: N818
+    def __init__(self, message_type: type[IMessage]) -> None:
+        self.message_type = message_type
 
     def __str__(self) -> str:
-        return f'Request handler for {self.request_type.__name__} request is not registered'
+        return f'No handler registered for {self.message_type.__name__}'
 
 
-class EventHandlerAlreadyRegistered(MessagingError, KeyError):  # noqa: N818
-    """Raised when an event handler is already registered.
-
-    Attributes:
-        event_type: The type of event that caused the error.
-        handler_type: The type of handler that was already registered.
-    """
-
-    def __init__(self, event_type: type[IEvent], handler_type: type[EventHandler[Any]]) -> None:
-        self.event_type = event_type
-        self.handler_type = handler_type
+class MultipleHandlersRegistered(MessagingError):  # noqa: N818
+    def __init__(self, message_type: type[IMessage]) -> None:
+        self.message_type = message_type
 
     def __str__(self) -> str:
-        return f'{self.handler_type.__name__} already registered for {self.event_type.__name__} event'
+        return f'Multiple handlers registered for {self.message_type.__name__}, invoke() requires exactly one'
 
 
-class PipelineBehaviorAlreadyRegistered(MessagingError, KeyError):  # noqa: N818
-    """Raised when a pipeline behavior is already registered.
+class NoRouteError(MessagingError):
+    def __init__(self, message_type: type[IMessage]) -> None:
+        self.message_type = message_type
 
-    Attributes:
-        message_type: The type of message that caused the error.
-        behavior_type: The type of behavior that was already registered.
-    """
+    def __str__(self) -> str:
+        return f'No route found for {self.message_type.__name__}'
 
-    def __init__(self, message_type: type[Any], behavior_type: type[IPipelineBehavior[Any, Any]]) -> None:
+
+class PipelineBehaviorAlreadyRegistered(MessagingError):  # noqa: N818
+    def __init__(self, message_type: type[IMessage], behavior_type: type[IPipelineBehavior[Any, Any]]) -> None:
         self.message_type = message_type
         self.behavior_type = behavior_type
 

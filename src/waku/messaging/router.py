@@ -2,50 +2,43 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypeAlias
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.contracts.message import IMessage
     from waku.messaging.endpoints.base import Endpoint, EndpointEntry
-    from waku.messaging.events.handler import EventHandler
+    from waku.modules import ModuleType
 
-_EMPTY_TYPE_ROUTES: Mapping[type[IMessage], tuple[str, ...]] = MappingProxyType({})
-_EMPTY_HANDLER_ROUTES: Mapping[type[IMessage], frozenset[type[EventHandler[Any]]]] = MappingProxyType({})
+HandlerSubscriptions: TypeAlias = 'Mapping[type[IMessage], frozenset[HandlerType]]'
 
 
 @dataclass(frozen=True, slots=True)
 class RoutingTable:
     entries: tuple[EndpointEntry, ...] = ()
-    type_routes: Mapping[type[IMessage], tuple[str, ...]] = field(default_factory=lambda: _EMPTY_TYPE_ROUTES)
-    handler_routes: Mapping[type[IMessage], frozenset[type[EventHandler[Any]]]] = field(
-        default_factory=lambda: _EMPTY_HANDLER_ROUTES
-    )
+    type_routes: Mapping[type[IMessage], tuple[str, ...]] = field(default_factory=lambda: MappingProxyType({}))
+    endpoint_subscriptions: Mapping[str, HandlerSubscriptions] = field(default_factory=lambda: MappingProxyType({}))
 
 
 class MessageRouter:
-    __slots__ = ('_endpoints', '_handler_routes', '_routes')
+    __slots__ = ('_endpoints', '_routes')
 
     def __init__(
         self,
-        routes: dict[type[IMessage], list[Endpoint]],
-        handler_routes: dict[type[IMessage], frozenset[type[EventHandler[Any]]]],
-        endpoints: Sequence[Endpoint] = (),
+        routes: Mapping[type[IMessage], Sequence[Endpoint]],
+        endpoints: Sequence[Endpoint],
     ) -> None:
-        self._routes: dict[type[IMessage], tuple[Endpoint, ...]] = {k: tuple(v) for k, v in routes.items()}
-        self._handler_routes = handler_routes
-        self._endpoints = tuple(endpoints)
+        self._routes = routes
+        self._endpoints = endpoints
 
     @property
-    def endpoints(self) -> tuple[Endpoint, ...]:
+    def endpoints(self) -> Sequence[Endpoint]:
         return self._endpoints
 
-    def resolve(self, message_type: type[IMessage]) -> tuple[Endpoint, ...]:
+    def resolve(self, message_type: type[IMessage]) -> Sequence[Endpoint]:
         return self._routes.get(message_type, ())
-
-    def routed_handler_types(self, message_type: type[IMessage]) -> frozenset[type[EventHandler[Any]]]:
-        return self._handler_routes.get(message_type, frozenset())
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +49,7 @@ class RouteDescriptor:
 
 @dataclass(frozen=True, slots=True)
 class ModuleRouteDescriptor:
-    module_type: type
+    module_type: ModuleType
     endpoint_uri: str
 
 
@@ -73,10 +66,10 @@ class RouteBuilder:
 class ModuleRouteBuilder:
     __slots__ = ('_module_type',)
 
-    def __init__(self, module_type: type) -> None:
+    def __init__(self, module_type: ModuleType) -> None:
         self._module_type = module_type
 
-    def events_to(self, endpoint_uri: str) -> ModuleRouteDescriptor:
+    def to(self, endpoint_uri: str) -> ModuleRouteDescriptor:
         return ModuleRouteDescriptor(self._module_type, endpoint_uri)
 
 
@@ -84,5 +77,5 @@ def route(message_type: type[IMessage]) -> RouteBuilder:
     return RouteBuilder(message_type)
 
 
-def route_module(module_type: type) -> ModuleRouteBuilder:
+def route_module(module_type: ModuleType) -> ModuleRouteBuilder:
     return ModuleRouteBuilder(module_type)

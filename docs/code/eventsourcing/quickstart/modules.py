@@ -19,9 +19,7 @@ from app.repository import BankAccountRepository
             repository=BankAccountRepository,
             event_types=[AccountOpened, MoneyDeposited, MoneyWithdrawn],
         ),
-        MessagingExtension()
-        .bind_request(OpenAccountCommand, OpenAccountHandler)
-        .bind_request(DepositCommand, DepositHandler),
+        MessagingExtension().bind(OpenAccountCommand, OpenAccountHandler).bind(DepositCommand, DepositHandler),
     ],
 )
 class BankModule:
