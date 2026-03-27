@@ -1,6 +1,5 @@
-import inspect
 from collections.abc import Callable, Sequence
-from typing import Any, get_type_hints
+from typing import Any
 
 from dishka import Provider, Scope
 from dishka.entities.marker import BaseMarker
@@ -148,23 +147,6 @@ def contextual(
     provider_ = Provider()
     provider_.from_context(provided_type, scope=scope)
     return provider_
-
-
-def _get_provided_type(impl: Any) -> Any:
-    if inspect.isclass(impl):
-        return impl
-
-    if callable(impl):
-        hints = get_type_hints(impl)
-        return_type = hints.get('return')
-        if return_type is None:
-            name = getattr(impl, '__name__', repr(impl))
-            msg = f"Factory function '{name}' must have a return type annotation"
-            raise TypeError(msg)
-        return return_type
-
-    msg = f'Implementation must be a class or callable, got {type(impl).__name__}'
-    raise TypeError(msg)
 
 
 def many(

@@ -2,16 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Iterator, MutableMapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generic, Self, TypeAlias
+from typing import Any, Generic, Self, TypeAlias
 
-from waku.messaging._introspection import get_request_response_type
+from waku.messaging._introspection import get_response_type
 from waku.messaging.contracts.message import IMessage, MessageT, ResponseT
 from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.exceptions import MapFrozenError, PipelineBehaviorAlreadyRegistered
-
-if TYPE_CHECKING:
-    from waku.messaging.contracts.event import IEvent
-    from waku.messaging.contracts.request import IRequest
 
 __all__ = [
     'PipelineBehaviorMap',
@@ -26,15 +22,10 @@ class PipelineBehaviorMapEntry(Generic[MessageT, ResponseT]):
     behavior_types: list[type[IPipelineBehavior[Any, Any]]] = field(default_factory=list)
 
     @classmethod
-    def for_request(cls, request_type: type[IRequest[ResponseT]]) -> Self:
-        response_type = get_request_response_type(request_type)
-        di_lookup_type = IPipelineBehavior[request_type, response_type]  # type: ignore[valid-type]
-        return cls(message_type=request_type, di_lookup_type=di_lookup_type)  # type: ignore[type-abstract]
-
-    @classmethod
-    def for_event(cls, event_type: type[IEvent]) -> Self:
-        di_lookup_type = IPipelineBehavior[event_type, None]  # type: ignore[valid-type]
-        return cls(message_type=event_type, di_lookup_type=di_lookup_type)  # type: ignore[type-abstract]
+    def for_message(cls, message_type: type[IMessage]) -> Self:
+        response_type = get_response_type(message_type)
+        di_lookup_type = IPipelineBehavior[message_type, response_type]  # type: ignore[valid-type]
+        return cls(message_type=message_type, di_lookup_type=di_lookup_type)  # type: ignore[type-abstract]
 
     def add(self, behavior_type: type[IPipelineBehavior[Any, Any]]) -> None:
         if behavior_type in self.behavior_types:

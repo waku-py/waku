@@ -11,17 +11,19 @@ tags:
 
 # Routing & Endpoints
 
-By default, every message is processed inline — synchronously in the caller's context, within the
-caller's DI scope. No endpoints, no background workers.
+Every `send()` and `publish()` call dispatches through an **endpoint**. When no explicit routing
+is configured, waku auto-creates a default local queue endpoint and assigns all registered handlers
+to it. Only `invoke()` is truly inline — it always executes in the caller's DI scope and returns
+a typed response.
 
-Routing lets you override this default. You declare which messages should be dispatched to
-**endpoints** — background workers that process messages asynchronously in their own DI scope.
-The caller enqueues the message and returns immediately.
+Routing lets you control **which** endpoint a message goes to. You declare endpoints (local queues
+or external transports) and map message types or entire modules to them.
 
 ```mermaid
 graph LR
-    Bus["bus.send(cmd)"] -->|no route| Inline[Inline Handler]
-    Bus -->|routed| EP[Endpoint]
+    Invoke["bus.invoke(req)"] --> Inline[Inline Handler]
+    Send["bus.send(msg)"] --> EP[Endpoint]
+    Publish["bus.publish(msg)"] --> EP
     EP --> Worker[Background Worker]
     Worker --> Handler[Handler in fresh scope]
 ```
@@ -30,17 +32,19 @@ graph LR
 
 ## Default Behavior
 
-Without routing configuration, all three dispatch methods execute inline:
+Without routing configuration, `send()` and `publish()` dispatch through an auto-created
+default local queue endpoint:
 
 ```python linenums="1"
 from waku.messaging import MessagingConfig, MessagingModule
 
-# No endpoints, no routing — everything runs inline.
+# No explicit endpoints — a default local queue is created automatically.
 MessagingModule.register(MessagingConfig())
 ```
 
-This is equivalent to calling `MessagingModule.register()` with no arguments. If your application
-only needs synchronous, in-process message handling, you can skip the rest of this page.
+This is equivalent to calling `MessagingModule.register()` with no arguments. Handlers run
+asynchronously in a background worker with a fresh DI scope. If your application only needs
+synchronous, in-process handling, use `invoke()`.
 
 ---
 
@@ -85,16 +89,16 @@ MessagingModule.register(config)
 ```
 
 When `bus.publish(OrderPlaced(...))` is called, handlers for `OrderPlaced` are dispatched to the
-`domain-events` endpoint. For events, handlers in other modules that are not covered by the route
-still run inline (see [Additive Routing](#additive-routing)).
+`domain-events` endpoint. Handlers in other modules that are not covered by the route are
+dispatched to the default endpoint (see [Additive Routing](#additive-routing)).
 
 ---
 
 ## Module-Level Routing
 
-Use `route_module(Module).events_to('endpoint-uri')` to route **all events** registered in a
+Use `route_module(Module).to('endpoint-uri')` to route **all message types** registered in a
 module to an endpoint. This is more maintainable than per-type routing when a module owns many
-event types:
+message types:
 
 ```python linenums="1"
 from waku.messaging import MessagingConfig, MessagingModule
@@ -103,40 +107,40 @@ from waku.messaging.router import route_module
 
 config = MessagingConfig(
     endpoints=[local_queue('domain-events')],
-    routing=[route_module(PaymentModule).events_to('domain-events')],
+    routing=[route_module(PaymentModule).to('domain-events')],
 )
 MessagingModule.register(config)
 ```
 
-Every event type bound via `MessagingExtension().bind_event(...)` inside `PaymentModule` is
+Every message type bound via `MessagingExtension().bind(...)` inside `PaymentModule` is
 routed to the `domain-events` endpoint.
 
 ---
 
 ## Additive Routing
 
-When an event has handlers in multiple modules and only some are routed, `publish()` does both:
+When a message has handlers in multiple modules and only some are explicitly routed, routing is
+additive:
 
-1. Runs non-routed handlers **inline** (synchronously in the caller's scope).
-2. Dispatches to **endpoints** for routed handlers (asynchronously).
-
-This means routing is additive — it never silences inline handlers that were not routed.
+1. Explicitly routed handlers dispatch to the **specified endpoint**.
+2. Remaining handlers dispatch to the **default endpoint**.
 
 ```mermaid
 graph TD
-    Publish["bus.publish(OrderPlaced)"] --> Check{Routed?}
-    Check -->|Module A handler routed| EP[Endpoint]
+    Publish["bus.publish(OrderPlaced)"] --> Check{Explicitly routed?}
+    Check -->|Module A handler routed| EP[Named Endpoint]
     EP --> WorkerA[Worker: Module A handler]
-    Check -->|Module B handler not routed| InlineB[Inline: Module B handler]
+    Check -->|Module B handler not routed| Default[Default Endpoint]
+    Default --> WorkerB[Worker: Module B handler]
 ```
 
 Consider an example where `OrderPlaced` has handlers in two modules:
 
-- **Module A** — handler is routed to a local queue endpoint.
-- **Module B** — handler has no route, so it runs inline.
+- **Module A** — handler is routed to a named local queue endpoint.
+- **Module B** — handler has no explicit route, so it goes to the default endpoint.
 
-When you call `bus.publish(OrderPlaced(...))`, Module B's handler executes immediately in the
-caller's scope, while Module A's handler is enqueued for background processing.
+When you call `bus.publish(OrderPlaced(...))`, both handlers run asynchronously in their
+respective endpoints.
 
 ---
 
@@ -147,13 +151,13 @@ Routes are evaluated in this order:
 | Source                  | Example                                         |
 |-------------------------|-------------------------------------------------|
 | Per-type route          | `route(OrderPlaced).to('events')`               |
-| Module-level route      | `route_module(OrdersModule).events_to('events')` |
-| Inline (default)        | No route configured                              |
+| Module-level route      | `route_module(OrdersModule).to('events')`         |
+| Default endpoint        | No explicit route configured                     |
 
 A **per-type route overrides** a module-level route for the same message type. If
-`route(OrderPlaced).to('priority')` and `route_module(OrdersModule).events_to('events')` both
-match `OrderPlaced`, only the per-type route applies. When no route matches, the message runs
-inline.
+`route(OrderPlaced).to('priority')` and `route_module(OrdersModule).to('events')` both
+match `OrderPlaced`, only the per-type route applies. Unrouted handlers go to the default
+endpoint.
 
 ---
 
@@ -175,16 +179,16 @@ Endpoints start after all modules have been initialized and stop in reverse orde
 
 Each dispatch method interacts with routing differently:
 
-| Method      | Routable | Behavior when routed                                              |
+| Method      | Routable | Behavior                                                          |
 |-------------|----------|-------------------------------------------------------------------|
 | `invoke()`  | No       | Always inline. Returns a typed response.                         |
-| `send()`    | Yes      | No route = inline. Route = endpoint dispatch (fire-and-forget).  |
-| `publish()` | Yes      | Additive: inline handlers run + routed handlers go to endpoints. |
+| `send()`    | Yes      | Always endpoint-dispatched. Raises `NoRouteError` if no handler registered. |
+| `publish()` | Yes      | Always endpoint-dispatched. Silent no-op if no handlers registered. |
 
 !!! info "`invoke()` is never routed"
     `invoke()` always executes inline because it returns a typed response to the caller.
     Routing is inherently asynchronous — there is no way to return a response from a background
-    worker. Use `send()` if you want a routable fire-and-forget command.
+    worker. Use `send()` if you want a routable fire-and-forget dispatch.
 
 ---
 

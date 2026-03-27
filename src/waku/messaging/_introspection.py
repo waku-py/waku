@@ -7,9 +7,9 @@ from typing_extensions import get_original_bases
 from waku.messaging.contracts.request import IRequest
 
 if typing.TYPE_CHECKING:
-    from waku.messaging.contracts import ResponseT
+    from waku.messaging.contracts.message import IMessage, ResponseT
 
-__all__ = ['get_request_response_type']
+__all__ = ['get_response_type']
 
 _RESPONSE_T_DEFAULT: typing.Final[type[None]] = type(None)
 
@@ -29,7 +29,7 @@ def _extract_response_from_bases(cls: type) -> type[ResponseT] | None:
             if base is IRequest:
                 return typing.cast('type[ResponseT]', _RESPONSE_T_DEFAULT)
             continue
-        if args := typing.get_args(base):
+        if args := typing.get_args(base):  # pragma: no branch
             response_type = args[0]
             if isinstance(response_type, typing.TypeVar):
                 continue
@@ -37,22 +37,15 @@ def _extract_response_from_bases(cls: type) -> type[ResponseT] | None:
     return None
 
 
-def get_request_response_type(request_type: type[IRequest[ResponseT]]) -> type[ResponseT]:
-    """Extract the response type from an IRequest implementation.
+def get_response_type(message_type: type[IMessage]) -> type[ResponseT]:
+    """Extract response type from a message type.
 
-    Searches through the class hierarchy to find IRequest or its subclasses,
-    supporting direct implementations and nested inheritance.
-    Falls back to the TypeVar default when no explicit type argument is provided.
-
-    Raises:
-        TypeError: if response type cannot be extracted from the request type.
+    Returns ResponseT for IRequest[T] subclasses, type(None) for everything else.
+    Walks the MRO -- always terminates at object.
     """
-    for cls in request_type.__mro__:
+    for cls in message_type.__mro__:
         if cls is object:
-            msg = f'Could not extract response type from {request_type.__name__}'
-            raise TypeError(msg)
+            return typing.cast('type[ResponseT]', _RESPONSE_T_DEFAULT)
         if response_type := _extract_response_from_bases(cls):
             return response_type  # type: ignore[return-value]
-
-    msg = f'Could not extract response type from {request_type.__name__}'  # pragma: no cover
-    raise TypeError(msg)  # pragma: no cover
+    return typing.cast('type[ResponseT]', _RESPONSE_T_DEFAULT)  # pragma: no cover

@@ -28,14 +28,14 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "anyio>=4.7.0",
+  "anyio>=4.13.0",
   "dishka>=1.9.1",
-  "typing-extensions>=4.12.2",
+  "typing-extensions>=4.15.0",
 ]
 
 [project.optional-dependencies]
 eventsourcing = ["adaptix>=3.0.0b11"]
-eventsourcing-sqla = ["waku[eventsourcing]", "sqlalchemy[asyncio]>=2"]
+eventsourcing-sqla = ["waku[eventsourcing]>=0.42.0", "sqlalchemy[asyncio]>=2.0.48"]
 
 [project.urls]
 Repository = "https://github.com/waku-py/waku"
@@ -56,7 +56,7 @@ lint = [
   "deptry==0.25.1",
   "gitlint==0.19.1",
   "prek==0.3.8",
-  "ruff==0.15.7",
+  "ruff==0.15.8",
 ]
 test = [
   "coverage==7.13.5",
@@ -75,7 +75,7 @@ test = [
 typecheck = [
   "mypy==1.19.1",
   "pyrefly==0.58.0",
-  "ty==0.0.25",
+  "ty==0.0.26",
 ]
 
 # ----- UV settings -----

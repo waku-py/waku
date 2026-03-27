@@ -1,5 +1,3 @@
-"""Tests for application lifecycle management."""
-
 from dataclasses import dataclass
 
 from waku import WakuFactory
@@ -8,9 +6,7 @@ from tests.module_utils import create_basic_module
 
 
 @dataclass
-class MockLifespanManager:
-    """A mock lifespan manager for testing."""
-
+class _LifespanSpy:
     entered: bool = False
     exited: bool = False
 
@@ -21,10 +17,9 @@ class MockLifespanManager:
         self.exited = True
 
 
-async def test_application_lifespan_manager_execution() -> None:
-    """Application should execute lifespan managers in order and handle their lifecycle correctly."""
-    manager_1 = MockLifespanManager()
-    manager_2 = MockLifespanManager()
+async def test_lifespan_managers_entered_and_exited_with_app() -> None:
+    manager_1 = _LifespanSpy()
+    manager_2 = _LifespanSpy()
 
     AppModule = create_basic_module(name='AppModule')
 

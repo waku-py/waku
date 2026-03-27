@@ -103,7 +103,7 @@ MessagingModule.register(
 
     @module(
         extensions=[
-            MessagingExtension().bind_request(
+            MessagingExtension().bind(
                 CreateOrderCommand,
                 CreateOrderCommandHandler,
                 behaviors=[TransactionalBehavior],

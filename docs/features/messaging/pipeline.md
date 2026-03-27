@@ -80,7 +80,7 @@ Global behaviors execute in the order they are listed.
 
 ## Per-request Behaviors
 
-Attach behaviors to a specific request type via `bind_request`:
+Attach behaviors to a specific request type via `bind`:
 
 ```python linenums="1"
 from waku import module
@@ -89,7 +89,7 @@ from waku.messaging import MessagingExtension
 
 @module(
     extensions=[
-        MessagingExtension().bind_request(
+        MessagingExtension().bind(
             CreateUserCommand,
             CreateUserCommandHandler,
             behaviors=[UniqueEmailCheckBehavior],
@@ -104,7 +104,7 @@ class UsersModule:
 
 ## Per-event Behaviors
 
-Attach behaviors to a specific event type via `bind_event`:
+Attach behaviors to a specific event type via `bind`:
 
 ```python linenums="1"
 from waku import module
@@ -113,9 +113,9 @@ from waku.messaging import MessagingExtension
 
 @module(
     extensions=[
-        MessagingExtension().bind_event(
+        MessagingExtension().bind(
             OrderPlaced,
-            [SendEmailHandler, UpdateStatsHandler],
+            SendEmailHandler, UpdateStatsHandler,
             behaviors=[AuditBehavior],
         ),
     ],
@@ -133,7 +133,7 @@ Each event handler gets its own pipeline invocation — behaviors run independen
 Behaviors execute in this order:
 
 1. **Global behaviors** (from `MessagingConfig.pipeline_behaviors`, in order)
-2. **Per-message-type behaviors** (from `bind_request` or `bind_event` `behaviors=[...]`, in order)
+2. **Per-message-type behaviors** (from `bind` `behaviors=[...]`, in order)
 3. **Handler**
 
 The response then unwinds back through the chain in reverse order.

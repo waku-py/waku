@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 
+import pytest
 from typing_extensions import override
 
 from waku import WakuFactory, module
@@ -17,6 +17,7 @@ from waku.messaging import (
     RequestHandler,
 )
 from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
+from waku.messaging.exceptions import ImproperlyConfiguredError
 from waku.messaging.registry import MessageRegistry
 
 
@@ -45,19 +46,19 @@ class AuditLogHandler(EventHandler[OrderPlaced]):
 
 async def test_multi_module_event_handlers_all_resolved() -> None:
     @module(
-        extensions=[MessagingExtension().bind_event(OrderPlaced, [SendEmailHandler])],
+        extensions=[MessagingExtension().bind(OrderPlaced, SendEmailHandler)],
     )
     class NotificationModule:
         pass
 
     @module(
-        extensions=[MessagingExtension().bind_event(OrderPlaced, [UpdateStatsHandler])],
+        extensions=[MessagingExtension().bind(OrderPlaced, UpdateStatsHandler)],
     )
     class AnalyticsModule:
         pass
 
     @module(
-        extensions=[MessagingExtension().bind_event(OrderPlaced, [AuditLogHandler])],
+        extensions=[MessagingExtension().bind(OrderPlaced, AuditLogHandler)],
     )
     class AuditModule:
         pass
@@ -77,14 +78,11 @@ async def test_multi_module_event_handlers_all_resolved() -> None:
 
     async with app, app.container() as container:
         message_registry = await container.get(MessageRegistry)
-        assert len(message_registry.event_map.get_handler_types(OrderPlaced)) == 3
+        handler_types = message_registry.handler_map.get_handler_types(OrderPlaced)
+        assert len(handler_types) == 3
 
-        handler_type = message_registry.event_map.get_handler_type(OrderPlaced)
-        handlers = await container.get(Sequence[handler_type])  # type: ignore[valid-type]
-        assert len(handlers) == 3
-
-        handler_classes = {type(h) for h in handlers}
-        assert handler_classes == {SendEmailHandler, UpdateStatsHandler, AuditLogHandler}
+        resolved = {type(await container.get(ht)) for ht in handler_types}
+        assert resolved == {SendEmailHandler, UpdateStatsHandler, AuditLogHandler}
 
 
 async def test_multi_module_event_handlers_publish() -> None:
@@ -101,13 +99,13 @@ async def test_multi_module_event_handlers_publish() -> None:
             called.append('stats')
 
     @module(
-        extensions=[MessagingExtension().bind_event(OrderPlaced, [TrackingEmailHandler])],
+        extensions=[MessagingExtension().bind(OrderPlaced, TrackingEmailHandler)],
     )
     class ModuleA:
         pass
 
     @module(
-        extensions=[MessagingExtension().bind_event(OrderPlaced, [TrackingStatsHandler])],
+        extensions=[MessagingExtension().bind(OrderPlaced, TrackingStatsHandler)],
     )
     class ModuleB:
         pass
@@ -170,7 +168,7 @@ async def test_multi_module_pipeline_behaviors_all_resolved() -> None:
 
     @module(
         extensions=[
-            MessagingExtension().bind_request(ProcessOrder, ProcessOrderHandler, behaviors=[RequestValidationBehavior]),
+            MessagingExtension().bind(ProcessOrder, ProcessOrderHandler, behaviors=[RequestValidationBehavior]),
         ],
     )
     class HandlerModule:
@@ -193,3 +191,62 @@ async def test_multi_module_pipeline_behaviors_all_resolved() -> None:
 
         assert result == ProcessOrderResult(status='ok')
         assert sorted(called) == ['global_logging', 'request_validation']
+
+
+async def test_module_with_empty_messaging_extension_starts_without_error() -> None:
+    @module(
+        extensions=[MessagingExtension()],
+    )
+    class EmptyModule:
+        pass
+
+    @module(
+        extensions=[MessagingExtension().bind(OrderPlaced, SendEmailHandler)],
+    )
+    class HandlerModule:
+        pass
+
+    @module(
+        imports=[
+            MessagingModule.register(MessagingConfig()),
+            EmptyModule,
+            HandlerModule,
+        ],
+    )
+    class AppModule:
+        pass
+
+    app = WakuFactory(AppModule).create()
+
+    async with app, app.container() as container:
+        message_registry = await container.get(MessageRegistry)
+        handler_types = message_registry.handler_map.get_handler_types(OrderPlaced)
+        assert len(handler_types) == 1
+        assert handler_types[0] is SendEmailHandler
+
+
+def test_duplicate_handler_across_modules_raises_improperly_configured() -> None:
+    @module(
+        extensions=[MessagingExtension().bind(OrderPlaced, SendEmailHandler)],
+    )
+    class ModuleA:
+        pass
+
+    @module(
+        extensions=[MessagingExtension().bind(OrderPlaced, SendEmailHandler)],
+    )
+    class ModuleB:
+        pass
+
+    @module(
+        imports=[
+            MessagingModule.register(MessagingConfig()),
+            ModuleA,
+            ModuleB,
+        ],
+    )
+    class AppModule:
+        pass
+
+    with pytest.raises(ImproperlyConfiguredError, match=r'SendEmailHandler.*ModuleB'):
+        WakuFactory(AppModule).create()

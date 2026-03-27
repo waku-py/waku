@@ -17,14 +17,14 @@ Waku is a modular, type-safe Python framework (3.11+) inspired by NestJS, built 
 src/waku/
 ├── uow.py           # IUnitOfWork protocol (general infrastructure concern)
 ├── messaging/       # Messaging: IRequest, IEvent, Pipeline behaviors, MessageBus
-│   ├── contracts/   # IRequest, IEvent, IPipelineBehavior, MessageEnvelope, EnvelopeFactory
+│   ├── contracts/   # IMessage, IRequest, IEvent, IPipelineBehavior, HandlerType, MessageEnvelope, EnvelopeFactory
 │   ├── context.py   # MessageContext (ContextVar-based, correlation/causation propagation)
 │   ├── dispatcher.py # MessageDispatcher (handler/behavior resolution, no routing)
 │   ├── endpoints/   # Endpoint model (ABC, LocalQueueEndpoint, EndpointEntry)
+│   ├── handler.py   # MessageHandler, RequestHandler, EventHandler (unified hierarchy)
+│   ├── handler_map.py # HandlerMap (unified message→handler registry)
 │   ├── behaviors/   # Pipeline behaviors (TransactionalBehavior)
-│   ├── events/      # EventHandler implementations
 │   ├── pipeline/    # PipelineExecutor, behavior chain
-│   ├── requests/    # RequestHandler implementations
 │   ├── router.py    # MessageRouter, RoutingTable, route()/route_module() helpers
 │   ├── transport/   # ITransport protocol (external transports)
 │   ├── sqla/        # SQLAlchemy adapters (SqlAlchemyUnitOfWork)
@@ -89,17 +89,20 @@ Modules use `@module(providers=[], imports=[], exports=[], extensions=[])` decor
 Provider helpers from `waku.di`: `singleton`, `scoped`, `transient`, `contextual`, `object_`, `many`, `provider`, `activator`. The `provided_type=` kwarg maps implementation to interface. Conditional activation via `when=Marker(...)` / `when=Has(Type)`.
 
 ### Messaging + Message Bus
-- `IRequest[TResponse]` for commands/queries, `IEvent` for notifications (plain marker classes, not Protocols)
-- `RequestHandler[TRequest, TResponse]` and `EventHandler[TEvent]`
+- `IMessage` base, `IRequest[TResponse]` for commands/queries, `IEvent` for notifications (plain marker classes, not Protocols)
+- `MessageHandler[TMessage, TResponse]` base → `RequestHandler[TRequest, TResponse]` and `EventHandler[TMessage]`
+- `MessagingExtension.bind(msg_type, handler, *additional, behaviors=[...])` — unified registration
 - `IPipelineBehavior` for cross-cutting concerns (logging, validation, transactions)
 - `MessageBus` is a **thin routing facade**: creates `MessageEnvelope`, sets `MessageContext`, delegates to `MessageDispatcher` (inline) or `Endpoint` (routed)
 - `MessageDispatcher` handles handler/behavior resolution and `PipelineExecutor` invocation — no routing logic
 - `IMessageBus(ISender, IPublisher)` — unified bus interface; inject narrowest needed
-- `ISender.invoke()` (request/response, always inline), `ISender.send()` (fire-and-forget, routable), `IPublisher.publish()` (fan-out, routable with additive routing)
+- `ISender.invoke()` (request/response, always inline), `ISender.send()` (fire-and-forget, routable, raises `NoRouteError`), `IPublisher.publish()` (fan-out, routable, silent no-op if no subscribers)
 - `MessageContext` — ContextVar-based correlation/causation propagation (`get_message_context()` in handlers)
 - `MessageEnvelope[T]` — immutable wrapper with message_id, correlation_id, causation_id, headers
 - Endpoint model: `LocalQueueEndpoint` (anyio memory streams, background worker), `EndpointEntry` config
-- Routing: `route(Type).to('uri')` (per-type), `route_module(Module).events_to('uri')` (module-level)
+- Routing: `route(Type).to('uri')` (per-type), `route_module(Module).to('uri')` (module-level)
+- `HandlerMap` — unified message→handler registry (replaces separate RequestMap/EventMap)
+- Startup validation: `IRequest` types with >1 handler → `MultipleHandlersRegistered` error
 - `TransactionalBehavior` — UoW commit/rollback pipeline behavior
 - `IUnitOfWork` protocol at `src/waku/uow.py` (top-level, not messaging-specific)
 - Integration: `@module(imports=[MessagingModule.register(config=MessagingConfig())])`

@@ -73,11 +73,7 @@ class OrderPlacedHandler(EventHandler[OrderPlaced]):
 
 @module(
     extensions=[
-        (
-            MessagingExtension()
-            .bind_request(PlaceOrder, PlaceOrderHandler)
-            .bind_event(OrderPlaced, [OrderPlacedHandler])
-        ),
+        (MessagingExtension().bind(PlaceOrder, PlaceOrderHandler).bind(OrderPlaced, OrderPlacedHandler)),
     ],
 )
 class OrderModule: ...

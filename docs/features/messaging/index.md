@@ -132,11 +132,11 @@ dishka resolves `ISender` and `IPublisher` to the same `MessageBus` instance as 
 
 The bus offers three dispatch methods with distinct semantics:
 
-| Method      | Returns    | Handlers | Description                                          |
-|-------------|------------|----------|------------------------------------------------------|
-| `invoke()`  | `TResponse` | Exactly 1 | In-process request/response. Always local.          |
-| `send()`    | `None`     | Exactly 1 | Fire-and-forget. Routable to [endpoints](routing.md). |
-| `publish()` | `None`     | 0 or more | Fan-out to all subscribers.                         |
+| Method      | Returns    | Handlers  | Description                                                    |
+|-------------|------------|-----------|----------------------------------------------------------------|
+| `invoke()`  | `TResponse` | Exactly 1 | In-process request/response. Always inline.                   |
+| `send()`    | `None`     | Any       | Fire-and-forget via [endpoint](routing.md). Raises `NoRouteError` if no route. |
+| `publish()` | `None`     | 0 or more | Fan-out via [endpoints](routing.md). Silent no-op if no subscribers. |
 
 ### `invoke()` — request/response
 
@@ -152,8 +152,8 @@ print(confirmation.order_id)
 
 ### `send()` — fire-and-forget
 
-Use `send()` when you want to dispatch a command without waiting for a response. By default it
-runs inline, but it can be [routed to an endpoint](routing.md) for background processing:
+Use `send()` when you want to dispatch a message without waiting for a response. The message is
+always dispatched through an [endpoint](routing.md) (the default local queue if no explicit route):
 
 ```python linenums="1"
 await sender.send(ArchiveOrder(order_id='ORD-1'))
@@ -251,8 +251,8 @@ class UpdateAnalytics(EventHandler[OrderPlaced]):
 @module(
     extensions=[
         MessagingExtension()
-            .bind_request(PlaceOrder, PlaceOrderHandler)
-            .bind_event(OrderPlaced, [SendConfirmationEmail, UpdateAnalytics]),
+            .bind(PlaceOrder, PlaceOrderHandler)
+            .bind(OrderPlaced, SendConfirmationEmail, UpdateAnalytics),
     ],
 )
 class OrdersModule:
@@ -288,8 +288,8 @@ async def main() -> None:
 ```
 
 !!! note "Fluent chaining"
-    `MessagingExtension().bind_request(...)` and `.bind_event(...)` return `Self`, so you can
-    chain multiple bindings in a single expression.
+    `MessagingExtension().bind(...)` returns `Self`, so you can chain multiple bindings in a
+    single expression.
 
 ---
 
@@ -297,10 +297,11 @@ async def main() -> None:
 
 | Exception                           | Raised when                                                            |
 |-------------------------------------|------------------------------------------------------------------------|
-| `RequestHandlerNotFound`            | `bus.invoke()` is called for a request type with no registered handler |
-| `RequestHandlerAlreadyRegistered`   | A second handler is bound to a request type that already has one       |
-| `EventHandlerAlreadyRegistered`     | The same handler class is bound to the same event type twice           |
-| `PipelineBehaviorAlreadyRegistered` | The same behavior class is bound to the same request type twice        |
+| `HandlerNotFound`                   | `bus.invoke()` is called for a request type with no registered handler |
+| `HandlerAlreadyRegistered`          | The same handler class is bound to the same message type twice         |
+| `MultipleHandlersRegistered`        | Multiple handlers registered for an `IRequest` type                    |
+| `NoRouteError`                      | `bus.send()` is called with no route configured for the message type   |
+| `PipelineBehaviorAlreadyRegistered` | The same behavior class is bound to the same message type twice        |
 
 ## Next steps
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
 from typing_extensions import override
 
 from waku import module
@@ -15,8 +16,9 @@ from waku.messaging import (
     MessagingModule,
     RequestHandler,
 )
-from waku.messaging.endpoints.base import EndpointEntry, EndpointKind, local_queue
-from waku.messaging.router import MessageRouter, route
+from waku.messaging.endpoints.base import ExternalEntry, local_queue
+from waku.messaging.exceptions import ImproperlyConfiguredError
+from waku.messaging.router import RoutingTable, route
 from waku.testing import create_test_app
 
 
@@ -27,40 +29,19 @@ class _Notif(IEvent):
 
 class TestRoutingBranches:
     @staticmethod
-    async def test_external_endpoint_kind_is_skipped_in_router_creation() -> None:
-        called: list[str] = []
-
-        class NotifHandler(EventHandler[_Notif]):
-            @override
-            async def handle(self, event: _Notif, /) -> None:
-                called.append(event.notif_id)
-
-        external_entry = EndpointEntry(uri='ext://bus', kind=EndpointKind.EXTERNAL)
+    async def test_external_endpoint_raises_not_supported() -> None:
+        external_entry = ExternalEntry(uri='ext://bus')
 
         config = MessagingConfig(
             endpoints=[local_queue('local-q'), external_entry],
-            routing=[route(_Notif).to('local-q')],
         )
 
-        async with (
-            create_test_app(
-                imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind_event(_Notif, [NotifHandler])],
-            ) as app,
-            app.container() as container,
-        ):
-            router = await container.get(MessageRouter)
-            endpoint_uris = [ep.uri for ep in router.endpoints]
-            assert 'ext://bus' not in endpoint_uris
-            assert 'local-q' in endpoint_uris
-
-            bus = await container.get(IMessageBus)
-            await bus.publish(_Notif(notif_id='N-1'))
-
-        assert called == ['N-1']
+        with pytest.raises(ImproperlyConfiguredError, match='External endpoints are not yet supported'):
+            async with create_test_app(imports=[MessagingModule.register(config)]):
+                pass  # pragma: no cover
 
     @staticmethod
-    async def test_request_route_does_not_populate_handler_routes() -> None:
+    async def test_request_route_dispatches_through_endpoint() -> None:
         called: list[str] = []
 
         @dataclass(frozen=True)
@@ -77,7 +58,7 @@ class TestRoutingBranches:
             routing=[route(Cmd).to('cmd-q')],
         )
 
-        @module(extensions=[MessagingExtension().bind_request(Cmd, CmdHandler)])
+        @module(extensions=[MessagingExtension().bind(Cmd, CmdHandler)])
         class CmdModule:
             pass
 
@@ -85,9 +66,6 @@ class TestRoutingBranches:
             create_test_app(imports=[MessagingModule.register(config), CmdModule]) as app,
             app.container() as container,
         ):
-            router = await container.get(MessageRouter)
-            assert router.routed_handler_types(Cmd) == frozenset()
-
             bus = await container.get(IMessageBus)
             await bus.send(Cmd(cmd_id='C-1'))
 
@@ -110,13 +88,12 @@ class TestRoutingBranches:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind_event(_Notif, [NotifHandler])],
+                extensions=[MessagingExtension().bind(_Notif, NotifHandler)],
             ) as app,
             app.container() as container,
         ):
-            router = await container.get(MessageRouter)
-            unused_ep = next(ep for ep in router.endpoints if ep.uri == 'unused-q')
-            assert unused_ep.handler_subscriptions == {}
+            routing_table = await container.get(RoutingTable)
+            assert 'unused-q' not in routing_table.endpoint_subscriptions
 
             bus = await container.get(IMessageBus)
             await bus.publish(_Notif(notif_id='N-2'))

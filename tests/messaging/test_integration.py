@@ -70,7 +70,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind_request(_SayHello, _ContextCapturingHandler)],
+                extensions=[MessagingExtension().bind(_SayHello, _ContextCapturingHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -92,7 +92,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind_request(_SayHello, _ContextCapturingHandler)],
+                extensions=[MessagingExtension().bind(_SayHello, _ContextCapturingHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -107,7 +107,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind_request(_SayHello, _ContextCapturingHandler)],
+                extensions=[MessagingExtension().bind(_SayHello, _ContextCapturingHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -124,7 +124,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind_request(_FireAndForget, _FireAndForgetHandler)],
+                extensions=[MessagingExtension().bind(_FireAndForget, _FireAndForgetHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -152,7 +152,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind_event(_SomethingHappened, [HandlerA, HandlerB])],
+                extensions=[MessagingExtension().bind(_SomethingHappened, HandlerA, HandlerB)],
             ) as app,
             app.container() as container,
         ):
@@ -171,7 +171,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind_request(_SayHello, _ContextCapturingHandler)],
+                extensions=[MessagingExtension().bind(_SayHello, _ContextCapturingHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -201,7 +201,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(MessagingConfig(pipeline_behaviors=[ContextReadingBehavior]))],
-                extensions=[MessagingExtension().bind_request(_SayHello, SimpleHandler)],
+                extensions=[MessagingExtension().bind(_SayHello, SimpleHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -239,9 +239,7 @@ class TestMessagingIntegration:
             create_test_app(
                 imports=[MessagingModule.register()],
                 extensions=[
-                    MessagingExtension()
-                    .bind_request(_SayHello, OuterHandler)
-                    .bind_request(_InnerRequest, InnerHandler),
+                    MessagingExtension().bind(_SayHello, OuterHandler).bind(_InnerRequest, InnerHandler),
                 ],
             ) as app,
             app.container() as container,
@@ -276,7 +274,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind_event(_SomethingHappened, [HandlerA, HandlerB])],
+                extensions=[MessagingExtension().bind(_SomethingHappened, HandlerA, HandlerB)],
             ) as app,
             app.container() as container,
         ):
@@ -302,7 +300,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind_request(_FailingRequest, FailingHandler)],
+                extensions=[MessagingExtension().bind(_FailingRequest, FailingHandler)],
             ) as app,
             app.container() as container,
         ):

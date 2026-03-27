@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import contextlib
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Generator, Mapping
     from uuid import UUID
+
+    from waku.messaging.contracts.envelope import MessageEnvelope
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -38,3 +41,18 @@ def set_message_context(ctx: MessageContext) -> Token[MessageContext | None]:
 
 def reset_message_context(token: Token[MessageContext | None]) -> None:
     _message_context.reset(token)
+
+
+@contextlib.contextmanager
+def message_context_scope(envelope: MessageEnvelope[Any]) -> Generator[None]:
+    ctx = MessageContext(
+        correlation_id=envelope.correlation_id,
+        causation_id=envelope.causation_id,
+        message_id=envelope.message_id,
+        headers=envelope.headers,
+    )
+    token = set_message_context(ctx)
+    try:
+        yield
+    finally:
+        reset_message_context(token)

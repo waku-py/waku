@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING
 
+from dishka import AsyncContainer
 from typing_extensions import override
 
 from waku import module
@@ -18,25 +19,51 @@ from waku.messaging import (
     MessagingModule,
     RequestHandler,
 )
+from waku.messaging.contracts.factory import EnvelopeFactory
 from waku.messaging.endpoints.base import local_queue
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
 from waku.messaging.router import route
 from waku.testing import create_test_app
 
+if TYPE_CHECKING:
+    import pytest
+    from pytest_mock import MockerFixture
+
 
 class TestLocalQueueEndpoint:
     @staticmethod
-    async def test_stop_without_start_is_noop() -> None:
+    async def test_stop_without_start_is_noop(mocker: MockerFixture) -> None:
         endpoint = LocalQueueEndpoint(
             uri='test://q',
             handler_subscriptions={},
-            container=None,  # type: ignore[arg-type]
+            container=mocker.Mock(spec_set=AsyncContainer),
             stop_timeout=1.0,
+            max_buffer_size=0,
         )
         await endpoint.stop()
 
     @staticmethod
-    async def test_stop_cancels_slow_worker_on_timeout(caplog: Any) -> None:
+    async def test_dispatch_to_stopped_endpoint_logs_warning(
+        mocker: MockerFixture, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        endpoint = LocalQueueEndpoint(
+            uri='test://q',
+            handler_subscriptions={},
+            container=mocker.Mock(spec_set=AsyncContainer),
+            stop_timeout=1.0,
+            max_buffer_size=0,
+        )
+        await endpoint.start()
+        await endpoint.stop()
+
+        envelope = EnvelopeFactory.create(object())
+        with caplog.at_level(logging.WARNING, logger='waku.messaging.endpoints.local_queue'):
+            await endpoint.dispatch(envelope, mocker.Mock(spec_set=AsyncContainer))
+
+        assert 'Message dropped' in caplog.text
+
+    @staticmethod
+    async def test_stop_cancels_slow_worker_on_timeout(caplog: pytest.LogCaptureFixture) -> None:
         blocked = asyncio.Event()
         entered = asyncio.Event()
 
@@ -59,7 +86,7 @@ class TestLocalQueueEndpoint:
             async with (
                 create_test_app(
                     imports=[MessagingModule.register(config)],
-                    extensions=[MessagingExtension().bind_event(SlowEvent, [SlowHandler])],
+                    extensions=[MessagingExtension().bind(SlowEvent, SlowHandler)],
                 ) as app,
                 app.container() as container,
             ):
@@ -87,7 +114,7 @@ class TestLocalQueueEndpoint:
             routing=[route(PingRequest).to('request-q')],
         )
 
-        @module(extensions=[MessagingExtension().bind_request(PingRequest, PingHandler)])
+        @module(extensions=[MessagingExtension().bind(PingRequest, PingHandler)])
         class Mod:
             pass
 
