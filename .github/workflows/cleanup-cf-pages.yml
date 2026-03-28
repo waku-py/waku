@@ -1,4 +1,4 @@
-name: Cleanup Preview Deployments
+name: Cleanup CF Pages
 
 on:
   pull_request:
@@ -14,7 +14,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - name: Delete preview deployments for closed PR branch
+      - name: Delete CF Pages preview deployments for closed PR branch
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
@@ -69,11 +69,12 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Delete stale preview deployments
+      - name: Delete stale CF Pages deployments
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP_PRODUCTION: '5'
         run: |
           set -euo pipefail
           PROJECT="wakupy"
@@ -81,18 +82,23 @@ jobs:
 
           REMOTE_BRANCHES=$(gh api repos/${{ github.repository }}/branches --paginate --jq '.[].name' | sort)
 
-          # Collect all preview deployments
+          if [ -z "$REMOTE_BRANCHES" ]; then
+            echo "::error::No branches returned from GitHub API, aborting to prevent accidental deletion"
+            exit 1
+          fi
+
+          # Collect all deployments (preview + production)
           ALL_DEPLOYMENTS=""
           PAGE=1
           while true; do
             if ! RESPONSE=$(curl -sf \
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-              "$API_BASE?env=preview&page=$PAGE&per_page=25"); then
+              "$API_BASE?page=$PAGE&per_page=25"); then
               echo "::error::Failed to fetch deployments (page $PAGE)"
               exit 1
             fi
 
-            BATCH=$(echo "$RESPONSE" | jq -r '.result[] | "\(.id) \(.deployment_trigger.metadata.branch)"')
+            BATCH=$(echo "$RESPONSE" | jq -r '.result[] | "\(.id) \(.environment) \(.deployment_trigger.metadata.branch)"')
 
             if [ -n "$BATCH" ]; then
               ALL_DEPLOYMENTS=$(printf '%s\n%s' "$ALL_DEPLOYMENTS" "$BATCH")
@@ -106,15 +112,22 @@ jobs:
           done
 
           # Determine which to delete:
-          # - Deleted branch → delete all deployments
-          # - Active branch → keep newest (first seen), delete the rest
+          # - Preview, deleted branch → delete all
+          # - Preview, active branch → keep newest (first seen), delete rest
+          # - Production → keep newest N, delete rest
           SEEN_BRANCHES=""
+          PROD_COUNT=0
           ALL_IDS=""
 
-          while IFS=' ' read -r ID BRANCH; do
+          while IFS=' ' read -r ID ENV BRANCH; do
             [ -z "$ID" ] && continue
 
-            if ! echo "$REMOTE_BRANCHES" | grep -qxF "$BRANCH"; then
+            if [ "$ENV" = "production" ]; then
+              PROD_COUNT=$((PROD_COUNT + 1))
+              if [ "$PROD_COUNT" -gt "$KEEP_PRODUCTION" ]; then
+                ALL_IDS=$(printf '%s\n%s' "$ALL_IDS" "$ID")
+              fi
+            elif ! echo "$REMOTE_BRANCHES" | grep -qxF "$BRANCH"; then
               ALL_IDS=$(printf '%s\n%s' "$ALL_IDS" "$ID")
             elif echo "$SEEN_BRANCHES" | grep -qxF "$BRANCH"; then
               ALL_IDS=$(printf '%s\n%s' "$ALL_IDS" "$ID")
@@ -136,4 +149,4 @@ jobs:
             fi
           done
 
-          echo "Cleaned up $DELETED stale preview deployments"
+          echo "Cleaned up $DELETED stale deployments"
