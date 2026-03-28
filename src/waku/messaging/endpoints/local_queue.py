@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import anyio
@@ -23,10 +24,26 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+ErrorHandler = Callable[[MessageEnvelope[Any], 'HandlerType', Exception], None]
+
+
+def _default_error_handler(
+    envelope: MessageEnvelope[Any],
+    handler_type: HandlerType,
+    exc: Exception,
+) -> None:
+    logger.error(
+        '%s failed: message_id=%s',
+        handler_type.__name__,
+        envelope.message_id,
+        exc_info=exc,
+    )
+
 
 class LocalQueueEndpoint(Endpoint):
     __slots__ = (
         '_container',
+        '_error_handler',
         '_handler_subscriptions',
         '_receive_stream',
         '_send_stream',
@@ -43,11 +60,13 @@ class LocalQueueEndpoint(Endpoint):
         container: AsyncContainer,
         stop_timeout: float,
         max_buffer_size: float,
+        error_handler: ErrorHandler | None = None,
     ) -> None:
         super().__init__(uri=uri)
         self._handler_subscriptions = handler_subscriptions
         self._container = container
         self._stop_timeout = stop_timeout
+        self._error_handler = error_handler or _default_error_handler
         send, receive = create_memory_object_stream[MessageEnvelope[Any]](max_buffer_size=max_buffer_size)
         self._send_stream: MemoryObjectSendStream[MessageEnvelope[Any]] = send
         self._receive_stream: MemoryObjectReceiveStream[MessageEnvelope[Any]] = receive
@@ -100,18 +119,4 @@ class LocalQueueEndpoint(Endpoint):
                 try:
                     await dispatcher.execute_for_handler(envelope.payload, handler_type)
                 except Exception as exc:  # noqa: BLE001
-                    self._on_handler_error(envelope, handler_type, exc)
-
-    def _on_handler_error(  # noqa: PLR6301
-        self,
-        envelope: MessageEnvelope[Any],
-        handler_type: HandlerType,
-        exc: Exception,
-    ) -> None:
-        # TODO(m1b): replace with error handling strategy injection (callable/protocol via constructor)  # noqa: FIX002
-        logger.error(
-            '%s failed: message_id=%s',
-            handler_type.__name__,
-            envelope.message_id,
-            exc_info=exc,
-        )
+                    self._error_handler(envelope, handler_type, exc)

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import pytest
 from typing_extensions import override
 
 from waku import module
@@ -15,10 +14,11 @@ from waku.messaging import (
     MessagingExtension,
     MessagingModule,
     RequestHandler,
+    external_endpoint,
 )
-from waku.messaging.endpoints.base import ExternalEntry, local_queue
-from waku.messaging.exceptions import ImproperlyConfiguredError
-from waku.messaging.router import RoutingTable, route
+from waku.messaging.endpoints.base import local_queue
+from waku.messaging.endpoints.external import ExternalEndpoint
+from waku.messaging.router import MessageRouter, RoutingTable, route
 from waku.testing import create_test_app
 
 
@@ -27,18 +27,31 @@ class _Notif(IEvent):
     notif_id: str
 
 
+class _DummyNotifHandler(EventHandler[_Notif]):
+    @override
+    async def handle(self, event: _Notif, /) -> None:
+        pass
+
+
 class TestRoutingBranches:
     @staticmethod
-    async def test_external_endpoint_raises_not_supported() -> None:
-        external_entry = ExternalEntry(uri='ext://bus')
-
+    async def test_external_endpoint_is_created() -> None:
         config = MessagingConfig(
-            endpoints=[local_queue('local-q'), external_entry],
+            endpoints=[local_queue('local-q'), external_endpoint('ext://bus')],
+            routing=[route(_Notif).to('ext://bus')],
         )
 
-        with pytest.raises(ImproperlyConfiguredError, match='External endpoints are not yet supported'):
-            async with create_test_app(imports=[MessagingModule.register(config)]):
-                pass  # pragma: no cover
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(config)],
+                extensions=[MessagingExtension().bind(_Notif, _DummyNotifHandler)],
+            ) as app,
+            app.container() as container,
+        ):
+            router = await container.get(MessageRouter)
+            ext_endpoints = [e for e in router.endpoints if isinstance(e, ExternalEndpoint)]
+            assert len(ext_endpoints) == 1
+            assert ext_endpoints[0].uri == 'ext://bus'
 
     @staticmethod
     async def test_request_route_dispatches_through_endpoint() -> None:

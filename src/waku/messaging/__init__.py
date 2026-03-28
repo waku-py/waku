@@ -1,4 +1,6 @@
+from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import MessagingConfig
+from waku.messaging.context import MessageContext, get_message_context, try_get_message_context
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.contracts.message import IMessage, MessageT, ResponseT
 from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
@@ -29,6 +31,7 @@ __all__ = [
     'IRequest',
     'ISender',
     'MessageBus',
+    'MessageContext',
     'MessageHandler',
     'MessageT',
     'MessagingConfig',
@@ -39,8 +42,11 @@ __all__ = [
     'RequestHandler',
     'RequestT',
     'ResponseT',
+    'TransactionalBehavior',
     'external_endpoint',
+    'get_message_context',
     'local_queue',
     'route',
     'route_module',
+    'try_get_message_context',
 ]

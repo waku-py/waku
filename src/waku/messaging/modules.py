@@ -13,6 +13,7 @@ from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.dispatcher import MessageDispatcher
 from waku.messaging.endpoints.base import Endpoint, EndpointEntry, ExternalEntry, LocalQueueEntry
+from waku.messaging.endpoints.external import ExternalEndpoint
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
 from waku.messaging.exceptions import HandlerAlreadyRegistered, ImproperlyConfiguredError, MultipleHandlersRegistered
 from waku.messaging.impl import MessageBus
@@ -21,6 +22,7 @@ from waku.messaging.pipeline.map import PipelineBehaviorMapEntry
 from waku.messaging.registry import MessageRegistry
 from waku.messaging.router import MessageRouter, RoutingTable
 from waku.messaging.routing_builder import RoutingTableBuilder
+from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
 from waku.modules import DynamicModule, ModuleMetadataRegistry, module
 
 if TYPE_CHECKING:
@@ -50,6 +52,7 @@ class MessagingModule:
             providers=[
                 scoped(WithParents[IMessageBus], MessageBus),  # ty:ignore[not-subscriptable]
                 singleton(EnvelopeFactory),
+                singleton(IEnvelopeSerializer, JsonEnvelopeSerializer),
                 scoped(MessageDispatcher),
                 transient(MessageContext, get_message_context),
                 *cls._create_pipeline_behavior_providers(config_),
@@ -140,8 +143,7 @@ def _create_endpoint(
                 max_buffer_size=entry.max_buffer_size,
             )
         case ExternalEntry():  # pragma: no branch
-            msg = f"External endpoints are not yet supported (uri='{entry.uri}')"
-            raise ImproperlyConfiguredError(msg)
+            return ExternalEndpoint(uri=entry.uri)
 
 
 class MessageRegistryAggregator(OnModuleRegistration):
@@ -186,9 +188,6 @@ class MessageRegistryAggregator(OnModuleRegistration):
         ).build()
         registry.add_provider(owning_module, object_(routing_table))
         registry.add_provider(owning_module, singleton(MessageRouter, _build_router))
-
-    # TODO(m1b): add startup validation that every routed message type has at least one handler  # noqa: FIX002
-    #  subscription in endpoint_subscriptions — prevents silent publish to external queue with no consumer
 
     @staticmethod
     def _validate_request_handler_counts(registry: MessageRegistry) -> None:
