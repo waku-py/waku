@@ -69,7 +69,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Delete preview deployments for deleted branches
+      - name: Delete stale preview deployments
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
@@ -81,7 +81,8 @@ jobs:
 
           REMOTE_BRANCHES=$(gh api repos/${{ github.repository }}/branches --paginate --jq '.[].name' | sort)
 
-          ALL_IDS=""
+          # Collect all preview deployments
+          ALL_DEPLOYMENTS=""
           PAGE=1
           while true; do
             if ! RESPONSE=$(curl -sf \
@@ -91,14 +92,11 @@ jobs:
               exit 1
             fi
 
-            DEPLOYMENTS=$(echo "$RESPONSE" | jq -r '.result[] | "\(.id) \(.deployment_trigger.metadata.branch)"')
+            BATCH=$(echo "$RESPONSE" | jq -r '.result[] | "\(.id) \(.deployment_trigger.metadata.branch)"')
 
-            while IFS=' ' read -r ID BRANCH; do
-              [ -z "$ID" ] && continue
-              if ! echo "$REMOTE_BRANCHES" | grep -qxF "$BRANCH"; then
-                ALL_IDS=$(printf '%s\n%s' "$ALL_IDS" "$ID")
-              fi
-            done <<< "$DEPLOYMENTS"
+            if [ -n "$BATCH" ]; then
+              ALL_DEPLOYMENTS=$(printf '%s\n%s' "$ALL_DEPLOYMENTS" "$BATCH")
+            fi
 
             TOTAL_PAGES=$(echo "$RESPONSE" | jq -r '.result_info.total_pages // 1')
             if [ "$PAGE" -ge "$TOTAL_PAGES" ]; then
@@ -107,10 +105,28 @@ jobs:
             PAGE=$((PAGE + 1))
           done
 
+          # Determine which to delete:
+          # - Deleted branch → delete all deployments
+          # - Active branch → keep newest (first seen), delete the rest
+          SEEN_BRANCHES=""
+          ALL_IDS=""
+
+          while IFS=' ' read -r ID BRANCH; do
+            [ -z "$ID" ] && continue
+
+            if ! echo "$REMOTE_BRANCHES" | grep -qxF "$BRANCH"; then
+              ALL_IDS=$(printf '%s\n%s' "$ALL_IDS" "$ID")
+            elif echo "$SEEN_BRANCHES" | grep -qxF "$BRANCH"; then
+              ALL_IDS=$(printf '%s\n%s' "$ALL_IDS" "$ID")
+            else
+              SEEN_BRANCHES=$(printf '%s\n%s' "$SEEN_BRANCHES" "$BRANCH")
+            fi
+          done <<< "$ALL_DEPLOYMENTS"
+
           DELETED=0
           for ID in $ALL_IDS; do
             [ -z "$ID" ] && continue
-            echo "Deleting stale deployment $ID"
+            echo "Deleting deployment $ID"
             if curl -sf -X DELETE \
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
               "$API_BASE/$ID?force=true"; then
