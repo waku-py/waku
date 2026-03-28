@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.43.0 (2026-03-28)
+
+### ✨ Features
+
+- **messaging**: Unified handler model
+  ([`9eb5405`](https://github.com/waku-py/waku/commit/9eb54051f79229504e35e827b01b26d2222b907a))
+
+### 💥 Breaking Changes
+
+- **messaging**: `bind_request()`/`bind_event()` removed, use `bind()`. Old exception names removed.
+  `send()` signature changed.
+
+
 ## v0.42.0 (2026-03-25)
 
 ### ♻️ Refactoring
