@@ -23,8 +23,9 @@ jobs:
           set -euo pipefail
           PROJECT="wakupy"
           API_BASE="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PROJECT/deployments"
-          PAGE=1
 
+          ALL_IDS=""
+          PAGE=1
           while true; do
             if ! RESPONSE=$(curl -sf \
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
@@ -33,23 +34,34 @@ jobs:
               exit 1
             fi
 
-            IDS=$(echo "$RESPONSE" | jq -r --arg branch "$BRANCH" '.result[] | select(.deployment_trigger.metadata.branch == $branch) | .id')
+            IDS=$(echo "$RESPONSE" | jq -r --arg branch "$BRANCH" \
+              '.result[] | select(.deployment_trigger.metadata.branch == $branch) | .id')
+
+            if [ -n "$IDS" ]; then
+              ALL_IDS=$(printf '%s\n%s' "$ALL_IDS" "$IDS")
+            fi
+
             TOTAL_PAGES=$(echo "$RESPONSE" | jq -r '.result_info.total_pages // 1')
-
-            for ID in $IDS; do
-              echo "Deleting deployment $ID for branch $BRANCH"
-              curl -sf -X DELETE \
-                -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-                "$API_BASE/$ID?force=true" || echo "::warning::Failed to delete deployment $ID"
-            done
-
             if [ "$PAGE" -ge "$TOTAL_PAGES" ]; then
               break
             fi
             PAGE=$((PAGE + 1))
           done
 
-          echo "Cleaned up preview deployments for branch: $BRANCH"
+          DELETED=0
+          for ID in $ALL_IDS; do
+            [ -z "$ID" ] && continue
+            echo "Deleting deployment $ID for branch $BRANCH"
+            if curl -sf -X DELETE \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "$API_BASE/$ID?force=true"; then
+              DELETED=$((DELETED + 1))
+            else
+              echo "::warning::Failed to delete deployment $ID"
+            fi
+          done
+
+          echo "Cleaned up $DELETED preview deployments for branch: $BRANCH"
 
   cleanup-stale:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -69,9 +81,8 @@ jobs:
 
           REMOTE_BRANCHES=$(gh api repos/${{ github.repository }}/branches --paginate --jq '.[].name' | sort)
 
+          ALL_IDS=""
           PAGE=1
-          DELETED=0
-
           while true; do
             if ! RESPONSE=$(curl -sf \
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
@@ -81,23 +92,32 @@ jobs:
             fi
 
             DEPLOYMENTS=$(echo "$RESPONSE" | jq -r '.result[] | "\(.id) \(.deployment_trigger.metadata.branch)"')
-            TOTAL_PAGES=$(echo "$RESPONSE" | jq -r '.result_info.total_pages // 1')
 
             while IFS=' ' read -r ID BRANCH; do
               [ -z "$ID" ] && continue
               if ! echo "$REMOTE_BRANCHES" | grep -qxF "$BRANCH"; then
-                echo "Deleting deployment $ID (branch '$BRANCH' no longer exists)"
-                curl -sf -X DELETE \
-                  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-                  "$API_BASE/$ID?force=true" || echo "::warning::Failed to delete deployment $ID"
-                DELETED=$((DELETED + 1))
+                ALL_IDS=$(printf '%s\n%s' "$ALL_IDS" "$ID")
               fi
             done <<< "$DEPLOYMENTS"
 
+            TOTAL_PAGES=$(echo "$RESPONSE" | jq -r '.result_info.total_pages // 1')
             if [ "$PAGE" -ge "$TOTAL_PAGES" ]; then
               break
             fi
             PAGE=$((PAGE + 1))
+          done
+
+          DELETED=0
+          for ID in $ALL_IDS; do
+            [ -z "$ID" ] && continue
+            echo "Deleting stale deployment $ID"
+            if curl -sf -X DELETE \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "$API_BASE/$ID?force=true"; then
+              DELETED=$((DELETED + 1))
+            else
+              echo "::warning::Failed to delete deployment $ID"
+            fi
           done
 
           echo "Cleaned up $DELETED stale preview deployments"
