@@ -80,6 +80,9 @@ class MessagingModule:
         if has_external and config.outbox_store is None:
             msg = 'external_endpoint requires outbox_store in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
+        if config.dead_letter_store is not None and config.dead_letter_writer is not None:
+            msg = 'Specify either dead_letter_store or dead_letter_writer in MessagingConfig, not both'
+            raise ImproperlyConfiguredError(msg)
         needs_dlq = _requires_dead_letter_store(config.error_policies)
         has_dlq = config.dead_letter_store is not None or config.dead_letter_writer is not None
         if needs_dlq and not has_dlq:

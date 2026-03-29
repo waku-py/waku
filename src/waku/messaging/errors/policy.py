@@ -44,6 +44,7 @@ class _RetryActionBuilder:
         max_attempts: int = 3,
         fallback: RetryAction | None = None,
     ) -> ResolvedRetryPolicy:
+        _validate_max_attempts(max_attempts)
         return ResolvedRetryPolicy(
             message_type=self._message_type,
             exception_type=self._exception_type,
@@ -59,6 +60,7 @@ class _RetryActionBuilder:
         max_delay: float = 60.0,
         fallback: RetryAction | None = None,
     ) -> ResolvedRetryPolicy:
+        _validate_max_attempts(max_attempts)
         return ResolvedRetryPolicy(
             message_type=self._message_type,
             exception_type=self._exception_type,
@@ -95,6 +97,12 @@ class _RetryPolicyBuilder:
 
     def on_any_exception(self) -> _RetryActionBuilder:
         return _RetryActionBuilder(self._message_type, None)
+
+
+def _validate_max_attempts(max_attempts: int) -> None:
+    if max_attempts < 1:
+        msg = f'max_attempts must be >= 1, got {max_attempts}'
+        raise ValueError(msg)
 
 
 class RetryPolicy:

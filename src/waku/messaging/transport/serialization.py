@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import abc
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from typing_extensions import override
@@ -18,9 +19,11 @@ __all__ = [
 ]
 
 
-@runtime_checkable
-class IEnvelopeSerializer(Protocol):
+class IEnvelopeSerializer(abc.ABC):
+    @abc.abstractmethod
     def serialize(self, envelope: MessageEnvelope[Any]) -> dict[str, Any]: ...
+
+    @abc.abstractmethod
     def deserialize(self, data: dict[str, Any]) -> MessageEnvelope[Any]: ...
 
 

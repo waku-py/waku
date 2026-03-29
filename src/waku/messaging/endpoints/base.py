@@ -65,7 +65,12 @@ class Endpoint(ABC):
         return self._uri
 
     @abstractmethod
-    async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None: ...
+    async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None:
+        """Dispatch an envelope to this endpoint.
+
+        Implementations may silently drop messages if the endpoint is stopped.
+        """
+        ...
 
     @abstractmethod
     async def start(self) -> None: ...

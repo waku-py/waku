@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import abc
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -31,17 +32,30 @@ class DeadLetterEntry:
     created_at: datetime | None = None
 
 
-@runtime_checkable
-class IDeadLetterStore(Protocol):
+class IDeadLetterStore(abc.ABC):
+    @abc.abstractmethod
     async def save(self, entry: DeadLetterEntry) -> None: ...
+
+    @abc.abstractmethod
     async def fetch(self, batch_size: int = 100) -> Sequence[DeadLetterEntry]: ...
+
+    @abc.abstractmethod
     async def fetch_one(self, entry_id: UUID) -> DeadLetterEntry: ...
+
+    @abc.abstractmethod
     async def delete(self, entry_id: UUID) -> None: ...
+
+    @abc.abstractmethod
     async def purge(self, older_than: datetime) -> int: ...
 
 
-@runtime_checkable
-class IDeadLetterWriter(Protocol):
+class IDeadLetterWriter(abc.ABC):
+    @abc.abstractmethod
     async def write(
-        self, envelope: MessageEnvelope[Any], exc: Exception, *, attempt: int, endpoint_uri: str
+        self,
+        envelope: MessageEnvelope[Any],
+        exc: Exception,
+        *,
+        attempt: int,
+        endpoint_uri: str,
     ) -> None: ...

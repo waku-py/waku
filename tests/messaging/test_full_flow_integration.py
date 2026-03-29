@@ -172,7 +172,7 @@ class TestEndToEndOutboxFlow:
             config=relay_config,
         )
         task = asyncio.create_task(relay.start())
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.05)
         await relay.stop()
         await task
 
