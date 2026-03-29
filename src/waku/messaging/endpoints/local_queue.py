@@ -3,47 +3,28 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import anyio
 from anyio import create_memory_object_stream
 from typing_extensions import override
 
-from waku.messaging.context import message_context_scope
 from waku.messaging.contracts.envelope import MessageEnvelope
-from waku.messaging.dispatcher import MessageDispatcher
 from waku.messaging.endpoints.base import Endpoint
 
 if TYPE_CHECKING:
     from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
     from dishka import AsyncContainer
 
-    from waku.messaging.contracts.handler import HandlerType
+    from waku.messaging.endpoints.executor import EndpointExecutor
     from waku.messaging.router import HandlerSubscriptions
 
 logger = logging.getLogger(__name__)
 
-ErrorHandler = Callable[[MessageEnvelope[Any], 'HandlerType', Exception], None]
-
-
-def _default_error_handler(
-    envelope: MessageEnvelope[Any],
-    handler_type: HandlerType,
-    exc: Exception,
-) -> None:
-    logger.error(
-        '%s failed: message_id=%s',
-        handler_type.__name__,
-        envelope.message_id,
-        exc_info=exc,
-    )
-
 
 class LocalQueueEndpoint(Endpoint):
     __slots__ = (
-        '_container',
-        '_error_handler',
+        '_executor',
         '_handler_subscriptions',
         '_receive_stream',
         '_send_stream',
@@ -57,16 +38,14 @@ class LocalQueueEndpoint(Endpoint):
         *,
         uri: str,
         handler_subscriptions: HandlerSubscriptions,
-        container: AsyncContainer,
+        executor: EndpointExecutor,
         stop_timeout: float,
         max_buffer_size: float,
-        error_handler: ErrorHandler | None = None,
     ) -> None:
         super().__init__(uri=uri)
         self._handler_subscriptions = handler_subscriptions
-        self._container = container
+        self._executor = executor
         self._stop_timeout = stop_timeout
-        self._error_handler = error_handler or _default_error_handler
         send, receive = create_memory_object_stream[MessageEnvelope[Any]](max_buffer_size=max_buffer_size)
         self._send_stream: MemoryObjectSendStream[MessageEnvelope[Any]] = send
         self._receive_stream: MemoryObjectReceiveStream[MessageEnvelope[Any]] = receive
@@ -106,17 +85,14 @@ class LocalQueueEndpoint(Endpoint):
     async def _worker_loop(self) -> None:
         async with self._receive_stream:
             async for envelope in self._receive_stream:
-                await self._process_envelope(envelope)
+                try:
+                    await self._process_envelope(envelope)
+                except Exception:
+                    logger.exception(
+                        'Unhandled error processing message_id=%s, continuing worker loop',
+                        envelope.message_id,
+                    )
 
     async def _process_envelope(self, envelope: MessageEnvelope[Any]) -> None:
         for handler_type in self._handler_subscriptions.get(type(envelope.payload), ()):
-            await self._execute_in_scope(envelope, handler_type)
-
-    async def _execute_in_scope(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> None:
-        async with self._container() as scope:
-            dispatcher = await scope.get(MessageDispatcher)
-            with message_context_scope(envelope):
-                try:
-                    await dispatcher.execute_for_handler(envelope.payload, handler_type)
-                except Exception as exc:  # noqa: BLE001
-                    self._error_handler(envelope, handler_type, exc)
+            await self._executor.execute(envelope, handler_type)

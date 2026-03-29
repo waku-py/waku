@@ -53,7 +53,7 @@ def _make_message(**overrides: object) -> OutboxMessage:
         'id': uuid4(),
         'idempotency_key': str(uuid4()),
         'message_type': 'test.Event',
-        'payload': b'{"test": true}',
+        'payload': {'test': True},
         'destination': 'test://dest',
         'correlation_id': uuid4(),
         'causation_id': uuid4(),

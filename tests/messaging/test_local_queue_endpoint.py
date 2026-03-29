@@ -5,6 +5,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import pytest
 from dishka import AsyncContainer
 from typing_extensions import override
 
@@ -21,44 +22,54 @@ from waku.messaging import (
 )
 from waku.messaging.contracts.factory import EnvelopeFactory
 from waku.messaging.endpoints.base import local_queue
+from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
+from waku.messaging.errors.executor import ErrorPolicyEvaluator
+from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.router import route
 from waku.testing import create_test_app
 
 if TYPE_CHECKING:
-    import pytest
     from pytest_mock import MockerFixture
+
+
+@pytest.fixture
+def noop_executor(mocker: MockerFixture) -> EndpointExecutor:
+    return EndpointExecutor(
+        container=mocker.Mock(spec_set=AsyncContainer),
+        evaluator=ErrorPolicyEvaluator(registry=ErrorPolicyRegistry(())),
+        endpoint_uri='test://q',
+    )
+
+
+@pytest.fixture
+def stopped_endpoint(noop_executor: EndpointExecutor) -> LocalQueueEndpoint:
+    return LocalQueueEndpoint(
+        uri='test://q',
+        handler_subscriptions={},
+        executor=noop_executor,
+        stop_timeout=1.0,
+        max_buffer_size=0,
+    )
 
 
 class TestLocalQueueEndpoint:
     @staticmethod
-    async def test_stop_without_start_is_noop(mocker: MockerFixture) -> None:
-        endpoint = LocalQueueEndpoint(
-            uri='test://q',
-            handler_subscriptions={},
-            container=mocker.Mock(spec_set=AsyncContainer),
-            stop_timeout=1.0,
-            max_buffer_size=0,
-        )
-        await endpoint.stop()
+    async def test_stop_without_start_is_noop(stopped_endpoint: LocalQueueEndpoint) -> None:
+        await stopped_endpoint.stop()
 
     @staticmethod
     async def test_dispatch_to_stopped_endpoint_logs_warning(
-        mocker: MockerFixture, caplog: pytest.LogCaptureFixture
+        stopped_endpoint: LocalQueueEndpoint,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
-        endpoint = LocalQueueEndpoint(
-            uri='test://q',
-            handler_subscriptions={},
-            container=mocker.Mock(spec_set=AsyncContainer),
-            stop_timeout=1.0,
-            max_buffer_size=0,
-        )
-        await endpoint.start()
-        await endpoint.stop()
+        await stopped_endpoint.start()
+        await stopped_endpoint.stop()
 
         envelope = EnvelopeFactory.create(object())
         with caplog.at_level(logging.WARNING, logger='waku.messaging.endpoints.local_queue'):
-            await endpoint.dispatch(envelope, mocker.Mock(spec_set=AsyncContainer))
+            await stopped_endpoint.dispatch(envelope, mocker.Mock(spec_set=AsyncContainer))
 
         assert 'Message dropped' in caplog.text
 

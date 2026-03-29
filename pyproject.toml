@@ -34,7 +34,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-messaging = ["faststream>=0.6"]
+messaging = ["adaptix>=3.0.0b11", "faststream>=0.6"]
 eventsourcing = ["adaptix>=3.0.0b11"]
 eventsourcing-sqla = ["waku[eventsourcing]>=0.42.0", "sqlalchemy[asyncio]>=2.0.48"]
 
@@ -51,7 +51,7 @@ dev = [
 docs = [
   "mkdocstrings[python]>=1.0.3",
   "pymdown-extensions>=10.21",
-  "zensical==0.0.29",
+  "zensical==0.0.30",
 ]
 lint = [
   "deptry==0.25.1",

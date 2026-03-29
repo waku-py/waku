@@ -12,9 +12,10 @@ from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage
-from waku.messaging.outbox.relay import AdaptiveInterval, OutboxRelay
+from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
 from waku.messaging.transport.interfaces import ITransport
-from waku.messaging.transport.serialization import JsonEnvelopeSerializer
+
+from tests.messaging.helpers import make_serializer
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -27,21 +28,18 @@ class _TestEvent(IEvent):
 
 class _FakeTransport(ITransport):
     def __init__(self) -> None:
-        self.sent: list[MessageEnvelope[Any]] = []
+        self.sent: list[tuple[MessageEnvelope[Any], str]] = []
 
     @override
-    async def send(self, envelope: MessageEnvelope[Any]) -> None:
-        self.sent.append(envelope)
-
-    @override
-    async def publish(self, envelope: MessageEnvelope[Any]) -> None:
-        self.sent.append(envelope)
+    async def send(self, envelope: MessageEnvelope[Any], *, destination: str) -> None:
+        self.sent.append((envelope, destination))
 
 
 @dataclass
 class _TrackingOutboxStore(IOutboxStore):
     pending: list[OutboxMessage] = field(default_factory=list)
     dispatched_ids: list[UUID] = field(default_factory=list)
+    dead_lettered_ids: list[UUID] = field(default_factory=list)
     failed_ids: list[UUID] = field(default_factory=list)
     recovered: int = 0
 
@@ -64,6 +62,10 @@ class _TrackingOutboxStore(IOutboxStore):
         self.failed_ids.append(message_id)
 
     @override
+    async def mark_dead_lettered(self, message_id: UUID) -> None:
+        self.dead_lettered_ids.append(message_id)
+
+    @override
     async def recover_stuck(self, threshold: timedelta) -> int:
         self.recovered += 1
         return 0
@@ -74,7 +76,7 @@ class _TrackingOutboxStore(IOutboxStore):
 
 
 def _make_outbox_message(envelope: MessageEnvelope[Any]) -> OutboxMessage:
-    serializer = JsonEnvelopeSerializer()
+    serializer = make_serializer(_TestEvent)
     return OutboxMessage(
         id=uuid4(),
         idempotency_key=str(envelope.message_id),
@@ -98,32 +100,12 @@ def _make_envelope() -> MessageEnvelope[_TestEvent]:
     )
 
 
-class TestAdaptiveInterval:
-    @staticmethod
-    def test_starts_at_min() -> None:
-        interval = AdaptiveInterval(min_seconds=0.1, max_seconds=5.0, step_seconds=0.5)
-        assert interval.current == 0.1
-
-    @staticmethod
-    def test_on_idle_increases() -> None:
-        interval = AdaptiveInterval(min_seconds=0.1, max_seconds=5.0, step_seconds=0.5)
-        interval.on_idle()
-        assert interval.current == 0.6
-
-    @staticmethod
-    def test_on_idle_caps_at_max() -> None:
-        interval = AdaptiveInterval(min_seconds=0.1, max_seconds=1.0, step_seconds=0.5)
-        for _ in range(10):
-            interval.on_idle()
-        assert interval.current == 1.0
-
-    @staticmethod
-    def test_on_work_done_resets_to_min() -> None:
-        interval = AdaptiveInterval(min_seconds=0.1, max_seconds=5.0, step_seconds=0.5)
-        interval.on_idle()
-        interval.on_idle()
-        interval.on_work_done()
-        assert interval.current == 0.1
+_FAST_CONFIG = OutboxRelayConfig(
+    poll_interval=0.01,
+    max_poll_interval=0.05,
+    poll_step=0.01,
+    recovery_interval=timedelta(hours=1),
+)
 
 
 class TestOutboxRelay:
@@ -131,12 +113,12 @@ class TestOutboxRelay:
     async def test_processes_pending_messages() -> None:
         store = _TrackingOutboxStore()
         transport = _FakeTransport()
-        serializer = JsonEnvelopeSerializer()
+        serializer = make_serializer(_TestEvent)
         envelope = _make_envelope()
         msg = _make_outbox_message(envelope)
         store.pending.append(msg)
 
-        relay = OutboxRelay(store=store, transport=transport, serializer=serializer, poll_interval=0.01)
+        relay = OutboxRelay(store=store, transport=transport, serializer=serializer, config=_FAST_CONFIG)
 
         task = asyncio.create_task(relay.start())
         await asyncio.sleep(0.1)
@@ -145,26 +127,23 @@ class TestOutboxRelay:
 
         assert msg.id in store.dispatched_ids
         assert len(transport.sent) == 1
+        assert transport.sent[0][1] == 'test://dest'
 
     @staticmethod
     async def test_marks_failed_on_transport_error() -> None:
         store = _TrackingOutboxStore()
-        serializer = JsonEnvelopeSerializer()
+        serializer = make_serializer(_TestEvent)
         envelope = _make_envelope()
         msg = _make_outbox_message(envelope)
         store.pending.append(msg)
 
         class _FailingTransport(ITransport):
             @override
-            async def send(self, envelope: MessageEnvelope[Any]) -> None:
-                raise ConnectionError
-
-            @override
-            async def publish(self, envelope: MessageEnvelope[Any]) -> None:
+            async def send(self, envelope: MessageEnvelope[Any], *, destination: str) -> None:
                 raise ConnectionError
 
         transport = _FailingTransport()
-        relay = OutboxRelay(store=store, transport=transport, serializer=serializer, poll_interval=0.01)
+        relay = OutboxRelay(store=store, transport=transport, serializer=serializer, config=_FAST_CONFIG)
 
         task = asyncio.create_task(relay.start())
         await asyncio.sleep(0.1)
@@ -177,9 +156,9 @@ class TestOutboxRelay:
     async def test_no_messages_is_noop() -> None:
         store = _TrackingOutboxStore()
         transport = _FakeTransport()
-        serializer = JsonEnvelopeSerializer()
+        serializer = make_serializer(_TestEvent)
 
-        relay = OutboxRelay(store=store, transport=transport, serializer=serializer, poll_interval=0.01)
+        relay = OutboxRelay(store=store, transport=transport, serializer=serializer, config=_FAST_CONFIG)
 
         task = asyncio.create_task(relay.start())
         await asyncio.sleep(0.05)
@@ -188,3 +167,20 @@ class TestOutboxRelay:
 
         assert len(transport.sent) == 0
         assert len(store.dispatched_ids) == 0
+
+    @staticmethod
+    async def test_stop_cancels_sleep_immediately() -> None:
+        store = _TrackingOutboxStore()
+        transport = _FakeTransport()
+        serializer = make_serializer(_TestEvent)
+
+        slow_config = OutboxRelayConfig(
+            poll_interval=10.0,
+            recovery_interval=timedelta(hours=1),
+        )
+        relay = OutboxRelay(store=store, transport=transport, serializer=serializer, config=slow_config)
+
+        task = asyncio.create_task(relay.start())
+        await asyncio.sleep(0.05)
+        await relay.stop()
+        await asyncio.wait_for(task, timeout=1.0)

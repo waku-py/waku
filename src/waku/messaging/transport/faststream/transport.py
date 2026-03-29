@@ -25,11 +25,10 @@ class FastStreamTransport(ITransport):
         self._serializer = serializer
 
     @override
-    async def send(self, envelope: MessageEnvelope[Any]) -> None:
-        message_payload = self._serializer.serialize(envelope)
-        destination = envelope.headers.get('destination', envelope.message_type)
-        await self._broker.publish(  # type: ignore[call-arg]
-            message_payload,
+    async def send(self, envelope: MessageEnvelope[Any], *, destination: str) -> None:
+        payload = self._serializer.serialize(envelope)
+        await self._broker.publish(  # type: ignore[call-arg]  # pyrefly: ignore[unexpected-keyword]
+            payload,
             destination,
             headers={  # pyrefly: ignore[unexpected-keyword]
                 'message_id': str(envelope.message_id),
@@ -38,7 +37,3 @@ class FastStreamTransport(ITransport):
                 'message_type': envelope.message_type,
             },
         )
-
-    @override
-    async def publish(self, envelope: MessageEnvelope[Any]) -> None:
-        await self.send(envelope)

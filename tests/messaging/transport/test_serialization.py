@@ -4,10 +4,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import pytest
+
 from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.contracts.request import IRequest
-from waku.messaging.transport.serialization import JsonEnvelopeSerializer
+
+from tests.messaging.helpers import make_serializer
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +28,7 @@ class OrderPlaced(IEvent):
 class TestJsonEnvelopeSerializer:
     @staticmethod
     def test_round_trip_request() -> None:
-        serializer = JsonEnvelopeSerializer()
+        serializer = make_serializer(PlaceOrder)
         envelope = MessageEnvelope(
             message_id=uuid4(),
             correlation_id=uuid4(),
@@ -51,7 +54,7 @@ class TestJsonEnvelopeSerializer:
 
     @staticmethod
     def test_round_trip_event() -> None:
-        serializer = JsonEnvelopeSerializer()
+        serializer = make_serializer(OrderPlaced)
         envelope = MessageEnvelope(
             message_id=uuid4(),
             correlation_id=uuid4(),
@@ -71,7 +74,7 @@ class TestJsonEnvelopeSerializer:
 
     @staticmethod
     def test_round_trip_empty_headers() -> None:
-        serializer = JsonEnvelopeSerializer()
+        serializer = make_serializer(PlaceOrder)
         envelope = MessageEnvelope(
             message_id=uuid4(),
             correlation_id=uuid4(),
@@ -86,3 +89,20 @@ class TestJsonEnvelopeSerializer:
         restored = serializer.deserialize(data)
 
         assert restored.headers == {}
+
+    @staticmethod
+    def test_unknown_type_raises_value_error() -> None:
+        serializer = make_serializer()
+        envelope = MessageEnvelope(
+            message_id=uuid4(),
+            correlation_id=uuid4(),
+            causation_id=uuid4(),
+            message_type='some.unknown.Type',
+            timestamp=datetime.now(tz=UTC),
+            payload=PlaceOrder(order_id='x', amount=0.0),
+            headers={},
+        )
+
+        data = serializer.serialize(envelope)
+        with pytest.raises(ValueError, match='Unknown message type'):
+            serializer.deserialize(data)

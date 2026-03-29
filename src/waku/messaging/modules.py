@@ -13,11 +13,18 @@ from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.dispatcher import MessageDispatcher
 from waku.messaging.endpoints.base import Endpoint, EndpointEntry, ExternalEntry, LocalQueueEntry
+from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.external import ExternalEndpoint
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
+from waku.messaging.errors.dead_letter import IDeadLetterStore, IDeadLetterWriter
+from waku.messaging.errors.executor import ErrorPolicyEvaluator
+from waku.messaging.errors.policy import ResolvedRetryPolicy, RetryAction
+from waku.messaging.errors.registry import ErrorPolicyRegistry
+from waku.messaging.errors.writer import DeadLetterWriter
 from waku.messaging.exceptions import HandlerAlreadyRegistered, ImproperlyConfiguredError, MultipleHandlersRegistered
 from waku.messaging.impl import MessageBus
 from waku.messaging.interfaces import IMessageBus
+from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.pipeline.map import PipelineBehaviorMapEntry
 from waku.messaging.registry import MessageRegistry
 from waku.messaging.router import MessageRouter, RoutingTable
@@ -47,22 +54,57 @@ class MessagingModule:
     @classmethod
     def register(cls, config: MessagingConfig | None = None, /) -> DynamicModule:
         config_ = config or MessagingConfig()
+        cls._validate_config(config_)
+        providers: list[Provider] = [
+            scoped(WithParents[IMessageBus], MessageBus),  # ty:ignore[not-subscriptable]
+            singleton(EnvelopeFactory),
+            cls._serializer_provider(config_),
+            scoped(MessageDispatcher),
+            transient(MessageContext, get_message_context),
+            *cls._create_pipeline_behavior_providers(config_),
+            *cls._infrastructure_providers(config_),
+        ]
         return DynamicModule(
             parent_module=cls,
-            providers=[
-                scoped(WithParents[IMessageBus], MessageBus),  # ty:ignore[not-subscriptable]
-                singleton(EnvelopeFactory),
-                singleton(IEnvelopeSerializer, JsonEnvelopeSerializer),
-                scoped(MessageDispatcher),
-                transient(MessageContext, get_message_context),
-                *cls._create_pipeline_behavior_providers(config_),
-            ],
+            providers=providers,
             extensions=[
                 MessageRegistryAggregator(config_),
                 EndpointLifecycleExtension(),
             ],
             is_global=True,
         )
+
+    @staticmethod
+    def _validate_config(config: MessagingConfig) -> None:
+        has_external = any(isinstance(e, ExternalEntry) for e in config.endpoints)
+        if has_external and config.outbox_store is None:
+            msg = 'external_endpoint requires outbox_store in MessagingConfig'
+            raise ImproperlyConfiguredError(msg)
+        needs_dlq = _requires_dead_letter_store(config.error_policies)
+        has_dlq = config.dead_letter_store is not None or config.dead_letter_writer is not None
+        if needs_dlq and not has_dlq:
+            msg = 'error_policies with DEAD_LETTER action require dead_letter_store or dead_letter_writer in MessagingConfig'
+            raise ImproperlyConfiguredError(msg)
+
+    @staticmethod
+    def _serializer_provider(config: MessagingConfig) -> Provider:
+        if config.envelope_serializer is not None:
+            return singleton(IEnvelopeSerializer, config.envelope_serializer)
+        return singleton(IEnvelopeSerializer, _create_envelope_serializer)
+
+    @staticmethod
+    def _infrastructure_providers(config: MessagingConfig) -> _HandlerProviders:
+        providers: list[Provider] = []
+        if config.outbox_store is not None:
+            providers.append(scoped(IOutboxStore, config.outbox_store))
+        if config.dead_letter_writer is not None:
+            providers.append(scoped(IDeadLetterWriter, config.dead_letter_writer))
+        elif config.dead_letter_store is not None:
+            providers.extend((
+                scoped(IDeadLetterStore, config.dead_letter_store),
+                scoped(IDeadLetterWriter, DeadLetterWriter),
+            ))
+        return tuple(providers)
 
     @staticmethod
     def _create_pipeline_behavior_providers(config: MessagingConfig) -> _HandlerProviders:
@@ -117,8 +159,25 @@ class MessagingExtension(OnModuleConfigure):
         return self._registry
 
 
-def _build_router(routing_table: RoutingTable, container: AsyncContainer) -> MessageRouter:
-    endpoints_by_uri = {entry.uri: _create_endpoint(entry, routing_table, container) for entry in routing_table.entries}
+def _requires_dead_letter_store(policies: Sequence[ResolvedRetryPolicy]) -> bool:
+    return any(RetryAction.DEAD_LETTER in {p.action, p.fallback_action} for p in policies)
+
+
+def _create_envelope_serializer(registry: MessageRegistry) -> JsonEnvelopeSerializer:
+    type_registry = {
+        f'{msg_type.__module__}.{msg_type.__qualname__}': msg_type for msg_type in registry.handler_map.message_types()
+    }
+    return JsonEnvelopeSerializer(type_registry=type_registry)
+
+
+def _build_router(
+    routing_table: RoutingTable,
+    container: AsyncContainer,
+    evaluator: ErrorPolicyEvaluator,
+) -> MessageRouter:
+    endpoints_by_uri = {
+        entry.uri: _create_endpoint(entry, routing_table, container, evaluator) for entry in routing_table.entries
+    }
     return MessageRouter(
         routes={
             msg_type: tuple(endpoints_by_uri[uri] for uri in uris)
@@ -132,13 +191,15 @@ def _create_endpoint(
     entry: EndpointEntry,
     routing_table: RoutingTable,
     container: AsyncContainer,
+    evaluator: ErrorPolicyEvaluator,
 ) -> Endpoint:
     match entry:
         case LocalQueueEntry():
+            executor = EndpointExecutor(container=container, evaluator=evaluator, endpoint_uri=entry.uri)
             return LocalQueueEndpoint(
                 uri=entry.uri,
                 handler_subscriptions=routing_table.endpoint_subscriptions.get(entry.uri, {}),
-                container=container,
+                executor=executor,
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,
             )
@@ -188,6 +249,12 @@ class MessageRegistryAggregator(OnModuleRegistration):
         ).build()
         registry.add_provider(owning_module, object_(routing_table))
         registry.add_provider(owning_module, singleton(MessageRouter, _build_router))
+
+        error_policy_registry = ErrorPolicyRegistry(self._config.error_policies)
+        registry.add_provider(owning_module, object_(error_policy_registry))
+
+        evaluator = ErrorPolicyEvaluator(registry=error_policy_registry)
+        registry.add_provider(owning_module, object_(evaluator))
 
     @staticmethod
     def _validate_request_handler_counts(registry: MessageRegistry) -> None:

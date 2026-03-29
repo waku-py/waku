@@ -21,6 +21,8 @@ from waku.messaging.endpoints.external import ExternalEndpoint
 from waku.messaging.router import MessageRouter, RoutingTable, route
 from waku.testing import create_test_app
 
+from tests.messaging.outbox.fake_store import FakeOutboxStore
+
 
 @dataclass(frozen=True)
 class _Notif(IEvent):
@@ -39,6 +41,7 @@ class TestRoutingBranches:
         config = MessagingConfig(
             endpoints=[local_queue('local-q'), external_endpoint('ext://bus')],
             routing=[route(_Notif).to('ext://bus')],
+            outbox_store=FakeOutboxStore,
         )
 
         async with (

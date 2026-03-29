@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from typing_extensions import override
 
 from waku import module
-from waku.di import object_
 from waku.messaging import (
     EventHandler,
     IEvent,
@@ -38,11 +37,10 @@ class _InlineHandler(EventHandler[_OrderPlaced]):
 class TestBusOutboxIntegration:
     @staticmethod
     async def test_publish_routes_event_to_outbox_via_external_endpoint() -> None:
-        outbox = FakeOutboxStore()
-
         config = MessagingConfig(
             endpoints=[external_endpoint('test://events')],
             routing=[route(_OrderPlaced).to('test://events')],
+            outbox_store=FakeOutboxStore,
         )
 
         @module(extensions=[MessagingExtension().bind(_OrderPlaced, _InlineHandler)])
@@ -52,23 +50,23 @@ class TestBusOutboxIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config), TestModule],
-                providers=[object_(outbox, provided_type=IOutboxStore)],
             ) as app,
             app.container() as c,
         ):
             bus = await c.get(IMessageBus)
             await bus.publish(_OrderPlaced(order_id='123'))
+            store = await c.get(IOutboxStore)
 
-        assert len(outbox.saved) == 1
-        assert outbox.saved[0].destination == 'test://events'
+        assert isinstance(store, FakeOutboxStore)
+        assert len(store.saved) == 1
+        assert store.saved[0].destination == 'test://events'
 
     @staticmethod
     async def test_send_routes_to_external_endpoint() -> None:
-        outbox = FakeOutboxStore()
-
         config = MessagingConfig(
             endpoints=[external_endpoint('test://events')],
             routing=[route(_OrderPlaced).to('test://events')],
+            outbox_store=FakeOutboxStore,
         )
 
         @module(extensions=[MessagingExtension().bind(_OrderPlaced, _InlineHandler)])
@@ -78,12 +76,13 @@ class TestBusOutboxIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config), TestModule],
-                providers=[object_(outbox, provided_type=IOutboxStore)],
             ) as app,
             app.container() as c,
         ):
             bus = await c.get(IMessageBus)
             await bus.send(_OrderPlaced(order_id='456'))
+            store = await c.get(IOutboxStore)
 
-        assert len(outbox.saved) == 1
-        assert outbox.saved[0].destination == 'test://events'
+        assert isinstance(store, FakeOutboxStore)
+        assert len(store.saved) == 1
+        assert store.saved[0].destination == 'test://events'

@@ -6,16 +6,18 @@ from typing import Final
 from sqlalchemy import (
     BigInteger,
     Column,
+    Enum,
     Index,
     Integer,
-    LargeBinary,
     MetaData,
     Table,
     Text,
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
+from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
+
+from waku.messaging.outbox.models import OutboxStatus
 
 __all__ = [
     'OUTBOX_IDEMPOTENCY_CONSTRAINT',
@@ -33,13 +35,18 @@ outbox_messages_table = Table(
     Column('id', UUID(as_uuid=True), primary_key=True),
     Column('idempotency_key', Text, nullable=False),
     Column('message_type', Text, nullable=False),
-    Column('payload', LargeBinary, nullable=False),
+    Column('payload', JSONB, nullable=False),
     Column('destination', Text, nullable=False),
     Column('correlation_id', UUID(as_uuid=True), nullable=False),
     Column('causation_id', UUID(as_uuid=True), nullable=False),
     Column('stream_id', Text, nullable=True),
     Column('sequence_number', BigInteger, nullable=True),
-    Column('status', Text, nullable=False, server_default='PENDING'),
+    Column(
+        'status',
+        Enum(OutboxStatus, native_enum=False, create_constraint=False, values_callable=lambda e: [s.value for s in e]),
+        nullable=False,
+        server_default=OutboxStatus.PENDING.value,
+    ),
     Column('retry_count', Integer, nullable=False, server_default='0'),
     Column('last_error', Text, nullable=True),
     Column('created_at', TIMESTAMP(timezone=True), server_default=func.now()),

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 from uuid import UUID
 
 from typing_extensions import override
@@ -9,12 +9,13 @@ from typing_extensions import override
 from waku.messaging import EventHandler, IEvent, MessagingExtension, MessagingModule
 from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.contracts.factory import EnvelopeFactory
+from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
+from waku.messaging.errors.executor import ErrorPolicyEvaluator
+from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.testing import create_test_app
 
-if TYPE_CHECKING:
-    from waku.application import WakuApplication
-    from waku.messaging.router import HandlerSubscriptions
+_NOOP_EVALUATOR = ErrorPolicyEvaluator(registry=ErrorPolicyRegistry(()))
 
 
 @dataclass(frozen=True)
@@ -45,16 +46,6 @@ class _FailingThenRecordingHandler(EventHandler[_OrderPlaced]):
         self.received.append(event)
 
 
-def _make_endpoint(app: WakuApplication, handler_subscriptions: HandlerSubscriptions) -> LocalQueueEndpoint:
-    return LocalQueueEndpoint(
-        uri='local://test',
-        handler_subscriptions=handler_subscriptions,
-        container=app.container,
-        stop_timeout=0.5,
-        max_buffer_size=100,
-    )
-
-
 class TestLocalQueueEndpoint:
     @staticmethod
     async def test_dispatched_event_is_processed_by_handler() -> None:
@@ -65,7 +56,14 @@ class TestLocalQueueEndpoint:
             imports=[MessagingModule.register()],
             extensions=[MessagingExtension().bind(_OrderPlaced, _RecordingHandler)],
         ) as app:
-            endpoint = _make_endpoint(app, {_OrderPlaced: frozenset({_RecordingHandler})})
+            executor = EndpointExecutor(container=app.container, evaluator=_NOOP_EVALUATOR, endpoint_uri='local://test')
+            endpoint = LocalQueueEndpoint(
+                uri='local://test',
+                handler_subscriptions={_OrderPlaced: frozenset({_RecordingHandler})},
+                executor=executor,
+                stop_timeout=0.5,
+                max_buffer_size=100,
+            )
             await endpoint.start()
             envelope = EnvelopeFactory.create(_OrderPlaced(order_id='abc-123'))
             await endpoint.dispatch(envelope, app.container)
@@ -83,7 +81,14 @@ class TestLocalQueueEndpoint:
             imports=[MessagingModule.register()],
             extensions=[MessagingExtension().bind(_OrderPlaced, _RecordingHandler)],
         ) as app:
-            endpoint = _make_endpoint(app, {_OrderPlaced: frozenset({_RecordingHandler})})
+            executor = EndpointExecutor(container=app.container, evaluator=_NOOP_EVALUATOR, endpoint_uri='local://test')
+            endpoint = LocalQueueEndpoint(
+                uri='local://test',
+                handler_subscriptions={_OrderPlaced: frozenset({_RecordingHandler})},
+                executor=executor,
+                stop_timeout=0.5,
+                max_buffer_size=100,
+            )
             await endpoint.start()
             envelope = EnvelopeFactory.create(_OrderPlaced(order_id='ctx-test'))
             await endpoint.dispatch(envelope, app.container)
@@ -105,7 +110,14 @@ class TestLocalQueueEndpoint:
             imports=[MessagingModule.register()],
             extensions=[MessagingExtension().bind(_OrderPlaced, _FailingThenRecordingHandler)],
         ) as app:
-            endpoint = _make_endpoint(app, {_OrderPlaced: frozenset({_FailingThenRecordingHandler})})
+            executor = EndpointExecutor(container=app.container, evaluator=_NOOP_EVALUATOR, endpoint_uri='local://test')
+            endpoint = LocalQueueEndpoint(
+                uri='local://test',
+                handler_subscriptions={_OrderPlaced: frozenset({_FailingThenRecordingHandler})},
+                executor=executor,
+                stop_timeout=0.5,
+                max_buffer_size=100,
+            )
             await endpoint.start()
             first = EnvelopeFactory.create(_OrderPlaced(order_id='will-fail'))
             second = EnvelopeFactory.create(_OrderPlaced(order_id='will-succeed'))

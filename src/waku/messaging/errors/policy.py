@@ -57,6 +57,7 @@ class _RetryActionBuilder:
         max_attempts: int = 3,
         base_delay: float = 1.0,
         max_delay: float = 60.0,
+        fallback: RetryAction | None = None,
     ) -> ResolvedRetryPolicy:
         return ResolvedRetryPolicy(
             message_type=self._message_type,
@@ -65,6 +66,7 @@ class _RetryActionBuilder:
             max_attempts=max_attempts,
             base_delay=base_delay,
             max_delay=max_delay,
+            fallback_action=fallback,
         )
 
     def discard(self) -> ResolvedRetryPolicy:

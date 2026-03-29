@@ -4,14 +4,14 @@ from dataclasses import dataclass
 
 from sqlalchemy import (
     Column,
+    Index,
     Integer,
-    LargeBinary,
     MetaData,
     Table,
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
+from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 
 __all__ = [
     'DeadLetterTables',
@@ -25,7 +25,7 @@ dead_letter_table = Table(
     _internal_metadata,
     Column('id', UUID(as_uuid=True), primary_key=True),
     Column('message_type', Text, nullable=False),
-    Column('payload', LargeBinary, nullable=False),
+    Column('payload', JSONB, nullable=False),
     Column('destination', Text, nullable=False),
     Column('correlation_id', UUID(as_uuid=True), nullable=False),
     Column('causation_id', UUID(as_uuid=True), nullable=False),
@@ -33,6 +33,7 @@ dead_letter_table = Table(
     Column('error_message', Text, nullable=False),
     Column('retry_count', Integer, nullable=False),
     Column('created_at', TIMESTAMP(timezone=True), server_default=func.now()),
+    Index('ix_dead_letter_created', 'created_at'),
 )
 
 

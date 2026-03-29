@@ -23,6 +23,7 @@ from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
 from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, ICheckpointStore, IProjection
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.serialization.interfaces import IEventSerializer, ISnapshotStateSerializer
+from waku.eventsourcing.serialization.json import JsonEventSerializer, JsonSnapshotStateSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore
 from waku.eventsourcing.snapshot.migration import SnapshotMigrationChain
@@ -141,12 +142,16 @@ class EventSourcingModule:
 
         if config.event_serializer is not None:
             providers.append(scoped(IEventSerializer, config.event_serializer))
+        else:
+            providers.append(scoped(IEventSerializer, JsonEventSerializer))
 
         if config.snapshot_store is not None:
             providers.append(scoped(ISnapshotStore, config.snapshot_store))
 
         if config.snapshot_state_serializer is not None:
             providers.append(scoped(ISnapshotStateSerializer, config.snapshot_state_serializer))
+        else:
+            providers.append(scoped(ISnapshotStateSerializer, JsonSnapshotStateSerializer))
 
         if config.checkpoint_store is not None:
             providers.append(scoped(ICheckpointStore, config.checkpoint_store))

@@ -52,7 +52,7 @@ def _make_entry(**overrides: object) -> DeadLetterEntry:
     defaults = {
         'id': uuid4(),
         'message_type': 'test.FailedEvent',
-        'payload': b'{"key": "value"}',
+        'payload': {'key': 'value'},
         'destination': 'test://dead',
         'correlation_id': uuid4(),
         'causation_id': uuid4(),
@@ -77,23 +77,33 @@ class TestSqlAlchemyDeadLetterStore:
         assert fetched[0].error_type == 'RuntimeError'
 
     @staticmethod
-    async def test_replay_removes_entry(pg_session: AsyncSession) -> None:
+    async def test_fetch_one(pg_session: AsyncSession) -> None:
         store = SqlAlchemyDeadLetterStore(pg_session)
         entry = _make_entry()
         await store.save(entry)
         await pg_session.flush()
 
-        replayed = await store.replay(entry.id)
-        assert replayed.id == entry.id
+        fetched = await store.fetch_one(entry.id)
+        assert fetched.id == entry.id
+
+    @staticmethod
+    async def test_fetch_one_not_found_raises(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyDeadLetterStore(pg_session)
+        with pytest.raises(KeyError):
+            await store.fetch_one(uuid4())
+
+    @staticmethod
+    async def test_delete(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyDeadLetterStore(pg_session)
+        entry = _make_entry()
+        await store.save(entry)
+        await pg_session.flush()
+
+        await store.delete(entry.id)
+        await pg_session.flush()
 
         remaining = await store.fetch(batch_size=10)
         assert len(remaining) == 0
-
-    @staticmethod
-    async def test_replay_not_found_raises(pg_session: AsyncSession) -> None:
-        store = SqlAlchemyDeadLetterStore(pg_session)
-        with pytest.raises(KeyError):
-            await store.replay(uuid4())
 
     @staticmethod
     async def test_purge_old_entries(pg_session: AsyncSession) -> None:

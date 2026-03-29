@@ -11,8 +11,9 @@ from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.external import ExternalEndpoint
 from waku.messaging.outbox.interfaces import IOutboxStore  # noqa: TC001
-from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
+from waku.messaging.transport.serialization import IEnvelopeSerializer  # noqa: TC001
 
+from tests.messaging.helpers import make_serializer
 from tests.messaging.outbox.fake_store import FakeOutboxStore
 
 
@@ -36,7 +37,7 @@ def _make_envelope(payload: Any) -> MessageEnvelope[Any]:
 class _TestDepsProvider(Provider):
     scope = Scope.APP
 
-    def __init__(self, outbox: FakeOutboxStore, serializer: JsonEnvelopeSerializer) -> None:
+    def __init__(self, outbox: FakeOutboxStore, serializer: IEnvelopeSerializer) -> None:
         super().__init__()
         self._outbox = outbox
         self._serializer = serializer
@@ -54,7 +55,7 @@ class TestExternalEndpoint:
     @staticmethod
     async def test_dispatch_writes_to_outbox() -> None:
         outbox = FakeOutboxStore()
-        serializer = JsonEnvelopeSerializer()
+        serializer = make_serializer(_OrderPlaced)
 
         async with make_async_container(_TestDepsProvider(outbox, serializer)) as container:
             endpoint = ExternalEndpoint(uri='notifications')

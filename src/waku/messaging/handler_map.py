@@ -47,6 +47,9 @@ class HandlerMap:
         for handlers in self._registry.values():
             yield from handlers
 
+    def message_types(self) -> Iterator[type[IMessage]]:
+        yield from self._registry
+
     def items(self) -> Iterator[tuple[type[IMessage], tuple[HandlerType, ...]]]:
         for msg_type, handlers in self._registry.items():
             yield msg_type, tuple(handlers)

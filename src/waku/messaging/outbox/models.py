@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from datetime import datetime
+    from typing import Any
     from uuid import UUID
 
 __all__ = [
@@ -14,11 +15,13 @@ __all__ = [
 ]
 
 
+@enum.unique
 class OutboxStatus(enum.StrEnum):
     PENDING = 'PENDING'
     PROCESSING = 'PROCESSING'
     DISPATCHED = 'DISPATCHED'
     FAILED = 'FAILED'
+    DEAD_LETTERED = 'DEAD_LETTERED'
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -26,7 +29,7 @@ class OutboxMessage:
     id: UUID
     idempotency_key: str
     message_type: str
-    payload: bytes
+    payload: dict[str, Any]
     destination: str
     correlation_id: UUID
     causation_id: UUID

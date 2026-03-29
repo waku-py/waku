@@ -4,11 +4,15 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from waku.messaging.contracts.pipeline import IPipelineBehavior
     from waku.messaging.endpoints.base import EndpointEntry
+    from waku.messaging.errors.dead_letter import IDeadLetterStore, IDeadLetterWriter
+    from waku.messaging.errors.policy import ResolvedRetryPolicy
+    from waku.messaging.outbox.interfaces import IOutboxStore
     from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor
+    from waku.messaging.transport.serialization import IEnvelopeSerializer
 
 __all__ = [
     'MessagingConfig',
@@ -17,28 +21,11 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MessagingConfig:
-    """Configuration for the messaging extension.
-
-    Attributes:
-        pipeline_behaviors: A sequence of pipeline behavior configurations that will be applied
-            to the messaging pipeline. Behaviors are executed in the order they are defined.
-            Defaults to an empty sequence.
-        endpoints: A sequence of endpoint entries defining available message endpoints.
-            Defaults to an empty sequence.
-        routing: A sequence of route descriptors mapping messages to endpoints.
-            Defaults to an empty sequence.
-
-    Example:
-        ```python
-        config = MessagingConfig(
-            pipeline_behaviors=[
-                LoggingBehavior,
-                ValidationBehavior,
-            ]
-        )
-        ```
-    """
-
     pipeline_behaviors: Sequence[type[IPipelineBehavior[Any, Any]]] = ()
     endpoints: Sequence[EndpointEntry] = ()
     routing: Sequence[RouteDescriptor | ModuleRouteDescriptor] = ()
+    error_policies: Sequence[ResolvedRetryPolicy] = ()
+    envelope_serializer: type[IEnvelopeSerializer] | Callable[..., IEnvelopeSerializer] | None = None
+    outbox_store: type[IOutboxStore] | Callable[..., IOutboxStore] | None = None
+    dead_letter_store: type[IDeadLetterStore] | Callable[..., IDeadLetterStore] | None = None
+    dead_letter_writer: type[IDeadLetterWriter] | Callable[..., IDeadLetterWriter] | None = None

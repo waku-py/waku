@@ -35,6 +35,10 @@ class FakeOutboxStore(IOutboxStore):
         pass
 
     @override
+    async def mark_dead_lettered(self, message_id: UUID) -> None:
+        pass
+
+    @override
     async def recover_stuck(self, threshold: timedelta) -> int:
         return 0
 

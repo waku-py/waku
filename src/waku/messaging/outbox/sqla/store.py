@@ -6,7 +6,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
-from waku.messaging.outbox.sqla.tables import outbox_messages_table
+from waku.messaging.outbox.sqla.tables import OUTBOX_IDEMPOTENCY_CONSTRAINT, outbox_messages_table
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -15,9 +15,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-__all__ = [
-    'SqlAlchemyOutboxStore',
-]
+__all__ = ['SqlAlchemyOutboxStore']
 
 _t = outbox_messages_table
 
@@ -42,36 +40,33 @@ class SqlAlchemyOutboxStore:
                 'causation_id': msg.causation_id,
                 'stream_id': msg.stream_id,
                 'sequence_number': msg.sequence_number,
-                'status': msg.status.value,
+                'status': msg.status,
                 'retry_count': msg.retry_count,
                 'last_error': msg.last_error,
             }
             for msg in messages
         ]
-        stmt = insert(_t).values(values).on_conflict_do_nothing(constraint='uq_outbox_idempotency_key')
+        stmt = insert(_t).values(values).on_conflict_do_nothing(constraint=OUTBOX_IDEMPOTENCY_CONSTRAINT)
         await self._session.execute(stmt)
 
     async def fetch_and_mark_processing(self, batch_size: int) -> Sequence[OutboxMessage]:
         now = func.now()
-
-        pending_ids = (
+        pending_cte = (
             select(_t.c.id)
             .where(_t.c.status == OutboxStatus.PENDING.value)
-            .where(func.coalesce(_t.c.next_retry_at, func.now()) <= now)
+            .where(func.coalesce(_t.c.next_retry_at, now) <= now)
             .order_by(_t.c.created_at.asc())
             .limit(batch_size)
             .with_for_update(skip_locked=True)
-            .cte('pending_ids')
+            .cte('pending')
         )
-
-        update_stmt = (
+        stmt = (
             update(_t)
-            .where(_t.c.id.in_(select(pending_ids.c.id)))
+            .where(_t.c.id.in_(select(pending_cte.c.id)))
             .values(status=OutboxStatus.PROCESSING.value, processing_started_at=now)
             .returning(*_t.c)
         )
-
-        result = await self._session.execute(update_stmt)
+        result = await self._session.execute(stmt)
         return [_row_to_model(row) for row in result.fetchall()]
 
     async def mark_dispatched(self, message_id: UUID) -> None:
@@ -80,6 +75,10 @@ class SqlAlchemyOutboxStore:
             .where(_t.c.id == message_id)
             .values(status=OutboxStatus.DISPATCHED.value, dispatched_at=func.now())
         )
+        await self._session.execute(stmt)
+
+    async def mark_dead_lettered(self, message_id: UUID) -> None:
+        stmt = update(_t).where(_t.c.id == message_id).values(status=OutboxStatus.DEAD_LETTERED.value)
         await self._session.execute(stmt)
 
     async def mark_failed(self, message_id: UUID, error: str, next_retry_at: datetime | None = None) -> None:
@@ -115,22 +114,21 @@ class SqlAlchemyOutboxStore:
 
 
 def _row_to_model(row: Any) -> OutboxMessage:
-    m = row._mapping  # noqa: SLF001
     return OutboxMessage(
-        id=m['id'],
-        idempotency_key=m['idempotency_key'],
-        message_type=m['message_type'],
-        payload=bytes(m['payload']),
-        destination=m['destination'],
-        correlation_id=m['correlation_id'],
-        causation_id=m['causation_id'],
-        stream_id=m['stream_id'],
-        sequence_number=m['sequence_number'],
-        status=OutboxStatus(m['status']),
-        retry_count=m['retry_count'],
-        last_error=m['last_error'],
-        created_at=m['created_at'],
-        processing_started_at=m['processing_started_at'],
-        dispatched_at=m['dispatched_at'],
-        next_retry_at=m['next_retry_at'],
+        id=row.id,
+        idempotency_key=row.idempotency_key,
+        message_type=row.message_type,
+        payload=row.payload,
+        destination=row.destination,
+        correlation_id=row.correlation_id,
+        causation_id=row.causation_id,
+        stream_id=row.stream_id,
+        sequence_number=row.sequence_number,
+        status=OutboxStatus(row.status),
+        retry_count=row.retry_count,
+        last_error=row.last_error,
+        created_at=row.created_at,
+        processing_started_at=row.processing_started_at,
+        dispatched_at=row.dispatched_at,
+        next_retry_at=row.next_retry_at,
     )

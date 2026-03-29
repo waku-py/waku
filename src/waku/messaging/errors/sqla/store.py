@@ -47,16 +47,17 @@ class SqlAlchemyDeadLetterStore:
         result = await self._session.execute(stmt)
         return [_row_to_model(row) for row in result.fetchall()]
 
-    async def replay(self, entry_id: UUID) -> DeadLetterEntry:
+    async def fetch_one(self, entry_id: UUID) -> DeadLetterEntry:
         stmt = select(*_t.c).where(_t.c.id == entry_id)
         result = await self._session.execute(stmt)
         row = result.fetchone()
         if row is None:
             msg = f'Dead letter entry {entry_id} not found'
             raise KeyError(msg)
-        entry = _row_to_model(row)
+        return _row_to_model(row)
+
+    async def delete(self, entry_id: UUID) -> None:
         await self._session.execute(delete(_t).where(_t.c.id == entry_id))
-        return entry
 
     async def purge(self, older_than: datetime) -> int:
         stmt = delete(_t).where(_t.c.created_at < older_than)
@@ -65,16 +66,15 @@ class SqlAlchemyDeadLetterStore:
 
 
 def _row_to_model(row: Any) -> DeadLetterEntry:
-    m = row._mapping  # noqa: SLF001
     return DeadLetterEntry(
-        id=m['id'],
-        message_type=m['message_type'],
-        payload=bytes(m['payload']),
-        destination=m['destination'],
-        correlation_id=m['correlation_id'],
-        causation_id=m['causation_id'],
-        error_type=m['error_type'],
-        error_message=m['error_message'],
-        retry_count=m['retry_count'],
-        created_at=m['created_at'],
+        id=row.id,
+        message_type=row.message_type,
+        payload=row.payload,
+        destination=row.destination,
+        correlation_id=row.correlation_id,
+        causation_id=row.causation_id,
+        error_type=row.error_type,
+        error_message=row.error_message,
+        retry_count=row.retry_count,
+        created_at=row.created_at,
     )

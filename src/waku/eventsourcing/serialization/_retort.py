@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 import dataclasses
-from uuid import UUID
 
-from adaptix import Retort, dumper, loader
+from adaptix import dumper, loader
 
+from waku._internal.retort import default_retort
 from waku.eventsourcing.contracts.stream import StreamId
 
-__all__ = ['default_retort', 'validate_dataclass_instance']
+__all__ = ['es_default_retort', 'validate_dataclass_instance']
 
-default_retort = Retort(
+es_default_retort = default_retort.extend(
     recipe=[
-        loader(UUID, UUID),
-        dumper(UUID, str),
         loader(StreamId, StreamId.from_value),
         dumper(StreamId, str),
     ],
