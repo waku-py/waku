@@ -21,8 +21,19 @@ from waku.messaging import (
     ResponseT,
 )
 from waku.messaging.context import get_message_context
-from waku.messaging.exceptions import HandlerNotFound, MultipleHandlersRegistered, NoRouteError
+from waku.messaging.endpoints.base import external_endpoint
+from waku.messaging.errors.policy import RetryAction, RetryPolicy
+from waku.messaging.exceptions import (
+    HandlerNotFound,
+    ImproperlyConfiguredError,
+    MultipleHandlersRegistered,
+    NoRouteError,
+)
+from waku.messaging.outbox.relay import OutboxRelayConfig
 from waku.testing import create_test_app
+
+from tests.messaging.helpers import RecordingDeadLetterStore
+from tests.messaging.outbox.fake_store import FakeOutboxStore
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -344,3 +355,65 @@ async def test_publish_propagates_correlation_context_through_queue() -> None:
 
     assert event_context['correlation_id'] == command_context['correlation_id']
     assert event_context['causation_id'] == command_context['message_id']
+
+
+class TestMessagingConfigValidation:
+    @staticmethod
+    def test_external_endpoint_without_outbox_store_raises() -> None:
+        config = MessagingConfig(
+            endpoints=[external_endpoint('ext://bus')],
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='external_endpoint requires outbox_store'):
+            MessagingModule.register(config)
+
+    @staticmethod
+    def test_dead_letter_policy_without_dead_letter_store_raises() -> None:
+        config = MessagingConfig(
+            error_policies=[
+                RetryPolicy.for_message(_SomeEvent).on_any_exception().move_to_dead_letter(),
+            ],
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='dead_letter_store'):
+            MessagingModule.register(config)
+
+    @staticmethod
+    def test_dead_letter_fallback_without_dead_letter_store_raises() -> None:
+        config = MessagingConfig(
+            error_policies=[
+                RetryPolicy
+                .for_message(_SomeEvent)
+                .on_any_exception()
+                .retry(
+                    max_attempts=3,
+                    fallback=RetryAction.DEAD_LETTER,
+                ),
+            ],
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='dead_letter_store'):
+            MessagingModule.register(config)
+
+    @staticmethod
+    def test_outbox_relay_without_outbox_store_raises() -> None:
+        config = MessagingConfig(
+            outbox_relay=OutboxRelayConfig(),
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='outbox_relay requires outbox_store'):
+            MessagingModule.register(config)
+
+    @staticmethod
+    def test_outbox_relay_without_transport_raises() -> None:
+        config = MessagingConfig(
+            outbox_relay=OutboxRelayConfig(),
+            outbox_store=FakeOutboxStore,
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='outbox_relay requires transport'):
+            MessagingModule.register(config)
+
+    @staticmethod
+    async def test_dead_letter_store_without_uow_raises_at_startup() -> None:
+        config = MessagingConfig(
+            dead_letter_store=RecordingDeadLetterStore,
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='IUnitOfWork is required'):
+            async with create_test_app(imports=[MessagingModule.register(config)]):
+                pass  # pragma: no cover

@@ -7,7 +7,7 @@ import anyio
 
 from waku.messaging.context import message_context_scope
 from waku.messaging.dispatcher import MessageDispatcher
-from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterWriter
+from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.errors.executor import FailureContext
 from waku.messaging.errors.policy import RetryAction
 from waku.messaging.transport.serialization import IEnvelopeSerializer
@@ -105,12 +105,12 @@ class EndpointExecutor:
                 if outcome.retry_delay:
                     await anyio.sleep(outcome.retry_delay)
                 return True
-            case _ as unreachable:
+            case _ as unreachable:  # pragma: no cover
                 assert_never(unreachable)
 
     async def _write_dead_letter(self, envelope: MessageEnvelope[Any], exc: Exception, attempt: int) -> None:
         async with self._container() as scope:
-            writer = await scope.get(IDeadLetterWriter)
+            store = await scope.get(IDeadLetterStore)
             serializer = await scope.get(IEnvelopeSerializer)
             uow = await scope.get(IUnitOfWork)
             payload_type = type(envelope.payload)
@@ -124,7 +124,7 @@ class EndpointExecutor:
                 attempt=attempt,
             )
             try:
-                await writer.write(entry)
+                await store.save(entry)
                 await uow.commit()
             except Exception:
                 logger.exception('Failed to write dead letter entry for message_id=%s', envelope.message_id)

@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
     from waku.messaging.contracts.pipeline import IPipelineBehavior
     from waku.messaging.endpoints.base import EndpointEntry
-    from waku.messaging.errors.dead_letter import IDeadLetterStore, IDeadLetterWriter
+    from waku.messaging.errors.dead_letter import IDeadLetterStore
     from waku.messaging.errors.policy import ResolvedRetryPolicy
     from waku.messaging.outbox.interfaces import IOutboxStore
     from waku.messaging.outbox.relay import OutboxRelayConfig
@@ -30,6 +30,5 @@ class MessagingConfig:
     envelope_serializer: type[IEnvelopeSerializer] | Callable[..., IEnvelopeSerializer] | None = None
     outbox_store: type[IOutboxStore] | Callable[..., IOutboxStore] | None = None
     dead_letter_store: type[IDeadLetterStore] | Callable[..., IDeadLetterStore] | None = None
-    dead_letter_writer: type[IDeadLetterWriter] | Callable[..., IDeadLetterWriter] | None = None
     transport: type[ITransport] | Callable[..., ITransport] | None = None
     outbox_relay: OutboxRelayConfig | None = None

@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from datetime import datetime, timedelta
     from uuid import UUID
 
+    from waku.messaging.errors.dead_letter import DeadLetterEntry
     from waku.messaging.outbox.models import OutboxMessage
 
 
@@ -23,25 +24,27 @@ class FakeOutboxStore(IOutboxStore):
         self.saved.extend(messages)
 
     @override
-    async def fetch_and_mark_processing(self, batch_size: int) -> Sequence[OutboxMessage]:
+    async def fetch_and_mark_processing(self, batch_size: int) -> Sequence[OutboxMessage]:  # pragma: no cover
         return []
 
     @override
-    async def mark_dispatched(self, message_id: UUID) -> None:
+    async def mark_dispatched(self, message_id: UUID) -> None:  # pragma: no cover
         pass
 
     @override
-    async def mark_failed(self, message_id: UUID, error: str, next_retry_at: datetime | None = None) -> None:
+    async def mark_failed(
+        self, message_id: UUID, error: str, next_retry_at: datetime | None = None
+    ) -> None:  # pragma: no cover
         pass
 
     @override
-    async def mark_dead_lettered(self, message_id: UUID) -> None:
+    async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry) -> None:  # pragma: no cover
         pass
 
     @override
-    async def recover_stuck(self, threshold: timedelta) -> int:
+    async def recover_stuck(self, threshold: timedelta) -> int:  # pragma: no cover
         return 0
 
     @override
-    async def cleanup_dispatched(self, older_than: timedelta) -> int:
+    async def cleanup_dispatched(self, older_than: timedelta) -> int:  # pragma: no cover
         return 0

@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from datetime import datetime, timedelta
     from uuid import UUID
 
+    from waku.messaging.errors.dead_letter import DeadLetterEntry
     from waku.messaging.outbox.models import OutboxMessage
 
 __all__ = [
@@ -29,7 +30,7 @@ class IOutboxStore(abc.ABC):
     async def mark_failed(self, message_id: UUID, error: str, next_retry_at: datetime | None = None) -> None: ...
 
     @abc.abstractmethod
-    async def mark_dead_lettered(self, message_id: UUID) -> None: ...
+    async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry) -> None: ...
 
     @abc.abstractmethod
     async def recover_stuck(self, threshold: timedelta) -> int: ...

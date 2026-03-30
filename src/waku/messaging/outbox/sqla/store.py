@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
+from waku.messaging.errors.sqla.tables import dead_letter_table
+from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 from waku.messaging.outbox.sqla.tables import OUTBOX_IDEMPOTENCY_CONSTRAINT, outbox_messages_table
 
@@ -15,12 +17,14 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from waku.messaging.errors.dead_letter import DeadLetterEntry
+
 __all__ = ['SqlAlchemyOutboxStore']
 
 _t = outbox_messages_table
 
 
-class SqlAlchemyOutboxStore:
+class SqlAlchemyOutboxStore(IOutboxStore):
     __slots__ = ('_session',)
 
     def __init__(self, session: AsyncSession) -> None:
@@ -77,9 +81,25 @@ class SqlAlchemyOutboxStore:
         )
         await self._session.execute(stmt)
 
-    async def mark_dead_lettered(self, message_id: UUID) -> None:
-        stmt = update(_t).where(_t.c.id == message_id).values(status=OutboxStatus.DEAD_LETTERED.value)
-        await self._session.execute(stmt)
+    async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry) -> None:
+        await self._session.execute(
+            update(_t)
+            .where(_t.c.id == message_id)
+            .values(status=OutboxStatus.DEAD_LETTERED.value, last_error=entry.error_message),
+        )
+        await self._session.execute(
+            insert(dead_letter_table).values(
+                id=entry.id,
+                message_type=entry.message_type,
+                payload=entry.payload,
+                destination=entry.destination,
+                correlation_id=entry.correlation_id,
+                causation_id=entry.causation_id,
+                error_type=entry.error_type,
+                error_message=entry.error_message,
+                retry_count=entry.retry_count,
+            ),
+        )
 
     async def mark_failed(self, message_id: UUID, error: str, next_retry_at: datetime | None = None) -> None:
         status = OutboxStatus.PENDING if next_retry_at is not None else OutboxStatus.FAILED

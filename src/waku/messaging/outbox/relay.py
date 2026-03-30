@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import anyio
 
 from waku._internal.adaptive_interval import AdaptiveInterval, calculate_backoff_with_jitter
-from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterWriter
+from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.transport.interfaces import ITransport
 from waku.messaging.transport.serialization import IEnvelopeSerializer
@@ -108,8 +108,8 @@ class OutboxRelay:
         self._last_recovery = now
         async with self._container() as scope:
             store = await scope.get(IOutboxStore)
-            recovered = await store.recover_stuck(self._config.stuck_threshold)
             uow = await scope.get(IUnitOfWork)
+            recovered = await store.recover_stuck(self._config.stuck_threshold)
             await uow.commit()
         if recovered > 0:
             logger.info('Recovered %d stuck messages', recovered)
@@ -117,40 +117,38 @@ class OutboxRelay:
     async def _process_batch(self) -> int:
         async with self._container() as batch_scope:
             store = await batch_scope.get(IOutboxStore)
-            messages = await store.fetch_and_mark_processing(self._config.batch_size)
             uow = await batch_scope.get(IUnitOfWork)
+            messages = await store.fetch_and_mark_processing(self._config.batch_size)
             await uow.commit()
         processed = 0
         for message in messages:
             async with self._container() as scope:
-                store = await scope.get(IOutboxStore)
-                uow = await scope.get(IUnitOfWork)
                 try:
-                    transport = await scope.get(ITransport)
-                    serializer = await scope.get(IEnvelopeSerializer)
-                    envelope = serializer.deserialize(message.payload)
-                    await transport.send(envelope, destination=message.destination)
-                    await store.mark_dispatched(message.id)
-                    await uow.commit()
+                    await self._dispatch_message(scope, message)
                     processed += 1
                 except Exception as exc:  # noqa: BLE001
-                    await uow.rollback()
-                    writer = await scope.get(IDeadLetterWriter)
-                    await self._handle_failure(store, uow, writer, message, exc)
+                    await self._on_dispatch_failure(scope, message, exc)
         return processed
 
-    async def _handle_failure(
-        self,
-        store: IOutboxStore,
-        uow: IUnitOfWork,
-        writer: IDeadLetterWriter,
-        message: OutboxMessage,
-        exc: Exception,
-    ) -> None:
-        new_retry_count = message.retry_count + 1
+    @staticmethod
+    async def _dispatch_message(scope: AsyncContainer, message: OutboxMessage) -> None:
+        store = await scope.get(IOutboxStore)
+        transport = await scope.get(ITransport)
+        serializer = await scope.get(IEnvelopeSerializer)
+        uow = await scope.get(IUnitOfWork)
+        envelope = serializer.deserialize(message.payload)
+        await transport.send(envelope, destination=message.destination)
+        await store.mark_dispatched(message.id)
+        await uow.commit()
 
+    async def _on_dispatch_failure(self, scope: AsyncContainer, message: OutboxMessage, exc: Exception) -> None:
+        store = await scope.get(IOutboxStore)
+        uow = await scope.get(IUnitOfWork)
+        await uow.rollback()
+
+        new_retry_count = message.retry_count + 1
         if new_retry_count >= self._config.max_attempts:
-            await self._handle_exhausted(store, uow, writer, message, exc)
+            await self._handle_exhausted(store, uow, message, exc)
             return
 
         error = ''.join(traceback.format_exception(exc))
@@ -167,7 +165,6 @@ class OutboxRelay:
     async def _handle_exhausted(
         store: IOutboxStore,
         uow: IUnitOfWork,
-        writer: IDeadLetterWriter,
         message: OutboxMessage,
         exc: Exception,
     ) -> None:
@@ -181,20 +178,19 @@ class OutboxRelay:
             attempt=message.retry_count + 1,
         )
         try:
-            await writer.write(entry)
-            await store.mark_dead_lettered(message.id)
+            await store.move_to_dead_letter(message.id, entry)
             await uow.commit()
         except Exception:
-            logger.exception('Failed to write dead letter for message %s', message.id)
+            logger.exception('Failed to move message %s to dead letter', message.id)
+            await uow.rollback()
         else:
             logger.info('Message %s moved to dead letter after %d attempts', message.id, message.retry_count + 1)
             return
         error = ''.join(traceback.format_exception(exc))
-        await uow.rollback()
-        await store.mark_failed(message.id, error, next_retry_at=None)
-        await uow.commit()
-        logger.warning(
-            'Message %s exhausted after %d attempts',
-            message.id,
-            message.retry_count + 1,
-        )
+        try:
+            await store.mark_failed(message.id, error, next_retry_at=None)
+            await uow.commit()
+        except Exception:
+            logger.exception('Failed to mark message %s as failed', message.id)
+        else:
+            logger.warning('Message %s exhausted after %d attempts', message.id, message.retry_count + 1)

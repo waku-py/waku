@@ -56,11 +56,14 @@ class TestRetryPolicy:
         assert policy.fallback_action == RetryAction.DEAD_LETTER
 
     @staticmethod
-    def test_retry_with_zero_max_attempts_raises_value_error() -> None:
+    @pytest.mark.parametrize(
+        ('method', 'max_attempts'),
+        [
+            pytest.param('retry', 0, id='retry_zero'),
+            pytest.param('retry_with_backoff', -1, id='backoff_negative'),
+        ],
+    )
+    def test_invalid_max_attempts_raises_value_error(method: str, max_attempts: int) -> None:
+        builder = RetryPolicy.for_message(ProcessPayment).on_any_exception()
         with pytest.raises(ValueError, match='max_attempts must be >= 1'):
-            RetryPolicy.for_message(ProcessPayment).on_any_exception().retry(max_attempts=0)
-
-    @staticmethod
-    def test_retry_with_backoff_with_negative_max_attempts_raises_value_error() -> None:
-        with pytest.raises(ValueError, match='max_attempts must be >= 1'):
-            RetryPolicy.for_message(ProcessPayment).on_any_exception().retry_with_backoff(max_attempts=-1)
+            getattr(builder, method)(max_attempts=max_attempts)

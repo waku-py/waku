@@ -53,7 +53,7 @@ class ErrorPolicyEvaluator:
                 return PolicyOutcome(action=RetryAction.DISCARD)
             case RetryAction.DEAD_LETTER:
                 return PolicyOutcome(action=RetryAction.DEAD_LETTER)
-            case _ as unreachable:
+            case _ as unreachable:  # pragma: no cover
                 assert_never(unreachable)
 
     @staticmethod

@@ -13,7 +13,6 @@ if TYPE_CHECKING:
 __all__ = [
     'DeadLetterEntry',
     'IDeadLetterStore',
-    'IDeadLetterWriter',
 ]
 
 
@@ -74,8 +73,3 @@ class IDeadLetterStore(abc.ABC):
 
     @abc.abstractmethod
     async def purge(self, older_than: datetime) -> int: ...
-
-
-class IDeadLetterWriter(abc.ABC):
-    @abc.abstractmethod
-    async def write(self, entry: DeadLetterEntry) -> None: ...

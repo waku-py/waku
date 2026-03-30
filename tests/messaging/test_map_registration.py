@@ -10,6 +10,7 @@ from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.exceptions import (
     HandlerAlreadyRegistered,
+    MapFrozenError,
     PipelineBehaviorAlreadyRegistered,
 )
 from waku.messaging.handler import EventHandler, RequestHandler
@@ -165,3 +166,47 @@ def test_pipeline_map_merge_appends_to_existing_entry() -> None:
 def test_handler_map_get_handler_types_returns_empty_for_unknown() -> None:
     m = HandlerMap()
     assert m.get_handler_types(_Event) == ()
+
+
+# --- Frozen map guards ---
+
+
+def test_handler_map_bind_after_freeze_raises_map_frozen_error() -> None:
+    m = HandlerMap()
+    m.freeze()
+    with pytest.raises(MapFrozenError, match='Cannot modify map after it is frozen'):
+        m.bind(_Request, _Handler)
+
+
+def test_handler_map_merge_after_freeze_raises_map_frozen_error() -> None:
+    m1 = HandlerMap()
+    m1.bind(_Request, _Handler)
+
+    m2 = HandlerMap()
+    m2.freeze()
+    with pytest.raises(MapFrozenError, match='Cannot modify map after it is frozen'):
+        m2.merge(m1)
+
+
+def test_pipeline_map_bind_after_freeze_raises_map_frozen_error() -> None:
+    m = PipelineBehaviorMap()
+    m.freeze()
+    with pytest.raises(MapFrozenError, match='Cannot modify map after it is frozen'):
+        m.bind(PipelineBehaviorMapEntry.for_message(_Request), [_Behavior])
+
+
+def test_pipeline_map_merge_after_freeze_raises_map_frozen_error() -> None:
+    m1 = PipelineBehaviorMap()
+    m1.bind(PipelineBehaviorMapEntry.for_message(_Request), [_Behavior])
+
+    m2 = PipelineBehaviorMap()
+    m2.freeze()
+    with pytest.raises(MapFrozenError, match='Cannot modify map after it is frozen'):
+        m2.merge(m1)
+
+
+def test_pipeline_map_is_frozen_reflects_state() -> None:
+    m = PipelineBehaviorMap()
+    assert not m.is_frozen
+    m.freeze()
+    assert m.is_frozen

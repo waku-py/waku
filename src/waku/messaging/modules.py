@@ -11,6 +11,7 @@ from waku.extensions import (
     OnModuleConfigure,
     OnModuleRegistration,
 )
+from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import MessagingConfig
 from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.contracts.factory import EnvelopeFactory
@@ -22,11 +23,10 @@ from waku.messaging.endpoints.base import Endpoint, EndpointEntry, ExternalEntry
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.external import ExternalEndpoint
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
-from waku.messaging.errors.dead_letter import IDeadLetterStore, IDeadLetterWriter
+from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import ResolvedRetryPolicy, RetryAction
 from waku.messaging.errors.registry import ErrorPolicyRegistry
-from waku.messaging.errors.writer import DeadLetterWriter, NullDeadLetterWriter
 from waku.messaging.exceptions import HandlerAlreadyRegistered, ImproperlyConfiguredError, MultipleHandlersRegistered
 from waku.messaging.impl import MessageBus
 from waku.messaging.interfaces import IMessageBus
@@ -39,6 +39,7 @@ from waku.messaging.routing_builder import RoutingTableBuilder
 from waku.messaging.transport.interfaces import ITransport
 from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
 from waku.modules import DynamicModule, ModuleMetadataRegistry, module
+from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from waku.application import WakuApplication
@@ -76,6 +77,8 @@ class MessagingModule:
             MessageRegistryAggregator(config_),
             EndpointLifecycleExtension(),
         ]
+        if _requires_uow(config_):
+            extensions.append(_UnitOfWorkValidationExtension())
         if config_.outbox_relay is not None:
             extensions.append(OutboxRelayLifecycleExtension(config_.outbox_relay))
         return DynamicModule(
@@ -91,13 +94,9 @@ class MessagingModule:
         if has_external and config.outbox_store is None:
             msg = 'external_endpoint requires outbox_store in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
-        if config.dead_letter_store is not None and config.dead_letter_writer is not None:
-            msg = 'Specify either dead_letter_store or dead_letter_writer in MessagingConfig, not both'
-            raise ImproperlyConfiguredError(msg)
         needs_dlq = _requires_dead_letter_store(config.error_policies)
-        has_dlq = config.dead_letter_store is not None or config.dead_letter_writer is not None
-        if needs_dlq and not has_dlq:
-            msg = 'error_policies with DEAD_LETTER action require dead_letter_store or dead_letter_writer in MessagingConfig'
+        if needs_dlq and config.dead_letter_store is None:
+            msg = 'error_policies with DEAD_LETTER action require dead_letter_store in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
         if config.outbox_relay is not None and config.outbox_store is None:
             msg = 'outbox_relay requires outbox_store in MessagingConfig'
@@ -119,15 +118,8 @@ class MessagingModule:
             providers.append(scoped(IOutboxStore, config.outbox_store))
         if config.transport is not None:
             providers.append(singleton(ITransport, config.transport))
-        if config.dead_letter_writer is not None:
-            providers.append(scoped(IDeadLetterWriter, config.dead_letter_writer))
-        elif config.dead_letter_store is not None:
-            providers.extend((
-                scoped(IDeadLetterStore, config.dead_letter_store),
-                scoped(IDeadLetterWriter, DeadLetterWriter),
-            ))
-        else:
-            providers.append(singleton(IDeadLetterWriter, NullDeadLetterWriter))
+        if config.dead_letter_store is not None:
+            providers.append(scoped(IDeadLetterStore, config.dead_letter_store))
         return tuple(providers)
 
     @staticmethod
@@ -185,6 +177,14 @@ class MessagingExtension(OnModuleConfigure):
 
 def _requires_dead_letter_store(policies: Sequence[ResolvedRetryPolicy]) -> bool:
     return any(RetryAction.DEAD_LETTER in {p.action, p.fallback_action} for p in policies)
+
+
+def _requires_uow(config: MessagingConfig) -> bool:
+    return (
+        config.dead_letter_store is not None
+        or config.outbox_relay is not None
+        or any(issubclass(b, TransactionalBehavior) for b in config.pipeline_behaviors)
+    )
 
 
 def _create_envelope_serializer(registry: MessageRegistry) -> JsonEnvelopeSerializer:
@@ -313,6 +313,20 @@ class EndpointLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
         router = await app.container.get(MessageRouter)
         for endpoint in reversed(router.endpoints):
             await endpoint.stop()
+
+
+class _UnitOfWorkValidationExtension(AfterApplicationInit):
+    __slots__ = ()
+
+    @override
+    async def after_app_init(self, app: 'WakuApplication') -> None:
+        has_uow = await app.container._has(IUnitOfWork)  # noqa: SLF001
+        if not has_uow:
+            msg = (
+                'IUnitOfWork is required but not registered. '
+                'Register it in your infrastructure module: scoped(IUnitOfWork, SqlAlchemyUnitOfWork)'
+            )
+            raise ImproperlyConfiguredError(msg)
 
 
 class OutboxRelayLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):

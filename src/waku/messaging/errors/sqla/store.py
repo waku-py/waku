@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 
-from waku.messaging.errors.dead_letter import DeadLetterEntry
+from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.errors.sqla.tables import dead_letter_table
 
 if TYPE_CHECKING:
@@ -22,7 +22,7 @@ __all__ = [
 _t = dead_letter_table
 
 
-class SqlAlchemyDeadLetterStore:
+class SqlAlchemyDeadLetterStore(IDeadLetterStore):
     __slots__ = ('_session',)
 
     def __init__(self, session: AsyncSession) -> None:

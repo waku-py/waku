@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
 
 from typing_extensions import override
 
@@ -27,7 +28,7 @@ class _OrderPlaced(IEvent):
 
 
 class _InlineHandler(EventHandler[_OrderPlaced]):
-    received: list[str] = []  # noqa: RUF012
+    received: ClassVar[list[str]] = []
 
     @override
     async def handle(self, event: _OrderPlaced, /) -> None:
