@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
+
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.errors.policy import RetryAction, RetryPolicy
 
@@ -52,3 +54,13 @@ class TestRetryPolicy:
         )
         assert policy.action == RetryAction.RETRY
         assert policy.fallback_action == RetryAction.DEAD_LETTER
+
+    @staticmethod
+    def test_retry_with_zero_max_attempts_raises_value_error() -> None:
+        with pytest.raises(ValueError, match='max_attempts must be >= 1'):
+            RetryPolicy.for_message(ProcessPayment).on_any_exception().retry(max_attempts=0)
+
+    @staticmethod
+    def test_retry_with_backoff_with_negative_max_attempts_raises_value_error() -> None:
+        with pytest.raises(ValueError, match='max_attempts must be >= 1'):
+            RetryPolicy.for_message(ProcessPayment).on_any_exception().retry_with_backoff(max_attempts=-1)

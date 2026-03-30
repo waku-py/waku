@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from typing_extensions import override
+
 from waku.messaging.contracts.message import IMessage
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.router import (
@@ -17,12 +19,15 @@ class _StubEndpoint(Endpoint):
     def __init__(self, uri: str = 'stub://default') -> None:
         super().__init__(uri=uri)
 
+    @override
     async def dispatch(self, envelope: Any, scope: Any) -> None:  # pragma: no cover
         pass
 
+    @override
     async def start(self) -> None:  # pragma: no cover
         pass
 
+    @override
     async def stop(self) -> None:  # pragma: no cover
         pass
 

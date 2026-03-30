@@ -4,7 +4,13 @@ from typing import TYPE_CHECKING, Any, Self, TypeAlias, TypeVar, overload
 from typing_extensions import override
 
 from waku.di import AsyncContainer, Provider, WithParents, many, object_, scoped, singleton, transient
-from waku.extensions import AfterApplicationInit, OnApplicationShutdown, OnModuleConfigure, OnModuleRegistration
+from waku.extensions import (
+    AfterApplicationInit,
+    ModuleExtension,
+    OnApplicationShutdown,
+    OnModuleConfigure,
+    OnModuleRegistration,
+)
 from waku.messaging.config import MessagingConfig
 from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.contracts.factory import EnvelopeFactory
@@ -20,15 +26,17 @@ from waku.messaging.errors.dead_letter import IDeadLetterStore, IDeadLetterWrite
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import ResolvedRetryPolicy, RetryAction
 from waku.messaging.errors.registry import ErrorPolicyRegistry
-from waku.messaging.errors.writer import DeadLetterWriter
+from waku.messaging.errors.writer import DeadLetterWriter, NullDeadLetterWriter
 from waku.messaging.exceptions import HandlerAlreadyRegistered, ImproperlyConfiguredError, MultipleHandlersRegistered
 from waku.messaging.impl import MessageBus
 from waku.messaging.interfaces import IMessageBus
 from waku.messaging.outbox.interfaces import IOutboxStore
+from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
 from waku.messaging.pipeline.map import PipelineBehaviorMapEntry
 from waku.messaging.registry import MessageRegistry
 from waku.messaging.router import MessageRouter, RoutingTable
 from waku.messaging.routing_builder import RoutingTableBuilder
+from waku.messaging.transport.interfaces import ITransport
 from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
 from waku.modules import DynamicModule, ModuleMetadataRegistry, module
 
@@ -64,13 +72,16 @@ class MessagingModule:
             *cls._create_pipeline_behavior_providers(config_),
             *cls._infrastructure_providers(config_),
         ]
+        extensions: list[ModuleExtension] = [
+            MessageRegistryAggregator(config_),
+            EndpointLifecycleExtension(),
+        ]
+        if config_.outbox_relay is not None:
+            extensions.append(OutboxRelayLifecycleExtension(config_.outbox_relay))
         return DynamicModule(
             parent_module=cls,
             providers=providers,
-            extensions=[
-                MessageRegistryAggregator(config_),
-                EndpointLifecycleExtension(),
-            ],
+            extensions=extensions,
             is_global=True,
         )
 
@@ -88,6 +99,12 @@ class MessagingModule:
         if needs_dlq and not has_dlq:
             msg = 'error_policies with DEAD_LETTER action require dead_letter_store or dead_letter_writer in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
+        if config.outbox_relay is not None and config.outbox_store is None:
+            msg = 'outbox_relay requires outbox_store in MessagingConfig'
+            raise ImproperlyConfiguredError(msg)
+        if config.outbox_relay is not None and config.transport is None:
+            msg = 'outbox_relay requires transport in MessagingConfig'
+            raise ImproperlyConfiguredError(msg)
 
     @staticmethod
     def _serializer_provider(config: MessagingConfig) -> Provider:
@@ -100,6 +117,8 @@ class MessagingModule:
         providers: list[Provider] = []
         if config.outbox_store is not None:
             providers.append(scoped(IOutboxStore, config.outbox_store))
+        if config.transport is not None:
+            providers.append(singleton(ITransport, config.transport))
         if config.dead_letter_writer is not None:
             providers.append(scoped(IDeadLetterWriter, config.dead_letter_writer))
         elif config.dead_letter_store is not None:
@@ -107,6 +126,8 @@ class MessagingModule:
                 scoped(IDeadLetterStore, config.dead_letter_store),
                 scoped(IDeadLetterWriter, DeadLetterWriter),
             ))
+        else:
+            providers.append(singleton(IDeadLetterWriter, NullDeadLetterWriter))
         return tuple(providers)
 
     @staticmethod
@@ -292,3 +313,21 @@ class EndpointLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
         router = await app.container.get(MessageRouter)
         for endpoint in reversed(router.endpoints):
             await endpoint.stop()
+
+
+class OutboxRelayLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
+    __slots__ = ('_config', '_relay')
+
+    def __init__(self, config: OutboxRelayConfig) -> None:
+        self._config = config
+        self._relay: OutboxRelay | None = None
+
+    @override
+    async def after_app_init(self, app: 'WakuApplication') -> None:
+        self._relay = OutboxRelay(container=app.container, config=self._config)
+        await self._relay.start()
+
+    @override
+    async def on_app_shutdown(self, app: 'WakuApplication') -> None:
+        if self._relay is not None:
+            await self._relay.stop()

@@ -4,9 +4,10 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from waku.messaging.contracts.factory import EnvelopeFactory
+from waku.messaging.contracts.message import IMessage
 
 
-class SampleMessage:
+class SampleMessage(IMessage):
     pass
 
 

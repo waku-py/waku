@@ -7,9 +7,11 @@ import anyio
 
 from waku.messaging.context import message_context_scope
 from waku.messaging.dispatcher import MessageDispatcher
-from waku.messaging.errors.dead_letter import IDeadLetterWriter
+from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterWriter
 from waku.messaging.errors.executor import FailureContext
 from waku.messaging.errors.policy import RetryAction
+from waku.messaging.transport.serialization import IEnvelopeSerializer
+from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from dishka import AsyncContainer
@@ -107,9 +109,22 @@ class EndpointExecutor:
                 assert_never(unreachable)
 
     async def _write_dead_letter(self, envelope: MessageEnvelope[Any], exc: Exception, attempt: int) -> None:
-        try:
-            async with self._container() as scope:
-                writer = await scope.get(IDeadLetterWriter)
-                await writer.write(envelope, exc, attempt=attempt, endpoint_uri=self._endpoint_uri)
-        except Exception:
-            logger.exception('Failed to write dead letter entry for message_id=%s', envelope.message_id)
+        async with self._container() as scope:
+            writer = await scope.get(IDeadLetterWriter)
+            serializer = await scope.get(IEnvelopeSerializer)
+            uow = await scope.get(IUnitOfWork)
+            payload_type = type(envelope.payload)
+            entry = DeadLetterEntry.from_failure(
+                message_type=f'{payload_type.__module__}.{payload_type.__qualname__}',
+                payload=serializer.serialize(envelope),
+                destination=self._endpoint_uri,
+                correlation_id=envelope.correlation_id,
+                causation_id=envelope.causation_id,
+                exc=exc,
+                attempt=attempt,
+            )
+            try:
+                await writer.write(entry)
+                await uow.commit()
+            except Exception:
+                logger.exception('Failed to write dead letter entry for message_id=%s', envelope.message_id)

@@ -5,25 +5,26 @@ from typing import TYPE_CHECKING, TypeVar
 from uuid import uuid4
 
 from waku.messaging.contracts.envelope import MessageEnvelope
+from waku.messaging.contracts.message import IMessage
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from uuid import UUID
 
-T = TypeVar('T')
+_MessageT = TypeVar('_MessageT', bound=IMessage)
 
 
 class EnvelopeFactory:
     @classmethod
     def create(
         cls,
-        message: T,
+        message: _MessageT,
         *,
         message_id: UUID | None = None,
         correlation_id: UUID | None = None,
         causation_id: UUID | None = None,
         headers: Mapping[str, str] | None = None,
-    ) -> MessageEnvelope[T]:
+    ) -> MessageEnvelope[_MessageT]:
         message_id_ = message_id or uuid4()
         return MessageEnvelope(
             message_id=message_id_,

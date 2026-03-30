@@ -11,14 +11,12 @@ from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.contracts.factory import EnvelopeFactory
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
-from waku.messaging.errors.executor import ErrorPolicyEvaluator
-from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.testing import create_test_app
 
-_NOOP_EVALUATOR = ErrorPolicyEvaluator(registry=ErrorPolicyRegistry(()))
+from tests.messaging.helpers import NOOP_EVALUATOR
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _OrderPlaced(IEvent):
     order_id: str
 
@@ -56,7 +54,7 @@ class TestLocalQueueEndpoint:
             imports=[MessagingModule.register()],
             extensions=[MessagingExtension().bind(_OrderPlaced, _RecordingHandler)],
         ) as app:
-            executor = EndpointExecutor(container=app.container, evaluator=_NOOP_EVALUATOR, endpoint_uri='local://test')
+            executor = EndpointExecutor(container=app.container, evaluator=NOOP_EVALUATOR, endpoint_uri='local://test')
             endpoint = LocalQueueEndpoint(
                 uri='local://test',
                 handler_subscriptions={_OrderPlaced: frozenset({_RecordingHandler})},
@@ -81,7 +79,7 @@ class TestLocalQueueEndpoint:
             imports=[MessagingModule.register()],
             extensions=[MessagingExtension().bind(_OrderPlaced, _RecordingHandler)],
         ) as app:
-            executor = EndpointExecutor(container=app.container, evaluator=_NOOP_EVALUATOR, endpoint_uri='local://test')
+            executor = EndpointExecutor(container=app.container, evaluator=NOOP_EVALUATOR, endpoint_uri='local://test')
             endpoint = LocalQueueEndpoint(
                 uri='local://test',
                 handler_subscriptions={_OrderPlaced: frozenset({_RecordingHandler})},
@@ -110,7 +108,7 @@ class TestLocalQueueEndpoint:
             imports=[MessagingModule.register()],
             extensions=[MessagingExtension().bind(_OrderPlaced, _FailingThenRecordingHandler)],
         ) as app:
-            executor = EndpointExecutor(container=app.container, evaluator=_NOOP_EVALUATOR, endpoint_uri='local://test')
+            executor = EndpointExecutor(container=app.container, evaluator=NOOP_EVALUATOR, endpoint_uri='local://test')
             endpoint = LocalQueueEndpoint(
                 uri='local://test',
                 handler_subscriptions={_OrderPlaced: frozenset({_FailingThenRecordingHandler})},

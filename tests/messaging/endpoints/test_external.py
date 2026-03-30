@@ -1,37 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from typing import Any
-from uuid import uuid4
 
 from dishka import Provider, Scope, make_async_container, provide
 
-from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.external import ExternalEndpoint
 from waku.messaging.outbox.interfaces import IOutboxStore  # noqa: TC001
 from waku.messaging.transport.serialization import IEnvelopeSerializer  # noqa: TC001
 
-from tests.messaging.helpers import make_serializer
+from tests.messaging.helpers import make_envelope, make_serializer
 from tests.messaging.outbox.fake_store import FakeOutboxStore
 
 
 @dataclass(frozen=True, slots=True)
 class _OrderPlaced(IEvent):
     order_id: str
-
-
-def _make_envelope(payload: Any) -> MessageEnvelope[Any]:
-    return MessageEnvelope(
-        message_id=uuid4(),
-        correlation_id=uuid4(),
-        causation_id=uuid4(),
-        message_type=f'{type(payload).__module__}.{type(payload).__qualname__}',
-        timestamp=datetime.now(tz=UTC),
-        payload=payload,
-        headers={'tenant': 'acme'},
-    )
 
 
 class _TestDepsProvider(Provider):
@@ -53,13 +37,13 @@ class _TestDepsProvider(Provider):
 
 class TestExternalEndpoint:
     @staticmethod
-    async def test_dispatch_writes_to_outbox() -> None:
+    async def test_dispatch_persists_serialized_message_to_outbox() -> None:
         outbox = FakeOutboxStore()
         serializer = make_serializer(_OrderPlaced)
 
         async with make_async_container(_TestDepsProvider(outbox, serializer)) as container:
             endpoint = ExternalEndpoint(uri='notifications')
-            envelope = _make_envelope(_OrderPlaced(order_id='123'))
+            envelope = make_envelope(_OrderPlaced(order_id='123'), headers={'tenant': 'acme'})
 
             await endpoint.dispatch(envelope, container)
 

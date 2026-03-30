@@ -6,30 +6,8 @@ from typing import Any
 import pytest
 
 from waku.messaging.behaviors.transactional import TransactionalBehavior
-from waku.uow import IUnitOfWork
 
-
-class _FakeUoW(IUnitOfWork):
-    def __init__(
-        self,
-        *,
-        commit_error: Exception | None = None,
-        rollback_error: Exception | None = None,
-    ) -> None:
-        self.committed = False
-        self.rolled_back = False
-        self._commit_error = commit_error
-        self._rollback_error = rollback_error
-
-    async def commit(self) -> None:
-        if self._commit_error:
-            raise self._commit_error
-        self.committed = True
-
-    async def rollback(self) -> None:
-        if self._rollback_error:
-            raise self._rollback_error
-        self.rolled_back = True
+from tests.messaging.helpers import FakeUoW
 
 
 async def _ok() -> str:  # noqa: RUF029
@@ -44,7 +22,7 @@ async def _fail() -> str:  # noqa: RUF029
 class TestTransactionalBehavior:
     @staticmethod
     async def test_commits_on_success() -> None:
-        uow = _FakeUoW()
+        uow = FakeUoW()
         behavior = TransactionalBehavior(uow)
 
         result = await behavior.handle('msg', call_next=_ok)
@@ -55,7 +33,7 @@ class TestTransactionalBehavior:
 
     @staticmethod
     async def test_rolls_back_on_handler_error() -> None:
-        uow = _FakeUoW()
+        uow = FakeUoW()
         behavior = TransactionalBehavior(uow)
 
         with pytest.raises(ValueError, match='handler broke'):
@@ -66,7 +44,7 @@ class TestTransactionalBehavior:
 
     @staticmethod
     async def test_rolls_back_on_commit_error() -> None:
-        uow = _FakeUoW(commit_error=RuntimeError('commit failed'))
+        uow = FakeUoW(commit_error=RuntimeError('commit failed'))
         behavior = TransactionalBehavior(uow)
 
         with pytest.raises(RuntimeError, match='commit failed'):
@@ -76,7 +54,7 @@ class TestTransactionalBehavior:
 
     @staticmethod
     async def test_logs_and_reraises_when_rollback_fails_after_handler_error(caplog: Any) -> None:
-        uow = _FakeUoW(rollback_error=RuntimeError('rollback exploded'))
+        uow = FakeUoW(rollback_error=RuntimeError('rollback exploded'))
         behavior = TransactionalBehavior(uow)
 
         with (
@@ -89,7 +67,7 @@ class TestTransactionalBehavior:
 
     @staticmethod
     async def test_logs_and_reraises_when_rollback_fails_after_commit_error(caplog: Any) -> None:
-        uow = _FakeUoW(commit_error=RuntimeError('commit boom'), rollback_error=OSError('rollback boom'))
+        uow = FakeUoW(commit_error=RuntimeError('commit boom'), rollback_error=OSError('rollback boom'))
         behavior = TransactionalBehavior(uow)
 
         with (

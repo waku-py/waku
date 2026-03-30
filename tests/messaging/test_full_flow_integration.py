@@ -7,10 +7,16 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import anyio
+from dishka import (
+    Provider as DishkaProvider,
+    Scope,
+    make_async_container,
+    provide,
+)
 from typing_extensions import override
 
 from waku import module
-from waku.di import object_
+from waku.di import object_, scoped
 from waku.messaging import (
     EventHandler,
     IEvent,
@@ -23,8 +29,9 @@ from waku.messaging import (
     external_endpoint,
     route,
 )
-from waku.messaging.errors.dead_letter import IDeadLetterWriter
+from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterWriter
 from waku.messaging.errors.policy import RetryPolicy
+from waku.messaging.errors.writer import NullDeadLetterWriter
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
@@ -32,6 +39,8 @@ from waku.messaging.transport.interfaces import ITransport
 from waku.messaging.transport.serialization import IEnvelopeSerializer
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
+
+from tests.messaging.helpers import FakeUoW
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -115,25 +124,53 @@ class _RecordingTransport(ITransport):
         self.delivered.append((envelope, destination))
 
 
-class _NoOpUoW(IUnitOfWork):
-    @override
-    async def commit(self) -> None:
-        pass
-
-    @override
-    async def rollback(self) -> None:
-        pass
-
-
 class _RecordingDeadLetterWriter(IDeadLetterWriter):
     def __init__(self) -> None:
-        self.entries: list[tuple[MessageEnvelope[Any], Exception, int, str]] = []
+        self.entries: list[DeadLetterEntry] = []
         self.written_event: anyio.Event = anyio.Event()
 
     @override
-    async def write(self, envelope: MessageEnvelope[Any], exc: Exception, *, attempt: int, endpoint_uri: str) -> None:
-        self.entries.append((envelope, exc, attempt, endpoint_uri))
+    async def write(self, entry: DeadLetterEntry) -> None:
+        self.entries.append(entry)
         self.written_event.set()
+
+
+class _RelayDepsProvider(DishkaProvider):
+    scope = Scope.REQUEST
+
+    def __init__(
+        self,
+        store: IOutboxStore,
+        transport: ITransport,
+        serializer: IEnvelopeSerializer,
+        dead_letter_writer: IDeadLetterWriter | None = None,
+    ) -> None:
+        super().__init__()
+        self._store = store
+        self._transport = transport
+        self._serializer = serializer
+        self._dead_letter_writer = dead_letter_writer or NullDeadLetterWriter()
+        self._uow: IUnitOfWork = FakeUoW()
+
+    @provide
+    def outbox_store(self) -> IOutboxStore:
+        return self._store
+
+    @provide(scope=Scope.APP)
+    def transport(self) -> ITransport:
+        return self._transport
+
+    @provide
+    def serializer(self) -> IEnvelopeSerializer:
+        return self._serializer
+
+    @provide
+    def dead_letter_writer(self) -> IDeadLetterWriter:
+        return self._dead_letter_writer
+
+    @provide
+    def uow(self) -> IUnitOfWork:
+        return self._uow
 
 
 class TestEndToEndOutboxFlow:
@@ -165,16 +202,13 @@ class TestEndToEndOutboxFlow:
         assert outbox.messages[0].destination == 'test://notifications'
 
         relay_config = OutboxRelayConfig(poll_interval=0.01, recovery_interval=timedelta(hours=1))
-        relay = OutboxRelay(
-            store=outbox,
-            transport=transport,
-            serializer=serializer,
-            config=relay_config,
-        )
-        task = asyncio.create_task(relay.start())
-        await asyncio.sleep(0.05)
-        await relay.stop()
-        await task
+        async with make_async_container(
+            _RelayDepsProvider(outbox, transport, serializer),
+        ) as relay_container:
+            relay = OutboxRelay(container=relay_container, config=relay_config)
+            await relay.start()
+            await asyncio.sleep(0.05)
+            await relay.stop()
 
         assert len(transport.delivered) == 1
         envelope, destination = transport.delivered[0]
@@ -200,7 +234,7 @@ class TestErrorPolicyIntegration:
             create_test_app(
                 base=MessagingModule.register(config),
                 extensions=[MessagingExtension().bind(_FailingCommand, _AlwaysFailingHandler)],
-                providers=[object_(fake_writer, provided_type=IDeadLetterWriter)],
+                providers=[object_(fake_writer, provided_type=IDeadLetterWriter), scoped(IUnitOfWork, FakeUoW)],
             ) as app,
             app.container() as c,
         ):
@@ -210,6 +244,6 @@ class TestErrorPolicyIntegration:
                 await fake_writer.written_event.wait()
 
         assert len(fake_writer.entries) == 1
-        envelope, exc, _attempt, _endpoint_uri = fake_writer.entries[0]
-        assert isinstance(envelope.payload, _FailingCommand)
-        assert 'intentional failure' in str(exc)
+        entry = fake_writer.entries[0]
+        assert isinstance(entry, DeadLetterEntry)
+        assert 'intentional failure' in entry.error_message

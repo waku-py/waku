@@ -46,17 +46,17 @@ class SomeEvent(IEvent):
 
 def test_extracts_response_from_irequest() -> None:
     result = get_response_type(DirectIRequest)
-    assert result is UserResponse  # type: ignore[comparison-overlap]
+    assert result is UserResponse
 
 
 def test_extracts_response_from_request_subclass() -> None:
     result = get_response_type(RequestSubclass)
-    assert result is UserResponse  # type: ignore[comparison-overlap]
+    assert result is UserResponse
 
 
 def test_extracts_response_from_nested_inheritance() -> None:
     result = get_response_type(NestedRequestSubclass)
-    assert result is UserResponse  # type: ignore[comparison-overlap]
+    assert result is UserResponse
 
 
 def test_resolves_none_type_for_bare_irequest() -> None:

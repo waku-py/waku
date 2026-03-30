@@ -13,6 +13,7 @@ from waku.eventsourcing.projection.interfaces import ICheckpointStore
 from waku.eventsourcing.projection.processor import ProjectionProcessor
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.store.interfaces import IEventReader
+from waku.uow import IUnitOfWork
 
 _DEFAULT_POLLING = PollingConfig()
 
@@ -84,20 +85,27 @@ class CatchUpProjectionRunner:
 
             async with self._container() as scope:
                 projection = await scope.get(binding.projection)
+                uow = await scope.get(IUnitOfWork)
                 await projection.teardown()
+                await uow.commit()
 
             processor = ProjectionProcessor(binding)
 
             async with self._container() as scope:
                 checkpoint_store = await scope.get(ICheckpointStore)
+                uow = await scope.get(IUnitOfWork)
                 await processor.reset_checkpoint(checkpoint_store)
+                await uow.commit()
 
             while True:
                 async with self._container() as scope:
                     projection = await scope.get(binding.projection)
                     reader = await scope.get(IEventReader)
                     checkpoint_store = await scope.get(ICheckpointStore)
+                    uow = await scope.get(IUnitOfWork)
                     processed = await processor.run_once(projection, reader, checkpoint_store)
+                    if processed > 0:
+                        await uow.commit()
 
                 if processed == 0:
                     break
@@ -151,7 +159,10 @@ class CatchUpProjectionRunner:
                     projection = await scope.get(binding.projection)
                     reader = await scope.get(IEventReader)
                     checkpoint_store = await scope.get(ICheckpointStore)
+                    uow = await scope.get(IUnitOfWork)
                     processed = await processor.run_once(projection, reader, checkpoint_store)
+                    if processed > 0:
+                        await uow.commit()
             except ProjectionError:
                 raise
             except Exception:

@@ -1,24 +1,27 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import time
 import traceback
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
-from uuid import uuid4
 
 import anyio
 
 from waku._internal.adaptive_interval import AdaptiveInterval, calculate_backoff_with_jitter
-from waku.messaging.errors.dead_letter import DeadLetterEntry
+from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterWriter
+from waku.messaging.outbox.interfaces import IOutboxStore
+from waku.messaging.transport.interfaces import ITransport
+from waku.messaging.transport.serialization import IEnvelopeSerializer
+from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
-    from waku.messaging.errors.dead_letter import IDeadLetterStore
-    from waku.messaging.outbox.interfaces import IOutboxStore
+    from dishka import AsyncContainer
+
     from waku.messaging.outbox.models import OutboxMessage
-    from waku.messaging.transport.interfaces import ITransport
-    from waku.messaging.transport.serialization import IEnvelopeSerializer
 
 __all__ = [
     'OutboxRelay',
@@ -43,36 +46,21 @@ class OutboxRelayConfig:
     max_delay: float = 60.0
     stuck_threshold: timedelta = _DEFAULT_STUCK_THRESHOLD
     recovery_interval: timedelta = _DEFAULT_RECOVERY_INTERVAL
-
-
-_DEFAULT_RELAY_CONFIG = OutboxRelayConfig()
+    stop_timeout: float = 10.0
 
 
 class OutboxRelay:
     __slots__ = (
         '_config',
-        '_dead_letter_store',
+        '_container',
         '_interval',
         '_last_recovery',
-        '_serializer',
         '_shutdown_event',
-        '_store',
-        '_transport',
+        '_worker_task',
     )
 
-    def __init__(
-        self,
-        *,
-        store: IOutboxStore,
-        transport: ITransport,
-        serializer: IEnvelopeSerializer,
-        dead_letter_store: IDeadLetterStore | None = None,
-        config: OutboxRelayConfig = _DEFAULT_RELAY_CONFIG,
-    ) -> None:
-        self._store = store
-        self._transport = transport
-        self._serializer = serializer
-        self._dead_letter_store = dead_letter_store
+    def __init__(self, *, container: AsyncContainer, config: OutboxRelayConfig) -> None:
+        self._container = container
         self._config = config
         self._interval = AdaptiveInterval(
             min_seconds=config.poll_interval,
@@ -82,8 +70,27 @@ class OutboxRelay:
         )
         self._shutdown_event = anyio.Event()
         self._last_recovery = 0.0
+        self._worker_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
+        self._worker_task = asyncio.create_task(self._run_loop())
+
+    async def stop(self) -> None:
+        self._shutdown_event.set()
+        if self._worker_task is None:
+            return
+        try:
+            with anyio.fail_after(self._config.stop_timeout):
+                await self._worker_task
+        except TimeoutError:
+            logger.warning('OutboxRelay did not terminate within %.1fs, cancelling', self._config.stop_timeout)
+            self._worker_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._worker_task
+        finally:
+            self._worker_task = None
+
+    async def _run_loop(self) -> None:
         while not self._shutdown_event.is_set():
             await self._maybe_recover_stuck()
             processed = await self._process_batch()
@@ -94,73 +101,100 @@ class OutboxRelay:
             with anyio.move_on_after(self._interval.current_with_jitter()):
                 await self._shutdown_event.wait()
 
-    def request_shutdown(self) -> None:
-        self._shutdown_event.set()
-
-    async def stop(self) -> None:
-        self._shutdown_event.set()
-
     async def _maybe_recover_stuck(self) -> None:
         now = time.monotonic()
         if now - self._last_recovery < self._config.recovery_interval.total_seconds():
             return
         self._last_recovery = now
-        recovered = await self._store.recover_stuck(self._config.stuck_threshold)
+        async with self._container() as scope:
+            store = await scope.get(IOutboxStore)
+            recovered = await store.recover_stuck(self._config.stuck_threshold)
+            uow = await scope.get(IUnitOfWork)
+            await uow.commit()
         if recovered > 0:
             logger.info('Recovered %d stuck messages', recovered)
 
     async def _process_batch(self) -> int:
-        messages = await self._store.fetch_and_mark_processing(self._config.batch_size)
+        async with self._container() as batch_scope:
+            store = await batch_scope.get(IOutboxStore)
+            messages = await store.fetch_and_mark_processing(self._config.batch_size)
+            uow = await batch_scope.get(IUnitOfWork)
+            await uow.commit()
         processed = 0
         for message in messages:
-            try:
-                await self._dispatch_message(message)
-                await self._store.mark_dispatched(message.id)
-                processed += 1
-            except Exception:  # noqa: BLE001
-                await self._handle_failure(message)
+            async with self._container() as scope:
+                store = await scope.get(IOutboxStore)
+                uow = await scope.get(IUnitOfWork)
+                try:
+                    transport = await scope.get(ITransport)
+                    serializer = await scope.get(IEnvelopeSerializer)
+                    envelope = serializer.deserialize(message.payload)
+                    await transport.send(envelope, destination=message.destination)
+                    await store.mark_dispatched(message.id)
+                    await uow.commit()
+                    processed += 1
+                except Exception as exc:  # noqa: BLE001
+                    await uow.rollback()
+                    writer = await scope.get(IDeadLetterWriter)
+                    await self._handle_failure(store, uow, writer, message, exc)
         return processed
 
-    async def _dispatch_message(self, message: OutboxMessage) -> None:
-        envelope = self._serializer.deserialize(message.payload)
-        await self._transport.send(envelope, destination=message.destination)
-
-    async def _handle_failure(self, message: OutboxMessage) -> None:
-        error = traceback.format_exc()
+    async def _handle_failure(
+        self,
+        store: IOutboxStore,
+        uow: IUnitOfWork,
+        writer: IDeadLetterWriter,
+        message: OutboxMessage,
+        exc: Exception,
+    ) -> None:
         new_retry_count = message.retry_count + 1
 
         if new_retry_count >= self._config.max_attempts:
-            await self._handle_exhausted(message, error)
+            await self._handle_exhausted(store, uow, writer, message, exc)
             return
 
+        error = ''.join(traceback.format_exception(exc))
         delay = calculate_backoff_with_jitter(
             attempt=new_retry_count,
             base_delay_seconds=self._config.base_delay,
             max_delay_seconds=self._config.max_delay,
         )
         next_retry_at = datetime.now(tz=UTC) + timedelta(seconds=delay)
-        await self._store.mark_failed(message.id, error, next_retry_at)
+        await store.mark_failed(message.id, error, next_retry_at)
+        await uow.commit()
 
-    async def _handle_exhausted(self, message: OutboxMessage, error: str) -> None:
-        if self._dead_letter_store is not None:
-            entry = DeadLetterEntry(
-                id=uuid4(),
-                message_type=message.message_type,
-                payload=message.payload,
-                destination=message.destination,
-                correlation_id=message.correlation_id,
-                causation_id=message.causation_id,
-                error_type='TransportError',
-                error_message=error,
-                retry_count=message.retry_count + 1,
-            )
-            await self._dead_letter_store.save(entry)
-            await self._store.mark_dead_lettered(message.id)
-            logger.info('Message %s moved to dead letter after %d attempts', message.id, message.retry_count + 1)
+    @staticmethod
+    async def _handle_exhausted(
+        store: IOutboxStore,
+        uow: IUnitOfWork,
+        writer: IDeadLetterWriter,
+        message: OutboxMessage,
+        exc: Exception,
+    ) -> None:
+        entry = DeadLetterEntry.from_failure(
+            message_type=message.message_type,
+            payload=message.payload,
+            destination=message.destination,
+            correlation_id=message.correlation_id,
+            causation_id=message.causation_id,
+            exc=exc,
+            attempt=message.retry_count + 1,
+        )
+        try:
+            await writer.write(entry)
+            await store.mark_dead_lettered(message.id)
+            await uow.commit()
+        except Exception:
+            logger.exception('Failed to write dead letter for message %s', message.id)
         else:
-            await self._store.mark_failed(message.id, error, next_retry_at=None)
-            logger.warning(
-                'Message %s exhausted after %d attempts (no dead letter store configured)',
-                message.id,
-                message.retry_count + 1,
-            )
+            logger.info('Message %s moved to dead letter after %d attempts', message.id, message.retry_count + 1)
+            return
+        error = ''.join(traceback.format_exception(exc))
+        await uow.rollback()
+        await store.mark_failed(message.id, error, next_retry_at=None)
+        await uow.commit()
+        logger.warning(
+            'Message %s exhausted after %d attempts',
+            message.id,
+            message.retry_count + 1,
+        )

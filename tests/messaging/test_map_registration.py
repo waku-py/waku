@@ -121,7 +121,9 @@ def test_handler_map_merge_combines_entries() -> None:
     m2 = HandlerMap()
     m2.merge(m1)
 
-    assert len(m2.get_handler_types(_Request)) > 0
+    handlers = m2.get_handler_types(_Request)
+    assert len(handlers) == 1
+    assert handlers[0] is _Handler
 
 
 def test_handler_map_merge_combines_event_entries() -> None:
@@ -131,7 +133,9 @@ def test_handler_map_merge_combines_event_entries() -> None:
     m2 = HandlerMap()
     m2.merge(m1)
 
-    assert len(m2.get_handler_types(_Event)) > 0
+    handlers = m2.get_handler_types(_Event)
+    assert len(handlers) == 1
+    assert handlers[0] is _EventHandler
 
 
 def test_pipeline_map_merge_combines_entries() -> None:

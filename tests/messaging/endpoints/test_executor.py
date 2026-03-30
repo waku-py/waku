@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from typing_extensions import override
 
+from waku.di import scoped
 from waku.messaging import (
-    IEvent,
     IRequest,
     MessagingConfig,
     MessagingExtension,
@@ -21,16 +21,14 @@ from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import RetryPolicy
 from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.testing import create_test_app
+from waku.uow import IUnitOfWork
+
+from tests.messaging.helpers import NOOP_EVALUATOR, FailingDeadLetterWriter, FakeUoW
 
 if TYPE_CHECKING:
     import pytest
 
-    from waku.messaging.contracts.envelope import MessageEnvelope
-
-
-@dataclass(frozen=True, slots=True)
-class _PingEvent(IEvent):
-    value: str
+    from waku.messaging.errors.dead_letter import DeadLetterEntry
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,24 +56,6 @@ class _AlwaysFailHandler(RequestHandler[_FailingCommand, None]):
         type(self).calls += 1
         msg = 'permanent failure'
         raise ValueError(msg)
-
-
-class _RecordingWriter(IDeadLetterWriter):
-    entries: ClassVar[list[tuple[MessageEnvelope[Any], Exception, int, str]]] = []
-
-    @override
-    async def write(self, envelope: MessageEnvelope[Any], exc: Exception, *, attempt: int, endpoint_uri: str) -> None:
-        type(self).entries.append((envelope, exc, attempt, endpoint_uri))
-
-
-class _FailingWriter(IDeadLetterWriter):
-    @override
-    async def write(self, envelope: MessageEnvelope[Any], exc: Exception, *, attempt: int, endpoint_uri: str) -> None:
-        msg = 'DLQ store unavailable'
-        raise ConnectionError(msg)
-
-
-_NOOP_EVALUATOR = ErrorPolicyEvaluator(registry=ErrorPolicyRegistry(()))
 
 
 class TestEndpointExecutorRetry:
@@ -115,31 +95,40 @@ class TestEndpointExecutorRetry:
         assert _AlwaysFailHandler.calls == 2
 
 
+class _ClassVarRecordingWriter(IDeadLetterWriter):
+    entries: ClassVar[list[DeadLetterEntry]] = []
+
+    @override
+    async def write(self, entry: DeadLetterEntry) -> None:
+        type(self).entries.append(entry)
+
+
 class TestEndpointExecutorDeadLetter:
     @staticmethod
-    async def test_dead_letter_policy_writes_to_dlq() -> None:
+    async def test_dead_letter_policy_writes_entry_with_error_details() -> None:
         _AlwaysFailHandler.calls = 0
-        _RecordingWriter.entries.clear()
+        _ClassVarRecordingWriter.entries.clear()
 
         config = MessagingConfig(
             error_policies=[RetryPolicy.for_message(_FailingCommand).on_any_exception().move_to_dead_letter()],
-            dead_letter_writer=_RecordingWriter,
+            dead_letter_writer=_ClassVarRecordingWriter,
         )
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_FailingCommand, _AlwaysFailHandler)],
+            providers=[scoped(IUnitOfWork, FakeUoW)],
         ) as app:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
             executor = EndpointExecutor(container=app.container, evaluator=evaluator, endpoint_uri='test://q')
             envelope = EnvelopeFactory.create(_FailingCommand(value='to-dlq'))
             await executor.execute(envelope, _AlwaysFailHandler)
 
-        assert len(_RecordingWriter.entries) == 1
-        _, exc, attempt, uri = _RecordingWriter.entries[0]
-        assert 'permanent failure' in str(exc)
-        assert attempt == 1
-        assert uri == 'test://q'
+        assert len(_ClassVarRecordingWriter.entries) == 1
+        entry = _ClassVarRecordingWriter.entries[0]
+        assert 'permanent failure' in entry.error_message
+        assert entry.retry_count == 1
+        assert entry.destination == 'test://q'
 
     @staticmethod
     async def test_dead_letter_write_failure_is_logged_not_raised(caplog: pytest.LogCaptureFixture) -> None:
@@ -147,13 +136,14 @@ class TestEndpointExecutorDeadLetter:
 
         config = MessagingConfig(
             error_policies=[RetryPolicy.for_message(_FailingCommand).on_any_exception().move_to_dead_letter()],
-            dead_letter_writer=_FailingWriter,
+            dead_letter_writer=FailingDeadLetterWriter,
         )
 
         with caplog.at_level(logging.ERROR, logger='waku.messaging.endpoints.executor'):
             async with create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_FailingCommand, _AlwaysFailHandler)],
+                providers=[scoped(IUnitOfWork, FakeUoW)],
             ) as app:
                 evaluator = await app.container.get(ErrorPolicyEvaluator)
                 executor = EndpointExecutor(container=app.container, evaluator=evaluator, endpoint_uri='test://q')
@@ -165,15 +155,14 @@ class TestEndpointExecutorDeadLetter:
 
 class TestEndpointExecutorNoPolicy:
     @staticmethod
-    async def test_no_matching_policy_logs_and_stops() -> None:
+    async def test_no_matching_policy_logs_and_stops_after_single_attempt() -> None:
         _AlwaysFailHandler.calls = 0
 
         async with create_test_app(
             imports=[MessagingModule.register()],
             extensions=[MessagingExtension().bind(_FailingCommand, _AlwaysFailHandler)],
         ) as app:
-            evaluator = _NOOP_EVALUATOR
-            executor = EndpointExecutor(container=app.container, evaluator=evaluator, endpoint_uri='test://q')
+            executor = EndpointExecutor(container=app.container, evaluator=NOOP_EVALUATOR, endpoint_uri='test://q')
             envelope = EnvelopeFactory.create(_FailingCommand(value='no-policy'))
             await executor.execute(envelope, _AlwaysFailHandler)
 

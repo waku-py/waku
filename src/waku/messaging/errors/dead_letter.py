@@ -3,19 +3,22 @@ from __future__ import annotations
 import abc
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
     from uuid import UUID
 
-    from waku.messaging.contracts.envelope import MessageEnvelope
-
 __all__ = [
     'DeadLetterEntry',
     'IDeadLetterStore',
     'IDeadLetterWriter',
 ]
+
+
+def _format_fqn(cls: type) -> str:
+    return f'{cls.__module__}.{cls.__qualname__}'
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -30,6 +33,30 @@ class DeadLetterEntry:
     error_message: str
     retry_count: int
     created_at: datetime | None = None
+
+    @classmethod
+    def from_failure(
+        cls,
+        *,
+        message_type: str,
+        payload: dict[str, Any],
+        destination: str,
+        correlation_id: UUID,
+        causation_id: UUID,
+        exc: Exception,
+        attempt: int,
+    ) -> DeadLetterEntry:
+        return cls(
+            id=uuid4(),
+            message_type=message_type,
+            payload=payload,
+            destination=destination,
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+            error_type=_format_fqn(type(exc)),
+            error_message=str(exc),
+            retry_count=attempt,
+        )
 
 
 class IDeadLetterStore(abc.ABC):
@@ -51,11 +78,4 @@ class IDeadLetterStore(abc.ABC):
 
 class IDeadLetterWriter(abc.ABC):
     @abc.abstractmethod
-    async def write(
-        self,
-        envelope: MessageEnvelope[Any],
-        exc: Exception,
-        *,
-        attempt: int,
-        endpoint_uri: str,
-    ) -> None: ...
+    async def write(self, entry: DeadLetterEntry) -> None: ...

@@ -1,27 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
-from uuid import uuid4
+from typing import Any
 
 from typing_extensions import override
 
-from waku.messaging.contracts.envelope import MessageEnvelope
-from waku.messaging.contracts.event import IEvent
 from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
-from waku.messaging.errors.writer import DeadLetterWriter
-from waku.uow import IUnitOfWork
+from waku.messaging.errors.writer import DeadLetterWriter, NullDeadLetterWriter
 
-from tests.messaging.helpers import make_serializer
-
-if TYPE_CHECKING:
-    from waku.messaging.transport.serialization import IEnvelopeSerializer
-
-
-@dataclass(frozen=True, slots=True)
-class _OrderPlaced(IEvent):
-    order_id: str
+from tests.messaging.helpers import make_dead_letter_entry
 
 
 class _FakeStore(IDeadLetterStore):
@@ -49,63 +35,22 @@ class _FakeStore(IDeadLetterStore):
         return 0
 
 
-class _FakeUoW(IUnitOfWork):
-    def __init__(self) -> None:
-        self.committed = False
-
-    @override
-    async def commit(self) -> None:
-        self.committed = True
-
-    @override
-    async def rollback(self) -> None:
-        pass
-
-
-def _make_envelope(payload: Any) -> MessageEnvelope[Any]:
-    return MessageEnvelope(
-        message_id=uuid4(),
-        correlation_id=uuid4(),
-        causation_id=uuid4(),
-        message_type=f'{type(payload).__module__}.{type(payload).__qualname__}',
-        timestamp=datetime.now(tz=UTC),
-        payload=payload,
-        headers={},
-    )
-
-
 class TestDeadLetterWriter:
     @staticmethod
-    async def test_write_saves_entry_and_commits() -> None:
+    async def test_write_delegates_to_store() -> None:
         store = _FakeStore()
-        uow = _FakeUoW()
-        serializer = make_serializer(_OrderPlaced)
-        writer = DeadLetterWriter(store=store, uow=uow, serializer=serializer)
+        writer = DeadLetterWriter(store=store)
 
-        envelope = _make_envelope(_OrderPlaced(order_id='abc'))
-        exc = ValueError('bad input')
-
-        await writer.write(envelope, exc, attempt=3, endpoint_uri='test://q')
+        entry = make_dead_letter_entry()
+        await writer.write(entry)
 
         assert len(store.saved) == 1
-        entry = store.saved[0]
-        assert entry.correlation_id == envelope.correlation_id
-        assert entry.causation_id == envelope.causation_id
-        assert entry.error_message == 'bad input'
-        assert entry.retry_count == 3
-        assert entry.destination == 'test://q'
-        assert 'OrderPlaced' in entry.message_type
-        assert uow.committed
+        assert store.saved[0] is entry
 
+
+class TestNullDeadLetterWriter:
     @staticmethod
-    async def test_write_serializes_envelope_payload() -> None:
-        store = _FakeStore()
-        uow = _FakeUoW()
-        serializer: IEnvelopeSerializer = make_serializer(_OrderPlaced)
-        writer = DeadLetterWriter(store=store, uow=uow, serializer=serializer)
-
-        envelope = _make_envelope(_OrderPlaced(order_id='xyz'))
-        await writer.write(envelope, RuntimeError(), attempt=1, endpoint_uri='q')
-
-        entry = store.saved[0]
-        assert entry.payload == serializer.serialize(envelope)
+    async def test_write_is_noop() -> None:
+        writer = NullDeadLetterWriter()
+        entry = make_dead_letter_entry()
+        await writer.write(entry)

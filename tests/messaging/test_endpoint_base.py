@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from waku.messaging.endpoints.base import (
     ExternalEntry,
     LocalQueueEntry,
@@ -15,6 +17,7 @@ class TestEndpointEntryFactories:
         assert isinstance(entry, LocalQueueEntry)
         assert entry.uri == 'q://test'
         assert entry.stop_timeout == 5.0
+        assert entry.max_buffer_size == math.inf
 
     @staticmethod
     def test_local_queue_with_custom_timeout() -> None:
