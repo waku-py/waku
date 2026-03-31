@@ -26,7 +26,7 @@ from waku.eventsourcing.exceptions import (
     ProjectionStoppedError,
     StreamNotFoundError,
 )
-from waku.exceptions import WakuError
+from waku.exceptions import ImproperlyConfiguredError, WakuError
 from waku.messaging import IEvent
 
 
@@ -217,4 +217,4 @@ def test_duplicate_aggregate_name_error_carries_attrs() -> None:
     assert 'Order' in str(error)
     assert 'RepoA' in str(error)
     assert 'RepoB' in str(error)
-    assert isinstance(error, EventSourcingError)
+    assert isinstance(error, ImproperlyConfiguredError)

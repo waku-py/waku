@@ -285,6 +285,7 @@ graph TD
 
 | | `InMemoryProjectionLock` | `PostgresLeaseProjectionLock` | `PostgresAdvisoryProjectionLock` |
 |---|---|---|---|
+| **Extra** | — | `waku[sqla]` | `waku[sqla]` |
 | **Use case** | Single process, testing | Multi-process production | Multi-process, simple setups |
 | **Connection held** | None | Only during heartbeats | Entire lock duration |
 | **PgBouncer compatible** | N/A | Yes | No (session-bound) |
@@ -364,7 +365,7 @@ The `Checkpoint` dataclass carries the projection name, last processed global po
 Built-in implementations:
 
 - `InMemoryCheckpointStore` — dictionary-backed, suitable for single-process deployments and testing
-- `SqlAlchemyCheckpointStore` — PostgreSQL-backed via SQLAlchemy async session
+- `SqlAlchemyCheckpointStore` — PostgreSQL-backed via SQLAlchemy async session (requires `waku[sqla]`)
 
 Configure the checkpoint store through `EventSourcingConfig`:
 

@@ -29,11 +29,9 @@ from waku.messaging.exceptions import (
     MultipleHandlersRegistered,
     NoRouteError,
 )
-from waku.messaging.outbox.relay import OutboxRelayConfig
 from waku.testing import create_test_app
 
 from tests.messaging.helpers import RecordingDeadLetterStore
-from tests.messaging.outbox.fake_store import FakeOutboxStore
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -359,11 +357,11 @@ async def test_publish_propagates_correlation_context_through_queue() -> None:
 
 class TestMessagingConfigValidation:
     @staticmethod
-    def test_external_endpoint_without_outbox_store_raises() -> None:
+    def test_external_endpoint_without_outbox_raises() -> None:
         config = MessagingConfig(
             endpoints=[external_endpoint('ext://bus')],
         )
-        with pytest.raises(ImproperlyConfiguredError, match='external_endpoint requires outbox_store'):
+        with pytest.raises(ImproperlyConfiguredError, match='external_endpoint requires outbox'):
             MessagingModule.register(config)
 
     @staticmethod
@@ -390,23 +388,6 @@ class TestMessagingConfigValidation:
             ],
         )
         with pytest.raises(ImproperlyConfiguredError, match='dead_letter_store'):
-            MessagingModule.register(config)
-
-    @staticmethod
-    def test_outbox_relay_without_outbox_store_raises() -> None:
-        config = MessagingConfig(
-            outbox_relay=OutboxRelayConfig(),
-        )
-        with pytest.raises(ImproperlyConfiguredError, match='outbox_relay requires outbox_store'):
-            MessagingModule.register(config)
-
-    @staticmethod
-    def test_outbox_relay_without_transport_raises() -> None:
-        config = MessagingConfig(
-            outbox_relay=OutboxRelayConfig(),
-            outbox_store=FakeOutboxStore,
-        )
-        with pytest.raises(ImproperlyConfiguredError, match='outbox_relay requires transport'):
             MessagingModule.register(config)
 
     @staticmethod

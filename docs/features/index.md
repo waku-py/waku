@@ -16,7 +16,7 @@ an extension module that you import and configure in your application.
 
     ---
 
-    Command/query separation with pipeline behaviors, event handlers, and a message bus dispatcher
+    Command/query separation with pipeline behaviors, endpoint routing, transactional outbox, retry policies, and dead letter queues
 
 -   :material-check-decagram: **[Validation](validation.md)**
 

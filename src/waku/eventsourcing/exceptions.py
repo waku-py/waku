@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from waku.exceptions import WakuError
+from waku.exceptions import ImproperlyConfiguredError, WakuError
 
 if TYPE_CHECKING:
     from waku.eventsourcing.contracts.stream import StreamId
@@ -35,7 +35,7 @@ class EventSourcingError(WakuError):
     pass
 
 
-class EventSourcingConfigError(EventSourcingError):
+class EventSourcingConfigError(ImproperlyConfiguredError):
     pass
 
 
@@ -68,7 +68,7 @@ class ConcurrencyConflictError(EventSourcingError):
         )
 
 
-class DuplicateAggregateNameError(EventSourcingError):
+class DuplicateAggregateNameError(EventSourcingConfigError):
     def __init__(self, aggregate_name: str, repository_names: list[str]) -> None:
         self.aggregate_name = aggregate_name
         self.repository_names = repository_names
@@ -83,13 +83,13 @@ class UnknownEventTypeError(EventSourcingError):
         super().__init__(f'Unknown event type: {event_type_name!r}')
 
 
-class DuplicateEventTypeError(EventSourcingError):
+class DuplicateEventTypeError(EventSourcingConfigError):
     def __init__(self, event_type_name: str) -> None:
         self.event_type_name = event_type_name
         super().__init__(f'Event type {event_type_name!r} is already registered')
 
 
-class ConflictingEventTypeError(EventSourcingError):
+class ConflictingEventTypeError(EventSourcingConfigError):
     def __init__(
         self,
         event_type_name: str,
@@ -125,7 +125,7 @@ class StreamTooLargeError(EventSourcingError):
         )
 
 
-class RegistryFrozenError(EventSourcingError):
+class RegistryFrozenError(EventSourcingConfigError):
     def __init__(self) -> None:
         super().__init__('Cannot register event types after registry is frozen')
 
@@ -159,7 +159,7 @@ class PartialDuplicateAppendError(EventSourcingError):
         )
 
 
-class SnapshotConfigNotFoundError(EventSourcingError):
+class SnapshotConfigNotFoundError(EventSourcingConfigError):
     def __init__(self, aggregate_name: str) -> None:
         self.aggregate_name = aggregate_name
         super().__init__(
@@ -168,9 +168,9 @@ class SnapshotConfigNotFoundError(EventSourcingError):
         )
 
 
-class SnapshotMigrationChainError(EventSourcingError):
+class SnapshotMigrationChainError(EventSourcingConfigError):
     pass
 
 
-class UpcasterChainError(EventSourcingError):
+class UpcasterChainError(EventSourcingConfigError):
     pass

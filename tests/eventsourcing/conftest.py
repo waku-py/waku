@@ -4,9 +4,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import MetaData
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.pool import NullPool
-from testcontainers.postgres import PostgresContainer  # type: ignore[import-untyped]
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from waku.eventsourcing.projection.lock.sqlalchemy.tables import bind_lease_tables
 from waku.eventsourcing.projection.sqlalchemy.tables import bind_checkpoint_tables
@@ -14,22 +12,9 @@ from waku.eventsourcing.snapshot.sqlalchemy.tables import bind_snapshot_tables
 from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterator
+    from collections.abc import AsyncIterator
 
     from sqlalchemy.ext.asyncio import AsyncEngine
-
-
-@pytest.fixture(scope='session')
-def pg_container() -> Iterator[str]:
-    with PostgresContainer('postgres:17', driver='psycopg') as pg:
-        yield pg.get_connection_url()
-
-
-@pytest.fixture
-async def pg_engine(pg_container: str) -> AsyncIterator[AsyncEngine]:
-    engine = create_async_engine(pg_container, poolclass=NullPool)
-    yield engine
-    await engine.dispose()
 
 
 @pytest.fixture

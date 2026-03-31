@@ -1,7 +1,7 @@
-from waku.exceptions import WakuError
+from waku.exceptions import ImproperlyConfiguredError
 
 __all__ = ['ValidationError']
 
 
-class ValidationError(WakuError):
+class ValidationError(ImproperlyConfiguredError):
     pass

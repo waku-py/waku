@@ -7,16 +7,15 @@ from typing_extensions import override
 
 from waku.messaging import (
     EventHandler,
-    HandlerNotFound,
     IEvent,
     IRequest,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
-    MultipleHandlersRegistered,
     RequestHandler,
 )
 from waku.messaging.dispatcher import MessageDispatcher
+from waku.messaging.exceptions import HandlerNotFound, MultipleHandlersRegistered
 from waku.messaging.registry import MessageRegistry
 from waku.testing import create_test_app
 

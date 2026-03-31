@@ -40,6 +40,8 @@ nav = [
       { "Events" = "features/messaging/events.md" },
       { "Pipeline Behaviors" = "features/messaging/pipeline.md" },
       { "Routing & Endpoints" = "features/messaging/routing.md" },
+      { "Error Handling" = "features/messaging/error-handling.md" },
+      { "Outbox & Transport" = "features/messaging/outbox.md" },
       { "Message Context" = "features/messaging/context.md" },
       { "Transactions" = "features/messaging/transactions.md" },
     ] },

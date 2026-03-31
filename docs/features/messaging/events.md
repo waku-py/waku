@@ -9,8 +9,16 @@ tags:
 
 # Events
 
-An **event** (notification) represents something that has already happened. Unlike requests,
-events can have **zero or more** handlers — this is the fan-out pattern.
+An **event** represents something that has already happened — `OrderPlaced`, `PaymentReceived`,
+`UserRegistered`. Unlike [requests](requests.md), events support **zero or more** handlers:
+when an order is placed, the notification service sends an email, the analytics service records
+a metric, and the inventory service reserves stock — all independently, all from the same event.
+
+This is the **fan-out pattern**: one event, many reactions, no coupling between them.
+
+!!! tip "Safe to add early"
+    If no handlers are registered for an event, `publish()` silently succeeds. This means you
+    can publish events before any consumers exist — add handlers later as your system grows.
 
 ---
 
@@ -54,6 +62,10 @@ class DomainEvent(IEvent):
 ---
 
 ## Event Handlers
+
+!!! info "Multiple handlers per event"
+    Unlike requests (exactly one handler), events support any number of handlers. Each handler
+    runs independently — register as many as you need.
 
 `EventHandler[TEvent]` is an ABC with a `handle` method that returns `None`:
 
@@ -105,8 +117,8 @@ class OrdersModule:
 ```
 
 !!! note "Handlers across modules"
-    Multiple modules can bind handlers for the same event type. waku's `MessageRegistryAggregator`
-    merges all registrations at application startup:
+    Multiple modules can bind handlers for the same event type. waku merges all registrations
+    at application startup:
 
     ```python linenums="1"
     @module(
@@ -162,7 +174,13 @@ If no handlers are registered for an event type, `publish` is a no-op — it doe
 ## Event Dispatch
 
 When `bus.publish()` is called, handlers execute sequentially in registration order.
-If a handler raises, subsequent handlers do **not** run.
+If a handler raises, the error is logged and the next handler proceeds — one failure does not
+block the rest.
+
+!!! warning "Don't rely on handler ordering"
+    Event handlers execute in registration order within an endpoint worker, but this is an
+    implementation detail. If you need strict sequencing between reactions, use a single handler
+    that orchestrates the steps explicitly.
 
 !!! note "Ordering with routed handlers"
     The sequential guarantee applies to **inline** execution. When some handlers are
@@ -175,5 +193,7 @@ If a handler raises, subsequent handlers do **not** run.
 
 - **[Requests](requests.md)** — commands, queries, and request handlers
 - **[Pipeline Behaviors](pipeline.md)** — cross-cutting middleware for request handling
+- **[Routing & Endpoints](routing.md)** — route events to local queues or external systems
+- **[Error Handling](error-handling.md)** — retry policies and dead letter queues
 - **[Message Bus](index.md)** — setup, interfaces, and complete example
 - **[Event Sourcing](../eventsourcing/index.md)** — event-sourced aggregates, deciders, and projections

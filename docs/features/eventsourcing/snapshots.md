@@ -164,7 +164,7 @@ The `Snapshot` dataclass carries the serialized state:
 Built-in implementations:
 
 - `InMemorySnapshotStore` — dictionary-backed, suitable for testing
-- `SqlAlchemySnapshotStore` — PostgreSQL-backed via SQLAlchemy async session
+- `SqlAlchemySnapshotStore` — PostgreSQL-backed via SQLAlchemy async session (requires `waku[sqla]`)
 
 ## Schema Versioning
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from waku.exceptions import WakuError
+from waku.exceptions import ImproperlyConfiguredError, WakuError
 
 if TYPE_CHECKING:
     from waku.messaging.contracts.handler import HandlerType
@@ -22,25 +22,12 @@ __all__ = [
 
 
 class MessagingError(WakuError):
-    """Base exception for all messaging-related errors."""
+    pass
 
 
 class MapFrozenError(MessagingError):
     def __init__(self) -> None:
         super().__init__('Cannot modify map after it is frozen')
-
-
-class ImproperlyConfiguredError(MessagingError):
-    """Raised when messaging configuration is invalid."""
-
-
-class HandlerAlreadyRegistered(MessagingError):  # noqa: N818
-    def __init__(self, message_type: type[IMessage], handler_type: HandlerType) -> None:
-        self.message_type = message_type
-        self.handler_type = handler_type
-
-    def __str__(self) -> str:
-        return f'{self.handler_type.__name__} already registered for {self.message_type.__name__}'
 
 
 class HandlerNotFound(MessagingError):  # noqa: N818
@@ -51,14 +38,6 @@ class HandlerNotFound(MessagingError):  # noqa: N818
         return f'No handler registered for {self.message_type.__name__}'
 
 
-class MultipleHandlersRegistered(MessagingError):  # noqa: N818
-    def __init__(self, message_type: type[IMessage]) -> None:
-        self.message_type = message_type
-
-    def __str__(self) -> str:
-        return f'Multiple handlers registered for {self.message_type.__name__}, invoke() requires exactly one'
-
-
 class NoRouteError(MessagingError):
     def __init__(self, message_type: type[IMessage]) -> None:
         self.message_type = message_type
@@ -67,7 +46,24 @@ class NoRouteError(MessagingError):
         return f'No route found for {self.message_type.__name__}'
 
 
-class PipelineBehaviorAlreadyRegistered(MessagingError):  # noqa: N818
+class HandlerAlreadyRegistered(ImproperlyConfiguredError):  # noqa: N818
+    def __init__(self, message_type: type[IMessage], handler_type: HandlerType) -> None:
+        self.message_type = message_type
+        self.handler_type = handler_type
+
+    def __str__(self) -> str:
+        return f'{self.handler_type.__name__} already registered for {self.message_type.__name__}'
+
+
+class MultipleHandlersRegistered(ImproperlyConfiguredError):  # noqa: N818
+    def __init__(self, message_type: type[IMessage]) -> None:
+        self.message_type = message_type
+
+    def __str__(self) -> str:
+        return f'Multiple handlers registered for {self.message_type.__name__}, invoke() requires exactly one'
+
+
+class PipelineBehaviorAlreadyRegistered(ImproperlyConfiguredError):  # noqa: N818
     def __init__(self, message_type: type[IMessage], behavior_type: type[IPipelineBehavior[Any, Any]]) -> None:
         self.message_type = message_type
         self.behavior_type = behavior_type

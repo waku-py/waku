@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from waku.exceptions import ImproperlyConfiguredError
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -13,7 +15,7 @@ __all__ = [
 ]
 
 
-class DuplicateErrorPolicyError(Exception):
+class DuplicateErrorPolicyError(ImproperlyConfiguredError):
     def __init__(self, policy: ResolvedRetryPolicy) -> None:
         exc_name = policy.exception_type.__qualname__ if policy.exception_type is not None else '*'
         super().__init__(f'Duplicate error policy for {policy.message_type.__qualname__} / {exc_name}')

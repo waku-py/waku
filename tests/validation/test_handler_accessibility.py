@@ -65,7 +65,8 @@ async def test_event_handler_deps_validated_against_originating_module() -> None
         extensions=[ValidationExtension([DependenciesAccessibleRule()], strict=True)],
     ).create()
 
-    await app.initialize()
+    async with app:
+        pass
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -130,4 +131,5 @@ async def test_pipeline_behavior_deps_validated_against_originating_module() -> 
         extensions=[ValidationExtension([DependenciesAccessibleRule()], strict=True)],
     ).create()
 
-    await app.initialize()
+    async with app:
+        pass

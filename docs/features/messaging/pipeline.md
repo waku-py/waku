@@ -9,9 +9,10 @@ tags:
 
 # Pipeline Behaviors
 
-Pipeline behaviors are cross-cutting middleware that wrap message handling. They form a chain
-similar to HTTP middleware: each behavior can run logic before and after the next handler,
-short-circuit the pipeline, or handle exceptions.
+Pipeline behaviors are cross-cutting middleware that wrap message handling, inspired by
+[Wolverine's middleware](https://wolverine.netlify.app/guide/handlers/middleware.html). They
+form a chain similar to HTTP middleware: each behavior can run logic before and after the next
+handler, short-circuit the pipeline, or handle exceptions.
 
 ```mermaid
 graph LR
@@ -75,6 +76,11 @@ MessagingModule.register(
 ```
 
 Global behaviors execute in the order they are listed.
+
+!!! tip "Use global behaviors sparingly"
+    Global behaviors run on **every** message — requests and events alike. Good candidates:
+    logging, metrics, correlation propagation. Business-specific validation or authorization
+    should be [per-request behaviors](#per-request-behaviors) instead.
 
 ---
 
@@ -143,4 +149,5 @@ The response then unwinds back through the chain in reverse order.
 - **[Requests](requests.md)** — commands, queries, and request handlers
 - **[Events](events.md)** — event definitions, handlers, and publishers
 - **[Routing & Endpoints](routing.md)** — route messages to background endpoints
+- **[Transactions](transactions.md)** — unit of work as a pipeline behavior
 - **[Message Bus](index.md)** — setup, interfaces, and complete example

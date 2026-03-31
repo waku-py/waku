@@ -6,6 +6,7 @@ from typing import ClassVar
 from typing_extensions import override
 
 from waku import module
+from waku.di import object_
 from waku.messaging import (
     EventHandler,
     IEvent,
@@ -13,12 +14,15 @@ from waku.messaging import (
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
+    OutboxConfig,
     external_endpoint,
     route,
 )
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.testing import create_test_app
+from waku.uow import IUnitOfWork
 
+from tests.messaging.helpers import FakeUoW, RecordingTransport
 from tests.messaging.outbox.fake_store import FakeOutboxStore
 
 
@@ -41,7 +45,7 @@ class TestBusOutboxIntegration:
         config = MessagingConfig(
             endpoints=[external_endpoint('test://events')],
             routing=[route(_OrderPlaced).to('test://events')],
-            outbox_store=FakeOutboxStore,
+            outbox=OutboxConfig(store=FakeOutboxStore, transport=RecordingTransport),
         )
 
         @module(extensions=[MessagingExtension().bind(_OrderPlaced, _InlineHandler)])
@@ -51,6 +55,7 @@ class TestBusOutboxIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config), TestModule],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
             ) as app,
             app.container() as c,
         ):
@@ -67,7 +72,7 @@ class TestBusOutboxIntegration:
         config = MessagingConfig(
             endpoints=[external_endpoint('test://events')],
             routing=[route(_OrderPlaced).to('test://events')],
-            outbox_store=FakeOutboxStore,
+            outbox=OutboxConfig(store=FakeOutboxStore, transport=RecordingTransport),
         )
 
         @module(extensions=[MessagingExtension().bind(_OrderPlaced, _InlineHandler)])
@@ -77,6 +82,7 @@ class TestBusOutboxIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config), TestModule],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
             ) as app,
             app.container() as c,
         ):

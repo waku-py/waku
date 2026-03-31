@@ -55,12 +55,20 @@ Decider[State, Command, Event]:
 Pure functions, no side effects, trivially testable. See [Aggregates](aggregates.md) for both
 OOP and functional approaches.
 
+!!! tip "The Critter Stack for Python"
+    In .NET, [Marten](https://martendb.io/) (event sourcing) and
+    [Wolverine](https://wolverine.netlify.app/) (messaging) form the
+    **[Critter Stack](https://jeremydmiller.com/critter-stack/)** — a seamless combination for
+    building event-driven systems. waku brings this vision to Python: the
+    [event sourcing](index.md) and [messaging](../messaging/index.md) modules are designed to
+    work together as a unified stack.
+
 ??? info "Design lineage"
 
     waku's event sourcing draws from established frameworks across ecosystems:
 
+    - [Marten](https://martendb.io/events/) (.NET) — primary inspiration for projections, event store, and PostgreSQL-first design
     - [Emmett](https://event-driven-io.github.io/emmett/) (TypeScript) — functional-first ES by Oskar Dudycz
-    - [Marten](https://martendb.io/events/) (.NET) — projection lifecycle taxonomy (inline / async / live)
     - [Eventuous](https://eventuous.dev/) (.NET) — `IEventStore = IEventReader + IEventWriter` interface split
     - [Axon Framework](https://www.axoniq.io/framework) (JVM) — aggregate testing fixtures (Given/When/Then)
     - [Greg Young](https://www.eventstore.com/blog/what-is-event-sourcing) — ES + CQRS formalization
@@ -69,16 +77,16 @@ OOP and functional approaches.
 
 ## Installation
 
-Install waku with the event sourcing extra:
+Install waku:
 
 ```bash
-uv add waku --extra eventsourcing
+uv add waku
 ```
 
-For PostgreSQL persistence, also install the SQLAlchemy adapter:
+For PostgreSQL persistence, also install the SQLAlchemy extra:
 
 ```bash
-uv add waku --extra eventsourcing --extra eventsourcing-sqla
+uv add waku --extra sqla
 ```
 
 ## Architecture

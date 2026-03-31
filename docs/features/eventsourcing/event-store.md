@@ -145,10 +145,10 @@ from waku.eventsourcing import EventSourcingConfig
 
 ### Prerequisites
 
-Install the required extras:
+Install the SQLAlchemy extra:
 
 ```bash
-uv add waku --extra eventsourcing --extra eventsourcing-sqla
+uv add waku --extra sqla
 ```
 
 You also need a running PostgreSQL instance.

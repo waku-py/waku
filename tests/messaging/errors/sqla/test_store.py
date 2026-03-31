@@ -6,31 +6,16 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import MetaData
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.pool import NullPool
-from testcontainers.postgres import PostgresContainer  # type: ignore[import-untyped]
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.errors.sqla.store import SqlAlchemyDeadLetterStore
 from waku.messaging.errors.sqla.tables import bind_dead_letter_tables
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterator
+    from collections.abc import AsyncIterator
 
     from sqlalchemy.ext.asyncio import AsyncEngine
-
-
-@pytest.fixture(scope='session')
-def pg_container() -> Iterator[str]:
-    with PostgresContainer('postgres:17', driver='psycopg') as pg:
-        yield pg.get_connection_url()
-
-
-@pytest.fixture
-async def pg_engine(pg_container: str) -> AsyncIterator[AsyncEngine]:
-    engine = create_async_engine(pg_container, poolclass=NullPool)
-    yield engine
-    await engine.dispose()
 
 
 @pytest.fixture

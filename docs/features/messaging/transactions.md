@@ -10,35 +10,37 @@ tags:
 
 # Transactions
 
-`TransactionalBehavior` is a pipeline behavior that wraps message handling in a unit-of-work
-commit/rollback cycle. It commits on success and rolls back on any failure — including
-failures during the commit itself.
+When a handler modifies the database, you need guarantees: if the handler fails, changes roll
+back. `TransactionalBehavior` is a [pipeline behavior](pipeline.md) that wraps message handling
+in a unit-of-work commit/rollback cycle — commit on success, rollback on any failure, including
+failures during the commit itself. This is especially important when handlers write to the
+[transactional outbox](outbox.md), where the outbox write must be atomic with the business data.
 
 ---
 
 ## IUnitOfWork Protocol
 
 `IUnitOfWork` is a two-method protocol that lives at the top level (`waku.uow`), not inside
-messaging — it's a general infrastructure concern usable by any layer.
+messaging — it's a general infrastructure concern usable by any layer:
 
-```python
+```python linenums="1"
 from waku.uow import IUnitOfWork
-
-class IUnitOfWork(Protocol):
-    async def commit(self) -> None: ...
-    async def rollback(self) -> None: ...
 ```
 
-The protocol is defined by waku — you only need to provide an implementation. Any class that
-satisfies it can serve as the unit of work for `TransactionalBehavior`.
+The protocol defines two methods — `commit()` and `rollback()`. waku provides the interface;
+you provide an implementation. Any class satisfying the protocol can serve as the unit of work
+for `TransactionalBehavior`.
 
 ---
 
 ## SQLAlchemy Adapter
 
+!!! info "Requires `waku[sqla]`"
+    Install the SQLAlchemy extra: `uv add waku --extra sqla`
+
 `SqlAlchemyUnitOfWork` wraps an `AsyncSession` and delegates `commit()` / `rollback()` to it:
 
-```python
+```python linenums="1"
 from waku.messaging.sqla.uow import SqlAlchemyUnitOfWork
 ```
 
@@ -172,7 +174,7 @@ class MongoUnitOfWork(IUnitOfWork):
 
 Register it the same way as the SQLAlchemy adapter:
 
-```python
+```python linenums="1"
 scoped(IUnitOfWork, MongoUnitOfWork)
 ```
 
@@ -182,4 +184,5 @@ scoped(IUnitOfWork, MongoUnitOfWork)
 
 - **[Pipeline Behaviors](pipeline.md)** — defining, registering, and ordering behaviors
 - **[Routing & Endpoints](routing.md)** — route messages to background endpoints
+- **[Outbox & Transport](outbox.md)** — outbox uses UoW for transactional persistence
 - **[Message Bus](index.md)** — setup, interfaces, and complete example

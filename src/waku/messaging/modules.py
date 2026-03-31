@@ -64,23 +64,25 @@ class MessagingModule:
     def register(cls, config: MessagingConfig | None = None, /) -> DynamicModule:
         config_ = config or MessagingConfig()
         cls._validate_config(config_)
+        serializer_provider = cls._serializer_provider(config_)
         providers: list[Provider] = [
             scoped(WithParents[IMessageBus], MessageBus),  # ty:ignore[not-subscriptable]
             singleton(EnvelopeFactory),
-            cls._serializer_provider(config_),
             scoped(MessageDispatcher),
             transient(MessageContext, get_message_context),
             *cls._create_pipeline_behavior_providers(config_),
             *cls._infrastructure_providers(config_),
         ]
+        if serializer_provider is not None:
+            providers.append(serializer_provider)
         extensions: list[ModuleExtension] = [
             MessageRegistryAggregator(config_),
             EndpointLifecycleExtension(),
         ]
         if _requires_uow(config_):
             extensions.append(_UnitOfWorkValidationExtension())
-        if config_.outbox_relay is not None:
-            extensions.append(OutboxRelayLifecycleExtension(config_.outbox_relay))
+        if config_.outbox is not None:
+            extensions.append(OutboxRelayLifecycleExtension(config_.outbox.relay))
         return DynamicModule(
             parent_module=cls,
             providers=providers,
@@ -91,33 +93,30 @@ class MessagingModule:
     @staticmethod
     def _validate_config(config: MessagingConfig) -> None:
         has_external = any(isinstance(e, ExternalEntry) for e in config.endpoints)
-        if has_external and config.outbox_store is None:
-            msg = 'external_endpoint requires outbox_store in MessagingConfig'
+        if has_external and config.outbox is None:
+            msg = 'external_endpoint requires outbox in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
         needs_dlq = _requires_dead_letter_store(config.error_policies)
         if needs_dlq and config.dead_letter_store is None:
             msg = 'error_policies with DEAD_LETTER action require dead_letter_store in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
-        if config.outbox_relay is not None and config.outbox_store is None:
-            msg = 'outbox_relay requires outbox_store in MessagingConfig'
-            raise ImproperlyConfiguredError(msg)
-        if config.outbox_relay is not None and config.transport is None:
-            msg = 'outbox_relay requires transport in MessagingConfig'
-            raise ImproperlyConfiguredError(msg)
 
     @staticmethod
-    def _serializer_provider(config: MessagingConfig) -> Provider:
-        if config.envelope_serializer is not None:
-            return singleton(IEnvelopeSerializer, config.envelope_serializer)
+    def _serializer_provider(config: MessagingConfig) -> Provider | None:
+        if config.outbox is None and config.dead_letter_store is None:
+            return None
+        if config.outbox is not None and config.outbox.envelope_serializer is not None:
+            return singleton(IEnvelopeSerializer, config.outbox.envelope_serializer)
         return singleton(IEnvelopeSerializer, _create_envelope_serializer)
 
     @staticmethod
     def _infrastructure_providers(config: MessagingConfig) -> _HandlerProviders:
         providers: list[Provider] = []
-        if config.outbox_store is not None:
-            providers.append(scoped(IOutboxStore, config.outbox_store))
-        if config.transport is not None:
-            providers.append(singleton(ITransport, config.transport))
+        if config.outbox is not None:
+            providers.extend((
+                scoped(IOutboxStore, config.outbox.store),
+                singleton(ITransport, config.outbox.transport),
+            ))
         if config.dead_letter_store is not None:
             providers.append(scoped(IDeadLetterStore, config.dead_letter_store))
         return tuple(providers)
@@ -182,7 +181,7 @@ def _requires_dead_letter_store(policies: Sequence[ResolvedRetryPolicy]) -> bool
 def _requires_uow(config: MessagingConfig) -> bool:
     return (
         config.dead_letter_store is not None
-        or config.outbox_relay is not None
+        or config.outbox is not None
         or any(issubclass(b, TransactionalBehavior) for b in config.pipeline_behaviors)
     )
 

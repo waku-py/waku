@@ -92,3 +92,31 @@ abbr[title*="modular, type-safe"] {
   background-color: var(--md-primary-fg-color);
   color: var(--md-primary-bg-color);
 }
+
+.deepwiki-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0 0.2rem;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.6rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: currentcolor;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.deepwiki-btn:hover {
+  opacity: 1;
+}
+
+.deepwiki-btn svg {
+  flex-shrink: 0;
+}
+
+@media screen and (max-width: 59.9844em) {
+  .deepwiki-btn span {
+    display: none;
+  }
+}

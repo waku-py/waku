@@ -19,6 +19,7 @@ from waku.messaging import (
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
+    OutboxConfig,
     RequestHandler,
     external_endpoint,
     route,
@@ -126,7 +127,7 @@ class TestEndToEndOutboxFlow:
         config = MessagingConfig(
             endpoints=[external_endpoint('test://notifications')],
             routing=[route(_OrderPlaced).to('test://notifications')],
-            outbox_store=_InMemoryOutboxStore,
+            outbox=OutboxConfig(store=_InMemoryOutboxStore, transport=RecordingTransport),
         )
 
         @module(extensions=[MessagingExtension().bind(_OrderPlaced, _OrderPlacedHandler)])
@@ -134,7 +135,10 @@ class TestEndToEndOutboxFlow:
             pass
 
         async with (
-            create_test_app(imports=[MessagingModule.register(config), TestModule]) as app,
+            create_test_app(
+                imports=[MessagingModule.register(config), TestModule],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            ) as app,
             app.container() as c,
         ):
             bus = await c.get(IMessageBus)
@@ -202,11 +206,10 @@ class TestOutboxRelayLifecycleIntegration:
         config = MessagingConfig(
             endpoints=[external_endpoint('test://notifications')],
             routing=[route(_OrderPlaced).to('test://notifications')],
-            outbox_store=lambda: outbox,
-            transport=lambda: transport,
-            outbox_relay=OutboxRelayConfig(
-                poll_interval=0.01,
-                recovery_interval=timedelta(hours=1),
+            outbox=OutboxConfig(
+                store=lambda: outbox,
+                transport=lambda: transport,
+                relay=OutboxRelayConfig(poll_interval=0.01, recovery_interval=timedelta(hours=1)),
             ),
         )
 
@@ -255,8 +258,11 @@ class TestCustomEnvelopeSerializer:
         config = MessagingConfig(
             endpoints=[external_endpoint('test://custom')],
             routing=[route(_OrderPlaced).to('test://custom')],
-            outbox_store=lambda: outbox,
-            envelope_serializer=CustomSerializer,
+            outbox=OutboxConfig(
+                store=lambda: outbox,
+                transport=RecordingTransport,
+                envelope_serializer=CustomSerializer,
+            ),
         )
 
         @module(extensions=[MessagingExtension().bind(_OrderPlaced, _OrderPlacedHandler)])
@@ -266,6 +272,7 @@ class TestCustomEnvelopeSerializer:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config), TestModule],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
             ) as app,
             app.container() as c,
         ):

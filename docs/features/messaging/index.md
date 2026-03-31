@@ -8,11 +8,11 @@ tags:
   - concept
 ---
 
-# Message Bus
+# Messaging
 
 ## Introduction
 
-The **Message Bus** decouples the sender of a message from the handler that processes it.
+The **message bus** decouples the sender of a message from the handler that processes it.
 Instead of calling a handler directly, you pass a message object to the bus, which looks up
 the correct handler and dispatches it through a pipeline of cross-cutting behaviors.
 
@@ -42,7 +42,109 @@ graph LR
     Inject only the interface you need — see [Interfaces](#interfaces) below.
 
 waku's messaging subsystem is inspired by [Wolverine](https://wolverine.netlify.app/) (.NET)
-and integrates with the module system, dependency injection, and extension lifecycle.
+and integrates with the module system, dependency injection, and extension lifecycle. The
+method semantics (`invoke` / `send` / `publish`), endpoint model, and error policy system all
+follow Wolverine's proven architecture — with deliberate adaptations for Python's ecosystem.
+
+!!! tip "The Critter Stack for Python"
+    In .NET, [Wolverine](https://wolverine.netlify.app/) (messaging) and
+    [Marten](https://martendb.io/) (event sourcing) form the
+    **[Critter Stack](https://jeremydmiller.com/critter-stack/)** — a seamless combination for
+    building event-driven systems. waku brings this vision to Python: the
+    [messaging](index.md) and [event sourcing](../eventsourcing/index.md) modules are
+    designed to work together as a unified stack.
+
+### Differences from Wolverine
+
+Wolverine leverages .NET conventions and compile-time safety — assembly scanning discovers
+handlers by method name, attributes configure middleware, and routing is inferred from types.
+
+waku takes the opposite approach: **explicit over implicit**. Python has no compiler to catch
+misconfigured conventions, so waku makes everything visible in code:
+
+- **Handlers** are class-based (`RequestHandler`, `EventHandler`) with explicit
+  `MessagingExtension.bind()` registration — no naming conventions or classpath scanning.
+- **Pipeline behaviors** are declared via `behaviors=[...]` in `bind()` or
+  `MessagingConfig` — no attribute-based decoration.
+- **Routing** uses explicit `route()` / `route_module()` declarations — the full
+  topology is readable from the wiring module.
+
+What you see in the module definition is the complete picture. No hidden magic, full IDE
+support, and type checkers validate the wiring at development time.
+
+---
+
+## Installation
+
+waku includes core messaging out of the box:
+
+```bash
+uv add waku
+```
+
+For database persistence (transactional outbox, unit of work, dead letter store):
+
+```bash
+uv add waku --extra sqla
+```
+
+For [FastStream](https://faststream.airt.ai/) transport integration:
+
+```bash
+uv add waku --extra faststream
+```
+
+---
+
+## Quick Start
+
+Define a command, a handler, wire them into a module, and invoke:
+
+```python linenums="1"
+from dataclasses import dataclass
+
+from typing_extensions import override
+
+from waku import WakuFactory, module
+from waku.messaging import (
+    IRequest,
+    ISender,
+    MessagingExtension,
+    MessagingModule,
+    RequestHandler,
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class Greet(IRequest[str]):
+    name: str
+
+
+class GreetHandler(RequestHandler[Greet, str]):
+    @override
+    async def handle(self, request: Greet, /) -> str:
+        return f'Hello, {request.name}!'
+
+
+@module(
+    imports=[MessagingModule.register()],
+    extensions=[MessagingExtension().bind(Greet, GreetHandler)],
+)
+class AppModule:
+    pass
+
+
+async def main() -> None:
+    app = WakuFactory(AppModule).create()
+    async with app, app.container() as container:
+        sender = await container.get(ISender)
+        greeting = await sender.invoke(Greet(name='World'))
+        print(greeting)  # Hello, World!
+```
+
+That's it — register `MessagingModule` (no config needed for the simplest case), bind your
+message to a handler, and invoke. Read on for configuration, advanced dispatch methods, and
+the full feature set.
 
 ---
 
@@ -65,11 +167,14 @@ class AppModule:
 
 ### MessagingConfig
 
-| Option               | Type                                           | Default | Description                                                        |
-|----------------------|------------------------------------------------|---------|--------------------------------------------------------------------|
-| `pipeline_behaviors` | `Sequence[type[IPipelineBehavior]]`            | `()`    | Global pipeline behaviors applied to every message                 |
-| `endpoints`          | `Sequence[EndpointEntry]`                      | `()`    | Available message endpoints (see [Routing](routing.md))            |
-| `routing`            | `Sequence[RouteDescriptor \| ModuleRouteDescriptor]` | `()`    | Route descriptors mapping messages to endpoints (see [Routing](routing.md)) |
+| Option                | Type                                                 | Default | Description                                                                    |
+|-----------------------|------------------------------------------------------|---------|--------------------------------------------------------------------------------|
+| `pipeline_behaviors`  | `Sequence[type[IPipelineBehavior]]`                  | `()`    | Global pipeline behaviors applied to every message                             |
+| `endpoints`           | `Sequence[EndpointEntry]`                            | `()`    | Available message endpoints (see [Routing](routing.md))                        |
+| `routing`             | `Sequence[RouteDescriptor | ModuleRouteDescriptor]` | `()`    | Route descriptors mapping messages to endpoints (see [Routing](routing.md))    |
+| `error_policies`      | `Sequence[ResolvedRetryPolicy]`                      | `()`    | Error policies for endpoint workers (see [Error Handling](error-handling.md))  |
+| `dead_letter_store`   | `type[IDeadLetterStore] | Callable | None`           | `None`  | Dead letter store for failed messages (see [Error Handling](error-handling.md)) |
+| `outbox`              | `OutboxConfig | None`                                | `None`  | Outbox subsystem config — store, transport, relay (see [Outbox](outbox.md))    |
 
 Passing `None` (or no argument) to `MessagingModule.register()` uses the defaults:
 
@@ -78,6 +183,12 @@ Passing `None` (or no argument) to `MessagingModule.register()` uses the default
 MessagingModule.register()
 MessagingModule.register(MessagingConfig())
 ```
+
+!!! info "Validation rules"
+    waku validates configuration dependencies at startup:
+
+    - `external_endpoint` in `endpoints` requires `outbox`
+    - Error policies with `DEAD_LETTER` action require `dead_letter_store`
 
 `MessagingModule` is registered as a **global module** — its providers (message bus, event publisher,
 registry) are available to every module in the application without explicit imports.
@@ -135,7 +246,7 @@ The bus offers three dispatch methods with distinct semantics:
 | Method      | Returns    | Handlers  | Description                                                    |
 |-------------|------------|-----------|----------------------------------------------------------------|
 | `invoke()`  | `TResponse` | Exactly 1 | In-process request/response. Always inline.                   |
-| `send()`    | `None`     | Any       | Fire-and-forget via [endpoint](routing.md). Raises `NoRouteError` if no route. |
+| `send()`    | `None`     | Any       | Fire-and-forget via [endpoint](routing.md). Raises `NoRouteError` if message type has no handlers. |
 | `publish()` | `None`     | 0 or more | Fan-out via [endpoints](routing.md). Silent no-op if no subscribers. |
 
 ### `invoke()` — request/response
@@ -173,6 +284,21 @@ await publisher.publish(OrderPlaced(order_id='ORD-1', customer_id='CUST-1'))
 ```
 
 See [Events](events.md) for details on event handlers and publisher strategies.
+
+### Choosing a Dispatch Method
+
+Not sure which method to use? Start here:
+
+| Question | Answer | Method |
+|----------|--------|--------|
+| Do you need the handler's return value? | Yes | `invoke()` |
+| Is this a fire-and-forget command? | Yes | `send()` |
+| Should multiple handlers react independently? | Yes | `publish()` |
+
+!!! tip "Start simple"
+    If you're unsure, use `invoke()` — it runs inline, gives you a typed response, and raises
+    immediately on failure. Graduate to `send()` and `publish()` when you need decoupling,
+    background processing, or fan-out.
 
 ---
 
@@ -300,19 +426,22 @@ async def main() -> None:
 | `HandlerNotFound`                   | `bus.invoke()` is called for a request type with no registered handler |
 | `HandlerAlreadyRegistered`          | The same handler class is bound to the same message type twice         |
 | `MultipleHandlersRegistered`        | Multiple handlers registered for an `IRequest` type                    |
-| `NoRouteError`                      | `bus.send()` is called with no route configured for the message type   |
+| `NoRouteError`                      | `bus.send()` is called for a message type with no registered handlers  |
+| `ImproperlyConfiguredError`         | Invalid `MessagingConfig` at startup (e.g., external endpoint without outbox) |
 | `PipelineBehaviorAlreadyRegistered` | The same behavior class is bound to the same message type twice        |
 
 ## Next steps
 
-| Topic                                  | Description                                        |
-|----------------------------------------|----------------------------------------------------|
-| [Requests](requests.md)               | Commands, queries, and request handlers            |
-| [Events](events.md)                   | Event definitions, handlers, and publishers        |
-| [Pipeline Behaviors](pipeline.md)     | Cross-cutting middleware for request handling       |
-| [Routing & Endpoints](routing.md)     | Route messages to background endpoints             |
-| [Message Context](context.md)         | Correlation tracking across message chains         |
-| [Transactions](transactions.md)       | Unit of work and transactional pipeline behavior   |
+| Topic                                  | Description                                          |
+|----------------------------------------|------------------------------------------------------|
+| [Requests](requests.md)               | Commands, queries, and request handlers              |
+| [Events](events.md)                   | Event definitions, handlers, and publishers          |
+| [Pipeline Behaviors](pipeline.md)     | Cross-cutting middleware for request handling         |
+| [Routing & Endpoints](routing.md)     | Route messages to local queues and external systems  |
+| [Error Handling](error-handling.md)   | Retry policies, dead letter queues, failure recovery |
+| [Outbox & Transport](outbox.md)       | Transactional outbox, relay, and external transports |
+| [Message Context](context.md)         | Correlation tracking across message chains           |
+| [Transactions](transactions.md)       | Unit of work and transactional pipeline behavior     |
 
 ## Further reading
 

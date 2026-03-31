@@ -97,10 +97,10 @@ sourcing — so your codebase stays manageable as it scales.
 
     ---
 
-    DI alone doesn't decouple components — you need events.
     The [message bus](features/messaging/index.md) dispatches commands, queries, and events
-    so components never reference each other directly.
-    Pipeline behaviors handle cross-cutting concerns.
+    through pipeline behaviors. Route messages to local queues or external brokers via the
+    [transactional outbox](features/messaging/outbox.md), with built-in
+    [retry policies and dead letter queues](features/messaging/error-handling.md).
 
 -   :material-history: **Event Sourcing**
 

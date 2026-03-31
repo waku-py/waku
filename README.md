@@ -74,9 +74,9 @@ Python has no built-in way to enforce component boundaries. Packages don't contr
 ### Capabilities
 
 - 📨 [**Messaging**](https://docs.wakupy.dev/features/messaging/):
-  DI alone doesn't decouple components — you need events.
-  The message bus dispatches commands, queries, and events so components
-  never reference each other directly. Pipeline behaviors handle cross-cutting concerns.
+  The message bus dispatches commands, queries, and events through pipeline behaviors.
+  Route messages to local queues or external brokers via the transactional outbox,
+  with built-in retry policies and dead letter queues.
 - 📜 [**Event sourcing**](https://docs.wakupy.dev/features/eventsourcing/):
   Aggregates, projections, snapshots, upcasting, and the decider pattern
   with built-in SQLAlchemy adapters.

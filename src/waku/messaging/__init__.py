@@ -1,19 +1,12 @@
 from waku.messaging.behaviors.transactional import TransactionalBehavior
-from waku.messaging.config import MessagingConfig
+from waku.messaging.config import MessagingConfig, OutboxConfig
 from waku.messaging.context import MessageContext, get_message_context, try_get_message_context
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.contracts.message import IMessage, MessageT, ResponseT
 from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
 from waku.messaging.contracts.request import IRequest, RequestT
 from waku.messaging.endpoints.base import external_endpoint, local_queue
-from waku.messaging.exceptions import (
-    HandlerAlreadyRegistered,
-    HandlerNotFound,
-    MultipleHandlersRegistered,
-    NoRouteError,
-)
 from waku.messaging.handler import EventHandler, MessageHandler, RequestHandler
-from waku.messaging.impl import MessageBus
 from waku.messaging.interfaces import IMessageBus, IPublisher, ISender
 from waku.messaging.modules import MessagingExtension, MessagingModule
 from waku.messaging.router import route, route_module
@@ -21,8 +14,6 @@ from waku.messaging.router import route, route_module
 __all__ = [
     'CallNext',
     'EventHandler',
-    'HandlerAlreadyRegistered',
-    'HandlerNotFound',
     'IEvent',
     'IMessage',
     'IMessageBus',
@@ -30,15 +21,13 @@ __all__ = [
     'IPublisher',
     'IRequest',
     'ISender',
-    'MessageBus',
     'MessageContext',
     'MessageHandler',
     'MessageT',
     'MessagingConfig',
     'MessagingExtension',
     'MessagingModule',
-    'MultipleHandlersRegistered',
-    'NoRouteError',
+    'OutboxConfig',
     'RequestHandler',
     'RequestT',
     'ResponseT',

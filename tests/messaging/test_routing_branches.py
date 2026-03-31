@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing_extensions import override
 
 from waku import module
+from waku.di import object_
 from waku.messaging import (
     EventHandler,
     IEvent,
@@ -13,6 +14,7 @@ from waku.messaging import (
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
+    OutboxConfig,
     RequestHandler,
     external_endpoint,
 )
@@ -20,7 +22,9 @@ from waku.messaging.endpoints.base import local_queue
 from waku.messaging.endpoints.external import ExternalEndpoint
 from waku.messaging.router import MessageRouter, RoutingTable, route
 from waku.testing import create_test_app
+from waku.uow import IUnitOfWork
 
+from tests.messaging.helpers import FakeUoW, RecordingTransport
 from tests.messaging.outbox.fake_store import FakeOutboxStore
 
 
@@ -41,13 +45,14 @@ class TestRoutingBranches:
         config = MessagingConfig(
             endpoints=[local_queue('local-q'), external_endpoint('ext://bus')],
             routing=[route(_Notif).to('ext://bus')],
-            outbox_store=FakeOutboxStore,
+            outbox=OutboxConfig(store=FakeOutboxStore, transport=RecordingTransport),
         )
 
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_Notif, _DummyNotifHandler)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
             ) as app,
             app.container() as container,
         ):
