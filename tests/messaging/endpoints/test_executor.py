@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import TYPE_CHECKING
 
-import pytest
 from typing_extensions import override
 
 from waku.di import object_
@@ -18,12 +17,19 @@ from waku.messaging import (
 from waku.messaging.contracts.factory import EnvelopeFactory
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
-from waku.messaging.errors.policy import ResolvedRetryPolicy, RetryPolicy
+from waku.messaging.errors.policy import RetryPolicy
 from waku.messaging.errors.registry import ErrorPolicyRegistry
+from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
+from waku.messaging.registry import MessageRegistry
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests.messaging.helpers import NOOP_EVALUATOR, FailingDeadLetterStore, FakeUoW, RecordingDeadLetterStore
+
+if TYPE_CHECKING:
+    import pytest
+
+    from waku.application import WakuApplication
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,26 +37,44 @@ class _FailingCommand(IRequest[None]):
     value: str
 
 
-class _FailNTimesHandler(RequestHandler[_FailingCommand, None]):
-    calls: ClassVar[int] = 0
-    fail_count: ClassVar[int] = 1
+def _make_fail_n_times_handler(
+    fail_count: int = 1,
+) -> tuple[type[RequestHandler[_FailingCommand, None]], list[int]]:
+    calls: list[int] = []
 
-    @override
-    async def handle(self, request: _FailingCommand, /) -> None:
-        type(self).calls += 1
-        if type(self).calls <= type(self).fail_count:
-            msg = 'transient failure'
-            raise RuntimeError(msg)
+    class Handler(RequestHandler[_FailingCommand, None]):
+        @override
+        async def handle(self, request: _FailingCommand, /) -> None:
+            calls.append(1)
+            if len(calls) <= fail_count:
+                msg = 'transient failure'
+                raise RuntimeError(msg)
+
+    return Handler, calls
 
 
-class _AlwaysFailHandler(RequestHandler[_FailingCommand, None]):
-    calls: ClassVar[int] = 0
+def _make_always_fail_handler() -> tuple[type[RequestHandler[_FailingCommand, None]], list[int]]:
+    calls: list[int] = []
 
-    @override
-    async def handle(self, request: _FailingCommand, /) -> None:
-        type(self).calls += 1
-        msg = 'permanent failure'
-        raise ValueError(msg)
+    class Handler(RequestHandler[_FailingCommand, None]):
+        @override
+        async def handle(self, request: _FailingCommand, /) -> None:
+            calls.append(1)
+            msg = 'permanent failure'
+            raise ValueError(msg)
+
+    return Handler, calls
+
+
+async def _make_executor(
+    app: WakuApplication,
+    evaluator: ErrorPolicyEvaluator,
+    *,
+    uri: str = 'test://q',
+) -> EndpointExecutor:
+    registry = await app.container.get(MessageRegistry)
+    invoker = HandlerPipelineInvoker(registry)
+    return EndpointExecutor(container=app.container, evaluator=evaluator, endpoint_uri=uri, invoker=invoker)
 
 
 async def _run_executor(
@@ -61,80 +85,58 @@ async def _run_executor(
         imports=[MessagingModule.register()],
         extensions=[MessagingExtension().bind(_FailingCommand, handler)],
     ) as app:
-        executor = EndpointExecutor(container=app.container, evaluator=evaluator, endpoint_uri='test://q')
+        executor = await _make_executor(app, evaluator)
         envelope = EnvelopeFactory.create(_FailingCommand(value='test'))
         await executor.execute(envelope, handler)
 
 
-@pytest.mark.parametrize(
-    ('handler', 'fail_count', 'policies', 'expected_calls'),
-    [
-        pytest.param(
-            _FailNTimesHandler,
-            1,
-            [RetryPolicy.for_message(_FailingCommand).on_any_exception().retry(max_attempts=3)],
-            2,
-            id='transient_retried',
-        ),
-        pytest.param(
-            _AlwaysFailHandler,
-            None,
-            [RetryPolicy.for_message(_FailingCommand).on_any_exception().retry(max_attempts=2)],
-            2,
-            id='exhausted_retries',
-        ),
-        pytest.param(
-            _FailNTimesHandler,
-            1,
-            [
-                RetryPolicy
-                .for_message(_FailingCommand)
-                .on_any_exception()
-                .retry_with_backoff(
-                    max_attempts=3,
-                    base_delay=0.001,
-                    max_delay=0.01,
-                )
-            ],
-            2,
-            id='transient_backoff',
-        ),
-        pytest.param(
-            _AlwaysFailHandler,
-            None,
-            [RetryPolicy.for_message(_FailingCommand).on_any_exception().discard()],
-            1,
-            id='discard',
-        ),
-        pytest.param(
-            _AlwaysFailHandler,
-            None,
-            [],
-            1,
-            id='no_policy',
-        ),
-    ],
-)
-async def test_executor_retry_policies(
-    handler: type[_FailNTimesHandler | _AlwaysFailHandler],
-    fail_count: int | None,
-    policies: list[ResolvedRetryPolicy],
-    expected_calls: int,
-) -> None:
-    handler.calls = 0
-    if fail_count is not None:
-        handler.fail_count = fail_count  # type: ignore[union-attr]
-
-    evaluator = NOOP_EVALUATOR if not policies else ErrorPolicyEvaluator(ErrorPolicyRegistry(policies))
+async def test_executor_transient_retried() -> None:
+    handler, calls = _make_fail_n_times_handler(fail_count=1)
+    policies = [RetryPolicy.for_message(_FailingCommand).on_any_exception().retry(max_attempts=3)]
+    evaluator = ErrorPolicyEvaluator(ErrorPolicyRegistry(policies))
     await _run_executor(handler, evaluator)
+    assert len(calls) == 2
 
-    assert handler.calls == expected_calls
+
+async def test_executor_exhausted_retries() -> None:
+    handler, calls = _make_always_fail_handler()
+    policies = [RetryPolicy.for_message(_FailingCommand).on_any_exception().retry(max_attempts=2)]
+    evaluator = ErrorPolicyEvaluator(ErrorPolicyRegistry(policies))
+    await _run_executor(handler, evaluator)
+    assert len(calls) == 2
+
+
+async def test_executor_transient_backoff() -> None:
+    handler, calls = _make_fail_n_times_handler(fail_count=1)
+    policies = [
+        RetryPolicy
+        .for_message(_FailingCommand)
+        .on_any_exception()
+        .retry_with_backoff(max_attempts=3, base_delay=0.001, max_delay=0.01),
+    ]
+    evaluator = ErrorPolicyEvaluator(ErrorPolicyRegistry(policies))
+    await _run_executor(handler, evaluator)
+    assert len(calls) == 2
+
+
+async def test_executor_discard() -> None:
+    handler, calls = _make_always_fail_handler()
+    policies = [RetryPolicy.for_message(_FailingCommand).on_any_exception().discard()]
+    evaluator = ErrorPolicyEvaluator(ErrorPolicyRegistry(policies))
+    await _run_executor(handler, evaluator)
+    assert len(calls) == 1
+
+
+async def test_executor_no_policy() -> None:
+    handler, calls = _make_always_fail_handler()
+    await _run_executor(handler, NOOP_EVALUATOR)
+    assert len(calls) == 1
 
 
 class TestEndpointExecutorDeadLetter:
     @staticmethod
     async def test_dead_letter_policy_writes_entry_with_error_details() -> None:
-        _AlwaysFailHandler.calls = 0
+        handler, _ = _make_always_fail_handler()
         dl_store = RecordingDeadLetterStore()
         uow = FakeUoW()
 
@@ -145,13 +147,13 @@ class TestEndpointExecutorDeadLetter:
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
-            extensions=[MessagingExtension().bind(_FailingCommand, _AlwaysFailHandler)],
+            extensions=[MessagingExtension().bind(_FailingCommand, handler)],
             providers=[object_(uow, provided_type=IUnitOfWork)],
         ) as app:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
-            executor = EndpointExecutor(container=app.container, evaluator=evaluator, endpoint_uri='test://q')
+            executor = await _make_executor(app, evaluator)
             envelope = EnvelopeFactory.create(_FailingCommand(value='to-dlq'))
-            await executor.execute(envelope, _AlwaysFailHandler)
+            await executor.execute(envelope, handler)
 
         assert len(dl_store.entries) == 1
         assert 'permanent failure' in dl_store.entries[0].error_message
@@ -160,7 +162,7 @@ class TestEndpointExecutorDeadLetter:
 
     @staticmethod
     async def test_dead_letter_write_failure_is_logged_not_raised(caplog: pytest.LogCaptureFixture) -> None:
-        _AlwaysFailHandler.calls = 0
+        handler, _ = _make_always_fail_handler()
 
         config = MessagingConfig(
             error_policies=[RetryPolicy.for_message(_FailingCommand).on_any_exception().move_to_dead_letter()],
@@ -170,12 +172,12 @@ class TestEndpointExecutorDeadLetter:
         with caplog.at_level(logging.ERROR, logger='waku.messaging.endpoints.executor'):
             async with create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_FailingCommand, _AlwaysFailHandler)],
+                extensions=[MessagingExtension().bind(_FailingCommand, handler)],
                 providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
             ) as app:
                 evaluator = await app.container.get(ErrorPolicyEvaluator)
-                executor = EndpointExecutor(container=app.container, evaluator=evaluator, endpoint_uri='test://q')
+                executor = await _make_executor(app, evaluator)
                 envelope = EnvelopeFactory.create(_FailingCommand(value='dlq-fail'))
-                await executor.execute(envelope, _AlwaysFailHandler)
+                await executor.execute(envelope, handler)
 
         assert 'Failed to write dead letter entry' in caplog.text

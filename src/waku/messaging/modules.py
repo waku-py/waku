@@ -32,6 +32,7 @@ from waku.messaging.impl import MessageBus
 from waku.messaging.interfaces import IMessageBus
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
+from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.messaging.pipeline.map import PipelineBehaviorMapEntry
 from waku.messaging.registry import MessageRegistry
 from waku.messaging.router import MessageRouter, RoutingTable
@@ -68,7 +69,8 @@ class MessagingModule:
         providers: list[Provider] = [
             scoped(WithParents[IMessageBus], MessageBus),  # ty:ignore[not-subscriptable]
             singleton(EnvelopeFactory),
-            scoped(MessageDispatcher),
+            singleton(HandlerPipelineInvoker),
+            singleton(MessageDispatcher),
             transient(MessageContext, get_message_context),
             *cls._create_pipeline_behavior_providers(config_),
             *cls._infrastructure_providers(config_),
@@ -197,9 +199,11 @@ def _build_router(
     routing_table: RoutingTable,
     container: AsyncContainer,
     evaluator: ErrorPolicyEvaluator,
+    invoker: HandlerPipelineInvoker,
 ) -> MessageRouter:
     endpoints_by_uri = {
-        entry.uri: _create_endpoint(entry, routing_table, container, evaluator) for entry in routing_table.entries
+        entry.uri: _create_endpoint(entry, routing_table, container, evaluator, invoker)
+        for entry in routing_table.entries
     }
     return MessageRouter(
         routes={
@@ -215,10 +219,13 @@ def _create_endpoint(
     routing_table: RoutingTable,
     container: AsyncContainer,
     evaluator: ErrorPolicyEvaluator,
+    invoker: HandlerPipelineInvoker,
 ) -> Endpoint:
     match entry:
         case LocalQueueEntry():
-            executor = EndpointExecutor(container=container, evaluator=evaluator, endpoint_uri=entry.uri)
+            executor = EndpointExecutor(
+                container=container, evaluator=evaluator, endpoint_uri=entry.uri, invoker=invoker
+            )
             return LocalQueueEndpoint(
                 uri=entry.uri,
                 handler_subscriptions=routing_table.endpoint_subscriptions.get(entry.uri, {}),

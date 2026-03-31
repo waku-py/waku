@@ -25,6 +25,7 @@ from waku.messaging.contracts.factory import EnvelopeFactory
 from waku.messaging.endpoints.base import local_queue
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
+from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.messaging.router import route
 from waku.testing import create_test_app
 
@@ -40,6 +41,7 @@ def noop_executor(mocker: MockerFixture) -> EndpointExecutor:
         container=mocker.Mock(spec_set=AsyncContainer),
         evaluator=NOOP_EVALUATOR,
         endpoint_uri='test://q',
+        invoker=mocker.Mock(spec_set=HandlerPipelineInvoker),
     )
 
 
@@ -54,7 +56,7 @@ def stopped_endpoint(noop_executor: EndpointExecutor) -> LocalQueueEndpoint:
     )
 
 
-class TestLocalQueueEndpoint:
+class TestLocalQueueLifecycle:
     @staticmethod
     async def test_stop_without_start_is_noop(stopped_endpoint: LocalQueueEndpoint) -> None:
         await stopped_endpoint.stop()

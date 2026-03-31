@@ -43,7 +43,7 @@ class MessageBus(IMessageBus):
     async def invoke(self, request: IRequest[Any], /) -> Any:
         envelope = self._create_envelope(request)
         with message_context_scope(envelope):
-            return await self._dispatcher.invoke_request(request)
+            return await self._dispatcher.invoke_request(self._container, request)
 
     @override
     async def send(self, message: IMessage, /) -> None:

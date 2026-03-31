@@ -1,61 +1,37 @@
-from __future__ import annotations
+from typing import TYPE_CHECKING
 
-from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, cast
-
-from dishka.exceptions import NoFactoryError
-
-from waku.di import AsyncContainer  # noqa: TC001
-from waku.messaging.contracts.pipeline import IPipelineBehavior
-from waku.messaging.exceptions import HandlerNotFound, MultipleHandlersRegistered
-from waku.messaging.pipeline import PipelineExecutor
-from waku.messaging.registry import MessageRegistry  # noqa: TC001
+from waku.messaging.exceptions import HandlerNotFound
+from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
+from waku.messaging.registry import MessageRegistry
 
 if TYPE_CHECKING:
-    from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.contracts.message import IMessage, ResponseT
+    from waku.di import AsyncContainer
+    from waku.messaging.contracts.message import ResponseT
     from waku.messaging.contracts.request import IRequest
-    from waku.messaging.handler import MessageHandler
 
 
 class MessageDispatcher:
-    __slots__ = ('_container', '_registry')
+    __slots__ = ('_invoker', '_registry')
 
     def __init__(
         self,
-        container: AsyncContainer,
         registry: MessageRegistry,
+        invoker: HandlerPipelineInvoker,
     ) -> None:
-        self._container = container
         self._registry = registry
+        self._invoker = invoker
 
-    async def invoke_request(self, request: IRequest[ResponseT]) -> ResponseT:
+    async def invoke_request(self, scope: 'AsyncContainer', request: 'IRequest[ResponseT]') -> 'ResponseT':
+        """Resolve and execute the handler for *request* within the caller's *scope*.
+
+        The handler shares the caller's DI scope (and its transactional context).
+        This is intentional: ``invoke`` is inline request/response, not fire-and-forget.
+
+        Raises:
+            HandlerNotFound: If no handler is registered for the request type.
+        """
         request_type = type(request)
         handlers = self._registry.handler_map.get_handler_types(request_type)
         if len(handlers) == 0:
             raise HandlerNotFound(request_type)
-        if len(handlers) > 1:
-            raise MultipleHandlersRegistered(request_type)
-        handler_type = handlers[0]
-        handler = cast('MessageHandler[IRequest[ResponseT], ResponseT]', await self._container.get(handler_type))
-        behaviors = await self._resolve_behaviors(request_type)
-        return await PipelineExecutor.execute(message=request, handler=handler, behaviors=behaviors)  # pyrefly: ignore[bad-return]
-
-    async def execute_for_handler(self, message: IMessage, handler_type: HandlerType) -> None:
-        handler = await self._container.get(handler_type)
-        behaviors = await self._resolve_behaviors(type(message))
-        await PipelineExecutor.execute(message=message, handler=handler, behaviors=behaviors)
-
-    async def _resolve_behaviors(self, message_type: type[IMessage]) -> Sequence[IPipelineBehavior[Any, Any]]:
-        try:
-            global_behaviors = await self._container.get(Sequence[IPipelineBehavior[Any, Any]])
-        except NoFactoryError:
-            global_behaviors = ()
-
-        if not self._registry.behavior_map.has_behaviors(message_type):
-            return global_behaviors
-
-        lookup_type = self._registry.behavior_map.get_lookup_type(message_type)
-        scoped_behaviors = await self._container.get(Sequence[lookup_type])  # type: ignore[valid-type]
-
-        return (*global_behaviors, *scoped_behaviors)
+        return await self._invoker.invoke(scope, request, handlers[0])  # type: ignore[no-any-return]  # pyrefly: ignore[bad-return]

@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any, assert_never
 import anyio
 
 from waku.messaging.context import message_context_scope
-from waku.messaging.dispatcher import MessageDispatcher
 from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.errors.executor import FailureContext
 from waku.messaging.errors.policy import RetryAction
@@ -19,6 +18,7 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.errors.executor import ErrorPolicyEvaluator, PolicyOutcome
+    from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 
 __all__ = [
     'EndpointExecutor',
@@ -30,11 +30,11 @@ logger = logging.getLogger(__name__)
 class EndpointExecutor:
     """Executes message handlers with scope-per-attempt lifecycle, retry, and dead letter support.
 
-    Sits between endpoint workers and MessageDispatcher.
+    Sits between endpoint workers and the pipeline.
     Endpoints delegate to this class; they do not manage scopes, retries, or error handling directly.
     """
 
-    __slots__ = ('_container', '_endpoint_uri', '_evaluator')
+    __slots__ = ('_container', '_endpoint_uri', '_evaluator', '_invoker')
 
     def __init__(
         self,
@@ -42,10 +42,12 @@ class EndpointExecutor:
         container: AsyncContainer,
         evaluator: ErrorPolicyEvaluator,
         endpoint_uri: str,
+        invoker: HandlerPipelineInvoker,
     ) -> None:
         self._container = container
         self._evaluator = evaluator
         self._endpoint_uri = endpoint_uri
+        self._invoker = invoker
 
     async def execute(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> None:
         attempt = 0
@@ -66,9 +68,8 @@ class EndpointExecutor:
 
     async def _dispatch_in_scope(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> None:
         async with self._container() as scope:
-            dispatcher = await scope.get(MessageDispatcher)
             with message_context_scope(envelope):
-                await dispatcher.execute_for_handler(envelope.payload, handler_type)
+                await self._invoker.invoke(scope, envelope.payload, handler_type)
 
     def _evaluate(self, envelope: MessageEnvelope[Any], exc: Exception, attempt: int) -> PolicyOutcome | None:
         return self._evaluator.evaluate(

@@ -27,8 +27,7 @@ class ISender(abc.ABC):
     async def invoke(self, request: IRequest[ResponseT], /) -> ResponseT:
         """In-process request/response. Always inline, never routed.
 
-        Requires exactly one handler registered for the request type.
-        Raises HandlerNotFound if zero, MultipleHandlersRegistered if >1.
+        Raises HandlerNotFound if no handler is registered for the request type.
         """
 
     @abc.abstractmethod
