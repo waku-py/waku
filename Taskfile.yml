@@ -93,7 +93,7 @@ tasks:
   mypy:
     desc: Type check code with MyPy
     deps: [ .uv-locked ]
-    cmd: uv run mypy{{ if ne (env "MYPY_PRETTY") "0" }} --pretty{{end}} {{.SOURCES}}
+    cmd: uv run mypy{{ if ne (env "MYPY_PRETTY") "0" }} --pretty{{end}} --enable-incomplete-feature=TypeForm {{.SOURCES}}
 
   ty:
     desc: Type check code with Ty

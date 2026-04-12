@@ -8,6 +8,7 @@ from typing_extensions import override
 from waku.messaging.config import MessagingConfig
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.contracts.request import IRequest
+from waku.messaging.endpoints.base import LocalQueueEntry
 
 if TYPE_CHECKING:
     from waku.messaging.contracts.handler import HandlerType
@@ -259,7 +260,9 @@ def test_explicit_default_endpoint_is_not_auto_created() -> None:
 
     default_entries = [e for e in table.entries if e.uri == DEFAULT_ENDPOINT_URI]
     assert len(default_entries) == 1
-    assert default_entries[0].stop_timeout == 99.0  # type: ignore[union-attr]
+    entry = default_entries[0]
+    assert isinstance(entry, LocalQueueEntry)
+    assert entry.stop_timeout == 99.0
 
 
 def test_unrouted_events_assigned_to_default_endpoint() -> None:

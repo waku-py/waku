@@ -28,7 +28,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "adaptix>=3.0.0b11",
+  "adaptix>=3.0.0b12",
   "anyio>=4.13.0",
   "dishka>=1.9.1",
   "typing-extensions>=4.15.0",
@@ -36,7 +36,7 @@ dependencies = [
 
 [project.optional-dependencies]
 faststream = ["faststream>=0.6.7"]
-sqla = ["sqlalchemy[asyncio]>=2.0.48"]
+sqla = ["sqlalchemy[asyncio]>=2.0.49"]
 
 [project.urls]
 Repository = "https://github.com/waku-py/waku"
@@ -46,37 +46,37 @@ Issues = "https://github.com/waku-py/waku/issues"
 
 [dependency-groups]
 dev = [
-  "pysentry-rs==0.4.3",
+  "pysentry-rs==0.4.4",
 ]
 docs = [
   "mkdocstrings[python]>=1.0.3",
   "pymdown-extensions>=10.21.2",
-  "zensical==0.0.30",
+  "zensical==0.0.32",
 ]
 lint = [
   "deptry==0.25.1",
   "gitlint==0.19.1",
   "prek==0.3.8",
-  "ruff==0.15.8",
+  "ruff==0.15.10",
 ]
 test = [
   "coverage==7.13.5",
   "psycopg[binary]>=3.3.3",
-  "pytest==9.0.2",
+  "pytest==9.0.3",
   "pytest-clarity==1.0.1",
   "pytest-cov==7.1.0",
   "pytest-deadfixtures==3.1.0",
   "pytest-mock==3.15.1",
   "pytest-randomly==4.0.1",
   "pytest-timeout==2.4.0",
-  "sqlalchemy[asyncio]>=2.0.48",
+  "sqlalchemy[asyncio]>=2.0.49",
   "testcontainers[postgres]>=4.14.2",
   "uvloop==0.22.1; sys_platform != 'win32' and python_version < '3.14'",
 ]
 typecheck = [
-  "mypy==1.19.1",
-  "pyrefly==0.58.0",
-  "ty==0.0.26",
+  "mypy==1.20.0",
+  "pyrefly==0.60.2",
+  "ty==0.0.29",
 ]
 
 # ----- UV settings -----
@@ -94,8 +94,8 @@ addopts = [
   "--doctest-modules",
   "--strict-markers",
   "--strict-config",
-  "-W error::RuntimeWarning",
   "--cov-fail-under=98",
+  "-W error::RuntimeWarning",
 ]
 # pytest-timeout settings
 timeout = 15
@@ -245,7 +245,6 @@ exclude = [
 ]
 exclude_gitignore = true
 follow_imports = "normal"
-allow_redefinition = false
 allow_redefinition_new = true
 # Any is 'ok' as long as it is a wildcard
 disallow_any_explicit = false
