@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from dishka import Marker, Provider, Scope, activate, provide
-from dishka.exceptions import GraphMissingFactoryError
+from dishka.exceptions import NoActiveFactoryError
 
 from waku import WakuFactory, module
 from waku.di import Has, activator, contextual, scoped, singleton
@@ -243,19 +243,21 @@ async def demo_has_conditional() -> None:
         service = await container.get(MetricsService)
         service.track_request('/api/users')
 
-    # Without MetricsModule - graph validation fails because MetricsService
-    # depends on IMetricsCollector which is not registered
+    # Without MetricsModule - MetricsService's `Has(IMetricsCollector)` condition is unmet, so
+    # dishka silently deactivates it; resolving it then fails at request time.
     @module(
         providers=[scoped(MetricsService, when=Has(IMetricsCollector))],
     )
     class AppWithoutMetrics:
         pass
 
-    print('\nWithout MetricsModule (graph validation catches missing dependency):')
-    try:
-        WakuFactory(AppWithoutMetrics).create()
-    except GraphMissingFactoryError:
-        print('MetricsService cannot be created - IMetricsCollector not available (as expected)')
+    print('\nWithout MetricsModule (MetricsService is not activated):')
+    app = WakuFactory(AppWithoutMetrics).create()
+    async with app, app.container() as container:
+        try:
+            await container.get(MetricsService)
+        except NoActiveFactoryError:
+            print('MetricsService is not active - IMetricsCollector not available (as expected)')
 
 
 async def main() -> None:

@@ -70,3 +70,5 @@ site/
 # Plans
 docs/plans/
 plans/
+
+.claude/settings.local.json

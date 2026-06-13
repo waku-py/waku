@@ -192,7 +192,7 @@ engine = create_async_engine(DATABASE_URL, echo=False)
 
 async def create_session(engine_: AsyncEngine) -> AsyncIterator[AsyncSession]:
     async with AsyncSession(engine_, expire_on_commit=False) as session:
-        yield session
+        yield session  # noqa: ASYNC119
 
 
 es_config = EventSourcingConfig(

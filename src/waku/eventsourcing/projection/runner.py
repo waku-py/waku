@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import signal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import anyio
 
@@ -15,7 +15,7 @@ from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.store.interfaces import IEventReader
 from waku.uow import IUnitOfWork
 
-_DEFAULT_POLLING = PollingConfig()
+_DEFAULT_POLLING: Final = PollingConfig()
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -35,12 +35,12 @@ class CatchUpProjectionRunner:
         self,
         container: AsyncContainer,
         lock: IProjectionLock,
-        bindings: Sequence[CatchUpProjectionBinding],
+        registry: CatchUpProjectionRegistry,
         polling: PollingConfig = _DEFAULT_POLLING,
     ) -> None:
         self._container = container
         self._lock = lock
-        self._bindings = tuple(bindings)
+        self._registry = registry
         self._polling = polling
         self._shutdown_event = anyio.Event()
 
@@ -53,21 +53,18 @@ class CatchUpProjectionRunner:
         polling: PollingConfig = _DEFAULT_POLLING,
     ) -> CatchUpProjectionRunner:
         async with container() as scope:
-            projection_registry = await scope.get(CatchUpProjectionRegistry)
+            registry = await scope.get(CatchUpProjectionRegistry)
         if projections is not None:
-            projection_set = set(projections)
-            bindings = [b for b in projection_registry if b.projection in projection_set]
-        else:
-            bindings = list(projection_registry)
+            registry = registry.subset(projections)
         return cls(
             container=container,
             lock=lock,
-            bindings=bindings,
+            registry=registry,
             polling=polling,
         )
 
     async def run(self) -> None:
-        if not self._bindings:
+        if not self._registry:
             logger.warning('No catch-up projections registered, exiting')
             return
 
@@ -76,7 +73,7 @@ class CatchUpProjectionRunner:
             tg.start_soon(self._run_all_projections, tg.cancel_scope)
 
     async def rebuild(self, projection_name: str) -> None:
-        binding = self._find_binding(projection_name)
+        binding = self._registry.get(projection_name)
 
         async with self._lock.acquire(projection_name) as acquired:
             if not acquired:
@@ -98,32 +95,17 @@ class CatchUpProjectionRunner:
                 await uow.commit()
 
             while True:
-                async with self._container() as scope:
-                    projection = await scope.get(binding.projection)
-                    reader = await scope.get(IEventReader)
-                    checkpoint_store = await scope.get(ICheckpointStore)
-                    uow = await scope.get(IUnitOfWork)
-                    processed = await processor.run_once(projection, reader, checkpoint_store)
-                    if processed > 0:
-                        await uow.commit()
-
+                processed = await self._run_cycle(binding, processor)
                 if processed == 0:
                     break
 
     def request_shutdown(self) -> None:
         self._shutdown_event.set()
 
-    def _find_binding(self, projection_name: str) -> CatchUpProjectionBinding:
-        for binding in self._bindings:
-            if binding.projection.projection_name == projection_name:
-                return binding
-        msg = f'Projection {projection_name!r} not found'
-        raise ValueError(msg)
-
     async def _run_all_projections(self, cancel_scope: anyio.CancelScope) -> None:
         try:
             async with anyio.create_task_group() as tg:
-                for binding in self._bindings:
+                for binding in self._registry:
                     tg.start_soon(self._run_projection, binding)
         finally:
             cancel_scope.cancel()
@@ -155,19 +137,12 @@ class CatchUpProjectionRunner:
     ) -> None:
         while not self._shutdown_event.is_set():
             try:
-                async with self._container() as scope:
-                    projection = await scope.get(binding.projection)
-                    reader = await scope.get(IEventReader)
-                    checkpoint_store = await scope.get(ICheckpointStore)
-                    uow = await scope.get(IUnitOfWork)
-                    processed = await processor.run_once(projection, reader, checkpoint_store)
-                    if processed > 0:
-                        await uow.commit()
+                processed = await self._run_cycle(binding, processor)
             except ProjectionError:
                 raise
             except Exception:
                 logger.exception(
-                    'Projection %r: scope resolution or processing failed, will retry next cycle',
+                    'Projection %r: cycle failed, will retry next poll',
                     binding.projection.projection_name,
                 )
                 processed = 0
@@ -180,6 +155,21 @@ class CatchUpProjectionRunner:
             wait_seconds = interval.current_with_jitter()
             with anyio.move_on_after(wait_seconds):
                 await self._shutdown_event.wait()
+
+    async def _run_cycle(
+        self,
+        binding: CatchUpProjectionBinding,
+        processor: ProjectionProcessor,
+    ) -> int:
+        async with self._container() as scope:
+            projection = await scope.get(binding.projection)
+            reader = await scope.get(IEventReader)
+            checkpoint_store = await scope.get(ICheckpointStore)
+            uow = await scope.get(IUnitOfWork)
+            processed = await processor.run_once(projection, reader, checkpoint_store)
+            if processed > 0:
+                await uow.commit()
+            return processed
 
     async def _signal_listener(self, cancel_scope: anyio.CancelScope) -> None:  # pragma: no cover
         try:

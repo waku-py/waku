@@ -1,9 +1,11 @@
 from typing import NewType, Protocol
 
-from dishka import Has
+import pytest
+from dishka import Marker
 
 from waku import module
 from waku.di import Scope, contextual, scoped, singleton
+from waku.exceptions import ImproperlyConfiguredError
 from waku.extensions import OnModuleConfigure, OnModuleDestroy, OnModuleInit
 from waku.modules import Module, ModuleMetadata
 from waku.testing import create_test_app
@@ -125,19 +127,16 @@ async def test_create_test_app_with_base_module() -> None:
         assert service.get_value() == 'fake'
 
 
-async def test_create_test_app_with_base_module_and_conditional_provider() -> None:
+async def test_create_test_app_rejects_conditional_override() -> None:
     @module(providers=[singleton(IService, RealService)])
     class BaseModule:
         pass
 
-    conditional_provider = singleton(IService, FakeService, when=Has(IService))
+    conditional_override = singleton(IService, FakeService, when=Marker('feature'))
 
-    async with create_test_app(
-        base=BaseModule,
-        providers=[conditional_provider],
-    ) as app:
-        service = await app.container.get(IService)
-        assert service.get_value() == 'fake'
+    with pytest.raises(ImproperlyConfiguredError):
+        async with create_test_app(base=BaseModule, providers=[conditional_override]):
+            pass
 
 
 async def test_create_test_app_base_module_without_override() -> None:

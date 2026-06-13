@@ -3,10 +3,12 @@ from dataclasses import dataclass
 from typing import Final
 
 import pytest
+from dishka import Marker
 from dishka.exceptions import NothingOverriddenError
 
 from waku import WakuApplication, WakuFactory
 from waku.di import AsyncContainer, Provider, Scope, contextual, object_, scoped, singleton, transient
+from waku.exceptions import ImproperlyConfiguredError
 from waku.testing import create_test_app, override
 
 from tests.module_utils import create_basic_module
@@ -72,6 +74,20 @@ async def application() -> AsyncIterator[WakuApplication]:
 async def request_container(application: WakuApplication) -> AsyncIterator[AsyncContainer]:
     async with application.container() as request_container:
         yield request_container
+
+
+async def test_override_rejects_conditional_provider() -> None:
+    AppModule = create_basic_module(
+        providers=[scoped(ISomeService, SomeService)],
+        name='AppModule',
+    )
+
+    application = WakuFactory(AppModule).create()
+    conditional_override = scoped(ISomeService, FakeSomeService, when=Marker('feature'))
+
+    async with application:
+        with pytest.raises(ImproperlyConfiguredError), override(application.container, conditional_override):
+            pass
 
 
 @pytest.mark.parametrize('provider_type', [transient, scoped, singleton])

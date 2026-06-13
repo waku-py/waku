@@ -4,7 +4,9 @@ from abc import ABC, abstractmethod
 from itertools import chain
 from typing import TYPE_CHECKING
 
+from dishka.entities.component import DEFAULT_COMPONENT
 from dishka.entities.factory_type import FactoryType
+from dishka.entities.marker import BoolMarker
 from typing_extensions import override
 
 from waku.di import Scope
@@ -16,6 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
     from dishka import AsyncContainer
+    from dishka.dependency_source import Factory
     from dishka.entities.key import DependencyKey
 
     from waku.modules import Module, ModuleRegistry
@@ -191,6 +194,30 @@ class DependencyAccessChecker:
         return any(strategy.is_accessible(required_type, module) for strategy in self._strategies)
 
 
+def _factory_identity(factory: Factory) -> tuple[object, object, object]:
+    # Normalize: module-side `provides.component` is `None`; container copies use `DEFAULT_COMPONENT`.
+    provides = factory.provides
+    return provides.type_hint, provides.component or DEFAULT_COMPONENT, factory.source
+
+
+def _inactive_factory_ids(container: AsyncContainer) -> frozenset[tuple[object, object, object]]:
+    """Return factory ids dishka statically deactivated at build time.
+
+    dishka 1.10+ marks unreachable factories with ``when_active == when_override == BoolMarker(False)``
+    — mirroring its own graph-validator skip predicate (``when_active=None`` means always-active).
+    Accessibility validation must skip these too, or it flags deps of providers that are never instantiated.
+    """
+    deactivated = BoolMarker(value=False)
+    inactive: set[tuple[object, object, object]] = set()
+    registry = container.registry
+    while registry is not None:
+        for factory in registry.factories.values():
+            if factory.when_active == deactivated and factory.when_override == deactivated:
+                inactive.add(_factory_identity(factory))
+        registry = registry.child_registry
+    return frozenset(inactive)
+
+
 class DependenciesAccessibleRule(ValidationRule):
     """Validates that all dependencies required by providers are accessible."""
 
@@ -216,10 +243,13 @@ class DependenciesAccessibleRule(ValidationRule):
         ]
 
         checker = DependencyAccessChecker(strategies)
+        inactive_factories = _inactive_factory_ids(container)
         errors: list[ValidationError] = []
 
         for module in modules:
             for factory in module.provider.factories:
+                if _factory_identity(factory) in inactive_factories:
+                    continue
                 inaccessible_deps = checker.find_inaccessible_dependencies(
                     dependencies=factory.dependencies,
                     module=module,

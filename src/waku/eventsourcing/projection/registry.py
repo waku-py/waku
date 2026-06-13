@@ -3,9 +3,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
 
     from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
+    from waku.eventsourcing.projection.interfaces import ICatchUpProjection
 
 __all__ = ['CatchUpProjectionRegistry']
 
@@ -34,3 +35,7 @@ class CatchUpProjectionRegistry:
         except KeyError:
             msg = f'Projection {projection_name!r} not found'
             raise ValueError(msg) from None
+
+    def subset(self, projections: Sequence[type[ICatchUpProjection]]) -> CatchUpProjectionRegistry:
+        wanted = set(projections)
+        return CatchUpProjectionRegistry(tuple(b for b in self._bindings if b.projection in wanted))

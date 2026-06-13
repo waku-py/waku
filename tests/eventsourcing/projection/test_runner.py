@@ -27,7 +27,7 @@ from tests.eventsourcing.projection.helpers import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Sequence
+    from collections.abc import AsyncGenerator, Sequence
 
     from waku.application import WakuApplication
     from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
@@ -54,7 +54,7 @@ class _NoOpUoW(IUnitOfWork):
 class AlwaysLockedLock(IProjectionLock):
     @override
     @contextlib.asynccontextmanager
-    async def acquire(self, projection_name: str) -> AsyncIterator[bool]:
+    async def acquire(self, projection_name: str) -> AsyncGenerator[bool]:
         yield False
 
 
@@ -267,7 +267,7 @@ async def test_poll_loop_logs_and_continues_on_scope_error(
         runner = CatchUpProjectionRunner(
             container=app.container,
             lock=lock,
-            bindings=(binding,),
+            registry=CatchUpProjectionRegistry((binding,)),
             polling=_FAST_POLLING,
         )
         await _run_briefly(runner)

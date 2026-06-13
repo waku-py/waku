@@ -1,5 +1,5 @@
 [build-system]
-requires = ["uv_build>=0.11.1,<0.12.0"]
+requires = ["uv_build>=0.11.21,<0.12.0"]
 build-backend = "uv_build"
 
 [project]
@@ -30,13 +30,13 @@ classifiers = [
 dependencies = [
   "adaptix>=3.0.0b12",
   "anyio>=4.13.0",
-  "dishka>=1.9.1",
+  "dishka>=1.10.1",
   "typing-extensions>=4.15.0",
 ]
 
 [project.optional-dependencies]
-faststream = ["faststream>=0.6.7"]
-sqla = ["sqlalchemy[asyncio]>=2.0.49"]
+faststream = ["faststream>=0.7.1"]
+sqla = ["sqlalchemy[asyncio]>=2.0.50"]
 
 [project.urls]
 Repository = "https://github.com/waku-py/waku"
@@ -46,44 +46,45 @@ Issues = "https://github.com/waku-py/waku/issues"
 
 [dependency-groups]
 dev = [
-  "pysentry-rs==0.4.4",
+  "pysentry-rs==0.4.6",
 ]
 docs = [
-  "mkdocstrings[python]>=1.0.3",
-  "pymdown-extensions>=10.21.2",
-  "zensical==0.0.32",
+  "mkdocstrings[python]>=1.0.4",
+  "pymdown-extensions>=10.21.3",
+  "zensical==0.0.45",
 ]
 lint = [
   "deptry==0.25.1",
   "gitlint==0.19.1",
-  "prek==0.3.8",
-  "ruff==0.15.10",
+  "prek==0.4.4",
+  "ruff==0.15.17",
 ]
 test = [
-  "coverage==7.13.5",
-  "psycopg[binary]>=3.3.3",
+  "coverage==7.14.1",
+  "psycopg[binary]>=3.3.4",
   "pytest==9.0.3",
   "pytest-clarity==1.0.1",
   "pytest-cov==7.1.0",
   "pytest-deadfixtures==3.1.0",
   "pytest-mock==3.15.1",
-  "pytest-randomly==4.0.1",
+  "pytest-randomly==4.1.0",
   "pytest-timeout==2.4.0",
-  "sqlalchemy[asyncio]>=2.0.49",
+  "sqlalchemy[asyncio]>=2.0.50",
   "testcontainers[postgres]>=4.14.2",
   "uvloop==0.22.1; sys_platform != 'win32' and python_version < '3.14'",
 ]
 typecheck = [
-  "mypy==1.20.0",
-  "pyrefly==0.60.2",
-  "ty==0.0.29",
+  "mypy[faster-cache]>=2.1.0",
+  "pyrefly>=1.0.0",
+  "ty==0.0.49",
+  "zuban>=0.8.2"
 ]
 
 # ----- UV settings -----
 [tool.uv]
 default-groups = "all"
-required-version = ">=0.11.1"
-override-dependencies = ["click>=8.3.1"]
+required-version = ">=0.11.21"
+override-dependencies = ["click>=8.4.1"]
 
 # ----- Pytest settings -----
 [tool.pytest.ini_options]
@@ -243,6 +244,7 @@ exclude = [
   "docs/code/integrations",
   "docs/code/providers",
 ]
+enable_incomplete_feature = ["TypeForm"]
 exclude_gitignore = true
 follow_imports = "normal"
 allow_redefinition_new = true
@@ -281,10 +283,15 @@ exclude = [
 unused-type-ignore-comment = "ignore"
 
 
+# ----- Zuban settings -----
+[tool.zuban]
+mode = "default"
+
+
 # ----- Semantic release settings -----
 [tool.semantic_release]
 build_command = """
-    command -v uv 2>/dev/null || pip install uv==0.11.1
+    command -v uv 2>/dev/null || pip install uv==0.11.21
     uv lock --upgrade-package "$PACKAGE_NAME"
     git add uv.lock
     uv build

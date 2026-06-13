@@ -10,6 +10,7 @@ from dishka.entities.factory_type import FactoryType
 from dishka.entities.marker import BaseMarker, BoolMarker
 
 from waku.di import DEFAULT_COMPONENT, AsyncContainer, BaseProvider
+from waku.exceptions import ImproperlyConfiguredError
 from waku.extensions import DEFAULT_EXTENSIONS
 from waku.factory import WakuFactory
 from waku.modules import module
@@ -33,6 +34,7 @@ __all__ = [
 
 
 class _HasOverride(Protocol):
+    when_active: BaseMarker | None
     when_override: BaseMarker | None
 
 
@@ -235,6 +237,11 @@ async def create_test_app(
 def _mark_as_overrides(providers: Sequence[BaseProvider]) -> None:
     for prov in providers:
         for factory in chain[_HasOverride](prov.factories, prov.aliases):
+            # dishka forbids combining `when=` with an override: an override replaces base providers
+            # unconditionally, so a conditional one would silently drop its activation condition.
+            if factory.when_active is not None:
+                msg = 'A conditional provider (declared with `when=`) cannot be used as an override.'
+                raise ImproperlyConfiguredError(msg)
             factory.when_override = BoolMarker(True)  # noqa: FBT003
         for context_var in prov.context_vars:
             context_var.override = True

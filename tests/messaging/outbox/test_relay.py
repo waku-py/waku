@@ -27,7 +27,7 @@ from tests.messaging.helpers import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Sequence
+    from collections.abc import AsyncGenerator, Sequence
 
     import pytest
 
@@ -146,13 +146,15 @@ async def _run_relay(
     config: OutboxRelayConfig = _FAST_CONFIG,
     *,
     sleep: float = 0.1,
-) -> AsyncIterator[None]:
+) -> AsyncGenerator[None]:
     async with make_async_container(provider) as container:
         relay = OutboxRelay(container=container, config=config)
         await relay.start()
         await anyio.sleep(sleep)
-        yield
-        await relay.stop()
+        try:
+            yield
+        finally:
+            await relay.stop()
 
 
 class TestOutboxRelay:

@@ -1,13 +1,11 @@
-project-includes = ["src"]
+project-includes = ["src", "tests"]
 project-excludes = [
-    "**/__pycache__",
-    "tests",
+  "**/__pycache__",
 ]
-python-platform = "linux"
+search-path = ["src", "tests", "."]
 python-version = "3.11"
 
-[errors]
-missing-import = "error"
-
-[[sub-config]]
-matches = "src"
+permissive-ignores = true
+ignore-missing-imports = [
+  "gitlint.*",
+]

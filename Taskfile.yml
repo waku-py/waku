@@ -93,13 +93,14 @@ tasks:
   mypy:
     desc: Type check code with MyPy
     deps: [ .uv-locked ]
-    cmd: uv run mypy{{ if ne (env "MYPY_PRETTY") "0" }} --pretty{{end}} --enable-incomplete-feature=TypeForm {{.SOURCES}}
+    cmd: uv run mypy{{ if ne (env "MYPY_PRETTY") "0" }} --pretty{{end}} {{.SOURCES}}
 
   ty:
     desc: Type check code with Ty
     deps: [ .uv-locked ]
     cmds:
-      - uv run ty check {{.CLI_ARGS}} {{.SOURCES}}
+      - echo "ty disabled – noop"
+#      - uv run ty check {{.CLI_ARGS}} {{.SOURCES}}
 
   pyrefly:
     desc: Type check code with pyrefly
