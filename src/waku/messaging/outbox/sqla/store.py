@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from waku.messaging.errors.sqla.tables import dead_letter_table
@@ -42,7 +42,7 @@ class SqlAlchemyOutboxStore(IOutboxStore):
                 'destination': msg.destination,
                 'correlation_id': msg.correlation_id,
                 'causation_id': msg.causation_id,
-                'stream_id': msg.stream_id,
+                'group_id': msg.group_id,
                 'sequence_number': msg.sequence_number,
                 'status': msg.status,
                 'retry_count': msg.retry_count,
@@ -67,6 +67,53 @@ class SqlAlchemyOutboxStore(IOutboxStore):
         stmt = (
             update(_t)
             .where(_t.c.id.in_(select(pending_cte.c.id)))
+            .values(status=OutboxStatus.PROCESSING.value, processing_started_at=now)
+            .returning(*_t.c)
+        )
+        result = await self._session.execute(stmt)
+        return [_row_to_model(row) for row in result.fetchall()]
+
+    async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
+        now = func.now()
+        pending = _t.c.status == OutboxStatus.PENDING.value
+        ready = func.coalesce(_t.c.next_retry_at, now) <= now
+
+        # Head of each partition: the lowest unprocessed sequence per group_id. DISTINCT ON cannot
+        # carry a locking clause (PostgreSQL rejects FOR UPDATE with DISTINCT), so this CTE only reads.
+        # No xmin/commit-order filter is needed — the allocator's per-group row lock + MVCC already
+        # serialize allocations and hide uncommitted rows (verified .research/sequence_rowlock_mre.md);
+        # the xid8 fix addresses the global-BIGSERIAL variant we do not have.
+        partitioned_heads = (
+            select(_t.c.id)
+            .distinct(_t.c.group_id)
+            .where(pending)
+            .where(ready)
+            .where(_t.c.group_id.isnot(None))
+            .order_by(_t.c.group_id, _t.c.sequence_number.asc())
+            .cte('partitioned_heads')
+        )
+
+        # Claim against the BASE TABLE: FOR UPDATE SKIP LOCKED is invalid over a UNION/DISTINCT
+        # subquery, so the locking SELECT reads `outbox_messages` directly and filters to each group's
+        # head OR any keyless (group_id IS NULL) row. `OF outbox_messages` scopes the lock to base rows,
+        # never the read-only heads CTE. If a group's head row is already locked by another worker,
+        # SKIP LOCKED drops that group for this cycle — it never falls through to a higher sequence, so
+        # per-group FIFO holds. Keyless rows are claimed concurrently; their created_at ordering is
+        # fetch fairness only, NOT a serialization guarantee.
+        to_process = (
+            select(_t.c.id)
+            .where(pending)
+            .where(ready)
+            .where(or_(_t.c.group_id.is_(None), _t.c.id.in_(select(partitioned_heads.c.id))))
+            .order_by(_t.c.created_at.asc())
+            .limit(batch_size)
+            .with_for_update(skip_locked=True, of=_t)
+            .cte('to_process')
+        )
+
+        stmt = (
+            update(_t)
+            .where(_t.c.id.in_(select(to_process.c.id)))
             .values(status=OutboxStatus.PROCESSING.value, processing_started_at=now)
             .returning(*_t.c)
         )
@@ -142,7 +189,7 @@ def _row_to_model(row: Any) -> OutboxMessage:
         destination=row.destination,
         correlation_id=row.correlation_id,
         causation_id=row.causation_id,
-        stream_id=row.stream_id,
+        group_id=row.group_id,
         sequence_number=row.sequence_number,
         status=OutboxStatus(row.status),
         retry_count=row.retry_count,

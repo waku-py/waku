@@ -14,15 +14,24 @@ from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.inbox.receiver import DurableReceiver
+from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.transport.serialization import IEnvelopeSerializer
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, RecordingDeadLetterStore, make_envelope, make_serializer
+from tests.messaging.helpers import (
+    FakeUoW,
+    RecordingAllocator,
+    RecordingDeadLetterStore,
+    make_envelope,
+    make_serializer,
+    order_id_partition,
+)
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
+    from waku.messaging.partition import PartitionKeyExtractor
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -48,12 +57,18 @@ class _FailingHandler(EventHandler[_OrderPlaced]):
 class _ReceiverDepsProvider(Provider):
     scope = Scope.REQUEST
 
-    def __init__(self, inbox: IInboxStore, dead_letter: IDeadLetterStore) -> None:
+    def __init__(
+        self,
+        inbox: IInboxStore,
+        dead_letter: IDeadLetterStore,
+        allocator: ISequenceAllocator | None = None,
+    ) -> None:
         super().__init__()
         self._inbox = inbox
         self._dead_letter = dead_letter
         self._serializer: IEnvelopeSerializer = make_serializer(_OrderPlaced)
         self._uow: IUnitOfWork = FakeUoW()
+        self._allocator = allocator or RecordingAllocator()
 
     @provide
     def inbox(self) -> IInboxStore:
@@ -71,6 +86,10 @@ class _ReceiverDepsProvider(Provider):
     def uow(self) -> IUnitOfWork:
         return self._uow
 
+    @provide
+    def sequence_allocator(self) -> ISequenceAllocator:
+        return self._allocator
+
 
 class _StubExecutor(EndpointExecutor):
     def __init__(self, *, return_value: ExecutionOutcome) -> None:
@@ -84,13 +103,19 @@ class _StubExecutor(EndpointExecutor):
         return self.return_value
 
 
-def _receiver(container: Any, executor: _StubExecutor) -> DurableReceiver:
+def _receiver(
+    container: Any,
+    executor: _StubExecutor,
+    *,
+    partition_by: PartitionKeyExtractor | None = None,
+) -> DurableReceiver:
     return DurableReceiver(
         container=container,
         executor=executor,
         inbox_config=InboxConfig(store=FakeInboxStore),
         owner_id='node-a:1',
         endpoint_uri='local://orders',
+        partition_by=partition_by,
     )
 
 
@@ -139,3 +164,39 @@ class TestDurableReceiver:
 
         # Composite-key: the handler's row was deleted, leaving the inbox empty.
         assert inbox.entries == {}
+
+
+class TestDurableReceiverPartitioning:
+    @staticmethod
+    async def test_receive_persists_group_id_and_sequence_from_envelope() -> None:
+        inbox = FakeInboxStore()
+        allocator = RecordingAllocator()
+        async with make_async_container(
+            _ReceiverDepsProvider(inbox, RecordingDeadLetterStore(), allocator)
+        ) as container:
+            receiver = _receiver(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS))
+            await receiver.receive(make_envelope(_OrderPlaced(order_id='o-2'), group_id='o-2'), _RecordingHandler)
+
+        stored = next(iter(inbox.entries.values()))
+        assert stored.group_id == 'o-2'
+        assert stored.sequence_number == 1
+        assert allocator.calls == ['o-2']
+
+    @staticmethod
+    async def test_receive_applies_partition_by_when_envelope_has_no_group() -> None:
+        inbox = FakeInboxStore()
+        allocator = RecordingAllocator()
+        async with make_async_container(
+            _ReceiverDepsProvider(inbox, RecordingDeadLetterStore(), allocator)
+        ) as container:
+            receiver = _receiver(
+                container,
+                _StubExecutor(return_value=ExecutionOutcome.SUCCESS),
+                partition_by=order_id_partition,
+            )
+            await receiver.receive(make_envelope(_OrderPlaced(order_id='o-5')), _RecordingHandler)
+
+        stored = next(iter(inbox.entries.values()))
+        assert stored.group_id == 'o-5'
+        assert stored.sequence_number == 1
+        assert allocator.calls == ['o-5']

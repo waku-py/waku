@@ -7,10 +7,18 @@ import pytest
 from waku.messaging.context import (
     MessageContext,
     get_message_context,
+    message_context_scope,
     reset_message_context,
     set_message_context,
     try_get_message_context,
 )
+from waku.messaging.contracts.message import IMessage
+
+from tests.messaging.helpers import make_envelope
+
+
+class _SampleMessage(IMessage):
+    pass
 
 
 def _make_context() -> MessageContext:
@@ -61,3 +69,15 @@ def test_token_reset_restores_previous_state() -> None:
         assert get_message_context() is first
     finally:
         reset_message_context(first_token)
+
+
+def test_scope_copies_group_id_from_envelope() -> None:
+    envelope = make_envelope(_SampleMessage(), group_id='order-7')
+    with message_context_scope(envelope):
+        assert get_message_context().group_id == 'order-7'
+
+
+def test_scope_defaults_group_id_to_none_when_envelope_has_none() -> None:
+    envelope = make_envelope(_SampleMessage())
+    with message_context_scope(envelope):
+        assert get_message_context().group_id is None

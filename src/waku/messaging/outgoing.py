@@ -17,15 +17,15 @@ __all__ = [
 ]
 
 
-class _Action(enum.Enum):
+class Action(enum.Enum):
     SEND = 'send'
     PUBLISH = 'publish'
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class _PendingMessage:
+class PendingMessage:
     message: IMessage
-    action: _Action
+    action: Action
 
 
 class IOutgoingMessages(Protocol):
@@ -57,14 +57,14 @@ class IOutgoingMessagesFrames(Protocol):
     """
 
     def push_frame(self) -> None: ...
-    def pop_frame(self) -> list[_PendingMessage]: ...
+    def pop_frame(self) -> list[PendingMessage]: ...
     def discard_frame(self) -> None: ...
-    def drain_current_frame(self) -> list[_PendingMessage]: ...
-    def defer(self, messages: Sequence[_PendingMessage], /) -> None: ...
-    def drain_deferred(self) -> list[_PendingMessage]: ...
+    def drain_current_frame(self) -> list[PendingMessage]: ...
+    def defer(self, messages: Sequence[PendingMessage], /) -> None: ...
+    def drain_deferred(self) -> list[PendingMessage]: ...
 
     @property
-    def pending(self) -> Sequence[_PendingMessage]: ...
+    def pending(self) -> Sequence[PendingMessage]: ...
 
 
 class OutgoingMessages(IOutgoingMessages, IOutgoingMessagesFrames):
@@ -79,20 +79,20 @@ class OutgoingMessages(IOutgoingMessages, IOutgoingMessagesFrames):
     __slots__ = ('_deferred', '_frames')
 
     def __init__(self) -> None:
-        self._frames: list[list[_PendingMessage]] = []
-        self._deferred: list[_PendingMessage] = []
+        self._frames: list[list[PendingMessage]] = []
+        self._deferred: list[PendingMessage] = []
 
     def send(self, request: IRequest[Any], /) -> None:
-        self._current_frame.append(_PendingMessage(message=request, action=_Action.SEND))
+        self._current_frame.append(PendingMessage(message=request, action=Action.SEND))
 
     def publish(self, event: IEvent, /) -> None:
-        self._current_frame.append(_PendingMessage(message=event, action=_Action.PUBLISH))
+        self._current_frame.append(PendingMessage(message=event, action=Action.PUBLISH))
 
     def push_frame(self) -> None:
         """Start a new nesting level. Called by ``CascadingBehavior`` before dispatch."""
         self._frames.append([])
 
-    def pop_frame(self) -> list[_PendingMessage]:
+    def pop_frame(self) -> list[PendingMessage]:
         """Complete current level, return its messages. Called by ``CascadingBehavior`` after pipeline success.
 
         Paired with ``push_frame`` by ``CascadingBehavior`` (push on entry, pop on success /
@@ -104,7 +104,7 @@ class OutgoingMessages(IOutgoingMessages, IOutgoingMessagesFrames):
         """Discard current level's messages. Called by ``CascadingBehavior`` on pipeline failure."""
         self._frames.pop()
 
-    def drain_current_frame(self) -> list[_PendingMessage]:
+    def drain_current_frame(self) -> list[PendingMessage]:
         """Return + clear contents of the current frame WITHOUT popping it.
 
         Used by ``OutboxCascadingBehavior`` (M2b.1) to flush cascades inside the
@@ -118,7 +118,7 @@ class OutgoingMessages(IOutgoingMessages, IOutgoingMessagesFrames):
         current.clear()
         return drained
 
-    def defer(self, messages: Sequence[_PendingMessage], /) -> None:
+    def defer(self, messages: Sequence[PendingMessage], /) -> None:
         """Stage non-durable-destined cascades for post-commit flush.
 
         Called by ``OutboxCascadingBehavior`` (M2b.1, inner/in-tx) for cascades
@@ -130,21 +130,21 @@ class OutgoingMessages(IOutgoingMessages, IOutgoingMessagesFrames):
         """
         self._deferred.extend(messages)
 
-    def drain_deferred(self) -> list[_PendingMessage]:
+    def drain_deferred(self) -> list[PendingMessage]:
         """Return + clear the deferred bucket. Called by ``DeferredCascadingBehavior``."""
         drained = list(self._deferred)
         self._deferred.clear()
         return drained
 
     @property
-    def pending(self) -> Sequence[_PendingMessage]:
+    def pending(self) -> Sequence[PendingMessage]:
         """Read-only snapshot of the current frame (empty if no frame is active)."""
         if not self._frames:
             return ()
         return tuple(self._current_frame)
 
     @property
-    def _current_frame(self) -> list[_PendingMessage]:
+    def _current_frame(self) -> list[PendingMessage]:
         if not self._frames:
             msg = 'IOutgoingMessages.send/publish called with no active cascade frame (use it only inside a message handler)'
             raise RuntimeError(msg)

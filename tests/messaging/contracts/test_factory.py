@@ -105,3 +105,15 @@ class TestEnvelopeFactory:
 
         assert envelope.message_id == explicit_id
         assert envelope.causation_id == explicit_id
+
+    @staticmethod
+    def test_create_forwards_group_id() -> None:
+        envelope = _make_factory().create(SampleMessage(), group_id='order-42')
+
+        assert envelope.group_id == 'order-42'
+
+    @staticmethod
+    def test_create_defaults_group_id_to_none() -> None:
+        envelope = _make_factory().create(SampleMessage())
+
+        assert envelope.group_id is None

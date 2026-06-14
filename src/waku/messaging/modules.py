@@ -41,6 +41,7 @@ from waku.messaging.interfaces import IMessageBus
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
 from waku.messaging.outgoing import IOutgoingMessages, IOutgoingMessagesFrames, OutgoingMessages
+from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.messaging.registry import MessageRegistry
 from waku.messaging.router import MessageRouter, RoutingTable
@@ -95,6 +96,7 @@ class MessagingModule:
             MessageRegistryAggregator(config_),
             EndpointLifecycleExtension(),
             _UnitOfWorkValidationExtension(config_),
+            _SequenceAllocatorValidationExtension(config_),
         ]
         if config_.outbox is not None:
             extensions.append(OutboxRelayLifecycleExtension(config_.outbox.relay))
@@ -237,6 +239,19 @@ def _has_durable_local_queue(entries: Sequence[EndpointEntry]) -> bool:
     return any(isinstance(entry, LocalQueueEntry) and entry.mode == EndpointMode.DURABLE for entry in entries)
 
 
+def _requires_sequence_allocator(entries: Sequence[EndpointEntry]) -> bool:
+    # Only endpoints that actually consult ISequenceAllocator count: ExternalEndpoint (outbox) and a
+    # DURABLE local queue (inbox). partition_by on a BUFFERED/INLINE local queue is inert.
+    for entry in entries:
+        if entry.partition_by is None:
+            continue
+        if isinstance(entry, ExternalEntry):
+            return True
+        if isinstance(entry, LocalQueueEntry) and entry.mode == EndpointMode.DURABLE:
+            return True
+    return False
+
+
 def _handler_needs_uow(registry: MessageRegistry) -> bool:
     return any(
         issubclass(behavior, TransactionalBehavior)
@@ -290,7 +305,7 @@ def _create_endpoint(
     config: MessagingConfig,
 ) -> Endpoint:
     if isinstance(entry, ExternalEntry):
-        return ExternalEndpoint(uri=entry.uri)
+        return ExternalEndpoint(uri=entry.uri, partition_by=entry.partition_by)
 
     executor = EndpointExecutor(
         container=container,
@@ -328,6 +343,7 @@ def _create_endpoint(
                 inbox_config_keep_after_handled_seconds=config.inbox.keep_after_handled.total_seconds(),
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,
+                partition_by=entry.partition_by,
             )
         case _:
             assert_never(entry.mode)
@@ -460,6 +476,35 @@ class _UnitOfWorkValidationExtension(AfterApplicationInit):
             return True
         registry = await app.container.get(MessageRegistry)
         return _handler_needs_uow(registry)
+
+
+class _SequenceAllocatorValidationExtension(AfterApplicationInit):
+    """Fail fast when partition_by is used but no ISequenceAllocator is registered.
+
+    The allocator is user-provided infrastructure (like IUnitOfWork) — auto-registering the sqla
+    allocator would couple every outbox/inbox config to AsyncSession. This guard turns the otherwise
+    deferred 'no allocator' failure (raised at the first partitioned dispatch) into a clear startup
+    error. NOTE: it triggers on declared partition_by only; a cascade-propagated envelope.group_id
+    without any partition_by also needs the allocator but cannot be detected statically.
+    """
+
+    __slots__ = ('_config',)
+
+    def __init__(self, config: MessagingConfig) -> None:
+        self._config = config
+
+    @override
+    async def after_app_init(self, app: 'WakuApplication') -> None:
+        if not _requires_sequence_allocator(self._config.endpoints):
+            return
+        has_allocator = await app.container._has(ISequenceAllocator)  # noqa: SLF001
+        if not has_allocator:
+            msg = (
+                'partition_by requires ISequenceAllocator but it is not registered. '
+                'Register it in your infrastructure module: '
+                'scoped(SqlAlchemySequenceAllocator, provided_type=ISequenceAllocator)'
+            )
+            raise ImproperlyConfiguredError(msg)
 
 
 class OutboxRelayLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):

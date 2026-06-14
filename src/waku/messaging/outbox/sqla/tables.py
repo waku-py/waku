@@ -39,7 +39,7 @@ outbox_messages_table = Table(
     Column('destination', Text, nullable=False),
     Column('correlation_id', UUID(as_uuid=True), nullable=False),
     Column('causation_id', UUID(as_uuid=True), nullable=False),
-    Column('stream_id', Text, nullable=True),
+    Column('group_id', Text, nullable=True),
     Column('sequence_number', BigInteger, nullable=True),
     Column(
         'status',
@@ -56,6 +56,7 @@ outbox_messages_table = Table(
     UniqueConstraint('idempotency_key', name=OUTBOX_IDEMPOTENCY_CONSTRAINT),
     Index('ix_outbox_status_created', 'status', 'created_at'),
     Index('ix_outbox_status_next_retry', 'status', 'next_retry_at'),
+    Index('ix_outbox_group_sequence', 'group_id', 'sequence_number'),
 )
 
 

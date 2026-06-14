@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
+from uuid import uuid4
 
 import anyio
 from dishka import make_async_container
@@ -15,6 +16,7 @@ from waku.messaging import (
     EventHandler,
     IEvent,
     IMessageBus,
+    IOutgoingMessages,
     IRequest,
     MessagingConfig,
     MessagingExtension,
@@ -26,6 +28,7 @@ from waku.messaging import (
     local_queue,
     route,
 )
+from waku.messaging.context import message_context_scope
 from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.errors.policy import ErrorPolicy
@@ -33,11 +36,22 @@ from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
+from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, RecordingDeadLetterStore, RecordingTransport, RelayDepsProvider
+from tests.messaging.helpers import (
+    FakeUoW,
+    RecordingAllocator,
+    RecordingDeadLetterStore,
+    RecordingTransport,
+    RelayDepsProvider,
+    make_envelope,
+    make_serializer,
+    order_id_partition,
+    wait_until,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -87,6 +101,30 @@ class _InMemoryOutboxStore(IOutboxStore):
         for m in pending:
             self._update_status(m.id, status=OutboxStatus.PROCESSING)
         return [dataclasses.replace(m, status=OutboxStatus.PROCESSING) for m in pending]
+
+    @override
+    async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
+        # Mirror the real SQL `coalesce(next_retry_at, now) <= now` filter so a backoff'd group head
+        # blocks its group rather than letting a higher sequence advance past it.
+        now = datetime.now(tz=UTC)
+        pending = [
+            m
+            for m in self.messages
+            if m.status == OutboxStatus.PENDING and (m.next_retry_at is None or m.next_retry_at <= now)
+        ]
+        seen: set[str] = set()
+        selected: list[OutboxMessage] = []
+        for m in sorted(pending, key=lambda m: (m.group_id or '', m.sequence_number or 0)):
+            if m.group_id is None:
+                selected.append(m)
+            elif m.group_id not in seen:
+                seen.add(m.group_id)
+                selected.append(m)
+            if len(selected) == batch_size:
+                break
+        for m in selected:
+            self._update_status(m.id, status=OutboxStatus.PROCESSING)
+        return [dataclasses.replace(m, status=OutboxStatus.PROCESSING) for m in selected]
 
     @override
     async def mark_dispatched(self, message_id: UUID) -> None:
@@ -345,6 +383,53 @@ class TestMessageIdentityPropagation:
         assert store.messages[0].message_type == expected_fqn
 
 
+def _partitioned_outbox_row(
+    *,
+    group_id: str,
+    sequence_number: int,
+    order_id: str,
+    serializer: JsonEnvelopeSerializer,
+) -> OutboxMessage:
+    envelope = make_envelope(_OrderPlaced(order_id=order_id))
+    return OutboxMessage(
+        id=uuid4(),
+        idempotency_key=str(envelope.message_id),
+        message_type=envelope.message_type,
+        payload=serializer.serialize(envelope),
+        destination='test://orders',
+        correlation_id=envelope.correlation_id,
+        causation_id=envelope.causation_id,
+        group_id=group_id,
+        sequence_number=sequence_number,
+    )
+
+
+class TestRelayPartitionOrdering:
+    @staticmethod
+    async def test_relay_dispatches_group_heads_in_sequence_order() -> None:
+        transport = RecordingTransport()
+        serializer = make_serializer(_OrderPlaced)
+        store = _InMemoryOutboxStore()
+        # Staged OUT of sequence order: the relay must still dispatch A-1, A-2, A-3 because it claims
+        # the head (lowest pending sequence) of the group each poll — not whatever was inserted first.
+        # If the relay used FIFO fetch this would dispatch A-2, A-1, A-3 and the assert would fail.
+        store.messages.extend([
+            _partitioned_outbox_row(group_id='A', sequence_number=2, order_id='A-2', serializer=serializer),
+            _partitioned_outbox_row(group_id='A', sequence_number=1, order_id='A-1', serializer=serializer),
+            _partitioned_outbox_row(group_id='A', sequence_number=3, order_id='A-3', serializer=serializer),
+        ])
+
+        relay_config = OutboxRelayConfig(poll_interval=0.01, recovery_interval=timedelta(hours=1))
+        async with make_async_container(RelayDepsProvider(store, transport, serializer)) as container:
+            relay = OutboxRelay(container=container, config=relay_config)
+            await relay.start()
+            await wait_until(lambda: sum(1 for m in store.messages if m.status == OutboxStatus.DISPATCHED) == 3)
+            await relay.stop()
+
+        dispatched_order = [envelope.payload.order_id for envelope, _ in transport.sent]
+        assert dispatched_order == ['A-1', 'A-2', 'A-3']
+
+
 class _ClassVarRetryHandler(EventHandler[_OrderPlaced]):
     attempts: ClassVar[list[int]] = []
     error_policies = (ErrorPolicy.on_exception(RuntimeError).retry(max_attempts=3),)
@@ -444,3 +529,120 @@ class TestClassVarHandlerConfig:
 
         assert _RecordingBehavior.seen == ['_OrderPlaced']
         assert _BehaviorHandler.handled == ['o-5']
+
+
+@dataclass(frozen=True, slots=True)
+class _ShipOrder(IRequest[None]):
+    order_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class _OrderShipped(IEvent):
+    order_id: str
+
+
+class _ShipOrderHandler(RequestHandler[_ShipOrder, None]):
+    def __init__(self, outgoing: IOutgoingMessages) -> None:
+        self._outgoing = outgoing
+
+    @override
+    async def handle(self, request: _ShipOrder, /) -> None:
+        self._outgoing.publish(_OrderShipped(order_id=request.order_id))
+
+
+class _OrderShippedHandler(EventHandler[_OrderShipped]):
+    # Bound only to satisfy route() validation; _OrderShipped is routed to an external endpoint
+    # (outbox), so this local handler is never invoked.
+    @override
+    async def handle(self, event: _OrderShipped, /) -> None:
+        pass  # pragma: no cover
+
+
+class TestGroupIdPropagation:
+    @staticmethod
+    async def test_cascaded_message_inherits_parent_group_id_via_context() -> None:
+        # partition_by is deliberately NOT set: the ONLY way the cascaded _OrderShipped outbox row can
+        # carry group_id='order-9' is propagation parent-context -> _create_envelope -> cascade envelope.
+        outbox = _InMemoryOutboxStore()
+        config = MessagingConfig(
+            endpoints=[external_endpoint('test://shipped')],
+            routing=[route(_OrderShipped).to('test://shipped')],
+            outbox=OutboxConfig(store=lambda: outbox, transport=RecordingTransport),
+            global_pipeline_behaviors=[TransactionalBehavior],
+        )
+
+        @module(
+            extensions=[
+                MessagingExtension().bind(_ShipOrder, _ShipOrderHandler).bind(_OrderShipped, _OrderShippedHandler),
+            ],
+        )
+        class TestModule:
+            pass
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(config), TestModule],
+                providers=[
+                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                ],
+            ) as app,
+            app.container() as c,
+        ):
+            bus = await c.get(IMessageBus)
+            parent = make_envelope(_ShipOrder(order_id='order-9'), group_id='order-9')
+            with message_context_scope(parent):
+                await bus.invoke(_ShipOrder(order_id='order-9'))
+
+        assert len(outbox.messages) == 1
+        assert outbox.messages[0].group_id == 'order-9'
+        assert outbox.messages[0].sequence_number == 1
+
+
+class TestPartitionOrderingEndToEnd:
+    @staticmethod
+    async def test_concurrent_groups_each_dispatched_in_strict_sequence_order() -> None:
+        transport = RecordingTransport()
+        outbox = _InMemoryOutboxStore()
+        config = MessagingConfig(
+            endpoints=[external_endpoint('test://orders', partition_by=order_id_partition)],
+            routing=[route(_OrderPlaced).to('test://orders')],
+            outbox=OutboxConfig(
+                store=lambda: outbox,
+                transport=lambda: transport,
+                relay=OutboxRelayConfig(poll_interval=0.01, recovery_interval=timedelta(hours=1)),
+            ),
+            global_pipeline_behaviors=[TransactionalBehavior],
+        )
+
+        @module(extensions=[MessagingExtension().bind(_OrderPlaced, _OrderPlacedHandler)])
+        class TestModule:
+            pass
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(config), TestModule],
+                providers=[
+                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                ],
+            ) as app,
+            app.container() as c,
+        ):
+            bus = await c.get(IMessageBus)
+            for order_id in ('A', 'B'):
+                for _ in range(3):
+                    await bus.publish(_OrderPlaced(order_id=order_id))
+            await wait_until(lambda: len(transport.sent) >= 6)
+
+        by_idempotency_key = {m.idempotency_key: m for m in outbox.messages}
+        per_group: dict[str, list[int]] = {}
+        for envelope, _ in transport.sent:
+            row = by_idempotency_key[str(envelope.message_id)]
+            assert row.group_id is not None
+            assert row.sequence_number is not None
+            per_group.setdefault(row.group_id, []).append(row.sequence_number)
+
+        # Each group dispatched strictly seq 1, 2, 3 in order; groups run in parallel (relay claims one
+        # head per group per poll, advancing each group independently).
+        assert per_group == {'A': [1, 2, 3], 'B': [1, 2, 3]}

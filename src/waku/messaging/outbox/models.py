@@ -33,7 +33,7 @@ class OutboxMessage:
     destination: str
     correlation_id: UUID
     causation_id: UUID
-    stream_id: str | None = None
+    group_id: str | None = None
     sequence_number: int | None = None
     status: OutboxStatus = OutboxStatus.PENDING
     retry_count: int = 0

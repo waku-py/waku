@@ -127,3 +127,15 @@ class TestSqlAlchemyOutboxStore:
 
         cleaned = await store.cleanup_dispatched(older_than=timedelta(seconds=-1))
         assert cleaned == 1
+
+    @staticmethod
+    async def test_save_batch_preserves_group_id_and_sequence(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyOutboxStore(pg_session)
+        msg = _make_message(group_id='order-9', sequence_number=4)
+        await store.save_batch([msg])
+        await pg_session.flush()
+
+        fetched = await store.fetch_and_mark_processing(batch_size=10)
+        assert len(fetched) == 1
+        assert fetched[0].group_id == 'order-9'
+        assert fetched[0].sequence_number == 4

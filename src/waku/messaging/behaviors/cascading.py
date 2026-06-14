@@ -10,14 +10,14 @@ from waku.messaging.contracts.pipeline import IPipelineBehavior
 # Runtime imports: dishka introspects __init__ type hints at container-build time
 # (get_type_hints), so DI-injected types must resolve at runtime — not under TYPE_CHECKING.
 from waku.messaging.interfaces import IMessageBus  # noqa: TC001
-from waku.messaging.outgoing import IOutgoingMessagesFrames, _Action
+from waku.messaging.outgoing import Action, IOutgoingMessagesFrames
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from waku.messaging.contracts.message import IMessage
     from waku.messaging.contracts.pipeline import CallNext
-    from waku.messaging.outgoing import _PendingMessage
+    from waku.messaging.outgoing import PendingMessage
 
 __all__ = ['CascadingBehavior']
 
@@ -63,7 +63,7 @@ class CascadingBehavior(IPipelineBehavior[Any, Any]):
         await self._flush(pending)
         return response
 
-    async def _flush(self, pending: Sequence[_PendingMessage]) -> None:
+    async def _flush(self, pending: Sequence[PendingMessage]) -> None:
         """Re-dispatch each cascade via the bus. Failures logged, not raised.
 
         The handler already succeeded (and committed, if transactional), so a cascade
@@ -72,7 +72,7 @@ class CascadingBehavior(IPipelineBehavior[Any, Any]):
         """
         for pending_message in pending:
             try:
-                if pending_message.action is _Action.PUBLISH:
+                if pending_message.action is Action.PUBLISH:
                     await self._bus.publish(pending_message.message)
                 else:
                     await self._bus.send(pending_message.message)

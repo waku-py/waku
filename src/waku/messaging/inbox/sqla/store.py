@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import delete, func, select, tuple_, update
+from sqlalchemy import delete, func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
 
 # Runtime import: dishka introspects __init__ type hints at container-build time
@@ -46,7 +46,7 @@ class SqlAlchemyInboxStore(IInboxStore):
                 execution_time=entry.execution_time,
                 attempts=entry.attempts,
                 message_type=entry.message_type,
-                received_at=entry.received_at,
+                source_uri=entry.source_uri,
                 keep_until=entry.keep_until,
                 group_id=entry.group_id,
                 sequence_number=entry.sequence_number,
@@ -132,10 +132,57 @@ class SqlAlchemyInboxStore(IInboxStore):
 
     @override
     async def fetch_pending_partitioned(self, batch_size: int, owner_id: str) -> Sequence[InboxEntry]:
-        # Stub for M2b.2 (head-of-queue per group_id). M2b.1 entries never carry group_id through
-        # production paths, so this is observationally equivalent to fetch_pending; wired now to keep
-        # the IInboxStore contract stable for M2b.2.
-        return await self.fetch_pending(batch_size, owner_id)
+        incoming = _t.c.status == InboxStatus.INCOMING.value
+        unclaimed = _t.c.owner_id.is_(None)
+
+        # Head of each partition is keyed on (group_id, DESTINATION), not group_id alone: a fan-out
+        # message writes one row per handler FQN, all sharing the same group_id and sequence_number.
+        # DISTINCT ON (group_id) would collapse those sibling rows to one and starve every handler but
+        # one. Per (group_id, destination) each handler advances its group independently. DISTINCT ON
+        # carries no locking clause (PostgreSQL forbids FOR UPDATE with DISTINCT). No xmin/commit-order
+        # filter is needed — see the outbox fetch_head_of_queue comment.
+        partitioned_heads = (
+            select(_t.c.id, _t.c.destination)
+            .distinct(_t.c.group_id, _t.c.destination)
+            .where(incoming)
+            .where(unclaimed)
+            .where(_t.c.group_id.isnot(None))
+            .order_by(_t.c.group_id, _t.c.destination, _t.c.sequence_number.asc())
+            .cte('partitioned_heads')
+        )
+
+        # Claim against the BASE TABLE so FOR UPDATE SKIP LOCKED is valid (it is NOT allowed over a
+        # UNION/DISTINCT subquery). The composite key (id, destination) confines the claim to exactly
+        # the locked rows — filtering on id alone would claim every fan-out sibling sharing that id
+        # (the M2b.1 fetch_pending bug). `OF inbox_entries` scopes the lock to base rows, never the
+        # read-only heads CTE. If a (group, destination) head is locked by another worker, SKIP LOCKED
+        # drops it this cycle without falling through to a higher sequence — per-handler FIFO holds.
+        to_claim = (
+            select(_t.c.id, _t.c.destination)
+            .where(incoming)
+            .where(unclaimed)
+            .where(
+                or_(
+                    _t.c.group_id.is_(None),
+                    tuple_(_t.c.id, _t.c.destination).in_(
+                        select(partitioned_heads.c.id, partitioned_heads.c.destination),
+                    ),
+                ),
+            )
+            .order_by(_t.c.created_at.asc())
+            .limit(batch_size)
+            .with_for_update(skip_locked=True, of=_t)
+            .cte('to_claim')
+        )
+
+        stmt = (
+            update(_t)
+            .where(tuple_(_t.c.id, _t.c.destination).in_(select(to_claim.c.id, to_claim.c.destination)))
+            .values(owner_id=owner_id)
+            .returning(*_t.c)
+        )
+        result = await self._session.execute(stmt)
+        return [_row_to_entry(row) for row in result.fetchall()]
 
     @override
     async def recover_stale(self, threshold: timedelta) -> int:
@@ -186,7 +233,7 @@ def _row_to_entry(row: Any) -> InboxEntry:
         execution_time=row.execution_time,
         attempts=row.attempts,
         message_type=row.message_type,
-        received_at=row.received_at,
+        source_uri=row.source_uri,
         keep_until=row.keep_until,
         group_id=row.group_id,
         sequence_number=row.sequence_number,

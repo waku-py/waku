@@ -73,5 +73,6 @@ class MessageBus(IMessageBus):
                 message,
                 correlation_id=ctx.correlation_id,
                 causation_id=ctx.message_id,
+                group_id=ctx.group_id,
             )
         return self._envelope_factory.create(message)

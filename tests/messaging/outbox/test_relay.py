@@ -76,6 +76,12 @@ class _TrackingOutboxStore(IOutboxStore):
         return batch
 
     @override
+    async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
+        # Existing relay tests stage non-partitioned messages, so head-of-queue degrades to FIFO —
+        # delegate to keep the in-flight slicing semantics identical.
+        return await self.fetch_and_mark_processing(batch_size)
+
+    @override
     async def mark_dispatched(self, message_id: UUID) -> None:
         self.dispatched_ids.append(message_id)
 

@@ -11,13 +11,13 @@ from waku.messaging.endpoints.external import ExternalEndpoint
 # IMessageBus + MessageRouter are DI-injected -> runtime imports (dishka introspects __init__ type
 # hints at container-build time); the TC001 noqa keeps ruff from moving them under TYPE_CHECKING.
 from waku.messaging.interfaces import IMessageBus  # noqa: TC001
-from waku.messaging.outgoing import IOutgoingMessagesFrames, _Action
+from waku.messaging.outgoing import Action, IOutgoingMessagesFrames
 from waku.messaging.router import MessageRouter  # noqa: TC001
 
 if TYPE_CHECKING:
     from waku.messaging.contracts.message import IMessage
     from waku.messaging.contracts.pipeline import CallNext
-    from waku.messaging.outgoing import _PendingMessage
+    from waku.messaging.outgoing import PendingMessage
 
 __all__ = ['DeferredCascadingBehavior', 'OutboxCascadingBehavior']
 
@@ -55,7 +55,7 @@ class OutboxCascadingBehavior(IPipelineBehavior[Any, Any]):
         # drain (not pop) — DeferredCascadingBehavior's later pop_frame() must still find a frame
         # to pop at the outer pipeline level.
         pending = self._outgoing.drain_current_frame()
-        deferred: list[_PendingMessage] = []
+        deferred: list[PendingMessage] = []
         for pending_message in pending:
             if self._is_durable(pending_message):
                 await self._dispatch_durable(pending_message)
@@ -65,13 +65,13 @@ class OutboxCascadingBehavior(IPipelineBehavior[Any, Any]):
             self._outgoing.defer(deferred)
         return response
 
-    def _is_durable(self, pending: _PendingMessage, /) -> bool:
+    def _is_durable(self, pending: PendingMessage, /) -> bool:
         endpoints = self._router.resolve(type(pending.message))
         return any(isinstance(endpoint, ExternalEndpoint) for endpoint in endpoints)
 
-    async def _dispatch_durable(self, pending: _PendingMessage, /) -> None:
+    async def _dispatch_durable(self, pending: PendingMessage, /) -> None:
         try:
-            if pending.action is _Action.PUBLISH:
+            if pending.action is Action.PUBLISH:
                 await self._bus.publish(pending.message)
             else:
                 await self._bus.send(pending.message)
@@ -116,7 +116,7 @@ class DeferredCascadingBehavior(IPipelineBehavior[Any, Any]):
     async def _flush_deferred(self) -> None:
         for pending_message in self._outgoing.drain_deferred():
             try:
-                if pending_message.action is _Action.PUBLISH:
+                if pending_message.action is Action.PUBLISH:
                     await self._bus.publish(pending_message.message)
                 else:
                     await self._bus.send(pending_message.message)

@@ -28,6 +28,10 @@ class FakeOutboxStore(IOutboxStore):
         return []
 
     @override
+    async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:  # pragma: no cover
+        return []
+
+    @override
     async def mark_dispatched(self, message_id: UUID) -> None:  # pragma: no cover
         pass
 

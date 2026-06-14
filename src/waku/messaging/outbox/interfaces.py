@@ -24,6 +24,17 @@ class IOutboxStore(abc.ABC):
     async def fetch_and_mark_processing(self, batch_size: int) -> Sequence[OutboxMessage]: ...
 
     @abc.abstractmethod
+    async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
+        """Claim at most ``batch_size`` pending messages honoring partition order.
+
+        Returns at most one message per ``group_id`` (the lowest unprocessed ``sequence_number``), so a
+        group's messages dispatch in strict FIFO. Messages with ``group_id IS NULL`` are keyless: not
+        sequenced and carry NO per-group ordering guarantee — they are claimed concurrently and
+        dispatched in parallel. Returned rows are marked ``PROCESSING``.
+        """
+        ...
+
+    @abc.abstractmethod
     async def mark_dispatched(self, message_id: UUID) -> None: ...
 
     @abc.abstractmethod

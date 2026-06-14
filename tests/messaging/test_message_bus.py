@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 from typing_extensions import override
 
+from waku.di import object_
 from waku.messaging import (
     CallNext,
     EventHandler,
@@ -17,11 +18,13 @@ from waku.messaging import (
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
+    OutboxConfig,
     RequestHandler,
     ResponseT,
+    TransactionalBehavior,
 )
 from waku.messaging.context import get_message_context
-from waku.messaging.endpoints.base import external_endpoint
+from waku.messaging.endpoints.base import external_endpoint, local_queue
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.exceptions import (
     HandlerNotFound,
@@ -30,8 +33,10 @@ from waku.messaging.exceptions import (
     NoRouteError,
 )
 from waku.testing import create_test_app
+from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import RecordingDeadLetterStore
+from tests.messaging.helpers import FakeUoW, RecordingDeadLetterStore, RecordingTransport, order_id_partition
+from tests.messaging.outbox.fake_store import FakeOutboxStore
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -394,3 +399,27 @@ class TestMessagingConfigValidation:
         with pytest.raises(ImproperlyConfiguredError, match='IUnitOfWork is required'):
             async with create_test_app(imports=[MessagingModule.register(config)]):
                 pass  # pragma: no cover
+
+    @staticmethod
+    async def test_partition_by_without_allocator_raises_at_startup() -> None:
+        config = MessagingConfig(
+            endpoints=[external_endpoint('ext://orders', partition_by=order_id_partition)],
+            outbox=OutboxConfig(store=FakeOutboxStore, transport=RecordingTransport),
+            global_pipeline_behaviors=[TransactionalBehavior],
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='ISequenceAllocator'):
+            async with create_test_app(
+                imports=[MessagingModule.register(config)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            ):
+                pass  # pragma: no cover
+
+    @staticmethod
+    async def test_buffered_local_queue_partition_by_does_not_require_allocator() -> None:
+        # partition_by on a BUFFERED (in-memory) local queue is inert — no allocator is consulted, so
+        # the guard must NOT fire.
+        config = MessagingConfig(
+            endpoints=[local_queue('q://orders', partition_by=order_id_partition)],
+        )
+        async with create_test_app(imports=[MessagingModule.register(config)]):
+            pass

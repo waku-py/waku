@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 from typing_extensions import override
@@ -47,7 +47,7 @@ class FakeInboxStore(IInboxStore):
             id=current.id,
             payload=current.payload,
             message_type=current.message_type,
-            received_at=current.received_at,
+            source_uri=current.source_uri,
             destination=current.destination,
             status=InboxStatus.HANDLED,
             owner_id=current.owner_id,
@@ -68,7 +68,7 @@ class FakeInboxStore(IInboxStore):
             id=current.id,
             payload=current.payload,
             message_type=current.message_type,
-            received_at=current.received_at,
+            source_uri=current.source_uri,
             destination=current.destination,
             status=current.status,
             owner_id=current.owner_id,
@@ -104,7 +104,7 @@ class FakeInboxStore(IInboxStore):
                 id=entry.id,
                 payload=entry.payload,
                 message_type=entry.message_type,
-                received_at=entry.received_at,
+                source_uri=entry.source_uri,
                 destination=entry.destination,
                 status=entry.status,
                 owner_id=owner_id,
@@ -121,11 +121,29 @@ class FakeInboxStore(IInboxStore):
         return claimed
 
     @override
-    async def fetch_pending_partitioned(
-        self, batch_size: int, owner_id: str
-    ) -> Sequence[InboxEntry]:  # pragma: no cover
-        # Head-of-queue semantics covered by M2b.2; emulate fetch_pending for M2b.1.
-        return await self.fetch_pending(batch_size, owner_id)
+    async def fetch_pending_partitioned(self, batch_size: int, owner_id: str) -> Sequence[InboxEntry]:
+        if self.fetch_pending_error is not None:
+            raise self.fetch_pending_error
+        candidates = [e for e in self.entries.values() if e.status is InboxStatus.INCOMING and e.owner_id is None]
+        # Head per (group_id, destination); keyless entries are all claimable. Mirrors the SQL
+        # DISTINCT ON (group_id, destination) ORDER BY ..., sequence_number.
+        seen: set[tuple[str, str]] = set()
+        selected: list[InboxEntry] = []
+        for entry in sorted(candidates, key=lambda e: (e.group_id or '', e.destination, e.sequence_number or 0)):
+            if entry.group_id is not None:
+                key = (entry.group_id, entry.destination)
+                if key in seen:
+                    continue
+                seen.add(key)
+            selected.append(entry)
+            if len(selected) >= batch_size:
+                break
+        claimed: list[InboxEntry] = []
+        for entry in selected:
+            updated = replace(entry, owner_id=owner_id)
+            self.entries[entry.id, entry.destination] = updated
+            claimed.append(updated)
+        return claimed
 
     @override
     async def recover_stale(self, threshold: timedelta) -> int:
@@ -137,7 +155,7 @@ class FakeInboxStore(IInboxStore):
                 id=entry.id,
                 payload=entry.payload,
                 message_type=entry.message_type,
-                received_at=entry.received_at,
+                source_uri=entry.source_uri,
                 destination=entry.destination,
                 status=InboxStatus.INCOMING,
                 owner_id=None,

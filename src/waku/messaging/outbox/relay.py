@@ -118,7 +118,7 @@ class OutboxRelay:
         async with self._container() as batch_scope:
             store = await batch_scope.get(IOutboxStore)
             uow = await batch_scope.get(IUnitOfWork)
-            messages = await store.fetch_and_mark_processing(self._config.batch_size)
+            messages = await store.fetch_head_of_queue(self._config.batch_size)
             await uow.commit()
         processed = 0
         for message in messages:

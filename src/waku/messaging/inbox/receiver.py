@@ -8,6 +8,7 @@ from waku.messaging.endpoints.executor import ExecutionOutcome
 from waku.messaging.inbox._destination import handler_destination
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxEntry
+from waku.messaging.partition import resolve_and_allocate
 from waku.messaging.transport.serialization import IEnvelopeSerializer
 from waku.uow import IUnitOfWork
 
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.endpoints.executor import EndpointExecutor
     from waku.messaging.inbox.config import InboxConfig
+    from waku.messaging.partition import PartitionKeyExtractor
 
 __all__ = [
     'DurableReceiver',
@@ -53,7 +55,7 @@ class DurableReceiver:
     at-most-once semantics for handler side-effects.
     """
 
-    __slots__ = ('_container', '_endpoint_uri', '_executor', '_inbox_config', '_owner_id')
+    __slots__ = ('_container', '_endpoint_uri', '_executor', '_inbox_config', '_owner_id', '_partition_by')
 
     def __init__(
         self,
@@ -63,12 +65,14 @@ class DurableReceiver:
         inbox_config: InboxConfig,
         owner_id: str,
         endpoint_uri: str,
+        partition_by: PartitionKeyExtractor | None = None,
     ) -> None:
         self._container = container
         self._executor = executor
         self._inbox_config = inbox_config
         self._owner_id = owner_id
         self._endpoint_uri = endpoint_uri
+        self._partition_by = partition_by
 
     async def receive(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> None:
         # `destination` is the handler FQN — the per-handler dedup discriminator. A redelivery of
@@ -91,13 +95,16 @@ class DurableReceiver:
             inbox = await scope.get(IInboxStore)
             serializer = await scope.get(IEnvelopeSerializer)
             uow = await scope.get(IUnitOfWork)
+            group_id, sequence_number = await resolve_and_allocate(envelope, self._partition_by, scope)
             entry = InboxEntry(
                 id=envelope.message_id,
                 payload=serializer.serialize(envelope),
                 message_type=envelope.message_type,
-                received_at=self._endpoint_uri,
+                source_uri=self._endpoint_uri,
                 destination=destination,
                 owner_id=self._owner_id,
+                group_id=group_id,
+                sequence_number=sequence_number,
             )
             stored: bool = await inbox.store_incoming(entry)
             await uow.commit()

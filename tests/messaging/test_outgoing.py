@@ -6,7 +6,7 @@ import pytest
 
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.contracts.request import IRequest
-from waku.messaging.outgoing import OutgoingMessages, _Action, _PendingMessage  # noqa: PLC2701
+from waku.messaging.outgoing import Action, OutgoingMessages, PendingMessage
 
 
 @dataclass(frozen=True)
@@ -31,7 +31,7 @@ class TestOutgoingMessagesFrameStack:
         pending = outgoing.pop_frame()
         assert len(pending) == 1
         assert pending[0].message is event
-        assert pending[0].action is _Action.PUBLISH
+        assert pending[0].action is Action.PUBLISH
 
     @staticmethod
     def test_send_appends_pending_with_send_action() -> None:
@@ -44,7 +44,7 @@ class TestOutgoingMessagesFrameStack:
         pending = outgoing.pop_frame()
         assert len(pending) == 1
         assert pending[0].message is request
-        assert pending[0].action is _Action.SEND
+        assert pending[0].action is Action.SEND
 
     @staticmethod
     def test_pop_frame_returns_fifo_order() -> None:
@@ -135,8 +135,8 @@ class TestOutgoingMessagesDeferredBucket:
     @staticmethod
     def test_defer_then_drain_deferred_returns_fifo_and_clears() -> None:
         outgoing = OutgoingMessages()
-        first = _PendingMessage(message=_SampleEvent(), action=_Action.PUBLISH)
-        second = _PendingMessage(message=_SampleRequest(), action=_Action.SEND)
+        first = PendingMessage(message=_SampleEvent(), action=Action.PUBLISH)
+        second = PendingMessage(message=_SampleRequest(), action=Action.SEND)
         outgoing.defer([first])
         outgoing.defer([second])
 

@@ -28,6 +28,7 @@ class EnvelopeFactory:
         correlation_id: UUID | None = None,
         causation_id: UUID | None = None,
         headers: 'Mapping[str, str] | None' = None,
+        group_id: str | None = None,
     ) -> 'MessageEnvelope[_MessageT]':
         message_id_ = message_id or uuid4()
         return MessageEnvelope(
@@ -38,4 +39,5 @@ class EnvelopeFactory:
             timestamp=datetime.now(tz=UTC),
             payload=message,
             headers=headers or {},
+            group_id=group_id,
         )

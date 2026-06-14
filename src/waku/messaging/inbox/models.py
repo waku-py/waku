@@ -30,11 +30,11 @@ class InboxEntry:
     id: UUID
     payload: dict[str, Any]
     message_type: str
-    received_at: str
+    source_uri: str
     # `destination` is the per-handler dedup discriminator: the handler FQN
     # `f'{handler_type.__module__}.{handler_type.__qualname__}'`. Together with `id`
     # it forms the composite primary key, so a fan-out message writes one row per
-    # subscribed handler and each handler dedups independently. (`received_at` stays
+    # subscribed handler and each handler dedups independently. (`source_uri` stays
     # the endpoint URI the message arrived on — observability metadata, not a dedup key.)
     destination: str
     status: InboxStatus = InboxStatus.INCOMING

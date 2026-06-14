@@ -15,6 +15,7 @@ from waku.messaging.endpoints.executor import ExecutionOutcome
 from waku.messaging.inbox._destination import handler_destination
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxEntry
+from waku.messaging.partition import resolve_and_allocate
 from waku.messaging.transport.serialization import IEnvelopeSerializer
 from waku.uow import IUnitOfWork
 
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.endpoints.executor import EndpointExecutor
+    from waku.messaging.partition import PartitionKeyExtractor
     from waku.messaging.router import HandlerSubscriptions
 
 logger = logging.getLogger(__name__)
@@ -61,13 +63,14 @@ class DurableLocalQueueEndpoint(Endpoint):
         '_handler_subscriptions',
         '_keep_after_handled',
         '_max_buffer_size',
+        '_partition_by',
         '_receive_stream',
         '_send_stream',
         '_stop_timeout',
         '_worker_task',
     )
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 -- DI/config values, all required; bundling is a construction-site refactor
         self,
         *,
         uri: str,
@@ -77,6 +80,7 @@ class DurableLocalQueueEndpoint(Endpoint):
         inbox_config_keep_after_handled_seconds: float,
         stop_timeout: float,
         max_buffer_size: float,
+        partition_by: PartitionKeyExtractor | None = None,
     ) -> None:
         super().__init__(uri=uri)
         self._handler_subscriptions = handler_subscriptions
@@ -85,6 +89,7 @@ class DurableLocalQueueEndpoint(Endpoint):
         self._keep_after_handled = timedelta(seconds=inbox_config_keep_after_handled_seconds)
         self._stop_timeout = stop_timeout
         self._max_buffer_size = max_buffer_size
+        self._partition_by = partition_by
         self._send_stream: MemoryObjectSendStream[_WorkItem] | None = None
         self._receive_stream: MemoryObjectReceiveStream[_WorkItem] | None = None
         self._worker_task: asyncio.Task[None] | None = None
@@ -116,6 +121,9 @@ class DurableLocalQueueEndpoint(Endpoint):
             inbox = await write_scope.get(IInboxStore)
             serializer = await write_scope.get(IEnvelopeSerializer)
             uow = await write_scope.get(IUnitOfWork)
+            # Allocate ONCE per message: every per-handler row shares the message's position in the
+            # partition. Per-handler ordering is then by (group_id, destination) head-of-queue.
+            group_id, sequence_number = await resolve_and_allocate(envelope, self._partition_by, write_scope)
             payload = serializer.serialize(envelope)
             fresh: set[HandlerType] = set()
             for handler_type in handler_types:
@@ -123,11 +131,10 @@ class DurableLocalQueueEndpoint(Endpoint):
                     id=envelope.message_id,
                     payload=payload,
                     message_type=envelope.message_type,
-                    received_at=self._uri,
+                    source_uri=self._uri,
                     destination=handler_destination(handler_type),
-                    # group_id intentionally None — MessageEnvelope.group_id lands in M2b.2 and
-                    # updates this call-site to forward envelope.group_id.
-                    group_id=None,
+                    group_id=group_id,
+                    sequence_number=sequence_number,
                 )
                 if await inbox.store_incoming(entry):
                     fresh.add(handler_type)

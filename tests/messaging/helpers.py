@@ -14,6 +14,7 @@ from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.outbox.interfaces import IOutboxStore
+from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.transport.interfaces import ITransport
 from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
 from waku.uow import IUnitOfWork
@@ -41,7 +42,12 @@ def make_serializer(*types: type[IMessage]) -> JsonEnvelopeSerializer:
     return JsonEnvelopeSerializer(type_registry=registry)
 
 
-def make_envelope(payload: Any, *, headers: dict[str, str] | None = None) -> MessageEnvelope[Any]:
+def make_envelope(
+    payload: Any,
+    *,
+    headers: dict[str, str] | None = None,
+    group_id: str | None = None,
+) -> MessageEnvelope[Any]:
     payload_type = type(payload)
     return MessageEnvelope(
         message_id=uuid4(),
@@ -51,6 +57,7 @@ def make_envelope(payload: Any, *, headers: dict[str, str] | None = None) -> Mes
         timestamp=datetime.now(tz=UTC),
         payload=payload,
         headers=headers or {},
+        group_id=group_id,
     )
 
 
@@ -141,6 +148,26 @@ class RecordingTransport(ITransport):
     @override
     async def send(self, envelope: MessageEnvelope[Any], *, destination: str) -> None:
         self.sent.append((envelope, destination))
+
+
+class RecordingAllocator(ISequenceAllocator):
+    """ISequenceAllocator double: records group_ids in ``calls`` and returns per-group sequences."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self._counters: dict[str, int] = {}
+
+    @override
+    async def allocate(self, group_id: str) -> int:
+        self.calls.append(group_id)
+        self._counters[group_id] = self._counters.get(group_id, 0) + 1
+        return self._counters[group_id]
+
+
+def order_id_partition(msg: IMessage) -> str | None:
+    """partition_by extractor for test messages carrying an ``order_id`` attribute."""
+    order_id: str = msg.order_id  # type: ignore[attr-defined]
+    return order_id
 
 
 class RelayDepsProvider(Provider):

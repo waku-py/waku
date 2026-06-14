@@ -15,15 +15,30 @@ from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxStatus
+from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.transport.serialization import IEnvelopeSerializer
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, RecordingDeadLetterStore, make_envelope, make_serializer, wait_until
+from tests.messaging.helpers import (
+    FakeUoW,
+    RecordingAllocator,
+    RecordingDeadLetterStore,
+    make_envelope,
+    make_serializer,
+    wait_until,
+)
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
+    from waku.messaging.contracts.message import IMessage
+    from waku.messaging.partition import PartitionKeyExtractor
+
+
+def _kind_partition(msg: IMessage) -> str | None:
+    kind: str = msg.kind  # type: ignore[attr-defined]
+    return kind
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -64,12 +79,18 @@ class _StubExecutor(EndpointExecutor):
 class _EndpointDepsProvider(Provider):
     scope = Scope.REQUEST
 
-    def __init__(self, inbox: IInboxStore, dlq: IDeadLetterStore) -> None:
+    def __init__(
+        self,
+        inbox: IInboxStore,
+        dlq: IDeadLetterStore,
+        allocator: ISequenceAllocator | None = None,
+    ) -> None:
         super().__init__()
         self._inbox = inbox
         self._dlq = dlq
         self._serializer: IEnvelopeSerializer = make_serializer(_DomainEvent)
         self._uow: IUnitOfWork = FakeUoW()
+        self._allocator = allocator or RecordingAllocator()
 
     @provide
     def inbox(self) -> IInboxStore:
@@ -87,9 +108,17 @@ class _EndpointDepsProvider(Provider):
     def uow(self) -> IUnitOfWork:
         return self._uow
 
+    @provide
+    def sequence_allocator(self) -> ISequenceAllocator:
+        return self._allocator
+
 
 def _endpoint(
-    container: Any, executor: _StubExecutor, handlers: frozenset[type[EventHandler[_DomainEvent]]]
+    container: Any,
+    executor: _StubExecutor,
+    handlers: frozenset[type[EventHandler[_DomainEvent]]],
+    *,
+    partition_by: PartitionKeyExtractor | None = None,
 ) -> DurableLocalQueueEndpoint:
     return DurableLocalQueueEndpoint(
         uri='local://orders',
@@ -99,6 +128,7 @@ def _endpoint(
         inbox_config_keep_after_handled_seconds=300.0,
         stop_timeout=1.0,
         max_buffer_size=math.inf,
+        partition_by=partition_by,
     )
 
 
@@ -203,3 +233,45 @@ class TestDurableLocalQueueEndpoint:
             await endpoint.stop()
 
         assert executor.calls == 4
+
+
+class TestDurableLocalQueuePartitioning:
+    @staticmethod
+    async def test_partition_by_callable_persists_group_id_and_sequence() -> None:
+        inbox = FakeInboxStore()
+        allocator = RecordingAllocator()
+        async with make_async_container(
+            _EndpointDepsProvider(inbox, RecordingDeadLetterStore(), allocator)
+        ) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+            endpoint = _endpoint(container, executor, frozenset([_NoopHandler]), partition_by=_kind_partition)
+            await endpoint.start()
+            async with container() as scope:
+                await endpoint.dispatch(make_envelope(_DomainEvent(kind='shipments')), scope)
+            await endpoint.stop()
+
+        entry = next(iter(inbox.entries.values()))
+        assert entry.group_id == 'shipments'
+        assert entry.sequence_number == 1
+        assert allocator.calls == ['shipments']
+
+    @staticmethod
+    async def test_fan_out_handlers_share_one_allocated_sequence() -> None:
+        # Allocate ONCE per message: both per-handler rows carry the SAME sequence, and the allocator
+        # is called exactly once — not once per handler. Envelope group_id wins over partition_by.
+        inbox = FakeInboxStore()
+        allocator = RecordingAllocator()
+        async with make_async_container(
+            _EndpointDepsProvider(inbox, RecordingDeadLetterStore(), allocator)
+        ) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+            endpoint = _endpoint(container, executor, frozenset([_NoopHandler, _SecondHandler]))
+            await endpoint.start()
+            async with container() as scope:
+                await endpoint.dispatch(make_envelope(_DomainEvent(kind='OrderPlaced'), group_id='order-1'), scope)
+            await endpoint.stop()
+
+        assert len(inbox.entries) == 2
+        assert {e.group_id for e in inbox.entries.values()} == {'order-1'}
+        assert {e.sequence_number for e in inbox.entries.values()} == {1}
+        assert allocator.calls == ['order-1']

@@ -43,7 +43,7 @@ inbox_entries_table = Table(
     Column('execution_time', TIMESTAMP(timezone=True), nullable=True),
     Column('attempts', Integer, nullable=False, server_default='0'),
     Column('message_type', Text, nullable=False),
-    Column('received_at', Text, nullable=False),
+    Column('source_uri', Text, nullable=False),
     Column('keep_until', TIMESTAMP(timezone=True), nullable=True),
     Column('group_id', Text, nullable=True),
     Column('sequence_number', BigInteger, nullable=True),

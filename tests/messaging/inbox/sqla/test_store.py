@@ -40,7 +40,7 @@ def _make_entry(**overrides: object) -> InboxEntry:
         'id': uuid4(),
         'payload': {'test': True},
         'message_type': 'test.Event',
-        'received_at': 'local://orders',
+        'source_uri': 'local://orders',
         'destination': 'tests.messaging.HandlerA',
     }
     return InboxEntry(**(defaults | overrides))  # type: ignore[arg-type]
@@ -238,6 +238,85 @@ class TestFetchPending:
             'tests.messaging.HandlerA',
             'tests.messaging.HandlerB',
         }
+
+
+class TestFetchPendingPartitioned:
+    @staticmethod
+    async def test_returns_head_per_group_in_sequence_order(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyInboxStore(pg_session)
+        await store.store_incoming(_make_entry(group_id='A', sequence_number=2))
+        await store.store_incoming(_make_entry(group_id='A', sequence_number=1))
+        await store.store_incoming(_make_entry(group_id='B', sequence_number=1))
+        await pg_session.flush()
+
+        fetched = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
+
+        # One head per group (lowest sequence); A's seq 2 is NOT returned while seq 1 is pending.
+        assert len(fetched) == 2
+        assert {e.group_id: e.sequence_number for e in fetched} == {'A': 1, 'B': 1}
+        assert all(e.owner_id == 'w-1' for e in fetched)
+
+    @staticmethod
+    async def test_fan_out_siblings_each_get_their_own_head(pg_session: AsyncSession) -> None:
+        # Same group_id 'A' fanned out to two handler destinations -> TWO independent heads
+        # (DISTINCT ON (group_id, destination)). A DISTINCT ON (group_id) alone would collapse them
+        # to one row and starve the other handler — this asserts that does NOT happen.
+        store = SqlAlchemyInboxStore(pg_session)
+        shared_id = uuid4()
+        await store.store_incoming(_make_entry(id=shared_id, destination='HandlerA', group_id='A', sequence_number=1))
+        await store.store_incoming(_make_entry(id=shared_id, destination='HandlerB', group_id='A', sequence_number=1))
+        await store.store_incoming(_make_entry(destination='HandlerA', group_id='A', sequence_number=2))
+        await pg_session.flush()
+
+        fetched = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
+
+        assert len(fetched) == 2
+        assert {e.destination for e in fetched} == {'HandlerA', 'HandlerB'}
+        assert all(e.sequence_number == 1 for e in fetched)
+
+    @staticmethod
+    async def test_claim_is_exclusive(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyInboxStore(pg_session)
+        await store.store_incoming(_make_entry(group_id='A', sequence_number=1))
+        await pg_session.flush()
+
+        first = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
+        second = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-2')
+
+        assert len(first) == 1
+        assert list(second) == []
+
+    @staticmethod
+    async def test_keyless_entries_are_claimed_unordered(pg_session: AsyncSession) -> None:
+        # Keyless entries bypass sequencing: claimed, batch-limited, NO ordering guarantee (created_at
+        # is constant within one tx, so which one is claimed is intentionally unasserted).
+        store = SqlAlchemyInboxStore(pg_session)
+        a = _make_entry()
+        b = _make_entry()
+        await store.store_incoming(a)
+        await store.store_incoming(b)
+        await pg_session.flush()
+
+        fetched = await store.fetch_pending_partitioned(batch_size=1, owner_id='w-1')
+
+        assert len(fetched) == 1
+        assert fetched[0].group_id is None
+        assert fetched[0].id in {a.id, b.id}
+
+    @staticmethod
+    async def test_next_head_after_first_handled(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyInboxStore(pg_session)
+        await store.store_incoming(_make_entry(group_id='A', sequence_number=1))
+        await store.store_incoming(_make_entry(group_id='A', sequence_number=2))
+        await pg_session.flush()
+
+        first = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
+        assert [e.sequence_number for e in first] == [1]
+        await store.mark_as_handled(first[0].id, first[0].destination, datetime.now(tz=UTC) + timedelta(minutes=5))
+        await pg_session.flush()
+
+        second = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-2')
+        assert [e.sequence_number for e in second] == [2]
 
 
 class TestRecoverStale:
