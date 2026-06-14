@@ -25,15 +25,15 @@ from waku.messaging.endpoints.external import ExternalEndpoint
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
-from waku.messaging.errors.policy import ResolvedRetryPolicy, RetryAction
+from waku.messaging.errors.policy import ErrorPolicy, RetryAction
 from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.exceptions import HandlerAlreadyRegistered, ImproperlyConfiguredError, MultipleHandlersRegistered
+from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.impl import MessageBus
 from waku.messaging.interfaces import IMessageBus
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
-from waku.messaging.pipeline.map import PipelineBehaviorMapEntry
 from waku.messaging.registry import MessageRegistry
 from waku.messaging.router import MessageRouter, RoutingTable
 from waku.messaging.routing_builder import RoutingTableBuilder
@@ -68,6 +68,8 @@ class MessagingModule:
         serializer_provider = cls._serializer_provider(config_)
         providers: list[Provider] = [
             scoped(WithParents[IMessageBus], MessageBus),  # ty:ignore[not-subscriptable]
+            object_(config_, provided_type=MessagingConfig),
+            singleton(MessageTypeRegistry, _build_message_type_registry),
             singleton(EnvelopeFactory),
             singleton(HandlerPipelineInvoker),
             singleton(MessageDispatcher),
@@ -80,9 +82,8 @@ class MessagingModule:
         extensions: list[ModuleExtension] = [
             MessageRegistryAggregator(config_),
             EndpointLifecycleExtension(),
+            _UnitOfWorkValidationExtension(config_),
         ]
-        if _requires_uow(config_):
-            extensions.append(_UnitOfWorkValidationExtension())
         if config_.outbox is not None:
             extensions.append(OutboxRelayLifecycleExtension(config_.outbox.relay))
         return DynamicModule(
@@ -97,10 +98,6 @@ class MessagingModule:
         has_external = any(isinstance(e, ExternalEntry) for e in config.endpoints)
         if has_external and config.outbox is None:
             msg = 'external_endpoint requires outbox in MessagingConfig'
-            raise ImproperlyConfiguredError(msg)
-        needs_dlq = _requires_dead_letter_store(config.error_policies)
-        if needs_dlq and config.dead_letter_store is None:
-            msg = 'error_policies with DEAD_LETTER action require dead_letter_store in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
 
     @staticmethod
@@ -125,9 +122,9 @@ class MessagingModule:
 
     @staticmethod
     def _create_pipeline_behavior_providers(config: MessagingConfig) -> _HandlerProviders:
-        if not config.pipeline_behaviors:
+        if not config.global_pipeline_behaviors:
             return ()
-        return (many(IPipelineBehavior[Any, Any], *config.pipeline_behaviors),)
+        return (many(IPipelineBehavior[Any, Any], *config.global_pipeline_behaviors),)
 
 
 class MessagingExtension(OnModuleConfigure):
@@ -143,8 +140,6 @@ class MessagingExtension(OnModuleConfigure):
         self,
         message_type: type[_ReqT],
         handler_type: 'type[RequestHandler[_ReqT, Any]]',
-        *,
-        behaviors: Sequence[type[IPipelineBehavior[Any, Any]]] | None = None,
     ) -> Self: ...
 
     @overload
@@ -153,7 +148,6 @@ class MessagingExtension(OnModuleConfigure):
         message_type: type[_MsgT],
         handler_type: 'type[EventHandler[_MsgT]]',
         *additional_handlers: 'type[EventHandler[_MsgT]]',
-        behaviors: Sequence[type[IPipelineBehavior[Any, Any]]] | None = None,
     ) -> Self: ...
 
     def bind(
@@ -161,14 +155,10 @@ class MessagingExtension(OnModuleConfigure):
         message_type: type[IMessage],
         handler_type: 'type[MessageHandler[Any, Any]]',
         *additional_handlers: 'type[MessageHandler[Any, Any]]',
-        behaviors: Sequence[type[IPipelineBehavior[Any, Any]]] | None = None,
     ) -> Self:
         self._registry.handler_map.bind(message_type, handler_type)
         for additional in additional_handlers:
             self._registry.handler_map.bind(message_type, additional)
-        if behaviors:
-            entry: PipelineBehaviorMapEntry[Any, Any] = PipelineBehaviorMapEntry.for_message(message_type)
-            self._registry.behavior_map.bind(entry, behaviors)
         return self
 
     @property
@@ -176,22 +166,43 @@ class MessagingExtension(OnModuleConfigure):
         return self._registry
 
 
-def _requires_dead_letter_store(policies: Sequence[ResolvedRetryPolicy]) -> bool:
-    return any(RetryAction.DEAD_LETTER in {p.action, p.fallback_action} for p in policies)
+def _policies_need_dead_letter(policies: Sequence[ErrorPolicy]) -> bool:
+    return any(stage.action is RetryAction.DEAD_LETTER for policy in policies for stage in policy.stages)
+
+
+def _requires_dead_letter_store(registry: MessageRegistry, config: MessagingConfig) -> bool:
+    if _policies_need_dead_letter(config.default_error_policies):
+        return True
+    return any(_policies_need_dead_letter(ht.error_policies) for ht in registry.handler_map.handler_types())
 
 
 def _requires_uow(config: MessagingConfig) -> bool:
     return (
         config.dead_letter_store is not None
         or config.outbox is not None
-        or any(issubclass(b, TransactionalBehavior) for b in config.pipeline_behaviors)
+        or any(issubclass(b, TransactionalBehavior) for b in config.global_pipeline_behaviors)
     )
 
 
-def _create_envelope_serializer(registry: MessageRegistry) -> JsonEnvelopeSerializer:
-    type_registry = {
-        f'{msg_type.__module__}.{msg_type.__qualname__}': msg_type for msg_type in registry.handler_map.message_types()
-    }
+def _handler_needs_uow(registry: MessageRegistry) -> bool:
+    return any(
+        issubclass(behavior, TransactionalBehavior)
+        for ht in registry.handler_map.handler_types()
+        for behavior in ht.additional_behaviors
+    )
+
+
+def _build_message_type_registry(
+    registry: MessageRegistry,
+    config: MessagingConfig,
+) -> MessageTypeRegistry:
+    return MessageTypeRegistry(
+        identities=config.message_identities,
+        known_types=registry.handler_map.message_types(),
+    )
+
+
+def _create_envelope_serializer(type_registry: MessageTypeRegistry) -> JsonEnvelopeSerializer:
     return JsonEnvelopeSerializer(type_registry=type_registry)
 
 
@@ -200,9 +211,10 @@ def _build_router(
     container: AsyncContainer,
     evaluator: ErrorPolicyEvaluator,
     invoker: HandlerPipelineInvoker,
+    type_registry: MessageTypeRegistry,
 ) -> MessageRouter:
     endpoints_by_uri = {
-        entry.uri: _create_endpoint(entry, routing_table, container, evaluator, invoker)
+        entry.uri: _create_endpoint(entry, routing_table, container, evaluator, invoker, type_registry)
         for entry in routing_table.entries
     }
     return MessageRouter(
@@ -220,11 +232,16 @@ def _create_endpoint(
     container: AsyncContainer,
     evaluator: ErrorPolicyEvaluator,
     invoker: HandlerPipelineInvoker,
+    type_registry: MessageTypeRegistry,
 ) -> Endpoint:
     match entry:
         case LocalQueueEntry():
             executor = EndpointExecutor(
-                container=container, evaluator=evaluator, endpoint_uri=entry.uri, invoker=invoker
+                container=container,
+                evaluator=evaluator,
+                endpoint_uri=entry.uri,
+                invoker=invoker,
+                registry=type_registry,
             )
             return LocalQueueEndpoint(
                 uri=entry.uri,
@@ -252,6 +269,8 @@ class MessageRegistryAggregator(OnModuleRegistration):
     ) -> None:
         aggregated = MessageRegistry()
         module_routing_map: dict[ModuleType, dict[type[IMessage], Sequence[HandlerType]]] = {}
+        seen_handlers: set[HandlerType] = set()
+        seen_behaviors: set[type[IPipelineBehavior[Any, Any]]] = set()
 
         for module_type, ext in registry.find_extensions(MessagingExtension):
             try:
@@ -261,13 +280,10 @@ class MessageRegistryAggregator(OnModuleRegistration):
                 raise ImproperlyConfiguredError(msg) from exc
             if ext.registry.handler_map:
                 module_routing_map[module_type] = dict(ext.registry.handler_map.items())
-            for provider in self._handler_providers(ext.registry):
+            for provider in self._handler_providers(ext.registry, seen_handlers, seen_behaviors):
                 registry.add_provider(module_type, provider)
 
         self._validate_request_handler_counts(aggregated)
-
-        for provider in self._collector_providers(aggregated):
-            registry.add_provider(owning_module, provider)
 
         aggregated.freeze()
         registry.add_provider(owning_module, object_(aggregated))
@@ -280,7 +296,19 @@ class MessageRegistryAggregator(OnModuleRegistration):
         registry.add_provider(owning_module, object_(routing_table))
         registry.add_provider(owning_module, singleton(MessageRouter, _build_router))
 
-        error_policy_registry = ErrorPolicyRegistry(self._config.error_policies)
+        if _requires_dead_letter_store(aggregated, self._config) and self._config.dead_letter_store is None:
+            msg = 'error policies with DEAD_LETTER action require dead_letter_store in MessagingConfig'
+            raise ImproperlyConfiguredError(msg)
+
+        handler_policies = {
+            handler_type: handler_type.error_policies
+            for handler_type in aggregated.handler_map.handler_types()
+            if handler_type.error_policies
+        }
+        error_policy_registry = ErrorPolicyRegistry(
+            handler_policies=handler_policies,
+            default_policies=self._config.default_error_policies,
+        )
         registry.add_provider(owning_module, object_(error_policy_registry))
 
         evaluator = ErrorPolicyEvaluator(registry=error_policy_registry)
@@ -293,16 +321,25 @@ class MessageRegistryAggregator(OnModuleRegistration):
                 raise MultipleHandlersRegistered(msg_type)
 
     @staticmethod
-    def _handler_providers(reg: MessageRegistry) -> Iterator[Provider]:
+    def _handler_providers(
+        reg: MessageRegistry,
+        seen_handlers: 'set[HandlerType]',
+        seen_behaviors: set[type[IPipelineBehavior[Any, Any]]],
+    ) -> Iterator[Provider]:
+        # Each handler/behavior registers once, in its first binding module's scope
+        # (deps resolve there). The `seen_*` sets span all modules: a handler bound
+        # to >1 message type, or a behavior shared across handlers/modules, would
+        # otherwise emit duplicate scoped providers — which dishka rejects under
+        # strict validation.
         for handler_type in reg.handler_map.handler_types():
+            if handler_type in seen_handlers:
+                continue
+            seen_handlers.add(handler_type)
             yield scoped(handler_type)
-        for entry in reg.behavior_map.entries():
-            yield many(entry.di_lookup_type, *entry.behavior_types, collect=False)
-
-    @staticmethod
-    def _collector_providers(reg: MessageRegistry) -> Iterator[Provider]:
-        for entry in reg.behavior_map.entries():
-            yield many(entry.di_lookup_type, collect=True)
+            for behavior_type in handler_type.additional_behaviors:
+                if behavior_type not in seen_behaviors:
+                    seen_behaviors.add(behavior_type)
+                    yield scoped(behavior_type)
 
 
 class EndpointLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
@@ -322,10 +359,15 @@ class EndpointLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
 
 
 class _UnitOfWorkValidationExtension(AfterApplicationInit):
-    __slots__ = ()
+    __slots__ = ('_config',)
+
+    def __init__(self, config: MessagingConfig) -> None:
+        self._config = config
 
     @override
     async def after_app_init(self, app: 'WakuApplication') -> None:
+        if not await self._uow_required(app):
+            return
         has_uow = await app.container._has(IUnitOfWork)  # noqa: SLF001
         if not has_uow:
             msg = (
@@ -333,6 +375,12 @@ class _UnitOfWorkValidationExtension(AfterApplicationInit):
                 'Register it in your infrastructure module: scoped(IUnitOfWork, SqlAlchemyUnitOfWork)'
             )
             raise ImproperlyConfiguredError(msg)
+
+    async def _uow_required(self, app: 'WakuApplication') -> bool:
+        if _requires_uow(self._config):
+            return True
+        registry = await app.container.get(MessageRegistry)
+        return _handler_needs_uow(registry)
 
 
 class OutboxRelayLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):

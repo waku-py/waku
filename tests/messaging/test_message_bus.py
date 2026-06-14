@@ -22,7 +22,7 @@ from waku.messaging import (
 )
 from waku.messaging.context import get_message_context
 from waku.messaging.endpoints.base import external_endpoint
-from waku.messaging.errors.policy import RetryAction, RetryPolicy
+from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.exceptions import (
     HandlerNotFound,
     ImproperlyConfiguredError,
@@ -123,7 +123,7 @@ async def test_publish_runs_global_behaviors_per_handler() -> None:
     async with (
         create_test_app(
             imports=[
-                MessagingModule.register(MessagingConfig(pipeline_behaviors=[TrackingBehavior])),
+                MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[TrackingBehavior])),
             ],
             extensions=[MessagingExtension().bind(_SomeEvent, HandlerA, HandlerB)],
         ) as app,
@@ -138,7 +138,7 @@ async def test_publish_runs_global_behaviors_per_handler() -> None:
     assert len(called) == 4
 
 
-async def test_publish_runs_scoped_behavior_for_bound_event() -> None:
+async def test_publish_runs_per_handler_behavior_for_bound_event() -> None:
     called: list[str] = []
 
     class ScopedBehavior(IPipelineBehavior[MessageT, ResponseT]):
@@ -148,6 +148,8 @@ async def test_publish_runs_scoped_behavior_for_bound_event() -> None:
             return await call_next()
 
     class Handler(EventHandler[_SomeEvent]):
+        additional_behaviors = (ScopedBehavior,)
+
         @override
         async def handle(self, event: _SomeEvent, /) -> None:
             called.append('handler')
@@ -155,7 +157,7 @@ async def test_publish_runs_scoped_behavior_for_bound_event() -> None:
     async with (
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            extensions=[MessagingExtension().bind(_SomeEvent, Handler, behaviors=[ScopedBehavior])],
+            extensions=[MessagingExtension().bind(_SomeEvent, Handler)],
         ) as app,
         app.container() as container,
     ):
@@ -165,7 +167,7 @@ async def test_publish_runs_scoped_behavior_for_bound_event() -> None:
     assert called == ['scoped_behavior', 'handler']
 
 
-async def test_publish_runs_global_then_scoped_behaviors() -> None:
+async def test_publish_runs_global_then_per_handler_behaviors() -> None:
     called: list[str] = []
 
     class GlobalBehavior(IPipelineBehavior[MessageT, ResponseT]):
@@ -181,14 +183,16 @@ async def test_publish_runs_global_then_scoped_behaviors() -> None:
             return await call_next()
 
     class Handler(EventHandler[_SomeEvent]):
+        additional_behaviors = (ScopedBehavior,)
+
         @override
         async def handle(self, event: _SomeEvent, /) -> None:
             called.append('handler')
 
     async with (
         create_test_app(
-            imports=[MessagingModule.register(MessagingConfig(pipeline_behaviors=[GlobalBehavior]))],
-            extensions=[MessagingExtension().bind(_SomeEvent, Handler, behaviors=[ScopedBehavior])],
+            imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[GlobalBehavior]))],
+            extensions=[MessagingExtension().bind(_SomeEvent, Handler)],
         ) as app,
         app.container() as container,
     ):
@@ -198,7 +202,7 @@ async def test_publish_runs_global_then_scoped_behaviors() -> None:
     assert called == ['global', 'scoped', 'handler']
 
 
-async def test_publish_scoped_behavior_does_not_run_for_other_event() -> None:
+async def test_publish_per_handler_behavior_does_not_run_for_other_event() -> None:
     called: list[str] = []
 
     @dataclass(frozen=True)
@@ -212,6 +216,8 @@ async def test_publish_scoped_behavior_does_not_run_for_other_event() -> None:
             return await call_next()
 
     class SomeEventHandler(EventHandler[_SomeEvent]):
+        additional_behaviors = (ScopedBehavior,)
+
         @override
         async def handle(self, event: _SomeEvent, /) -> None:  # pragma: no cover
             called.append('some_handler')
@@ -225,9 +231,7 @@ async def test_publish_scoped_behavior_does_not_run_for_other_event() -> None:
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
             extensions=[
-                MessagingExtension()
-                .bind(_SomeEvent, SomeEventHandler, behaviors=[ScopedBehavior])
-                .bind(OtherEvent, OtherEventHandler),
+                MessagingExtension().bind(_SomeEvent, SomeEventHandler).bind(OtherEvent, OtherEventHandler),
             ],
         ) as app,
         app.container() as container,
@@ -365,30 +369,22 @@ class TestMessagingConfigValidation:
             MessagingModule.register(config)
 
     @staticmethod
-    def test_dead_letter_policy_without_dead_letter_store_raises() -> None:
+    async def test_dead_letter_policy_without_dead_letter_store_raises() -> None:
         config = MessagingConfig(
-            error_policies=[
-                RetryPolicy.for_message(_SomeEvent).on_any_exception().move_to_dead_letter(),
-            ],
+            default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
         )
         with pytest.raises(ImproperlyConfiguredError, match='dead_letter_store'):
-            MessagingModule.register(config)
+            async with create_test_app(imports=[MessagingModule.register(config)]):
+                pass  # pragma: no cover
 
     @staticmethod
-    def test_dead_letter_fallback_without_dead_letter_store_raises() -> None:
+    async def test_dead_letter_escalation_without_dead_letter_store_raises() -> None:
         config = MessagingConfig(
-            error_policies=[
-                RetryPolicy
-                .for_message(_SomeEvent)
-                .on_any_exception()
-                .retry(
-                    max_attempts=3,
-                    fallback=RetryAction.DEAD_LETTER,
-                ),
-            ],
+            default_error_policies=(ErrorPolicy.on_any_exception().retry(max_attempts=3).then_move_to_dead_letter(),),
         )
         with pytest.raises(ImproperlyConfiguredError, match='dead_letter_store'):
-            MessagingModule.register(config)
+            async with create_test_app(imports=[MessagingModule.register(config)]):
+                pass  # pragma: no cover
 
     @staticmethod
     async def test_dead_letter_store_without_uow_raises_at_startup() -> None:

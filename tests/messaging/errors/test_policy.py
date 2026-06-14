@@ -1,59 +1,67 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from waku.messaging.contracts.request import IRequest
-from waku.messaging.errors.policy import RetryAction, RetryPolicy
+from waku.messaging.errors.policy import ErrorPolicy, RetryAction
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
-@dataclass(frozen=True, slots=True)
-class ProcessPayment(IRequest[None]):
-    pass
-
-
-class TestRetryPolicy:
+class TestErrorPolicyBuilder:
     @staticmethod
-    def test_build_retry_policy() -> None:
-        policy = RetryPolicy.for_message(ProcessPayment).on_exception(TimeoutError).retry(max_attempts=3)
-        assert policy.exception_type is TimeoutError
-        assert policy.action == RetryAction.RETRY
-        assert policy.max_attempts == 3
+    @pytest.mark.parametrize(
+        ('method', 'expected_action'),
+        [
+            pytest.param(lambda b: b.retry(), RetryAction.RETRY, id='retry'),
+            pytest.param(lambda b: b.retry_with_backoff(), RetryAction.RETRY_WITH_BACKOFF, id='backoff'),
+            pytest.param(lambda b: b.discard(), RetryAction.DISCARD, id='discard'),
+            pytest.param(lambda b: b.move_to_dead_letter(), RetryAction.DEAD_LETTER, id='dead_letter'),
+        ],
+    )
+    def test_builder_method_seeds_single_stage_with_expected_action(
+        method: Callable[[Any], ErrorPolicy],
+        expected_action: RetryAction,
+    ) -> None:
+        policy = method(ErrorPolicy.on_any_exception())
+        assert len(policy.stages) == 1
+        assert policy.stages[0].action == expected_action
 
     @staticmethod
-    def test_build_retry_with_backoff() -> None:
+    def test_terminal_builder_seeds_single_stage() -> None:
+        policy = ErrorPolicy.on_any_exception().retry(max_attempts=3)
+        assert len(policy.stages) == 1
+        assert policy.stages[0].action == RetryAction.RETRY
+        assert policy.stages[0].max_attempts == 3
+
+    @staticmethod
+    def test_then_move_to_dead_letter_appends_terminal_stage() -> None:
+        policy = ErrorPolicy.on_any_exception().retry(max_attempts=3).then_move_to_dead_letter()
+        assert len(policy.stages) == 2
+        assert policy.stages[0].action == RetryAction.RETRY
+        assert policy.stages[1].action == RetryAction.DEAD_LETTER
+
+    @staticmethod
+    def test_three_deep_chain_with_predicate_preserves_stage_order() -> None:
         policy = (
-            RetryPolicy
-            .for_message(ProcessPayment)
-            .on_exception(TimeoutError)
-            .retry_with_backoff(max_attempts=5, base_delay=1.0, max_delay=30.0)
+            ErrorPolicy
+            .on_exception(TimeoutError, when=lambda exc: 'transient' in str(exc))
+            .retry(max_attempts=2)
+            .then_retry_with_backoff(max_attempts=3, base_delay=0.5)
+            .then_move_to_dead_letter()
         )
-        assert policy.action == RetryAction.RETRY_WITH_BACKOFF
-        assert policy.base_delay == 1.0
-        assert policy.max_delay == 30.0
+        assert [stage.action for stage in policy.stages] == [
+            RetryAction.RETRY,
+            RetryAction.RETRY_WITH_BACKOFF,
+            RetryAction.DEAD_LETTER,
+        ]
 
     @staticmethod
-    def test_build_discard_policy() -> None:
-        policy = RetryPolicy.for_message(ProcessPayment).on_exception(ValueError).discard()
-        assert policy.action == RetryAction.DISCARD
-
-    @staticmethod
-    def test_build_dead_letter_policy() -> None:
-        policy = RetryPolicy.for_message(ProcessPayment).on_any_exception().move_to_dead_letter()
-        assert policy.exception_type is None
-        assert policy.action == RetryAction.DEAD_LETTER
-
-    @staticmethod
-    def test_build_retry_with_dead_letter_fallback() -> None:
-        policy = (
-            RetryPolicy
-            .for_message(ProcessPayment)
-            .on_any_exception()
-            .retry(max_attempts=3, fallback=RetryAction.DEAD_LETTER)
-        )
-        assert policy.action == RetryAction.RETRY
-        assert policy.fallback_action == RetryAction.DEAD_LETTER
+    def test_then_after_terminal_stage_raises() -> None:
+        with pytest.raises(ValueError, match='terminal'):
+            ErrorPolicy.on_any_exception().move_to_dead_letter().then_retry(max_attempts=3)
 
     @staticmethod
     @pytest.mark.parametrize(
@@ -64,6 +72,6 @@ class TestRetryPolicy:
         ],
     )
     def test_invalid_max_attempts_raises_value_error(method: str, max_attempts: int) -> None:
-        builder = RetryPolicy.for_message(ProcessPayment).on_any_exception()
+        builder = ErrorPolicy.on_any_exception()
         with pytest.raises(ValueError, match='max_attempts must be >= 1'):
             getattr(builder, method)(max_attempts=max_attempts)

@@ -7,44 +7,22 @@ from typing_extensions import override
 
 from waku.messaging import (
     CallNext,
+    EventHandler,
+    IEvent,
     IPipelineBehavior,
-    IRequest,
     MessageT,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
-    RequestHandler,
     ResponseT,
 )
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
-from waku.messaging.registry import MessageRegistry
 from waku.testing import create_test_app
 
 
-@dataclass(frozen=True, kw_only=True)
-class _Ping(IRequest[str]):
+@dataclass(frozen=True, slots=True)
+class _Evt(IEvent):
     value: str
-
-
-class _PingHandler(RequestHandler[_Ping, str]):
-    @override
-    async def handle(self, request: _Ping, /) -> str:
-        return f'pong:{request.value}'
-
-
-async def _invoke(message: _Ping | None = None) -> str:
-    msg = message or _Ping(value='test')
-
-    async with (
-        create_test_app(
-            imports=[MessagingModule.register(MessagingConfig())],
-            extensions=[MessagingExtension().bind(_Ping, _PingHandler)],
-        ) as app,
-        app.container() as scope,
-    ):
-        registry = await scope.get(MessageRegistry)
-        invoker = HandlerPipelineInvoker(registry)
-        return await invoker.invoke(scope, msg, _PingHandler)  # type: ignore[no-any-return]
 
 
 def _make_tracking_behavior(label: str, tracker: list[str]) -> type[IPipelineBehavior[Any, Any]]:
@@ -59,79 +37,99 @@ def _make_tracking_behavior(label: str, tracker: list[str]) -> type[IPipelineBeh
     return _Behavior
 
 
-async def test_invoke_without_behaviors_returns_handler_result() -> None:
-    result = await _invoke()
-    assert result == 'pong:test'
-
-
-async def test_invoke_with_global_behaviors_runs_them_before_handler() -> None:
+async def test_invoke_without_behaviors_runs_only_handler() -> None:
     called: list[str] = []
-    global_b = _make_tracking_behavior('global', called)
 
-    ext = MessagingExtension().bind(_Ping, _PingHandler)
-
-    async with (
-        create_test_app(
-            imports=[MessagingModule.register(MessagingConfig(pipeline_behaviors=[global_b]))],
-            extensions=[ext],
-        ) as app,
-        app.container() as scope,
-    ):
-        registry = await scope.get(MessageRegistry)
-        invoker = HandlerPipelineInvoker(registry)
-        result = await invoker.invoke(scope, _Ping(value='gb'), _PingHandler)
-
-    assert result == 'pong:gb'
-    assert called == ['global']
-
-
-async def test_invoke_with_global_and_scoped_behaviors_orders_global_first() -> None:
-    called: list[str] = []
-    global_b = _make_tracking_behavior('global', called)
-    scoped_b = _make_tracking_behavior('scoped', called)
-
-    ext = MessagingExtension().bind(_Ping, _PingHandler, behaviors=[scoped_b])
-
-    async with (
-        create_test_app(
-            imports=[MessagingModule.register(MessagingConfig(pipeline_behaviors=[global_b]))],
-            extensions=[ext],
-        ) as app,
-        app.container() as scope,
-    ):
-        registry = await scope.get(MessageRegistry)
-        invoker = HandlerPipelineInvoker(registry)
-        result = await invoker.invoke(scope, _Ping(value='both'), _PingHandler)
-
-    assert result == 'pong:both'
-    assert called == ['global', 'scoped']
-
-
-async def test_invoke_scoped_behavior_skipped_for_message_without_bindings() -> None:
-    called: list[str] = []
-    scoped_b = _make_tracking_behavior('scoped', called)
-
-    @dataclass(frozen=True, kw_only=True)
-    class OtherRequest(IRequest[str]):
-        value: str
-
-    class OtherHandler(RequestHandler[OtherRequest, str]):
+    class _H(EventHandler[_Evt]):
         @override
-        async def handle(self, request: OtherRequest, /) -> str:
-            return f'other:{request.value}'
-
-    ext = MessagingExtension().bind(_Ping, _PingHandler, behaviors=[scoped_b]).bind(OtherRequest, OtherHandler)
+        async def handle(self, message: _Evt, /) -> None:
+            called.append('handle')
 
     async with (
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            extensions=[ext],
+            extensions=[MessagingExtension().bind(_Evt, _H)],
         ) as app,
         app.container() as scope,
     ):
-        registry = await scope.get(MessageRegistry)
-        invoker = HandlerPipelineInvoker(registry)
-        result = await invoker.invoke(scope, OtherRequest(value='no-scoped'), OtherHandler)
+        invoker = HandlerPipelineInvoker()
+        await invoker.invoke(scope, _Evt(value='x'), _H)
 
-    assert result == 'other:no-scoped'
-    assert called == []
+    assert called == ['handle']
+
+
+async def test_global_outer_then_per_handler_inner_then_handle() -> None:
+    called: list[str] = []
+    global_b = _make_tracking_behavior('global', called)
+    per_b = _make_tracking_behavior('per-handler', called)
+
+    class _H(EventHandler[_Evt]):
+        additional_behaviors = (per_b,)
+
+        @override
+        async def handle(self, message: _Evt, /) -> None:
+            called.append('handle')
+
+    async with (
+        create_test_app(
+            imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[global_b]))],
+            extensions=[MessagingExtension().bind(_Evt, _H)],
+        ) as app,
+        app.container() as scope,
+    ):
+        invoker = HandlerPipelineInvoker()
+        await invoker.invoke(scope, _Evt(value='x'), _H)
+
+    assert called == ['global', 'per-handler', 'handle']
+
+
+async def test_handler_without_additional_behaviors_uses_only_global() -> None:
+    called: list[str] = []
+    global_b = _make_tracking_behavior('global', called)
+
+    class _Bare(EventHandler[_Evt]):
+        @override
+        async def handle(self, message: _Evt, /) -> None:
+            called.append('handle')
+
+    async with (
+        create_test_app(
+            imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[global_b]))],
+            extensions=[MessagingExtension().bind(_Evt, _Bare)],
+        ) as app,
+        app.container() as scope,
+    ):
+        invoker = HandlerPipelineInvoker()
+        await invoker.invoke(scope, _Evt(value='x'), _Bare)
+
+    assert called == ['global', 'handle']
+
+
+async def test_two_handlers_of_same_event_have_independent_chains() -> None:
+    called: list[str] = []
+    per_a = _make_tracking_behavior('a-behavior', called)
+
+    class _HandlerA(EventHandler[_Evt]):
+        additional_behaviors = (per_a,)
+
+        @override
+        async def handle(self, message: _Evt, /) -> None:
+            called.append('a-handle')
+
+    class _HandlerB(EventHandler[_Evt]):
+        @override
+        async def handle(self, message: _Evt, /) -> None:
+            called.append('b-handle')
+
+    async with (
+        create_test_app(
+            imports=[MessagingModule.register(MessagingConfig())],
+            extensions=[MessagingExtension().bind(_Evt, _HandlerA, _HandlerB)],
+        ) as app,
+        app.container() as scope,
+    ):
+        invoker = HandlerPipelineInvoker()
+        await invoker.invoke(scope, _Evt(value='x'), _HandlerA)
+        await invoker.invoke(scope, _Evt(value='x'), _HandlerB)
+
+    assert called == ['a-behavior', 'a-handle', 'b-handle']

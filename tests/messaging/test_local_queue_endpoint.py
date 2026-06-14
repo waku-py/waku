@@ -21,15 +21,15 @@ from waku.messaging import (
     RequestHandler,
 )
 from waku.messaging.contracts.event import IEvent as _IEvent
-from waku.messaging.contracts.factory import EnvelopeFactory
 from waku.messaging.endpoints.base import local_queue
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
+from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.messaging.router import route
 from waku.testing import create_test_app
 
-from tests.messaging.helpers import NOOP_EVALUATOR
+from tests.messaging.helpers import NOOP_EVALUATOR, make_envelope
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -42,6 +42,7 @@ def noop_executor(mocker: MockerFixture) -> EndpointExecutor:
         evaluator=NOOP_EVALUATOR,
         endpoint_uri='test://q',
         invoker=mocker.Mock(spec_set=HandlerPipelineInvoker),
+        registry=MessageTypeRegistry(identities={}, known_types=[]),
     )
 
 
@@ -70,7 +71,7 @@ class TestLocalQueueLifecycle:
         await stopped_endpoint.start()
         await stopped_endpoint.stop()
 
-        envelope = EnvelopeFactory.create(_IEvent())
+        envelope = make_envelope(_IEvent())
         with caplog.at_level(logging.WARNING, logger='waku.messaging.endpoints.local_queue'):
             await stopped_endpoint.dispatch(envelope, mocker.Mock(spec_set=AsyncContainer))
 

@@ -103,16 +103,13 @@ class ValidationBehavior(IPipelineBehavior[ProcessCommand, ProcessResult]):
 
 
 async def test_pipeline_behavior_deps_validated_against_originating_module() -> None:
+    class ValidatingHandler(ProcessCommandHandler):
+        additional_behaviors = (ValidationBehavior,)
+
     @module(
         providers=[scoped(IRepository, ConcreteRepository)],
         exports=[IRepository],
-        extensions=[
-            MessagingExtension().bind(
-                ProcessCommand,
-                ProcessCommandHandler,
-                behaviors=[ValidationBehavior],
-            ),
-        ],
+        extensions=[MessagingExtension().bind(ProcessCommand, ValidatingHandler)],
     )
     class DomainModule:
         pass

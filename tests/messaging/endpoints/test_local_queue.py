@@ -8,14 +8,13 @@ from typing_extensions import override
 
 from waku.messaging import EventHandler, IEvent, MessagingExtension, MessagingModule
 from waku.messaging.context import MessageContext, get_message_context
-from waku.messaging.contracts.factory import EnvelopeFactory
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
+from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
-from waku.messaging.registry import MessageRegistry
 from waku.testing import create_test_app
 
-from tests.messaging.helpers import NOOP_EVALUATOR
+from tests.messaging.helpers import NOOP_EVALUATOR, make_envelope
 
 if TYPE_CHECKING:
     from waku.application import WakuApplication
@@ -53,10 +52,14 @@ async def _make_endpoint(
     app: WakuApplication,
     handler: type[EventHandler[_OrderPlaced]],
 ) -> LocalQueueEndpoint:
-    registry = await app.container.get(MessageRegistry)
-    invoker = HandlerPipelineInvoker(registry)
+    type_registry = await app.container.get(MessageTypeRegistry)
+    invoker = HandlerPipelineInvoker()
     executor = EndpointExecutor(
-        container=app.container, evaluator=NOOP_EVALUATOR, endpoint_uri='local://test', invoker=invoker
+        container=app.container,
+        evaluator=NOOP_EVALUATOR,
+        endpoint_uri='local://test',
+        invoker=invoker,
+        registry=type_registry,
     )
     return LocalQueueEndpoint(
         uri='local://test',
@@ -79,7 +82,7 @@ class TestLocalQueueEndpoint:
         ) as app:
             endpoint = await _make_endpoint(app, _RecordingHandler)
             await endpoint.start()
-            envelope = EnvelopeFactory.create(_OrderPlaced(order_id='abc-123'))
+            envelope = make_envelope(_OrderPlaced(order_id='abc-123'))
             await endpoint.dispatch(envelope, app.container)
             await endpoint.stop()
 
@@ -97,7 +100,7 @@ class TestLocalQueueEndpoint:
         ) as app:
             endpoint = await _make_endpoint(app, _RecordingHandler)
             await endpoint.start()
-            envelope = EnvelopeFactory.create(_OrderPlaced(order_id='ctx-test'))
+            envelope = make_envelope(_OrderPlaced(order_id='ctx-test'))
             await endpoint.dispatch(envelope, app.container)
             await endpoint.stop()
 
@@ -119,8 +122,8 @@ class TestLocalQueueEndpoint:
         ) as app:
             endpoint = await _make_endpoint(app, _FailingThenRecordingHandler)
             await endpoint.start()
-            first = EnvelopeFactory.create(_OrderPlaced(order_id='will-fail'))
-            second = EnvelopeFactory.create(_OrderPlaced(order_id='will-succeed'))
+            first = make_envelope(_OrderPlaced(order_id='will-fail'))
+            second = make_envelope(_OrderPlaced(order_id='will-succeed'))
             await endpoint.dispatch(first, app.container)
             await endpoint.dispatch(second, app.container)
             await endpoint.stop()

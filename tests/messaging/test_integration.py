@@ -200,7 +200,7 @@ class TestMessagingIntegration:
 
         async with (
             create_test_app(
-                imports=[MessagingModule.register(MessagingConfig(pipeline_behaviors=[ContextReadingBehavior]))],
+                imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[ContextReadingBehavior]))],
                 extensions=[MessagingExtension().bind(_SayHello, SimpleHandler)],
             ) as app,
             app.container() as container,

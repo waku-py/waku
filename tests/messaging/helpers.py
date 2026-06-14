@@ -11,6 +11,7 @@ from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.registry import ErrorPolicyRegistry
+from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.outbox.interfaces import IOutboxStore  # noqa: TC001
 from waku.messaging.transport.interfaces import ITransport
 from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
@@ -20,9 +21,11 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from uuid import UUID
 
+    from waku.messaging.contracts.message import IMessage
 
-def make_serializer(*types: type) -> JsonEnvelopeSerializer:
-    registry = {f'{t.__module__}.{t.__qualname__}': t for t in types}
+
+def make_serializer(*types: type[IMessage]) -> JsonEnvelopeSerializer:
+    registry = MessageTypeRegistry(identities={}, known_types=list(types))
     return JsonEnvelopeSerializer(type_registry=registry)
 
 
@@ -39,7 +42,7 @@ def make_envelope(payload: Any, *, headers: dict[str, str] | None = None) -> Mes
     )
 
 
-NOOP_EVALUATOR = ErrorPolicyEvaluator(registry=ErrorPolicyRegistry(()))
+NOOP_EVALUATOR = ErrorPolicyEvaluator(registry=ErrorPolicyRegistry(handler_policies={}, default_policies=()))
 
 
 class FakeUoW(IUnitOfWork):

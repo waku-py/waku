@@ -11,7 +11,7 @@ from waku._internal.retort import default_retort
 from waku.messaging.contracts.envelope import MessageEnvelope
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from waku.messaging.identity import MessageTypeRegistry
 
 __all__ = [
     'IEnvelopeSerializer',
@@ -30,7 +30,7 @@ class IEnvelopeSerializer(abc.ABC):
 class JsonEnvelopeSerializer(IEnvelopeSerializer):
     __slots__ = ('_type_registry',)
 
-    def __init__(self, type_registry: Mapping[str, type]) -> None:
+    def __init__(self, type_registry: MessageTypeRegistry) -> None:
         self._type_registry = type_registry
 
     @override
@@ -48,7 +48,7 @@ class JsonEnvelopeSerializer(IEnvelopeSerializer):
     @override
     def deserialize(self, data: dict[str, Any]) -> MessageEnvelope[Any]:
         message_type_name = data['message_type']
-        payload_type = self._resolve_type(message_type_name)
+        payload_type = self._type_registry.resolve_type(message_type_name)
         payload: Any = default_retort.load(data['payload'], payload_type)
         return MessageEnvelope(
             message_id=UUID(data['message_id']),
@@ -59,11 +59,3 @@ class JsonEnvelopeSerializer(IEnvelopeSerializer):
             payload=payload,
             headers=data.get('headers', {}),
         )
-
-    def _resolve_type(self, message_type: str) -> type:
-        try:
-            return self._type_registry[message_type]
-        except KeyError:
-            registered = sorted(self._type_registry)
-            msg = f"Unknown message type '{message_type}'. Registered types: {registered}"
-            raise ValueError(msg) from None

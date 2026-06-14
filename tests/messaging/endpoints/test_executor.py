@@ -14,17 +14,22 @@ from waku.messaging import (
     MessagingModule,
     RequestHandler,
 )
-from waku.messaging.contracts.factory import EnvelopeFactory
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
-from waku.messaging.errors.policy import RetryPolicy
+from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.registry import ErrorPolicyRegistry
+from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
-from waku.messaging.registry import MessageRegistry
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import NOOP_EVALUATOR, FailingDeadLetterStore, FakeUoW, RecordingDeadLetterStore
+from tests.messaging.helpers import (
+    NOOP_EVALUATOR,
+    FailingDeadLetterStore,
+    FakeUoW,
+    RecordingDeadLetterStore,
+    make_envelope,
+)
 
 if TYPE_CHECKING:
     import pytest
@@ -66,15 +71,25 @@ def _make_always_fail_handler() -> tuple[type[RequestHandler[_FailingCommand, No
     return Handler, calls
 
 
+def _evaluator_for(policy: ErrorPolicy) -> ErrorPolicyEvaluator:
+    return ErrorPolicyEvaluator(ErrorPolicyRegistry(handler_policies={}, default_policies=(policy,)))
+
+
 async def _make_executor(
     app: WakuApplication,
     evaluator: ErrorPolicyEvaluator,
     *,
     uri: str = 'test://q',
 ) -> EndpointExecutor:
-    registry = await app.container.get(MessageRegistry)
-    invoker = HandlerPipelineInvoker(registry)
-    return EndpointExecutor(container=app.container, evaluator=evaluator, endpoint_uri=uri, invoker=invoker)
+    type_registry = await app.container.get(MessageTypeRegistry)
+    invoker = HandlerPipelineInvoker()
+    return EndpointExecutor(
+        container=app.container,
+        evaluator=evaluator,
+        endpoint_uri=uri,
+        invoker=invoker,
+        registry=type_registry,
+    )
 
 
 async def _run_executor(
@@ -86,43 +101,36 @@ async def _run_executor(
         extensions=[MessagingExtension().bind(_FailingCommand, handler)],
     ) as app:
         executor = await _make_executor(app, evaluator)
-        envelope = EnvelopeFactory.create(_FailingCommand(value='test'))
+        envelope = make_envelope(_FailingCommand(value='test'))
         await executor.execute(envelope, handler)
 
 
 async def test_executor_transient_retried() -> None:
     handler, calls = _make_fail_n_times_handler(fail_count=1)
-    policies = [RetryPolicy.for_message(_FailingCommand).on_any_exception().retry(max_attempts=3)]
-    evaluator = ErrorPolicyEvaluator(ErrorPolicyRegistry(policies))
+    evaluator = _evaluator_for(ErrorPolicy.on_any_exception().retry(max_attempts=3))
     await _run_executor(handler, evaluator)
     assert len(calls) == 2
 
 
 async def test_executor_exhausted_retries() -> None:
     handler, calls = _make_always_fail_handler()
-    policies = [RetryPolicy.for_message(_FailingCommand).on_any_exception().retry(max_attempts=2)]
-    evaluator = ErrorPolicyEvaluator(ErrorPolicyRegistry(policies))
+    evaluator = _evaluator_for(ErrorPolicy.on_any_exception().retry(max_attempts=2))
     await _run_executor(handler, evaluator)
     assert len(calls) == 2
 
 
 async def test_executor_transient_backoff() -> None:
     handler, calls = _make_fail_n_times_handler(fail_count=1)
-    policies = [
-        RetryPolicy
-        .for_message(_FailingCommand)
-        .on_any_exception()
-        .retry_with_backoff(max_attempts=3, base_delay=0.001, max_delay=0.01),
-    ]
-    evaluator = ErrorPolicyEvaluator(ErrorPolicyRegistry(policies))
+    evaluator = _evaluator_for(
+        ErrorPolicy.on_any_exception().retry_with_backoff(max_attempts=3, base_delay=0.001, max_delay=0.01),
+    )
     await _run_executor(handler, evaluator)
     assert len(calls) == 2
 
 
 async def test_executor_discard() -> None:
     handler, calls = _make_always_fail_handler()
-    policies = [RetryPolicy.for_message(_FailingCommand).on_any_exception().discard()]
-    evaluator = ErrorPolicyEvaluator(ErrorPolicyRegistry(policies))
+    evaluator = _evaluator_for(ErrorPolicy.on_any_exception().discard())
     await _run_executor(handler, evaluator)
     assert len(calls) == 1
 
@@ -141,7 +149,7 @@ class TestEndpointExecutorDeadLetter:
         uow = FakeUoW()
 
         config = MessagingConfig(
-            error_policies=[RetryPolicy.for_message(_FailingCommand).on_any_exception().move_to_dead_letter()],
+            default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
             dead_letter_store=lambda: dl_store,
         )
 
@@ -152,7 +160,7 @@ class TestEndpointExecutorDeadLetter:
         ) as app:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
             executor = await _make_executor(app, evaluator)
-            envelope = EnvelopeFactory.create(_FailingCommand(value='to-dlq'))
+            envelope = make_envelope(_FailingCommand(value='to-dlq'))
             await executor.execute(envelope, handler)
 
         assert len(dl_store.entries) == 1
@@ -165,7 +173,7 @@ class TestEndpointExecutorDeadLetter:
         handler, _ = _make_always_fail_handler()
 
         config = MessagingConfig(
-            error_policies=[RetryPolicy.for_message(_FailingCommand).on_any_exception().move_to_dead_letter()],
+            default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
             dead_letter_store=FailingDeadLetterStore,
         )
 
@@ -177,7 +185,7 @@ class TestEndpointExecutorDeadLetter:
             ) as app:
                 evaluator = await app.container.get(ErrorPolicyEvaluator)
                 executor = await _make_executor(app, evaluator)
-                envelope = EnvelopeFactory.create(_FailingCommand(value='dlq-fail'))
+                envelope = make_envelope(_FailingCommand(value='dlq-fail'))
                 await executor.execute(envelope, handler)
 
         assert 'Failed to write dead letter entry' in caplog.text

@@ -166,9 +166,12 @@ async def test_multi_module_pipeline_behaviors_all_resolved() -> None:
             called.append('request_validation')
             return await call_next()
 
+    class ValidatingHandler(ProcessOrderHandler):
+        additional_behaviors = (RequestValidationBehavior,)
+
     @module(
         extensions=[
-            MessagingExtension().bind(ProcessOrder, ProcessOrderHandler, behaviors=[RequestValidationBehavior]),
+            MessagingExtension().bind(ProcessOrder, ValidatingHandler),
         ],
     )
     class HandlerModule:
@@ -176,7 +179,7 @@ async def test_multi_module_pipeline_behaviors_all_resolved() -> None:
 
     @module(
         imports=[
-            MessagingModule.register(MessagingConfig(pipeline_behaviors=[GlobalLoggingBehavior])),
+            MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[GlobalLoggingBehavior])),
             HandlerModule,
         ],
     )
@@ -250,3 +253,86 @@ def test_duplicate_handler_across_modules_raises_improperly_configured() -> None
 
     with pytest.raises(ImproperlyConfiguredError, match=r'SendEmailHandler.*ModuleB'):
         WakuFactory(AppModule).create()
+
+
+async def test_behavior_shared_across_modules_registers_once() -> None:
+    seen: list[str] = []
+
+    class SharedBehavior(IPipelineBehavior[IEvent, None]):
+        @override
+        async def handle(self, message: IEvent, /, call_next: CallNext[None]) -> None:
+            seen.append(type(message).__name__)
+            return await call_next()
+
+    @dataclass(frozen=True)
+    class EventOne(IEvent):
+        pass
+
+    @dataclass(frozen=True)
+    class EventTwo(IEvent):
+        pass
+
+    class HandlerOne(EventHandler[EventOne]):
+        additional_behaviors = (SharedBehavior,)
+
+        @override
+        async def handle(self, event: EventOne, /) -> None: ...
+
+    class HandlerTwo(EventHandler[EventTwo]):
+        additional_behaviors = (SharedBehavior,)
+
+        @override
+        async def handle(self, event: EventTwo, /) -> None: ...
+
+    @module(extensions=[MessagingExtension().bind(EventOne, HandlerOne)])
+    class ModuleOne:
+        pass
+
+    @module(extensions=[MessagingExtension().bind(EventTwo, HandlerTwo)])
+    class ModuleTwo:
+        pass
+
+    @module(imports=[MessagingModule.register(MessagingConfig()), ModuleOne, ModuleTwo])
+    class AppModule:
+        pass
+
+    # A duplicate scoped provider for SharedBehavior would raise at container build.
+    async with WakuFactory(AppModule).create() as app, app.container() as container:
+        bus = await container.get(IMessageBus)
+        await bus.publish(EventOne())
+        await bus.publish(EventTwo())
+
+    assert sorted(seen) == ['EventOne', 'EventTwo']
+
+
+async def test_handler_bound_to_multiple_message_types_registers_once() -> None:
+    seen: list[str] = []
+
+    @dataclass(frozen=True)
+    class EventX(IEvent):
+        pass
+
+    @dataclass(frozen=True)
+    class EventY(IEvent):
+        pass
+
+    class MultiHandler(EventHandler[IEvent]):
+        @override
+        async def handle(self, event: IEvent, /) -> None:
+            seen.append(type(event).__name__)
+
+    @module(extensions=[MessagingExtension().bind(EventX, MultiHandler).bind(EventY, MultiHandler)])
+    class HandlerModule:
+        pass
+
+    @module(imports=[MessagingModule.register(MessagingConfig()), HandlerModule])
+    class AppModule:
+        pass
+
+    # The handler is bound to two message types; it must register only once.
+    async with WakuFactory(AppModule).create() as app, app.container() as container:
+        bus = await container.get(IMessageBus)
+        await bus.publish(EventX())
+        await bus.publish(EventY())
+
+    assert sorted(seen) == ['EventX', 'EventY']

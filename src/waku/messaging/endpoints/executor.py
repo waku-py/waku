@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.errors.executor import ErrorPolicyEvaluator, PolicyOutcome
+    from waku.messaging.identity import MessageTypeRegistry
     from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 
 __all__ = [
@@ -34,7 +35,7 @@ class EndpointExecutor:
     Endpoints delegate to this class; they do not manage scopes, retries, or error handling directly.
     """
 
-    __slots__ = ('_container', '_endpoint_uri', '_evaluator', '_invoker')
+    __slots__ = ('_container', '_endpoint_uri', '_evaluator', '_invoker', '_registry')
 
     def __init__(
         self,
@@ -43,11 +44,13 @@ class EndpointExecutor:
         evaluator: ErrorPolicyEvaluator,
         endpoint_uri: str,
         invoker: HandlerPipelineInvoker,
+        registry: MessageTypeRegistry,
     ) -> None:
         self._container = container
         self._evaluator = evaluator
         self._endpoint_uri = endpoint_uri
         self._invoker = invoker
+        self._registry = registry
 
     async def execute(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> None:
         attempt = 0
@@ -56,7 +59,7 @@ class EndpointExecutor:
             try:
                 await self._dispatch_in_scope(envelope, handler_type)
             except Exception as exc:
-                outcome = self._evaluate(envelope, exc, attempt)
+                outcome = self._evaluate(envelope, handler_type, exc, attempt)
                 if outcome is None:
                     logger.exception('%s failed: message_id=%s', handler_type.__name__, envelope.message_id)
                     return
@@ -71,10 +74,17 @@ class EndpointExecutor:
             with message_context_scope(envelope):
                 await self._invoker.invoke(scope, envelope.payload, handler_type)
 
-    def _evaluate(self, envelope: MessageEnvelope[Any], exc: Exception, attempt: int) -> PolicyOutcome | None:
+    def _evaluate(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        exc: Exception,
+        attempt: int,
+    ) -> PolicyOutcome | None:
         return self._evaluator.evaluate(
             FailureContext(
                 message_type=type(envelope.payload),
+                handler_type=handler_type,
                 exc=exc,
                 attempt=attempt,
             )
@@ -114,9 +124,8 @@ class EndpointExecutor:
             store = await scope.get(IDeadLetterStore)
             serializer = await scope.get(IEnvelopeSerializer)
             uow = await scope.get(IUnitOfWork)
-            payload_type = type(envelope.payload)
             entry = DeadLetterEntry.from_failure(
-                message_type=f'{payload_type.__module__}.{payload_type.__qualname__}',
+                message_type=self._registry.resolve_name(type(envelope.payload)),
                 payload=serializer.serialize(envelope),
                 destination=self._endpoint_uri,
                 correlation_id=envelope.correlation_id,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import anyio
 from dishka import make_async_container
@@ -22,10 +22,13 @@ from waku.messaging import (
     OutboxConfig,
     RequestHandler,
     external_endpoint,
+    local_queue,
     route,
 )
+from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
 from waku.messaging.errors.dead_letter import DeadLetterEntry
-from waku.messaging.errors.policy import RetryPolicy
+from waku.messaging.errors.policy import ErrorPolicy
+from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
@@ -173,9 +176,7 @@ class TestErrorPolicyIntegration:
         dl_store = _SignalingDeadLetterStore()
 
         config = MessagingConfig(
-            error_policies=[
-                RetryPolicy.for_message(_FailingCommand).on_any_exception().move_to_dead_letter(),
-            ],
+            default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
             dead_letter_store=lambda: dl_store,
         )
 
@@ -247,8 +248,8 @@ class TestCustomEnvelopeSerializer:
             @override
             def serialize(self, envelope: Any) -> dict[str, Any]:
                 self.serialize_called = True
-                fqn = f'{type(envelope.payload).__module__}.{type(envelope.payload).__qualname__}'
-                fallback = JsonEnvelopeSerializer(type_registry={fqn: type(envelope.payload)})
+                registry = MessageTypeRegistry(identities={}, known_types=[type(envelope.payload)])
+                fallback = JsonEnvelopeSerializer(type_registry=registry)
                 return fallback.serialize(envelope)
 
             @override
@@ -283,3 +284,157 @@ class TestCustomEnvelopeSerializer:
             await bus.publish(_OrderPlaced(order_id='custom-1'))
 
         assert serializer.serialize_called
+
+
+class TestMessageIdentityPropagation:
+    @staticmethod
+    async def test_outbox_entry_uses_configured_identity() -> None:
+        store = _InMemoryOutboxStore()
+        transport = RecordingTransport()
+
+        config = MessagingConfig(
+            endpoints=[external_endpoint('test://orders')],
+            routing=[route(_OrderPlaced).to('test://orders')],
+            outbox=OutboxConfig(store=lambda: store, transport=lambda: transport),
+            message_identities={_OrderPlaced: 'order-placed'},
+        )
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(config)],
+                extensions=[MessagingExtension().bind(_OrderPlaced, _OrderPlacedHandler)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            ) as app,
+            app.container() as c,
+        ):
+            bus = await c.get(IMessageBus)
+            await bus.publish(_OrderPlaced(order_id='o-1'))
+
+        assert len(store.messages) == 1
+        assert store.messages[0].message_type == 'order-placed'
+
+    @staticmethod
+    async def test_outbox_entry_falls_back_to_fqn_without_identity_config() -> None:
+        store = _InMemoryOutboxStore()
+        transport = RecordingTransport()
+
+        config = MessagingConfig(
+            endpoints=[external_endpoint('test://orders')],
+            routing=[route(_OrderPlaced).to('test://orders')],
+            outbox=OutboxConfig(store=lambda: store, transport=lambda: transport),
+        )
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(config)],
+                extensions=[MessagingExtension().bind(_OrderPlaced, _OrderPlacedHandler)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            ) as app,
+            app.container() as c,
+        ):
+            bus = await c.get(IMessageBus)
+            await bus.publish(_OrderPlaced(order_id='o-2'))
+
+        expected_fqn = f'{_OrderPlaced.__module__}.{_OrderPlaced.__qualname__}'
+        assert store.messages[0].message_type == expected_fqn
+
+
+class _ClassVarRetryHandler(EventHandler[_OrderPlaced]):
+    attempts: ClassVar[list[int]] = []
+    error_policies = (ErrorPolicy.on_exception(RuntimeError).retry(max_attempts=3),)
+
+    @override
+    async def handle(self, event: _OrderPlaced, /) -> None:
+        self.attempts.append(1)
+        msg = 'boom'
+        raise RuntimeError(msg)
+
+
+class _DefaultFallbackHandler(EventHandler[_OrderPlaced]):
+    attempts: ClassVar[list[int]] = []
+
+    @override
+    async def handle(self, event: _OrderPlaced, /) -> None:
+        self.attempts.append(1)
+        msg = 'boom'
+        raise RuntimeError(msg)
+
+
+class _RecordingBehavior(IPipelineBehavior[Any, Any]):
+    seen: ClassVar[list[str]] = []
+
+    @override
+    async def handle(self, message: Any, /, call_next: CallNext[Any]) -> Any:
+        self.seen.append(type(message).__name__)
+        return await call_next()
+
+
+class _BehaviorHandler(EventHandler[_OrderPlaced]):
+    handled: ClassVar[list[str]] = []
+    additional_behaviors = (_RecordingBehavior,)
+
+    @override
+    async def handle(self, event: _OrderPlaced, /) -> None:
+        self.handled.append(event.order_id)
+
+
+class TestClassVarHandlerConfig:
+    @staticmethod
+    async def test_classvar_error_policy_is_applied_when_handler_raises() -> None:
+        _ClassVarRetryHandler.attempts.clear()
+        config = MessagingConfig(
+            endpoints=[local_queue('orders')],
+            routing=[route(_OrderPlaced).to('orders')],
+        )
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(config)],
+                extensions=[MessagingExtension().bind(_OrderPlaced, _ClassVarRetryHandler)],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            await bus.publish(_OrderPlaced(order_id='o-3'))
+
+        assert len(_ClassVarRetryHandler.attempts) == 3
+
+    @staticmethod
+    async def test_default_policy_applies_when_handler_declares_none() -> None:
+        _DefaultFallbackHandler.attempts.clear()
+        config = MessagingConfig(
+            endpoints=[local_queue('orders')],
+            routing=[route(_OrderPlaced).to('orders')],
+            default_error_policies=(ErrorPolicy.on_any_exception().retry(max_attempts=2),),
+        )
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(config)],
+                extensions=[MessagingExtension().bind(_OrderPlaced, _DefaultFallbackHandler)],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            await bus.publish(_OrderPlaced(order_id='o-4'))
+
+        assert len(_DefaultFallbackHandler.attempts) == 2
+
+    @staticmethod
+    async def test_additional_behavior_classvar_runs_around_handler() -> None:
+        _RecordingBehavior.seen.clear()
+        _BehaviorHandler.handled.clear()
+        config = MessagingConfig(
+            endpoints=[local_queue('orders')],
+            routing=[route(_OrderPlaced).to('orders')],
+        )
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(config)],
+                extensions=[MessagingExtension().bind(_OrderPlaced, _BehaviorHandler)],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            await bus.publish(_OrderPlaced(order_id='o-5'))
+
+        assert _RecordingBehavior.seen == ['_OrderPlaced']
+        assert _BehaviorHandler.handled == ['o-5']

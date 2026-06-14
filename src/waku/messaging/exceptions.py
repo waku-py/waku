@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from waku.exceptions import ImproperlyConfiguredError, WakuError
 
 if TYPE_CHECKING:
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.contracts.message import IMessage
-    from waku.messaging.contracts.pipeline import IPipelineBehavior
 
 __all__ = [
     'HandlerAlreadyRegistered',
@@ -17,7 +16,6 @@ __all__ = [
     'MessagingError',
     'MultipleHandlersRegistered',
     'NoRouteError',
-    'PipelineBehaviorAlreadyRegistered',
 ]
 
 
@@ -61,12 +59,3 @@ class MultipleHandlersRegistered(ImproperlyConfiguredError):  # noqa: N818
 
     def __str__(self) -> str:
         return f'Multiple handlers registered for {self.message_type.__name__}, invoke() requires exactly one'
-
-
-class PipelineBehaviorAlreadyRegistered(ImproperlyConfiguredError):  # noqa: N818
-    def __init__(self, message_type: type[IMessage], behavior_type: type[IPipelineBehavior[Any, Any]]) -> None:
-        self.message_type = message_type
-        self.behavior_type = behavior_type
-
-    def __str__(self) -> str:
-        return f'{self.behavior_type.__name__} already registered for {self.message_type.__name__}'

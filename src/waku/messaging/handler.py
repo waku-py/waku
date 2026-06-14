@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import abc
-from typing import Generic
+from typing import TYPE_CHECKING, Any, ClassVar, Generic
 
 from waku.messaging.contracts.message import MessageT, ResponseT
 from waku.messaging.contracts.request import RequestT
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from waku.messaging.contracts.pipeline import IPipelineBehavior
+    from waku.messaging.errors.policy import ErrorPolicy
 
 __all__ = [
     'EventHandler',
@@ -14,6 +20,12 @@ __all__ = [
 
 
 class MessageHandler(abc.ABC, Generic[MessageT, ResponseT]):
+    error_policies: ClassVar[Sequence[ErrorPolicy]] = ()
+    """OVERRIDE: shadow `default_error_policies` per-exception. Inherits via MRO (declaring replaces wholesale; extend via `(*Parent.error_policies, ...)`)."""
+
+    additional_behaviors: ClassVar[Sequence[type[IPipelineBehavior[Any, Any]]]] = ()
+    """COMPOSE: `global_pipeline_behaviors` wrap (outer); these run inner. Inherits via MRO."""
+
     @abc.abstractmethod
     async def handle(self, message: MessageT, /) -> ResponseT:
         raise NotImplementedError
