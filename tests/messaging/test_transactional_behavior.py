@@ -1,11 +1,24 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 import pytest
+from typing_extensions import override
 
+from waku.di import object_
+from waku.messaging import (
+    IMessageBus,
+    IRequest,
+    MessagingConfig,
+    MessagingExtension,
+    MessagingModule,
+    RequestHandler,
+)
 from waku.messaging.behaviors.transactional import TransactionalBehavior
+from waku.testing import create_test_app
+from waku.uow import IUnitOfWork
 
 from tests.messaging.helpers import FakeUoW
 
@@ -77,3 +90,57 @@ class TestTransactionalBehavior:
             await behavior.handle('msg', call_next=_ok)
 
         assert 'Rollback failed' in caplog.text
+
+
+@dataclass(frozen=True, kw_only=True)
+class _TxRequest(IRequest[None]):
+    fail: bool = False
+
+
+class TestTransactionalBehaviorViaDI:
+    @staticmethod
+    async def test_wired_via_global_pipeline_behaviors_commits_on_success() -> None:
+        uow = FakeUoW()
+
+        class _Handler(RequestHandler[_TxRequest, None]):
+            @override
+            async def handle(self, request: _TxRequest, /) -> None: ...
+
+        async with (
+            create_test_app(
+                providers=[object_(uow, provided_type=IUnitOfWork)],
+                imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[TransactionalBehavior]))],
+                extensions=[MessagingExtension().bind(_TxRequest, _Handler)],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            await bus.invoke(_TxRequest())
+
+        assert uow.committed
+        assert not uow.rolled_back
+
+    @staticmethod
+    async def test_wired_via_global_pipeline_behaviors_rolls_back_on_handler_error() -> None:
+        uow = FakeUoW()
+
+        class _Handler(RequestHandler[_TxRequest, None]):
+            @override
+            async def handle(self, request: _TxRequest, /) -> None:
+                msg = 'handler broke'
+                raise ValueError(msg)
+
+        async with (
+            create_test_app(
+                providers=[object_(uow, provided_type=IUnitOfWork)],
+                imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[TransactionalBehavior]))],
+                extensions=[MessagingExtension().bind(_TxRequest, _Handler)],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            with pytest.raises(ValueError, match='handler broke'):
+                await bus.invoke(_TxRequest(fail=True))
+
+        assert not uow.committed
+        assert uow.rolled_back

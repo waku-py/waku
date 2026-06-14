@@ -16,6 +16,7 @@ from waku.messaging import (
     MessagingModule,
     ResponseT,
 )
+from waku.messaging.behaviors.cascading import CascadingBehavior
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.testing import create_test_app
 
@@ -103,6 +104,28 @@ async def test_handler_without_additional_behaviors_uses_only_global() -> None:
         await invoker.invoke(scope, _Evt(value='x'), _Bare)
 
     assert called == ['global', 'handle']
+
+
+async def test_cascading_behavior_is_outermost_in_resolved_chain() -> None:
+    # Regression pin: CascadingBehavior must be index 0 (outermost) so its post-commit
+    # flush wraps every other behavior, incl. a user TransactionalBehavior's commit.
+    global_b = _make_tracking_behavior('global', [])
+
+    class _H(EventHandler[_Evt]):
+        @override
+        async def handle(self, message: _Evt, /) -> None: ...
+
+    async with (
+        create_test_app(
+            imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[global_b]))],
+            extensions=[MessagingExtension().bind(_Evt, _H)],
+        ) as app,
+        app.container() as scope,
+    ):
+        behaviors = await HandlerPipelineInvoker._resolve_behaviors(scope, _H)  # noqa: SLF001
+
+    assert isinstance(behaviors[0], CascadingBehavior)
+    assert isinstance(behaviors[1], global_b)
 
 
 async def test_two_handlers_of_same_event_have_independent_chains() -> None:

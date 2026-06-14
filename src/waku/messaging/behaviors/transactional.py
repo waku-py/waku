@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
 
-if TYPE_CHECKING:
-    from waku.uow import IUnitOfWork
+# Runtime import: dishka introspects __init__ type hints at container-build time
+# (get_type_hints), so this DI-injected type must resolve at runtime — not under TYPE_CHECKING.
+from waku.uow import IUnitOfWork  # noqa: TC001
 
 logger = logging.getLogger(__name__)
 

@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any, Self, TypeAlias, TypeVar, assert_never, o
 
 from typing_extensions import override
 
-from waku.di import AsyncContainer, Provider, WithParents, many, object_, scoped, singleton, transient
+from waku.di import AnyOf, AsyncContainer, Provider, WithParents, many, object_, scoped, singleton, transient
 from waku.extensions import (
     AfterApplicationInit,
     ModuleExtension,
@@ -11,6 +11,7 @@ from waku.extensions import (
     OnModuleConfigure,
     OnModuleRegistration,
 )
+from waku.messaging.behaviors.cascading import CascadingBehavior
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import MessagingConfig
 from waku.messaging.context import MessageContext, get_message_context
@@ -34,6 +35,7 @@ from waku.messaging.impl import MessageBus
 from waku.messaging.interfaces import IMessageBus
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
+from waku.messaging.outgoing import IOutgoingMessages, IOutgoingMessagesFrames, OutgoingMessages
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.messaging.registry import MessageRegistry
 from waku.messaging.router import MessageRouter, RoutingTable
@@ -69,6 +71,7 @@ class MessagingModule:
         serializer_provider = cls._serializer_provider(config_)
         providers: list[Provider] = [
             scoped(WithParents[IMessageBus], MessageBus),  # ty:ignore[not-subscriptable]
+            scoped(AnyOf[IOutgoingMessages, IOutgoingMessagesFrames], OutgoingMessages),  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
             object_(config_, provided_type=MessagingConfig),
             singleton(MessageTypeRegistry, _build_message_type_registry),
             singleton(EnvelopeFactory),
@@ -123,9 +126,12 @@ class MessagingModule:
 
     @staticmethod
     def _create_pipeline_behavior_providers(config: MessagingConfig) -> _HandlerProviders:
-        if not config.global_pipeline_behaviors:
-            return ()
-        return (many(IPipelineBehavior[Any, Any], *config.global_pipeline_behaviors),)
+        # CascadingBehavior is auto-registered as the outermost behavior (index 0 of the
+        # collection -> outermost in the chain) so its post-commit cascade flush wraps
+        # everything, including a user-configured TransactionalBehavior's commit. Registering
+        # the collection UNCONDITIONALLY also keeps Sequence[IPipelineBehavior] resolvable when
+        # no global behaviors are configured (else cascades would silently not auto-register).
+        return (many(IPipelineBehavior[Any, Any], CascadingBehavior, *config.global_pipeline_behaviors),)
 
 
 class MessagingExtension(OnModuleConfigure):

@@ -10,6 +10,7 @@ from waku.messaging.endpoints.base import EndpointMode, external_endpoint, local
 from waku.messaging.handler import EventHandler, MessageHandler, RequestHandler
 from waku.messaging.interfaces import IMessageBus, IPublisher, ISender
 from waku.messaging.modules import MessagingExtension, MessagingModule
+from waku.messaging.outgoing import IOutgoingMessages
 from waku.messaging.router import route, route_module
 
 __all__ = [
@@ -19,6 +20,7 @@ __all__ = [
     'IEvent',
     'IMessage',
     'IMessageBus',
+    'IOutgoingMessages',
     'IPipelineBehavior',
     'IPublisher',
     'IRequest',
