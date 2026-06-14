@@ -21,6 +21,7 @@ from waku.messaging import (
     MessagingModule,
     OutboxConfig,
     RequestHandler,
+    TransactionalBehavior,
     external_endpoint,
     local_queue,
     route,
@@ -131,6 +132,7 @@ class TestEndToEndOutboxFlow:
             endpoints=[external_endpoint('test://notifications')],
             routing=[route(_OrderPlaced).to('test://notifications')],
             outbox=OutboxConfig(store=_InMemoryOutboxStore, transport=RecordingTransport),
+            global_pipeline_behaviors=[TransactionalBehavior],
         )
 
         @module(extensions=[MessagingExtension().bind(_OrderPlaced, _OrderPlacedHandler)])
@@ -212,6 +214,7 @@ class TestOutboxRelayLifecycleIntegration:
                 transport=lambda: transport,
                 relay=OutboxRelayConfig(poll_interval=0.01, recovery_interval=timedelta(hours=1)),
             ),
+            global_pipeline_behaviors=[TransactionalBehavior],
         )
 
         @module(extensions=[MessagingExtension().bind(_OrderPlaced, _OrderPlacedHandler)])
@@ -264,6 +267,7 @@ class TestCustomEnvelopeSerializer:
                 transport=RecordingTransport,
                 envelope_serializer=CustomSerializer,
             ),
+            global_pipeline_behaviors=[TransactionalBehavior],
         )
 
         @module(extensions=[MessagingExtension().bind(_OrderPlaced, _OrderPlacedHandler)])
@@ -296,6 +300,7 @@ class TestMessageIdentityPropagation:
             endpoints=[external_endpoint('test://orders')],
             routing=[route(_OrderPlaced).to('test://orders')],
             outbox=OutboxConfig(store=lambda: store, transport=lambda: transport),
+            global_pipeline_behaviors=[TransactionalBehavior],
             message_identities={_OrderPlaced: 'order-placed'},
         )
 
@@ -322,6 +327,7 @@ class TestMessageIdentityPropagation:
             endpoints=[external_endpoint('test://orders')],
             routing=[route(_OrderPlaced).to('test://orders')],
             outbox=OutboxConfig(store=lambda: store, transport=lambda: transport),
+            global_pipeline_behaviors=[TransactionalBehavior],
         )
 
         async with (

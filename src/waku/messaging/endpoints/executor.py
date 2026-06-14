@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import enum
 import logging
 from typing import TYPE_CHECKING, Any, assert_never
 
@@ -23,9 +24,18 @@ if TYPE_CHECKING:
 
 __all__ = [
     'EndpointExecutor',
+    'ExecutionOutcome',
 ]
 
 logger = logging.getLogger(__name__)
+
+
+@enum.unique
+class ExecutionOutcome(enum.Enum):
+    SUCCESS = 'SUCCESS'
+    DEAD_LETTERED = 'DEAD_LETTERED'
+    DISCARDED = 'DISCARDED'
+    FAILED_NO_POLICY = 'FAILED_NO_POLICY'
 
 
 class EndpointExecutor:
@@ -52,7 +62,7 @@ class EndpointExecutor:
         self._invoker = invoker
         self._registry = registry
 
-    async def execute(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> None:
+    async def execute(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> ExecutionOutcome:
         attempt = 0
         while True:
             attempt += 1
@@ -62,12 +72,14 @@ class EndpointExecutor:
                 outcome = self._evaluate(envelope, handler_type, exc, attempt)
                 if outcome is None:
                     logger.exception('%s failed: message_id=%s', handler_type.__name__, envelope.message_id)
-                    return
+                    return ExecutionOutcome.FAILED_NO_POLICY
                 if await self._apply_outcome(outcome, envelope, exc, attempt):
                     continue
-                return
+                if outcome.action is RetryAction.DEAD_LETTER:
+                    return ExecutionOutcome.DEAD_LETTERED
+                return ExecutionOutcome.DISCARDED
             else:
-                return
+                return ExecutionOutcome.SUCCESS
 
     async def _dispatch_in_scope(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> None:
         async with self._container() as scope:

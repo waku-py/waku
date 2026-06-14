@@ -1,0 +1,205 @@
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any, TypeAlias
+
+import anyio
+from anyio import create_memory_object_stream
+from typing_extensions import override
+
+from waku.messaging.endpoints.base import Endpoint
+from waku.messaging.endpoints.executor import ExecutionOutcome
+from waku.messaging.inbox._destination import handler_destination
+from waku.messaging.inbox.interfaces import IInboxStore
+from waku.messaging.inbox.models import InboxEntry
+from waku.messaging.transport.serialization import IEnvelopeSerializer
+from waku.uow import IUnitOfWork
+
+if TYPE_CHECKING:
+    from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+    from dishka import AsyncContainer
+
+    from waku.messaging.contracts.envelope import MessageEnvelope
+    from waku.messaging.contracts.handler import HandlerType
+    from waku.messaging.endpoints.executor import EndpointExecutor
+    from waku.messaging.router import HandlerSubscriptions
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    'DurableLocalQueueEndpoint',
+]
+
+# Work item enqueued onto the memory stream: the envelope plus the subset of subscribed handlers
+# whose inbox row was newly stored in dispatch(). Only these still need processing — duplicates
+# were filtered at persist time, so the worker never re-checks dedup.
+_WorkItem: TypeAlias = 'tuple[MessageEnvelope[Any], frozenset[HandlerType]]'
+
+
+class DurableLocalQueueEndpoint(Endpoint):
+    """Inbox-backed local queue with per-handler dedup.
+
+    dispatch() persists one inbox row per subscribed handler (keyed by the handler FQN destination)
+    and commits BEFORE enqueueing — preserving the persist-before-enqueue durability guarantee for
+    the whole fan-out. It then enqueues only the handlers whose row was newly stored (the per-handler
+    dedup-skip), so each handler dedups independently. The worker loop drains the stream, executes
+    those handlers via EndpointExecutor, and marks each ``(message_id, destination)`` row handled (or
+    deletes it on DLQ/discard). Crash recovery is supplied by InboxRecoveryWorker.
+
+    Unlike ``LocalQueueEndpoint`` (which composes ``MemoryStreamWorker``), this owns a single
+    sequential worker loop over a ``_WorkItem``-typed stream and does NOT yet support
+    ``max_parallel``/``pause``/``resume`` — the inbox claim model (FOR UPDATE SKIP LOCKED, per-handler
+    rows) is the cross-pod concurrency mechanism here. Bounded-pool parallelism is a future addition.
+    """
+
+    __slots__ = (
+        '_container',
+        '_executor',
+        '_handler_subscriptions',
+        '_keep_after_handled',
+        '_max_buffer_size',
+        '_receive_stream',
+        '_send_stream',
+        '_stop_timeout',
+        '_worker_task',
+    )
+
+    def __init__(
+        self,
+        *,
+        uri: str,
+        handler_subscriptions: HandlerSubscriptions,
+        executor: EndpointExecutor,
+        container: AsyncContainer,
+        inbox_config_keep_after_handled_seconds: float,
+        stop_timeout: float,
+        max_buffer_size: float,
+    ) -> None:
+        super().__init__(uri=uri)
+        self._handler_subscriptions = handler_subscriptions
+        self._executor = executor
+        self._container = container
+        self._keep_after_handled = timedelta(seconds=inbox_config_keep_after_handled_seconds)
+        self._stop_timeout = stop_timeout
+        self._max_buffer_size = max_buffer_size
+        self._send_stream: MemoryObjectSendStream[_WorkItem] | None = None
+        self._receive_stream: MemoryObjectReceiveStream[_WorkItem] | None = None
+        self._worker_task: asyncio.Task[None] | None = None
+
+    @override
+    async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None:
+        """Persist one inbox row per subscribed handler in OWN scope, then enqueue.
+
+        Persist-before-enqueue across the whole fan-out: every subscribed handler's
+        ``(message_id, destination=handler_FQN)`` row is written and committed BEFORE anything reaches
+        the memory stream, so a crash after commit leaves durable INCOMING rows that InboxRecoveryWorker
+        reclaims. Only handlers whose row was newly stored are enqueued — the per-handler dedup-skip.
+
+        The ``scope`` parameter is part of the ``Endpoint`` ABC signature but is NOT used here on
+        purpose: committing the caller's UoW would prematurely commit a handler's business transaction
+        when this endpoint is used from a cascading send. A dedicated scope is opened for the inbox write,
+        matching ``OutboxRelay`` and ``DurableReceiver``.
+        """
+        send_stream = self._send_stream
+        if send_stream is None:
+            logger.warning('Message dropped: endpoint %s is stopped (message_id=%s)', self._uri, envelope.message_id)
+            return
+
+        handler_types = self._handler_subscriptions.get(type(envelope.payload), frozenset())
+        if not handler_types:
+            return
+
+        async with self._container() as write_scope:
+            inbox = await write_scope.get(IInboxStore)
+            serializer = await write_scope.get(IEnvelopeSerializer)
+            uow = await write_scope.get(IUnitOfWork)
+            payload = serializer.serialize(envelope)
+            fresh: set[HandlerType] = set()
+            for handler_type in handler_types:
+                entry = InboxEntry(
+                    id=envelope.message_id,
+                    payload=payload,
+                    message_type=envelope.message_type,
+                    received_at=self._uri,
+                    destination=handler_destination(handler_type),
+                    # group_id intentionally None — MessageEnvelope.group_id lands in M2b.2 and
+                    # updates this call-site to forward envelope.group_id.
+                    group_id=None,
+                )
+                if await inbox.store_incoming(entry):
+                    fresh.add(handler_type)
+            await uow.commit()
+
+        if not fresh:
+            logger.debug('Duplicate message discarded for all handlers: message_id=%s', envelope.message_id)
+            return
+
+        await send_stream.send((envelope, frozenset(fresh)))
+
+    @override
+    async def start(self) -> None:
+        send, receive = create_memory_object_stream[_WorkItem](max_buffer_size=self._max_buffer_size)
+        self._send_stream = send
+        self._receive_stream = receive
+        self._worker_task = asyncio.create_task(self._worker_loop(receive))
+
+    @override
+    async def stop(self) -> None:
+        send_stream, self._send_stream = self._send_stream, None
+        if send_stream is not None:
+            send_stream.close()
+        if self._worker_task is not None:
+            await self._drain_worker(self._worker_task)
+            self._worker_task = None
+        if self._receive_stream is not None:
+            self._receive_stream.close()
+            self._receive_stream = None
+
+    async def _drain_worker(self, task: asyncio.Task[None]) -> None:
+        try:
+            with anyio.fail_after(self._stop_timeout):
+                await task
+        except TimeoutError:
+            logger.warning(
+                'Worker task for %s did not terminate within %.1fs, cancelling',
+                self._uri,
+                self._stop_timeout,
+            )
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    async def _worker_loop(self, receive_stream: MemoryObjectReceiveStream[_WorkItem]) -> None:
+        async for envelope, handler_types in receive_stream:
+            try:
+                await self._process_envelope(envelope, handler_types)
+            except Exception:
+                logger.exception(
+                    'Unhandled error processing message_id=%s, continuing worker loop',
+                    envelope.message_id,
+                )
+
+    async def _process_envelope(self, envelope: MessageEnvelope[Any], handler_types: frozenset[HandlerType]) -> None:
+        # Process only the handlers whose row was newly stored in dispatch(). Dedup was already
+        # resolved at persist time, so no re-check here.
+        for handler_type in handler_types:
+            outcome = await self._executor.execute(envelope, handler_type)
+            await self._finalize(envelope, handler_destination(handler_type), outcome)
+
+    async def _finalize(self, envelope: MessageEnvelope[Any], destination: str, outcome: ExecutionOutcome) -> None:
+        async with self._container() as scope:
+            inbox = await scope.get(IInboxStore)
+            uow = await scope.get(IUnitOfWork)
+            match outcome:
+                case ExecutionOutcome.SUCCESS:
+                    keep_until = datetime.now(tz=UTC) + self._keep_after_handled
+                    await inbox.mark_as_handled(envelope.message_id, destination, keep_until)
+                case _:
+                    # DEAD_LETTERED / DISCARDED / FAILED_NO_POLICY: delete this handler's inbox row
+                    # directly (a DEAD_LETTERED message is already in IDeadLetterStore via
+                    # EndpointExecutor; a HANDLED row would pollute observability). Siblings untouched.
+                    await inbox.delete(envelope.message_id, destination)
+            await uow.commit()

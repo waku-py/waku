@@ -7,7 +7,11 @@ from waku.messaging.contracts.message import IMessage, MessageT, ResponseT
 from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
 from waku.messaging.contracts.request import IRequest, RequestT
 from waku.messaging.endpoints.base import EndpointMode, external_endpoint, local_queue
+from waku.messaging.endpoints.executor import ExecutionOutcome
 from waku.messaging.handler import EventHandler, MessageHandler, RequestHandler
+from waku.messaging.inbox.config import InboxConfig
+from waku.messaging.inbox.interfaces import IInboxStore
+from waku.messaging.inbox.models import InboxEntry, InboxStatus
 from waku.messaging.interfaces import IMessageBus, IPublisher, ISender
 from waku.messaging.modules import MessagingExtension, MessagingModule
 from waku.messaging.outgoing import IOutgoingMessages
@@ -17,7 +21,9 @@ __all__ = [
     'CallNext',
     'EndpointMode',
     'EventHandler',
+    'ExecutionOutcome',
     'IEvent',
+    'IInboxStore',
     'IMessage',
     'IMessageBus',
     'IOutgoingMessages',
@@ -25,6 +31,9 @@ __all__ = [
     'IPublisher',
     'IRequest',
     'ISender',
+    'InboxConfig',
+    'InboxEntry',
+    'InboxStatus',
     'MessageContext',
     'MessageHandler',
     'MessageIdentity',

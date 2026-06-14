@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from waku.messaging.endpoints.base import EndpointEntry
     from waku.messaging.errors.dead_letter import IDeadLetterStore
     from waku.messaging.errors.policy import ErrorPolicy
+    from waku.messaging.inbox.config import InboxConfig
     from waku.messaging.outbox.interfaces import IOutboxStore
     from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor
     from waku.messaging.transport.interfaces import ITransport
@@ -45,5 +46,6 @@ class MessagingConfig:
 
     dead_letter_store: type[IDeadLetterStore] | Callable[..., IDeadLetterStore] | None = None
     outbox: OutboxConfig | None = None
+    inbox: InboxConfig | None = None
     message_identities: Mapping[type[IMessage], str | MessageIdentity] = field(default_factory=dict)
     """Third-party override for types you can't annotate; the default path is the ClassVar."""

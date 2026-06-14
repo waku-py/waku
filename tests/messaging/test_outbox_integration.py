@@ -15,6 +15,7 @@ from waku.messaging import (
     MessagingExtension,
     MessagingModule,
     OutboxConfig,
+    TransactionalBehavior,
     external_endpoint,
     route,
 )
@@ -46,6 +47,7 @@ class TestBusOutboxIntegration:
             endpoints=[external_endpoint('test://events')],
             routing=[route(_OrderPlaced).to('test://events')],
             outbox=OutboxConfig(store=FakeOutboxStore, transport=RecordingTransport),
+            global_pipeline_behaviors=[TransactionalBehavior],
         )
 
         @module(extensions=[MessagingExtension().bind(_OrderPlaced, _InlineHandler)])
@@ -73,6 +75,7 @@ class TestBusOutboxIntegration:
             endpoints=[external_endpoint('test://events')],
             routing=[route(_OrderPlaced).to('test://events')],
             outbox=OutboxConfig(store=FakeOutboxStore, transport=RecordingTransport),
+            global_pipeline_behaviors=[TransactionalBehavior],
         )
 
         @module(extensions=[MessagingExtension().bind(_OrderPlaced, _InlineHandler)])

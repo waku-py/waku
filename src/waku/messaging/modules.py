@@ -12,6 +12,7 @@ from waku.extensions import (
     OnModuleRegistration,
 )
 from waku.messaging.behaviors.cascading import CascadingBehavior
+from waku.messaging.behaviors.outbox_cascading import DeferredCascadingBehavior, OutboxCascadingBehavior
 from waku.messaging.behaviors.transactional import TransactionalBehavior, _TransactionDepth
 from waku.messaging.config import MessagingConfig
 from waku.messaging.context import MessageContext, get_message_context
@@ -20,7 +21,8 @@ from waku.messaging.contracts.message import IMessage
 from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.dispatcher import MessageDispatcher
-from waku.messaging.endpoints.base import Endpoint, EndpointEntry, EndpointMode, ExternalEntry
+from waku.messaging.endpoints.base import Endpoint, EndpointEntry, EndpointMode, ExternalEntry, LocalQueueEntry
+from waku.messaging.endpoints.durable_local_queue import DurableLocalQueueEndpoint
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.external import ExternalEndpoint
 from waku.messaging.endpoints.inline import InlineEndpoint
@@ -32,6 +34,9 @@ from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.exceptions import HandlerAlreadyRegistered, ImproperlyConfiguredError, MultipleHandlersRegistered
 from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.impl import MessageBus
+from waku.messaging.inbox.config import InboxConfig
+from waku.messaging.inbox.interfaces import IInboxStore
+from waku.messaging.inbox.recovery import InboxRecoveryWorker
 from waku.messaging.interfaces import IMessageBus
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
@@ -93,6 +98,8 @@ class MessagingModule:
         ]
         if config_.outbox is not None:
             extensions.append(OutboxRelayLifecycleExtension(config_.outbox.relay))
+        if config_.inbox is not None:
+            extensions.append(InboxRecoveryLifecycleExtension(config_.inbox))
         return DynamicModule(
             parent_module=cls,
             providers=providers,
@@ -106,10 +113,27 @@ class MessagingModule:
         if has_external and config.outbox is None:
             msg = 'external_endpoint requires outbox in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
+        # DLQ validation lives in MessageRegistryAggregator (M2a.2) — handler ClassVar policies are
+        # only known after module merge. Do NOT add it here.
+        if _has_durable_local_queue(config.endpoints) and config.inbox is None:
+            msg = 'EndpointMode.DURABLE on a local_queue entry requires inbox in MessagingConfig'
+            raise ImproperlyConfiguredError(msg)
+        # Durability requires transactions: outbox/inbox writes must be atomic with business data.
+        # TransactionalBehavior is user-explicit in global_pipeline_behaviors (NOT auto-added).
+        durable = config.outbox is not None or config.inbox is not None
+        has_tx = any(issubclass(b, TransactionalBehavior) for b in config.global_pipeline_behaviors)
+        if durable and not has_tx:
+            msg = (
+                'outbox/inbox require TransactionalBehavior in '
+                'MessagingConfig.global_pipeline_behaviors (durability needs atomic commits)'
+            )
+            raise ImproperlyConfiguredError(msg)
 
     @staticmethod
     def _serializer_provider(config: MessagingConfig) -> Provider | None:
-        if config.outbox is None and config.dead_letter_store is None:
+        # inbox needs it too: DurableLocalQueueEndpoint.dispatch + DurableReceiver._persist serialize
+        # the envelope before the inbox write.
+        if config.outbox is None and config.dead_letter_store is None and config.inbox is None:
             return None
         if config.outbox is not None and config.outbox.envelope_serializer is not None:
             return singleton(IEnvelopeSerializer, config.outbox.envelope_serializer)
@@ -125,16 +149,30 @@ class MessagingModule:
             ))
         if config.dead_letter_store is not None:
             providers.append(scoped(IDeadLetterStore, config.dead_letter_store))
+        if config.inbox is not None:
+            providers.extend((
+                scoped(IInboxStore, config.inbox.store),
+                object_(config.inbox, provided_type=InboxConfig),
+            ))
         return tuple(providers)
 
     @staticmethod
     def _create_pipeline_behavior_providers(config: MessagingConfig) -> _HandlerProviders:
-        # CascadingBehavior is auto-registered as the outermost behavior (index 0 of the
-        # collection -> outermost in the chain) so its post-commit cascade flush wraps
-        # everything, including a user-configured TransactionalBehavior's commit. Registering
-        # the collection UNCONDITIONALLY also keeps Sequence[IPipelineBehavior] resolvable when
-        # no global behaviors are configured (else cascades would silently not auto-register).
-        return (many(IPipelineBehavior[Any, Any], CascadingBehavior, *config.global_pipeline_behaviors),)
+        # Cascade behaviors are auto-registered (framework plumbing) as the outermost/innermost
+        # globals; the collection registers UNCONDITIONALLY so Sequence[IPipelineBehavior] always
+        # resolves (else cascades would silently not auto-register). Presence-gated on the outbox,
+        # NOT an XOR with config:
+        #   - no outbox -> only CascadingBehavior (outermost, post-commit fire-and-forget).
+        #   - outbox    -> DeferredCascadingBehavior (outermost, post-commit deferred flush, owns frame)
+        #                  + OutboxCascadingBehavior (innermost global, INSIDE TransactionalBehavior,
+        #                    drains frame + partitions cascades by destination durability).
+        # The `many(...)` collection preserves registration order, so the chain resolves
+        # outermost -> innermost exactly as listed.
+        if config.outbox is not None:
+            chain = (DeferredCascadingBehavior, *config.global_pipeline_behaviors, OutboxCascadingBehavior)
+        else:
+            chain = (CascadingBehavior, *config.global_pipeline_behaviors)
+        return (many(IPipelineBehavior[Any, Any], *chain),)
 
 
 class MessagingExtension(OnModuleConfigure):
@@ -190,8 +228,13 @@ def _requires_uow(config: MessagingConfig) -> bool:
     return (
         config.dead_letter_store is not None
         or config.outbox is not None
+        or config.inbox is not None
         or any(issubclass(b, TransactionalBehavior) for b in config.global_pipeline_behaviors)
     )
+
+
+def _has_durable_local_queue(entries: Sequence[EndpointEntry]) -> bool:
+    return any(isinstance(entry, LocalQueueEntry) and entry.mode == EndpointMode.DURABLE for entry in entries)
 
 
 def _handler_needs_uow(registry: MessageRegistry) -> bool:
@@ -222,9 +265,10 @@ def _build_router(
     evaluator: ErrorPolicyEvaluator,
     invoker: HandlerPipelineInvoker,
     type_registry: MessageTypeRegistry,
+    config: MessagingConfig,
 ) -> MessageRouter:
     endpoints_by_uri = {
-        entry.uri: _create_endpoint(entry, routing_table, container, evaluator, invoker, type_registry)
+        entry.uri: _create_endpoint(entry, routing_table, container, evaluator, invoker, type_registry, config)
         for entry in routing_table.entries
     }
     return MessageRouter(
@@ -243,6 +287,7 @@ def _create_endpoint(
     evaluator: ErrorPolicyEvaluator,
     invoker: HandlerPipelineInvoker,
     type_registry: MessageTypeRegistry,
+    config: MessagingConfig,
 ) -> Endpoint:
     if isinstance(entry, ExternalEntry):
         return ExternalEndpoint(uri=entry.uri)
@@ -272,11 +317,18 @@ def _create_endpoint(
                 max_parallel=entry.max_parallel,
             )
         case EndpointMode.DURABLE:
-            msg = (
-                'EndpointMode.DURABLE requires DurableLocalQueueEndpoint (lands in M2b.1). '
-                'Configure MessagingConfig.inbox to enable durable endpoints.'
+            if config.inbox is None:
+                msg = 'EndpointMode.DURABLE requires inbox in MessagingConfig'
+                raise ImproperlyConfiguredError(msg)
+            return DurableLocalQueueEndpoint(
+                uri=entry.uri,
+                handler_subscriptions=subscriptions,
+                executor=executor,
+                container=container,
+                inbox_config_keep_after_handled_seconds=config.inbox.keep_after_handled.total_seconds(),
+                stop_timeout=entry.stop_timeout,
+                max_buffer_size=entry.max_buffer_size,
             )
-            raise ImproperlyConfiguredError(msg)
         case _:
             assert_never(entry.mode)
 
@@ -426,3 +478,21 @@ class OutboxRelayLifecycleExtension(AfterApplicationInit, OnApplicationShutdown)
     async def on_app_shutdown(self, app: 'WakuApplication') -> None:
         if self._relay is not None:
             await self._relay.stop()
+
+
+class InboxRecoveryLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
+    __slots__ = ('_config', '_worker')
+
+    def __init__(self, config: InboxConfig) -> None:
+        self._config = config
+        self._worker: InboxRecoveryWorker | None = None
+
+    @override
+    async def after_app_init(self, app: 'WakuApplication') -> None:
+        self._worker = InboxRecoveryWorker(container=app.container, config=self._config)
+        await self._worker.start()
+
+    @override
+    async def on_app_shutdown(self, app: 'WakuApplication') -> None:
+        if self._worker is not None:
+            await self._worker.stop()

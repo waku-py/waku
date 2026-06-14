@@ -1,0 +1,138 @@
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from typing import ClassVar
+
+from typing_extensions import override
+
+from waku.di import object_
+from waku.messaging import (
+    IMessageBus,
+    InboxConfig,
+    InboxStatus,
+    MessagingConfig,
+    MessagingExtension,
+    MessagingModule,
+    TransactionalBehavior,
+)
+from waku.messaging.contracts.event import IEvent
+from waku.messaging.endpoints.base import EndpointMode, local_queue
+from waku.messaging.handler import EventHandler
+from waku.messaging.router import route
+from waku.testing import create_test_app
+from waku.uow import IUnitOfWork
+
+from tests.messaging.helpers import FakeUoW, wait_until
+from tests.messaging.inbox.fake_store import FakeInboxStore
+
+
+@dataclass(frozen=True, slots=True)
+class _OrderPlaced(IEvent):
+    order_id: str
+
+
+class _RecordingHandler(EventHandler[_OrderPlaced]):
+    observed: ClassVar[list[str]] = []
+
+    @override
+    async def handle(self, message: _OrderPlaced, /) -> None:
+        self.observed.append(message.order_id)
+
+
+class _SecondRecordingHandler(EventHandler[_OrderPlaced]):
+    observed: ClassVar[list[str]] = []
+
+    @override
+    async def handle(self, message: _OrderPlaced, /) -> None:
+        self.observed.append(message.order_id)
+
+
+# Inbox-only config (no outbox, no dead_letter_store): also exercises that IEnvelopeSerializer is
+# registered for inbox-only setups (the durable endpoint serializes the envelope before persisting).
+def _durable_config(inbox: FakeInboxStore) -> MessagingConfig:
+    return MessagingConfig(
+        endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0, max_buffer_size=math.inf)],
+        routing=[route(_OrderPlaced).to('orders')],
+        inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+        global_pipeline_behaviors=[TransactionalBehavior],
+    )
+
+
+class TestDurableInboxIntegration:
+    @staticmethod
+    async def test_message_is_persisted_and_handled() -> None:
+        _RecordingHandler.observed = []
+        inbox = FakeInboxStore()
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(_durable_config(inbox))],
+                extensions=[MessagingExtension().bind(_OrderPlaced, _RecordingHandler)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            await bus.publish(_OrderPlaced(order_id='o-1'))
+            # endpoint.stop() (app shutdown) drains the worker deterministically.
+
+        entries = list(inbox.entries.values())
+        assert len(entries) == 1
+        assert entries[0].status is InboxStatus.HANDLED
+        assert _RecordingHandler.observed == ['o-1']
+
+    @staticmethod
+    async def test_distinct_publishes_each_persist_and_handle() -> None:
+        # Two publishes => two distinct envelopes (distinct message_ids) => two inbox rows,
+        # handler invoked twice. The same-message_id dedup path is proven in test_receiver.py.
+        _RecordingHandler.observed = []
+        inbox = FakeInboxStore()
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(_durable_config(inbox))],
+                extensions=[MessagingExtension().bind(_OrderPlaced, _RecordingHandler)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            await bus.publish(_OrderPlaced(order_id='o-2'))
+            await bus.publish(_OrderPlaced(order_id='o-2'))
+
+        assert len(inbox.entries) == 2
+        assert _RecordingHandler.observed.count('o-2') == 2
+
+    @staticmethod
+    async def test_fan_out_two_handlers_one_durable_endpoint() -> None:
+        # One message routed to a durable endpoint with two subscribed handlers: persist-before-enqueue
+        # writes two `(id, destination)` rows, both handlers run, both rows end HANDLED. After the
+        # retention window purges the rows, a fresh delivery would re-run both (windowed dedup).
+        _RecordingHandler.observed = []
+        _SecondRecordingHandler.observed = []
+        inbox = FakeInboxStore()
+
+        def handled_count() -> int:
+            return sum(1 for entry in inbox.entries.values() if entry.status is InboxStatus.HANDLED)
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(_durable_config(inbox))],
+                extensions=[
+                    MessagingExtension().bind(_OrderPlaced, _RecordingHandler, _SecondRecordingHandler),
+                ],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            await bus.publish(_OrderPlaced(order_id='fan-1'))
+            await wait_until(lambda: handled_count() == 2)
+
+            assert len(inbox.entries) == 2
+            assert _RecordingHandler.observed == ['fan-1']
+            assert _SecondRecordingHandler.observed == ['fan-1']
+
+            # Retention window purges the HANDLED rows -> dedup window closes.
+            purged = await inbox.cleanup_handled(datetime.now(tz=UTC) + timedelta(minutes=10))
+            assert purged == 2

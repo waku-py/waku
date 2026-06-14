@@ -16,6 +16,7 @@ from waku.messaging import (
     MessagingModule,
     OutboxConfig,
     RequestHandler,
+    TransactionalBehavior,
     external_endpoint,
 )
 from waku.messaging.endpoints.base import local_queue
@@ -46,6 +47,7 @@ class TestRoutingBranches:
             endpoints=[local_queue('local-q'), external_endpoint('ext://bus')],
             routing=[route(_Notif).to('ext://bus')],
             outbox=OutboxConfig(store=FakeOutboxStore, transport=RecordingTransport),
+            global_pipeline_behaviors=[TransactionalBehavior],
         )
 
         async with (

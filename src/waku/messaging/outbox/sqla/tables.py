@@ -6,7 +6,6 @@ from typing import Final
 from sqlalchemy import (
     BigInteger,
     Column,
-    Enum,
     Index,
     Integer,
     MetaData,
@@ -18,6 +17,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 
 from waku.messaging.outbox.models import OutboxStatus
+from waku.messaging.sqla.types import EnumFromValues
 
 __all__ = [
     'OUTBOX_IDEMPOTENCY_CONSTRAINT',
@@ -43,7 +43,7 @@ outbox_messages_table = Table(
     Column('sequence_number', BigInteger, nullable=True),
     Column(
         'status',
-        Enum(OutboxStatus, native_enum=False, create_constraint=False, values_callable=lambda e: [s.value for s in e]),
+        EnumFromValues(OutboxStatus),
         nullable=False,
         server_default=OutboxStatus.PENDING.value,
     ),

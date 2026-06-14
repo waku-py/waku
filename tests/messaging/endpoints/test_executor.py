@@ -14,7 +14,7 @@ from waku.messaging import (
     MessagingModule,
     RequestHandler,
 )
-from waku.messaging.endpoints.executor import EndpointExecutor
+from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.registry import ErrorPolicyRegistry
@@ -95,28 +95,31 @@ async def _make_executor(
 async def _run_executor(
     handler: type[RequestHandler[_FailingCommand, None]],
     evaluator: ErrorPolicyEvaluator,
-) -> None:
+) -> ExecutionOutcome:
     async with create_test_app(
         imports=[MessagingModule.register()],
         extensions=[MessagingExtension().bind(_FailingCommand, handler)],
     ) as app:
         executor = await _make_executor(app, evaluator)
         envelope = make_envelope(_FailingCommand(value='test'))
-        await executor.execute(envelope, handler)
+        return await executor.execute(envelope, handler)
 
 
 async def test_executor_transient_retried() -> None:
     handler, calls = _make_fail_n_times_handler(fail_count=1)
     evaluator = _evaluator_for(ErrorPolicy.on_any_exception().retry(max_attempts=3))
-    await _run_executor(handler, evaluator)
+    outcome = await _run_executor(handler, evaluator)
     assert len(calls) == 2
+    assert outcome is ExecutionOutcome.SUCCESS
 
 
 async def test_executor_exhausted_retries() -> None:
     handler, calls = _make_always_fail_handler()
     evaluator = _evaluator_for(ErrorPolicy.on_any_exception().retry(max_attempts=2))
-    await _run_executor(handler, evaluator)
+    outcome = await _run_executor(handler, evaluator)
     assert len(calls) == 2
+    # Retries exhausted with no explicit fallback -> the evaluator's terminal is DISCARD.
+    assert outcome is ExecutionOutcome.DISCARDED
 
 
 async def test_executor_transient_backoff() -> None:
@@ -124,21 +127,24 @@ async def test_executor_transient_backoff() -> None:
     evaluator = _evaluator_for(
         ErrorPolicy.on_any_exception().retry_with_backoff(max_attempts=3, base_delay=0.001, max_delay=0.01),
     )
-    await _run_executor(handler, evaluator)
+    outcome = await _run_executor(handler, evaluator)
     assert len(calls) == 2
+    assert outcome is ExecutionOutcome.SUCCESS
 
 
 async def test_executor_discard() -> None:
     handler, calls = _make_always_fail_handler()
     evaluator = _evaluator_for(ErrorPolicy.on_any_exception().discard())
-    await _run_executor(handler, evaluator)
+    outcome = await _run_executor(handler, evaluator)
     assert len(calls) == 1
+    assert outcome is ExecutionOutcome.DISCARDED
 
 
 async def test_executor_no_policy() -> None:
     handler, calls = _make_always_fail_handler()
-    await _run_executor(handler, NOOP_EVALUATOR)
+    outcome = await _run_executor(handler, NOOP_EVALUATOR)
     assert len(calls) == 1
+    assert outcome is ExecutionOutcome.FAILED_NO_POLICY
 
 
 class TestEndpointExecutorDeadLetter:
@@ -161,8 +167,9 @@ class TestEndpointExecutorDeadLetter:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
             executor = await _make_executor(app, evaluator)
             envelope = make_envelope(_FailingCommand(value='to-dlq'))
-            await executor.execute(envelope, handler)
+            outcome = await executor.execute(envelope, handler)
 
+        assert outcome is ExecutionOutcome.DEAD_LETTERED
         assert len(dl_store.entries) == 1
         assert 'permanent failure' in dl_store.entries[0].error_message
         assert dl_store.entries[0].retry_count == 1

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+import anyio
 from dishka import Provider, Scope, provide
 from typing_extensions import override
 
@@ -18,10 +19,21 @@ from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnve
 from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
     from uuid import UUID
 
     from waku.messaging.contracts.message import IMessage
+
+
+async def wait_until(predicate: Callable[[], bool]) -> None:
+    """Yield to the event loop until *predicate* holds (or a 5s fast-fail deadline trips).
+
+    Deterministic alternative to ``anyio.sleep`` for awaiting background-worker effects: re-checks
+    on each scheduler turn, fast-fails via ``anyio.fail_after``.
+    """
+    with anyio.fail_after(5):
+        while not predicate():
+            await anyio.lowlevel.checkpoint()
 
 
 def make_serializer(*types: type[IMessage]) -> JsonEnvelopeSerializer:
