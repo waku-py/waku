@@ -1,5 +1,5 @@
 from collections.abc import Iterator, Mapping, Sequence
-from typing import TYPE_CHECKING, Any, Self, TypeAlias, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Self, TypeAlias, TypeVar, assert_never, overload
 
 from typing_extensions import override
 
@@ -19,9 +19,10 @@ from waku.messaging.contracts.message import IMessage
 from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.dispatcher import MessageDispatcher
-from waku.messaging.endpoints.base import Endpoint, EndpointEntry, ExternalEntry, LocalQueueEntry
+from waku.messaging.endpoints.base import Endpoint, EndpointEntry, EndpointMode, ExternalEntry
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.external import ExternalEndpoint
+from waku.messaging.endpoints.inline import InlineEndpoint
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
@@ -234,24 +235,41 @@ def _create_endpoint(
     invoker: HandlerPipelineInvoker,
     type_registry: MessageTypeRegistry,
 ) -> Endpoint:
-    match entry:
-        case LocalQueueEntry():
-            executor = EndpointExecutor(
-                container=container,
-                evaluator=evaluator,
-                endpoint_uri=entry.uri,
-                invoker=invoker,
-                registry=type_registry,
+    if isinstance(entry, ExternalEntry):
+        return ExternalEndpoint(uri=entry.uri)
+
+    executor = EndpointExecutor(
+        container=container,
+        evaluator=evaluator,
+        endpoint_uri=entry.uri,
+        invoker=invoker,
+        registry=type_registry,
+    )
+    subscriptions = routing_table.endpoint_subscriptions.get(entry.uri, {})
+    match entry.mode:
+        case EndpointMode.INLINE:
+            return InlineEndpoint(
+                uri=entry.uri,
+                handler_subscriptions=subscriptions,
+                executor=executor,
             )
+        case EndpointMode.BUFFERED:
             return LocalQueueEndpoint(
                 uri=entry.uri,
-                handler_subscriptions=routing_table.endpoint_subscriptions.get(entry.uri, {}),
+                handler_subscriptions=subscriptions,
                 executor=executor,
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,
+                max_parallel=entry.max_parallel,
             )
-        case ExternalEntry():  # pragma: no branch
-            return ExternalEndpoint(uri=entry.uri)
+        case EndpointMode.DURABLE:
+            msg = (
+                'EndpointMode.DURABLE requires DurableLocalQueueEndpoint (lands in M2b.1). '
+                'Configure MessagingConfig.inbox to enable durable endpoints.'
+            )
+            raise ImproperlyConfiguredError(msg)
+        case _:
+            assert_never(entry.mode)
 
 
 class MessageRegistryAggregator(OnModuleRegistration):

@@ -5,6 +5,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import anyio
 import pytest
 from dishka import AsyncContainer
 from typing_extensions import override
@@ -97,7 +98,7 @@ class TestLocalQueueLifecycle:
             routing=[route(SlowEvent).to('slow-q')],
         )
 
-        with caplog.at_level(logging.WARNING, logger='waku.messaging.endpoints.local_queue'):
+        with caplog.at_level(logging.WARNING, logger='waku.messaging.endpoints.worker'):
             async with (
                 create_test_app(
                     imports=[MessagingModule.register(config)],
@@ -141,3 +142,52 @@ class TestLocalQueueLifecycle:
             await bus.send(PingRequest(ping_id='P-1'))
 
         assert received == ['P-1']
+
+
+class TestLocalQueueConcurrency:
+    @staticmethod
+    async def test_max_parallel_five_processes_events_concurrently() -> None:
+        parallelism = 5
+        in_flight = 0
+        max_observed = 0
+        count_lock = asyncio.Lock()
+        all_started = asyncio.Event()
+        release = asyncio.Event()
+
+        @dataclass(frozen=True)
+        class WorkEvent(IEvent):
+            tag: str
+
+        class BlockingHandler(EventHandler[WorkEvent]):
+            @override
+            async def handle(self, event: WorkEvent, /) -> None:
+                nonlocal in_flight, max_observed
+                async with count_lock:
+                    in_flight += 1
+                    max_observed = max(max_observed, in_flight)
+                    if in_flight == parallelism:
+                        all_started.set()
+                await release.wait()
+                async with count_lock:
+                    in_flight -= 1
+
+        config = MessagingConfig(
+            endpoints=[local_queue('work-q', max_parallel=parallelism)],
+            routing=[route(WorkEvent).to('work-q')],
+        )
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(config)],
+                extensions=[MessagingExtension().bind(WorkEvent, BlockingHandler)],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            for i in range(parallelism):
+                await bus.publish(WorkEvent(tag=str(i)))
+            with anyio.fail_after(5):
+                await all_started.wait()
+            release.set()
+
+        assert max_observed == parallelism

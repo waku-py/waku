@@ -12,7 +12,7 @@ from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.identity import MessageTypeRegistry
-from waku.messaging.outbox.interfaces import IOutboxStore  # noqa: TC001
+from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.transport.interfaces import ITransport
 from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
 from waku.uow import IUnitOfWork

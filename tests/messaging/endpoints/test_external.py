@@ -6,8 +6,8 @@ from dishka import Provider, Scope, make_async_container, provide
 
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.external import ExternalEndpoint
-from waku.messaging.outbox.interfaces import IOutboxStore  # noqa: TC001
-from waku.messaging.transport.serialization import IEnvelopeSerializer  # noqa: TC001
+from waku.messaging.outbox.interfaces import IOutboxStore
+from waku.messaging.transport.serialization import IEnvelopeSerializer
 
 from tests.messaging.helpers import make_envelope, make_serializer
 from tests.messaging.outbox.fake_store import FakeOutboxStore

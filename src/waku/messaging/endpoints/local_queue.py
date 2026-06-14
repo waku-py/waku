@@ -1,36 +1,41 @@
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import logging
 from typing import TYPE_CHECKING, Any
 
-import anyio
-from anyio import create_memory_object_stream
 from typing_extensions import override
 
-from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.endpoints.base import Endpoint
+from waku.messaging.endpoints.worker import MemoryStreamWorker
 
 if TYPE_CHECKING:
-    from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-
     from waku.di import AsyncContainer
+    from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.endpoints.executor import EndpointExecutor
     from waku.messaging.router import HandlerSubscriptions
+
+__all__ = [
+    'LocalQueueEndpoint',
+]
 
 logger = logging.getLogger(__name__)
 
 
 class LocalQueueEndpoint(Endpoint):
+    """BUFFERED-mode endpoint: anyio memory queue + background worker with bounded concurrency.
+
+    Durability: NONE. The queue is an in-memory anyio memory object stream with no
+    persistence. Delivery is at-least-once WITHIN the process only. Handoff happens
+    when the producer's ``send()`` returns (the envelope is enqueued) — this is BEFORE
+    the handler runs. On crash/restart, any envelopes that were enqueued-but-not-yet-drained
+    are LOST: the loss window is everything sitting in the queue (enqueued, not yet processed)
+    at crash time. For crash-survivable delivery, use ``EndpointMode.DURABLE`` (M2b.1).
+    """
+
     __slots__ = (
         '_executor',
         '_handler_subscriptions',
-        '_max_buffer_size',
-        '_receive_stream',
-        '_send_stream',
-        '_stop_timeout',
-        '_worker_task',
+        '_worker',
     )
 
     def __init__(
@@ -41,64 +46,42 @@ class LocalQueueEndpoint(Endpoint):
         executor: EndpointExecutor,
         stop_timeout: float,
         max_buffer_size: float,
+        max_parallel: int = 1,
     ) -> None:
         super().__init__(uri=uri)
         self._handler_subscriptions = handler_subscriptions
         self._executor = executor
-        self._stop_timeout = stop_timeout
-        self._max_buffer_size = max_buffer_size
-        self._send_stream: MemoryObjectSendStream[MessageEnvelope[Any]] | None = None
-        self._receive_stream: MemoryObjectReceiveStream[MessageEnvelope[Any]] | None = None
-        self._worker_task: asyncio.Task[None] | None = None
+        self._worker = MemoryStreamWorker(
+            max_buffer_size=max_buffer_size,
+            stop_timeout=stop_timeout,
+            max_parallel=max_parallel,
+        )
 
     @override
     async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None:
-        send_stream = self._send_stream
-        if send_stream is None:
-            logger.warning('Message dropped: endpoint %s is stopped (message_id=%s)', self._uri, envelope.message_id)
-            return
-        await send_stream.send(envelope)
-
-    async def start(self) -> None:
-        send, receive = create_memory_object_stream[MessageEnvelope[Any]](max_buffer_size=self._max_buffer_size)
-        self._send_stream = send
-        self._receive_stream = receive
-        self._worker_task = asyncio.create_task(self._worker_loop(receive))
-
-    async def stop(self) -> None:
-        send_stream, self._send_stream = self._send_stream, None
-        if send_stream is not None:
-            send_stream.close()
-        if self._worker_task is not None:
-            await self._drain_worker(self._worker_task)
-            self._worker_task = None
-        if self._receive_stream is not None:
-            self._receive_stream.close()
-            self._receive_stream = None
-
-    async def _drain_worker(self, task: asyncio.Task[None]) -> None:
-        try:
-            with anyio.fail_after(self._stop_timeout):
-                await task
-        except TimeoutError:
+        accepted = await self._worker.send(envelope)
+        if not accepted:
             logger.warning(
-                'Worker task for %s did not terminate within %.1fs, cancelling',
+                'Message dropped: endpoint %s is stopped (message_id=%s)',
                 self._uri,
-                self._stop_timeout,
+                envelope.message_id,
             )
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
 
-    async def _worker_loop(self, receive_stream: MemoryObjectReceiveStream[MessageEnvelope[Any]]) -> None:
-        async for envelope in receive_stream:
-            try:
-                await self._process_envelope(envelope)
-            except Exception:
-                logger.exception(
-                    'Unhandled error processing message_id=%s, continuing worker loop',
-                    envelope.message_id,
-                )
+    @override
+    async def start(self) -> None:
+        await self._worker.start(self._process_envelope)
+
+    @override
+    async def stop(self) -> None:
+        await self._worker.stop()
+
+    @override
+    async def pause(self) -> None:
+        await self._worker.pause()
+
+    @override
+    async def resume(self) -> None:
+        await self._worker.resume()
 
     async def _process_envelope(self, envelope: MessageEnvelope[Any]) -> None:
         for handler_type in self._handler_subscriptions.get(type(envelope.payload), ()):

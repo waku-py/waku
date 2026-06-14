@@ -195,6 +195,7 @@ pylint = { max-args = 7 }
   "RUF069", # Unreliable floating point equality comparison
   "S101", # Usage of assert
   "S311", # Usage of non-cryptographic random
+  "TC001", # Move application import into a type-checking block
   "TRY002", # Raise Exception or BaseException directly
 ]
 
