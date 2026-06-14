@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -16,7 +17,7 @@ from waku.messaging import (
     MessagingModule,
     RequestHandler,
 )
-from waku.messaging.behaviors.transactional import TransactionalBehavior
+from waku.messaging.behaviors.transactional import TransactionalBehavior, _TransactionDepth  # noqa: PLC2701
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
@@ -36,7 +37,7 @@ class TestTransactionalBehavior:
     @staticmethod
     async def test_commits_on_success() -> None:
         uow = FakeUoW()
-        behavior = TransactionalBehavior(uow)
+        behavior = TransactionalBehavior(uow, _TransactionDepth())
 
         result = await behavior.handle('msg', call_next=_ok)
 
@@ -47,7 +48,7 @@ class TestTransactionalBehavior:
     @staticmethod
     async def test_rolls_back_on_handler_error() -> None:
         uow = FakeUoW()
-        behavior = TransactionalBehavior(uow)
+        behavior = TransactionalBehavior(uow, _TransactionDepth())
 
         with pytest.raises(ValueError, match='handler broke'):
             await behavior.handle('msg', call_next=_fail)
@@ -58,7 +59,7 @@ class TestTransactionalBehavior:
     @staticmethod
     async def test_rolls_back_on_commit_error() -> None:
         uow = FakeUoW(commit_error=RuntimeError('commit failed'))
-        behavior = TransactionalBehavior(uow)
+        behavior = TransactionalBehavior(uow, _TransactionDepth())
 
         with pytest.raises(RuntimeError, match='commit failed'):
             await behavior.handle('msg', call_next=_ok)
@@ -68,7 +69,7 @@ class TestTransactionalBehavior:
     @staticmethod
     async def test_logs_and_reraises_when_rollback_fails_after_handler_error(caplog: Any) -> None:
         uow = FakeUoW(rollback_error=RuntimeError('rollback exploded'))
-        behavior = TransactionalBehavior(uow)
+        behavior = TransactionalBehavior(uow, _TransactionDepth())
 
         with (
             caplog.at_level(logging.ERROR, logger='waku.messaging.behaviors.transactional'),
@@ -81,7 +82,7 @@ class TestTransactionalBehavior:
     @staticmethod
     async def test_logs_and_reraises_when_rollback_fails_after_commit_error(caplog: Any) -> None:
         uow = FakeUoW(commit_error=RuntimeError('commit boom'), rollback_error=OSError('rollback boom'))
-        behavior = TransactionalBehavior(uow)
+        behavior = TransactionalBehavior(uow, _TransactionDepth())
 
         with (
             caplog.at_level(logging.ERROR, logger='waku.messaging.behaviors.transactional'),
@@ -90,6 +91,69 @@ class TestTransactionalBehavior:
             await behavior.handle('msg', call_next=_ok)
 
         assert 'Rollback failed' in caplog.text
+
+
+class TestNestingAwareTransactional:
+    @staticmethod
+    async def test_single_level_commits_once() -> None:
+        uow = FakeUoW()
+        depth = _TransactionDepth()
+        behavior = TransactionalBehavior(uow, depth)
+
+        await behavior.handle('msg', call_next=_ok)
+
+        assert uow.commit_count == 1
+
+    @staticmethod
+    async def test_nested_behaviors_share_one_commit() -> None:
+        uow = FakeUoW()
+        depth = _TransactionDepth()
+        outer = TransactionalBehavior(uow, depth)
+        inner = TransactionalBehavior(uow, depth)
+
+        async def _inner_then_ok() -> None:
+            await inner.handle('inner', call_next=_ok)
+
+        await outer.handle('outer', call_next=_inner_then_ok)
+
+        assert uow.commit_count == 1
+        assert not uow.rolled_back
+
+    @staticmethod
+    async def test_inner_failure_rolls_back_once_at_outer() -> None:
+        uow = FakeUoW()
+        depth = _TransactionDepth()
+        outer = TransactionalBehavior(uow, depth)
+        inner = TransactionalBehavior(uow, depth)
+
+        async def _inner_then_fail() -> None:
+            await inner.handle('inner', call_next=_fail)
+
+        with pytest.raises(ValueError, match='handler broke'):
+            await outer.handle('outer', call_next=_inner_then_fail)
+
+        assert uow.commit_count == 0
+        assert uow.rollback_count == 1
+
+    @staticmethod
+    async def test_outer_commit_forced_rollback_when_caught_inner_failure() -> None:
+        uow = FakeUoW()
+        depth = _TransactionDepth()
+        outer = TransactionalBehavior(uow, depth)
+        inner = TransactionalBehavior(uow, depth)
+
+        async def _swallow_inner_failure() -> str:
+            with contextlib.suppress(ValueError):
+                await inner.handle('inner', call_next=_fail)
+            return 'outer-ok'
+
+        result = await outer.handle('outer', call_next=_swallow_inner_failure)
+
+        # Spring-strict: a nested failure forces rollback-only even though the outer
+        # handler swallowed the exception and returned cleanly.
+        assert result == 'outer-ok'
+        assert uow.commit_count == 0
+        assert uow.rollback_count == 1
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -117,8 +181,8 @@ class TestTransactionalBehaviorViaDI:
             bus = await container.get(IMessageBus)
             await bus.invoke(_TxRequest())
 
-        assert uow.committed
-        assert not uow.rolled_back
+        assert uow.commit_count == 1
+        assert uow.rollback_count == 0
 
     @staticmethod
     async def test_wired_via_global_pipeline_behaviors_rolls_back_on_handler_error() -> None:
@@ -142,5 +206,5 @@ class TestTransactionalBehaviorViaDI:
             with pytest.raises(ValueError, match='handler broke'):
                 await bus.invoke(_TxRequest(fail=True))
 
-        assert not uow.committed
-        assert uow.rolled_back
+        assert uow.commit_count == 0
+        assert uow.rollback_count == 1

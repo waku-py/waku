@@ -6,6 +6,7 @@ from typing_extensions import override
 
 from waku.di import AsyncContainer  # noqa: TC001
 from waku.messaging.context import message_context_scope, try_get_message_context
+from waku.messaging.contracts.event import IEvent
 from waku.messaging.contracts.factory import EnvelopeFactory  # noqa: TC001
 from waku.messaging.dispatcher import MessageDispatcher  # noqa: TC001
 from waku.messaging.exceptions import NoRouteError
@@ -34,16 +35,21 @@ class MessageBus(IMessageBus):
         self._router = router
 
     @overload
+    async def invoke(self, event: IEvent, /) -> None: ...
+
+    @overload
     async def invoke(self, request: IRequest[None], /) -> None: ...
 
     @overload
     async def invoke(self, request: IRequest[ResponseT], /) -> ResponseT: ...
 
     @override
-    async def invoke(self, request: IRequest[Any], /) -> Any:
-        envelope = self._create_envelope(request)
+    async def invoke(self, message: IRequest[Any] | IEvent, /) -> Any:
+        envelope = self._create_envelope(message)
         with message_context_scope(envelope):
-            return await self._dispatcher.invoke_request(self._container, request)
+            if isinstance(message, IEvent):
+                return await self._dispatcher.invoke_event(self._container, message)
+            return await self._dispatcher.invoke_request(self._container, message)
 
     @override
     async def send(self, message: IMessage, /) -> None:

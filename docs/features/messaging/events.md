@@ -189,9 +189,48 @@ block the rest.
     Inline handlers execute immediately in the caller's scope, while routed handlers
     are processed asynchronously by endpoint workers.
 
+## Same-transaction events: `invoke()`
+
+`publish()` is the default for events — eventual and isolated. When a domain event must commit
+**atomically** with the work that raised it, use `invoke()` instead. `invoke(event)` runs **all**
+local handlers inline, in the caller's scope, inside **one transaction**:
+
+```python linenums="1"
+from waku.messaging import ISender
+
+
+async def ship_order(sender: ISender, order_id: str) -> None:
+    # Every OrderShipped handler runs inline and commits together with this call.
+    await sender.invoke(OrderShipped(order_id=order_id, tracking_number='1Z999'))
+```
+
+The verb selects the consistency boundary — there is no global switch:
+
+| Aspect | `invoke(event)` | `publish(event)` |
+|--------|-----------------|------------------|
+| Execution | Inline, caller's scope | Routed to endpoints, a separate scope per subscriber |
+| Transaction | One, shared by all handlers | One per subscriber, post-commit |
+| On handler error | Fail-fast — aborts the rest, rolls back | Isolated — logged, the rest proceed |
+| No handlers | Raises `HandlerNotFound` | Silent no-op |
+| Use for | Same-transaction domain events | Eventual, decoupled fan-out (the default) |
+
+A nested `invoke()` from inside a handler **joins the same transaction** — the outermost call owns
+the single commit.
+
+!!! warning "Order is not a contract"
+    Handlers for one event run in an unspecified order under `invoke()`. They must be independent —
+    never write a handler that depends on another having run first.
+
+!!! note "Atomicity needs a unit of work"
+    The single transaction is the caller-scope [unit of work](transactions.md). Add
+    `TransactionalBehavior` to `global_pipeline_behaviors` and register an `IUnitOfWork`. Without one,
+    `invoke(event)` still runs handlers inline and fail-fast, but there is nothing to roll back —
+    the same as `invoke(request)` without a unit of work.
+
 ## Further reading
 
 - **[Requests](requests.md)** — commands, queries, and request handlers
+- **[Transactions](transactions.md)** — `TransactionalBehavior` and unit-of-work boundaries
 - **[Pipeline Behaviors](pipeline.md)** — cross-cutting middleware for request handling
 - **[Routing & Endpoints](routing.md)** — route events to local queues or external systems
 - **[Error Handling](error-handling.md)** — retry policies and dead letter queues

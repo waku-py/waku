@@ -54,6 +54,8 @@ class FakeUoW(IUnitOfWork):
     ) -> None:
         self.committed = False
         self.rolled_back = False
+        self.commit_count = 0
+        self.rollback_count = 0
         self._commit_error = commit_error
         self._rollback_error = rollback_error
 
@@ -62,12 +64,14 @@ class FakeUoW(IUnitOfWork):
         if self._commit_error:
             raise self._commit_error
         self.committed = True
+        self.commit_count += 1
 
     @override
     async def rollback(self) -> None:
         if self._rollback_error:
             raise self._rollback_error
         self.rolled_back = True
+        self.rollback_count += 1
 
 
 class RecordingDeadLetterStore(IDeadLetterStore):

@@ -12,7 +12,7 @@ from waku.extensions import (
     OnModuleRegistration,
 )
 from waku.messaging.behaviors.cascading import CascadingBehavior
-from waku.messaging.behaviors.transactional import TransactionalBehavior
+from waku.messaging.behaviors.transactional import TransactionalBehavior, _TransactionDepth
 from waku.messaging.config import MessagingConfig
 from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.contracts.factory import EnvelopeFactory
@@ -72,6 +72,9 @@ class MessagingModule:
         providers: list[Provider] = [
             scoped(WithParents[IMessageBus], MessageBus),  # ty:ignore[not-subscriptable]
             scoped(AnyOf[IOutgoingMessages, IOutgoingMessagesFrames], OutgoingMessages),  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
+            # Always registered: shared by every TransactionalBehavior + the dispatcher's
+            # invoke(event) owning frame. Gating on config misses per-handler TransactionalBehavior.
+            scoped(_TransactionDepth),
             object_(config_, provided_type=MessagingConfig),
             singleton(MessageTypeRegistry, _build_message_type_registry),
             singleton(EnvelopeFactory),
