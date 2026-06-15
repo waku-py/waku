@@ -13,6 +13,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 
+from waku.messaging.errors.dead_letter import DeadLetterStatus
+from waku.messaging.sqla.types import EnumFromValues
+
 __all__ = [
     'DeadLetterTables',
     'bind_dead_letter_tables',
@@ -32,8 +35,16 @@ dead_letter_table = Table(
     Column('error_type', Text, nullable=False),
     Column('error_message', Text, nullable=False),
     Column('retry_count', Integer, nullable=False),
+    Column(
+        'status',
+        EnumFromValues(DeadLetterStatus),
+        nullable=False,
+        server_default=DeadLetterStatus.PENDING.value,
+    ),
+    Column('replay_count', Integer, nullable=False, server_default='0'),
     Column('created_at', TIMESTAMP(timezone=True), server_default=func.now()),
     Index('ix_dead_letter_created', 'created_at'),
+    Index('ix_dead_letter_status', 'status'),
 )
 
 

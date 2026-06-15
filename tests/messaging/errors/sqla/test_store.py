@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from waku.messaging.errors.dead_letter import DeadLetterEntry
+from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterStatus
 from waku.messaging.errors.sqla.store import SqlAlchemyDeadLetterStore
 from waku.messaging.errors.sqla.tables import bind_dead_letter_tables
 
@@ -102,3 +102,65 @@ class TestSqlAlchemyDeadLetterStore:
 
         remaining = await store.fetch(batch_size=10)
         assert len(remaining) == 0
+
+    @staticmethod
+    async def test_fetch_replayable_returns_pending_entries(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyDeadLetterStore(pg_session)
+        entry = _make_entry()
+        await store.save(entry)
+        await pg_session.flush()
+
+        replayable = await store.fetch_replayable()
+        assert [e.id for e in replayable] == [entry.id]
+        assert replayable[0].status is DeadLetterStatus.PENDING
+
+    @staticmethod
+    async def test_mark_replayed_transitions_and_excludes_from_replayable(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyDeadLetterStore(pg_session)
+        entry = _make_entry()
+        await store.save(entry)
+        await pg_session.flush()
+
+        await store.mark_replayed(entry.id)
+        await pg_session.flush()
+
+        assert await store.fetch_replayable() == []
+        assert (await store.fetch_one(entry.id)).status is DeadLetterStatus.REPLAYED
+
+    @staticmethod
+    async def test_mark_replay_failed_bumps_count_keeps_row_records_error(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyDeadLetterStore(pg_session)
+        entry = _make_entry()
+        await store.save(entry)
+        await pg_session.flush()
+
+        await store.mark_replay_failed(entry.id, error='replay exploded')
+        await pg_session.flush()
+
+        refetched = await store.fetch_one(entry.id)
+        assert refetched.status is DeadLetterStatus.REPLAY_FAILED
+        assert refetched.replay_count == 1
+        assert refetched.error_message == 'replay exploded'
+
+    @staticmethod
+    async def test_replay_failed_entries_excluded_from_replayable(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyDeadLetterStore(pg_session)
+        entry = _make_entry()
+        await store.save(entry)
+        await pg_session.flush()
+
+        await store.mark_replay_failed(entry.id, error='nope')
+        await pg_session.flush()
+
+        assert await store.fetch_replayable() == []
+
+    @staticmethod
+    async def test_save_round_trips_status_and_replay_count(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyDeadLetterStore(pg_session)
+        entry = _make_entry(status=DeadLetterStatus.REPLAY_FAILED, replay_count=2)
+        await store.save(entry)
+        await pg_session.flush()
+
+        refetched = await store.fetch_one(entry.id)
+        assert refetched.status is DeadLetterStatus.REPLAY_FAILED
+        assert refetched.replay_count == 2

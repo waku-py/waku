@@ -1,12 +1,13 @@
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from dishka import Provider, Scope
+from dishka import AsyncContainer, Provider, Scope
 from dishka.entities.marker import BaseMarker
 
 __all__ = [
     'activator',
     'contextual',
+    'is_registered',
     'many',
     'object_',
     'provider',
@@ -14,6 +15,19 @@ __all__ = [
     'singleton',
     'transient',
 ]
+
+
+async def is_registered(container: AsyncContainer, dependency: Any) -> bool:
+    """Return whether *dependency* is providable by *container* (its scope or an ancestor scope).
+
+    A pure registration/activation check that does NOT construct the dependency (no I/O) — unlike
+    ``container.get(...)``, which builds it. Resolve at the scope where the provider lives (e.g. a
+    request scope for ``scoped`` providers); app-level checks miss request-scoped registrations.
+
+    dishka exposes only the private ``_has`` for this, so this DI-layer helper is the one place that
+    coupling is isolated — callers stay clean.
+    """
+    return await container._has(dependency)  # noqa: SLF001
 
 
 def activator(fn: Callable[..., bool], *markers: Any) -> Provider:

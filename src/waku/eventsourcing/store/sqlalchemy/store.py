@@ -23,6 +23,7 @@ from waku.eventsourcing.exceptions import (
     StreamDeletedError,
     StreamNotFoundError,
 )
+from waku.eventsourcing.forwarding import IAppendedEvents  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.serialization.interfaces import IEventSerializer  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa: TC001  # Dishka needs runtime access
@@ -58,11 +59,13 @@ class SqlAlchemyEventStoreFactory(Protocol):
         upcaster_chain: UpcasterChain,
         projections: Sequence[IProjection] = (),
         enrichers: Sequence[IMetadataEnricher] = (),
+        *,
+        appended_events: IAppendedEvents,
     ) -> SqlAlchemyEventStore: ...
 
 
 class SqlAlchemyEventStore(IEventStore):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         session: AsyncSession,
         serializer: IEventSerializer,
@@ -71,6 +74,8 @@ class SqlAlchemyEventStore(IEventStore):
         upcaster_chain: UpcasterChain,
         projections: Sequence[IProjection] = (),
         enrichers: Sequence[IMetadataEnricher] = (),
+        *,
+        appended_events: IAppendedEvents | None = None,
     ) -> None:
         self._session = session
         self._serializer = serializer
@@ -80,6 +85,12 @@ class SqlAlchemyEventStore(IEventStore):
         self._upcaster_chain = upcaster_chain
         self._projections = projections
         self._enrichers = enrichers
+        self._appended_events = appended_events
+
+    @property
+    def session(self) -> AsyncSession:
+        """The underlying AsyncSession — used for sharing-by-identity validation at startup."""
+        return self._session
 
     @property
     def _not_deleted(self) -> Any:
@@ -233,6 +244,11 @@ class SqlAlchemyEventStore(IEventStore):
         *,
         expected_version: ExpectedVersion,
     ) -> int:
+        # Reset per attempt: append_to_stream re-runs on every optimistic-retry attempt, so clearing
+        # on entry guarantees the post-success collector holds ONLY the winning attempt's events.
+        if self._appended_events is not None:
+            self._appended_events.clear()
+
         if not events:
             return await self._resolve_current_version(stream_id, expected_version)
 
@@ -267,6 +283,13 @@ class SqlAlchemyEventStore(IEventStore):
                     reason='conflict with existing keys',
                 ) from exc  # pragma: no cover
             raise  # pragma: no cover
+
+        # Record only on the real-append path (inside the tx) — never on the dedup early-returns above.
+        # An optimistic conflict raises in _update_stream_version before _insert_events, so a losing
+        # attempt never reaches here; combined with clear-on-entry, the collector reflects exactly the
+        # events that survived to commit.
+        if self._appended_events is not None:
+            self._appended_events.record([stored.data for stored in stored_events])
 
         for projection in self._projections:
             await projection.project(stored_events)
@@ -417,7 +440,18 @@ def make_sqlalchemy_event_store(tables: EventStoreTables) -> SqlAlchemyEventStor
         upcaster_chain: UpcasterChain,
         projections: Sequence[IProjection] = (),
         enrichers: Sequence[IMetadataEnricher] = (),
+        *,
+        appended_events: IAppendedEvents,
     ) -> SqlAlchemyEventStore:
-        return SqlAlchemyEventStore(session, serializer, registry, tables, upcaster_chain, projections, enrichers)
+        return SqlAlchemyEventStore(
+            session,
+            serializer,
+            registry,
+            tables,
+            upcaster_chain,
+            projections,
+            enrichers,
+            appended_events=appended_events,
+        )
 
     return factory

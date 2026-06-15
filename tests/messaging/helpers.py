@@ -110,6 +110,18 @@ class RecordingDeadLetterStore(IDeadLetterStore):
         raise KeyError(entry_id)
 
     @override
+    async def fetch_replayable(self, batch_size: int = 100) -> Sequence[DeadLetterEntry]:  # pragma: no cover
+        return []
+
+    @override
+    async def mark_replayed(self, entry_id: UUID) -> None:  # pragma: no cover
+        pass
+
+    @override
+    async def mark_replay_failed(self, entry_id: UUID, error: str) -> None:  # pragma: no cover
+        pass
+
+    @override
     async def delete(self, entry_id: UUID) -> None:  # pragma: no cover
         pass
 
@@ -131,6 +143,18 @@ class FailingDeadLetterStore(IDeadLetterStore):
     @override
     async def fetch_one(self, entry_id: UUID) -> DeadLetterEntry:  # pragma: no cover
         raise KeyError(entry_id)
+
+    @override
+    async def fetch_replayable(self, batch_size: int = 100) -> Sequence[DeadLetterEntry]:  # pragma: no cover
+        return []
+
+    @override
+    async def mark_replayed(self, entry_id: UUID) -> None:  # pragma: no cover
+        pass
+
+    @override
+    async def mark_replay_failed(self, entry_id: UUID, error: str) -> None:  # pragma: no cover
+        pass
 
     @override
     async def delete(self, entry_id: UUID) -> None:  # pragma: no cover

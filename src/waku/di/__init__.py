@@ -18,7 +18,17 @@ from dishka import (
 )
 from dishka.provider import BaseProvider
 
-from waku.di._providers import activator, contextual, many, object_, provider, scoped, singleton, transient
+from waku.di._providers import (
+    activator,
+    contextual,
+    is_registered,
+    many,
+    object_,
+    provider,
+    scoped,
+    singleton,
+    transient,
+)
 
 __all__ = [
     'DEFAULT_COMPONENT',
@@ -38,6 +48,7 @@ __all__ = [
     'contextual',
     'decorate',
     'from_context',
+    'is_registered',
     'many',
     'object_',
     'provide',

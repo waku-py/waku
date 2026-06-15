@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import enum
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -12,8 +13,16 @@ if TYPE_CHECKING:
 
 __all__ = [
     'DeadLetterEntry',
+    'DeadLetterStatus',
     'IDeadLetterStore',
 ]
+
+
+@enum.unique
+class DeadLetterStatus(enum.StrEnum):
+    PENDING = 'PENDING'
+    REPLAYED = 'REPLAYED'
+    REPLAY_FAILED = 'REPLAY_FAILED'
 
 
 def _format_fqn(cls: type) -> str:
@@ -31,6 +40,8 @@ class DeadLetterEntry:
     error_type: str
     error_message: str
     retry_count: int
+    status: DeadLetterStatus = DeadLetterStatus.PENDING
+    replay_count: int = 0
     created_at: datetime | None = None
 
     @classmethod
@@ -59,6 +70,17 @@ class DeadLetterEntry:
 
 
 class IDeadLetterStore(abc.ABC):
+    """Persistence seam for dead-lettered messages, including the replay lifecycle.
+
+    Replay contract (this interface defines it; the executor/triggers/poller are out of scope):
+    a replayer reconstructs a ``MessageEnvelope`` from a stored entry via
+    ``IEnvelopeSerializer.deserialize(entry.payload)`` (``payload`` already holds the full serialized
+    envelope, headers included, on both write paths), re-injects it to ``entry.destination`` for
+    reprocessing, then records the outcome (``mark_replayed`` / ``mark_replay_failed``). Replay
+    re-enters the normal pipeline, so it is **at-least-once**; idempotency leans on the inbox
+    ``(message_id, destination)`` dedup. ``delete`` / ``purge`` remain the terminal-cleanup seam.
+    """
+
     @abc.abstractmethod
     async def save(self, entry: DeadLetterEntry) -> None: ...
 
@@ -67,6 +89,26 @@ class IDeadLetterStore(abc.ABC):
 
     @abc.abstractmethod
     async def fetch_one(self, entry_id: UUID) -> DeadLetterEntry: ...
+
+    @abc.abstractmethod
+    async def fetch_replayable(self, batch_size: int = 100) -> Sequence[DeadLetterEntry]:
+        """Return PENDING entries eligible for replay, oldest-first.
+
+        Read seam only — does NOT claim rows. A future 1-per-DC replay poller will add
+        ``FOR UPDATE SKIP LOCKED`` over this query to make concurrent claiming safe; the foundation
+        deliberately omits the poller.
+        """
+        ...
+
+    @abc.abstractmethod
+    async def mark_replayed(self, entry_id: UUID) -> None:
+        """Transition an entry to REPLAYED after a successful re-injection."""
+        ...
+
+    @abc.abstractmethod
+    async def mark_replay_failed(self, entry_id: UUID, error: str) -> None:
+        """Transition an entry to REPLAY_FAILED, bump ``replay_count``, and keep the row."""
+        ...
 
     @abc.abstractmethod
     async def delete(self, entry_id: UUID) -> None: ...

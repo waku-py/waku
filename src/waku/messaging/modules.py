@@ -3,7 +3,18 @@ from typing import TYPE_CHECKING, Any, Self, TypeAlias, TypeVar, assert_never, o
 
 from typing_extensions import override
 
-from waku.di import AnyOf, AsyncContainer, Provider, WithParents, many, object_, scoped, singleton, transient
+from waku.di import (
+    AnyOf,
+    AsyncContainer,
+    Provider,
+    WithParents,
+    is_registered,
+    many,
+    object_,
+    scoped,
+    singleton,
+    transient,
+)
 from waku.extensions import (
     AfterApplicationInit,
     ModuleExtension,
@@ -463,7 +474,10 @@ class _UnitOfWorkValidationExtension(AfterApplicationInit):
     async def after_app_init(self, app: 'WakuApplication') -> None:
         if not await self._uow_required(app):
             return
-        has_uow = await app.container._has(IUnitOfWork)  # noqa: SLF001
+        # Check inside a request scope: IUnitOfWork is typically scoped (one session per request) and
+        # is not registered at app scope. is_registered is a pure presence check (no construction).
+        async with app.container() as scope:
+            has_uow = await is_registered(scope, IUnitOfWork)
         if not has_uow:
             msg = (
                 'IUnitOfWork is required but not registered. '
@@ -497,7 +511,10 @@ class _SequenceAllocatorValidationExtension(AfterApplicationInit):
     async def after_app_init(self, app: 'WakuApplication') -> None:
         if not _requires_sequence_allocator(self._config.endpoints):
             return
-        has_allocator = await app.container._has(ISequenceAllocator)  # noqa: SLF001
+        # Check inside a request scope: the allocator is typically scoped and is not registered at app
+        # scope. is_registered is a pure presence check (no construction).
+        async with app.container() as scope:
+            has_allocator = await is_registered(scope, ISequenceAllocator)
         if not has_allocator:
             msg = (
                 'partition_by requires ISequenceAllocator but it is not registered. '
