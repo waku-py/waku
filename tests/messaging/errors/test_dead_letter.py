@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterStatus
+from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, DeadLetterStatus
 
 
 def _from_failure() -> DeadLetterEntry:
@@ -42,3 +42,20 @@ class TestDeadLetterEntry:
         entry = _from_failure()
         with pytest.raises(dataclasses.FrozenInstanceError):
             entry.status = DeadLetterStatus.REPLAYED  # type: ignore[misc]
+
+
+class TestDeadLetterQuery:
+    @staticmethod
+    def test_defaults_and_zero_limit_are_valid() -> None:
+        assert DeadLetterQuery().limit == 100
+        assert DeadLetterQuery(limit=0).limit == 0
+
+    @staticmethod
+    def test_negative_limit_rejected() -> None:
+        with pytest.raises(ValueError, match='limit must be >= 0'):
+            DeadLetterQuery(limit=-1)
+
+    @staticmethod
+    def test_negative_offset_rejected() -> None:
+        with pytest.raises(ValueError, match='offset must be >= 0'):
+            DeadLetterQuery(offset=-1)

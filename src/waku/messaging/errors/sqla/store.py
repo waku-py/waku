@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 
-from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterStatus, IDeadLetterStore
+from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, DeadLetterStatus, IDeadLetterStore
 from waku.messaging.errors.sqla.tables import dead_letter_table
 
 if TYPE_CHECKING:
@@ -49,16 +49,6 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
         result = await self._session.execute(stmt)
         return [_row_to_model(row) for row in result.fetchall()]
 
-    async def fetch_replayable(self, batch_size: int = 100) -> Sequence[DeadLetterEntry]:
-        stmt = (
-            select(*_t.c)
-            .where(_t.c.status == DeadLetterStatus.PENDING.value)
-            .order_by(_t.c.created_at.asc())
-            .limit(batch_size)
-        )
-        result = await self._session.execute(stmt)
-        return [_row_to_model(row) for row in result.fetchall()]
-
     async def mark_replayed(self, entry_id: UUID) -> None:
         stmt = update(_t).where(_t.c.id == entry_id).values(status=DeadLetterStatus.REPLAYED.value)
         await self._session.execute(stmt)
@@ -83,6 +73,41 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
             msg = f'Dead letter entry {entry_id} not found'
             raise KeyError(msg)
         return _row_to_model(row)
+
+    async def claim_replayable(self, batch_size: int, max_replay_count: int) -> Sequence[DeadLetterEntry]:
+        stmt = (
+            select(*_t.c)
+            .where(
+                or_(
+                    _t.c.status == DeadLetterStatus.PENDING.value,
+                    and_(
+                        _t.c.status == DeadLetterStatus.REPLAY_FAILED.value,
+                        _t.c.replay_count < max_replay_count,
+                    ),
+                )
+            )
+            .order_by(_t.c.created_at.asc())
+            .limit(batch_size)
+            .with_for_update(skip_locked=True)
+        )
+        result = await self._session.execute(stmt)
+        return [_row_to_model(row) for row in result.fetchall()]
+
+    async def query(self, filters: DeadLetterQuery) -> Sequence[DeadLetterEntry]:
+        stmt = select(*_t.c)
+        if filters.status is not None:
+            stmt = stmt.where(_t.c.status == filters.status.value)
+        if filters.message_type is not None:
+            stmt = stmt.where(_t.c.message_type == filters.message_type)
+        if filters.destination is not None:
+            stmt = stmt.where(_t.c.destination == filters.destination)
+        if filters.created_after is not None:
+            stmt = stmt.where(_t.c.created_at >= filters.created_after)
+        if filters.created_before is not None:
+            stmt = stmt.where(_t.c.created_at < filters.created_before)
+        stmt = stmt.order_by(_t.c.created_at.desc()).limit(filters.limit).offset(filters.offset)
+        result = await self._session.execute(stmt)
+        return [_row_to_model(row) for row in result.fetchall()]
 
     async def delete(self, entry_id: UUID) -> None:
         await self._session.execute(delete(_t).where(_t.c.id == entry_id))

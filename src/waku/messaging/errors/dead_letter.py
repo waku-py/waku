@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     'DeadLetterEntry',
+    'DeadLetterQuery',
     'DeadLetterStatus',
     'IDeadLetterStore',
 ]
@@ -23,6 +24,25 @@ class DeadLetterStatus(enum.StrEnum):
     PENDING = 'PENDING'
     REPLAYED = 'REPLAYED'
     REPLAY_FAILED = 'REPLAY_FAILED'
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DeadLetterQuery:
+    status: DeadLetterStatus | None = None
+    message_type: str | None = None
+    destination: str | None = None
+    created_after: datetime | None = None
+    created_before: datetime | None = None
+    limit: int = 100
+    offset: int = 0
+
+    def __post_init__(self) -> None:
+        if self.limit < 0:
+            msg = f'DeadLetterQuery.limit must be >= 0, got {self.limit}'
+            raise ValueError(msg)
+        if self.offset < 0:
+            msg = f'DeadLetterQuery.offset must be >= 0, got {self.offset}'
+            raise ValueError(msg)
 
 
 def _format_fqn(cls: type) -> str:
@@ -91,12 +111,20 @@ class IDeadLetterStore(abc.ABC):
     async def fetch_one(self, entry_id: UUID) -> DeadLetterEntry: ...
 
     @abc.abstractmethod
-    async def fetch_replayable(self, batch_size: int = 100) -> Sequence[DeadLetterEntry]:
-        """Return PENDING entries eligible for replay, oldest-first.
+    async def query(self, filters: DeadLetterQuery) -> Sequence[DeadLetterEntry]:
+        """List/filter dead-letter entries for admin/operations, newest-first.
 
-        Read seam only — does NOT claim rows. A future 1-per-DC replay poller will add
-        ``FOR UPDATE SKIP LOCKED`` over this query to make concurrent claiming safe; the foundation
-        deliberately omits the poller.
+        Read-only seam — does not claim or mutate. Distinct from ``fetch`` (oldest-first, no filter).
+        """
+        ...
+
+    @abc.abstractmethod
+    async def claim_replayable(self, batch_size: int, max_replay_count: int) -> Sequence[DeadLetterEntry]:
+        """Claim entries eligible for an auto-replay attempt, oldest-first, with row locks.
+
+        Returns PENDING entries plus REPLAY_FAILED entries under ``max_replay_count``, locking each via
+        ``FOR UPDATE SKIP LOCKED`` so concurrent 1-per-DC pollers never double-claim. The caller holds
+        the lock until it commits/rolls back; stores never commit.
         """
         ...
 

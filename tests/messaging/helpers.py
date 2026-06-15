@@ -9,7 +9,7 @@ from dishka import Provider, Scope, provide
 from typing_extensions import override
 
 from waku.messaging.contracts.envelope import MessageEnvelope
-from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
+from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.identity import MessageTypeRegistry
@@ -110,7 +110,13 @@ class RecordingDeadLetterStore(IDeadLetterStore):
         raise KeyError(entry_id)
 
     @override
-    async def fetch_replayable(self, batch_size: int = 100) -> Sequence[DeadLetterEntry]:  # pragma: no cover
+    async def query(self, filters: DeadLetterQuery) -> Sequence[DeadLetterEntry]:  # pragma: no cover
+        return []
+
+    @override
+    async def claim_replayable(
+        self, batch_size: int, max_replay_count: int
+    ) -> Sequence[DeadLetterEntry]:  # pragma: no cover
         return []
 
     @override
@@ -145,7 +151,13 @@ class FailingDeadLetterStore(IDeadLetterStore):
         raise KeyError(entry_id)
 
     @override
-    async def fetch_replayable(self, batch_size: int = 100) -> Sequence[DeadLetterEntry]:  # pragma: no cover
+    async def query(self, filters: DeadLetterQuery) -> Sequence[DeadLetterEntry]:  # pragma: no cover
+        return []
+
+    @override
+    async def claim_replayable(
+        self, batch_size: int, max_replay_count: int
+    ) -> Sequence[DeadLetterEntry]:  # pragma: no cover
         return []
 
     @override

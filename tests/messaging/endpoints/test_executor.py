@@ -14,6 +14,7 @@ from waku.messaging import (
     MessagingModule,
     RequestHandler,
 )
+from waku.messaging.config import DeadLetterConfig
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import ErrorPolicy
@@ -156,7 +157,7 @@ class TestEndpointExecutorDeadLetter:
 
         config = MessagingConfig(
             default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
-            dead_letter_store=lambda: dl_store,
+            dead_letter=DeadLetterConfig(store=lambda: dl_store),
         )
 
         async with create_test_app(
@@ -181,7 +182,7 @@ class TestEndpointExecutorDeadLetter:
 
         config = MessagingConfig(
             default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
-            dead_letter_store=FailingDeadLetterStore,
+            dead_letter=DeadLetterConfig(store=FailingDeadLetterStore),
         )
 
         with caplog.at_level(logging.ERROR, logger='waku.messaging.endpoints.executor'):

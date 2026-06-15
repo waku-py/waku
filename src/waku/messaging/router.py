@@ -23,7 +23,7 @@ class RoutingTable:
 
 
 class MessageRouter:
-    __slots__ = ('_endpoints', '_routes')
+    __slots__ = ('_by_uri', '_endpoints', '_routes')
 
     def __init__(
         self,
@@ -32,6 +32,7 @@ class MessageRouter:
     ) -> None:
         self._routes = routes
         self._endpoints = endpoints
+        self._by_uri = {endpoint.uri: endpoint for endpoint in endpoints}
 
     @property
     def endpoints(self) -> Sequence[Endpoint]:
@@ -39,6 +40,9 @@ class MessageRouter:
 
     def resolve(self, message_type: type[IMessage]) -> Sequence[Endpoint]:
         return self._routes.get(message_type, ())
+
+    def endpoint_for(self, uri: str) -> Endpoint | None:
+        return self._by_uri.get(uri)
 
 
 @dataclass(frozen=True, slots=True)

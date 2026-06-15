@@ -25,7 +25,7 @@ from waku.extensions import (
 from waku.messaging.behaviors.cascading import CascadingBehavior
 from waku.messaging.behaviors.outbox_cascading import DeferredCascadingBehavior, OutboxCascadingBehavior
 from waku.messaging.behaviors.transactional import TransactionalBehavior, _TransactionDepth
-from waku.messaging.config import MessagingConfig
+from waku.messaging.config import DeadLetterConfig, MessagingConfig
 from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.contracts.factory import EnvelopeFactory
 from waku.messaging.contracts.message import IMessage
@@ -42,6 +42,8 @@ from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import ErrorPolicy, RetryAction
 from waku.messaging.errors.registry import ErrorPolicyRegistry
+from waku.messaging.errors.replay import ReplayExecutor
+from waku.messaging.errors.worker import DeadLetterWorker
 from waku.messaging.exceptions import HandlerAlreadyRegistered, ImproperlyConfiguredError, MultipleHandlersRegistered
 from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.impl import MessageBus
@@ -113,6 +115,10 @@ class MessagingModule:
             extensions.append(OutboxRelayLifecycleExtension(config_.outbox.relay))
         if config_.inbox is not None:
             extensions.append(InboxRecoveryLifecycleExtension(config_.inbox))
+        if config_.dead_letter is not None and (
+            config_.dead_letter.auto_replay_enabled or config_.dead_letter.retention is not None
+        ):
+            extensions.append(DeadLetterLifecycleExtension(config_.dead_letter))
         return DynamicModule(
             parent_module=cls,
             providers=providers,
@@ -146,7 +152,7 @@ class MessagingModule:
     def _serializer_provider(config: MessagingConfig) -> Provider | None:
         # inbox needs it too: DurableLocalQueueEndpoint.dispatch + DurableReceiver._persist serialize
         # the envelope before the inbox write.
-        if config.outbox is None and config.dead_letter_store is None and config.inbox is None:
+        if config.outbox is None and config.dead_letter is None and config.inbox is None:
             return None
         if config.outbox is not None and config.outbox.envelope_serializer is not None:
             return singleton(IEnvelopeSerializer, config.outbox.envelope_serializer)
@@ -160,8 +166,8 @@ class MessagingModule:
                 scoped(IOutboxStore, config.outbox.store),
                 singleton(ITransport, config.outbox.transport),
             ))
-        if config.dead_letter_store is not None:
-            providers.append(scoped(IDeadLetterStore, config.dead_letter_store))
+        if config.dead_letter is not None:
+            providers.extend((scoped(IDeadLetterStore, config.dead_letter.store), scoped(ReplayExecutor)))
         if config.inbox is not None:
             providers.extend((
                 scoped(IInboxStore, config.inbox.store),
@@ -239,7 +245,7 @@ def _requires_dead_letter_store(registry: MessageRegistry, config: MessagingConf
 
 def _requires_uow(config: MessagingConfig) -> bool:
     return (
-        config.dead_letter_store is not None
+        config.dead_letter is not None
         or config.outbox is not None
         or config.inbox is not None
         or any(issubclass(b, TransactionalBehavior) for b in config.global_pipeline_behaviors)
@@ -402,8 +408,8 @@ class MessageRegistryAggregator(OnModuleRegistration):
         registry.add_provider(owning_module, object_(routing_table))
         registry.add_provider(owning_module, singleton(MessageRouter, _build_router))
 
-        if _requires_dead_letter_store(aggregated, self._config) and self._config.dead_letter_store is None:
-            msg = 'error policies with DEAD_LETTER action require dead_letter_store in MessagingConfig'
+        if _requires_dead_letter_store(aggregated, self._config) and self._config.dead_letter is None:
+            msg = 'error policies with DEAD_LETTER action require dead_letter in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
 
         handler_policies = {
@@ -552,6 +558,24 @@ class InboxRecoveryLifecycleExtension(AfterApplicationInit, OnApplicationShutdow
     @override
     async def after_app_init(self, app: 'WakuApplication') -> None:
         self._worker = InboxRecoveryWorker(container=app.container, config=self._config)
+        await self._worker.start()
+
+    @override
+    async def on_app_shutdown(self, app: 'WakuApplication') -> None:
+        if self._worker is not None:
+            await self._worker.stop()
+
+
+class DeadLetterLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
+    __slots__ = ('_config', '_worker')
+
+    def __init__(self, config: DeadLetterConfig) -> None:
+        self._config = config
+        self._worker: DeadLetterWorker | None = None
+
+    @override
+    async def after_app_init(self, app: 'WakuApplication') -> None:
+        self._worker = DeadLetterWorker(container=app.container, config=self._config)
         await self._worker.start()
 
     @override

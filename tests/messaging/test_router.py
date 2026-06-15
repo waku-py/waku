@@ -85,3 +85,16 @@ class TestRouteHelpers:
         descriptor = route_module(_SomeModule).to('queue://events')
 
         assert descriptor == ModuleRouteDescriptor(module_type=_SomeModule, endpoint_uri='queue://events')
+
+
+class TestMessageRouterEndpointFor:
+    @staticmethod
+    def test_endpoint_for_returns_endpoint_by_uri() -> None:
+        ep = _StubEndpoint(uri='local://orders')
+        router = MessageRouter(routes={}, endpoints=[ep])
+        assert router.endpoint_for('local://orders') is ep
+
+    @staticmethod
+    def test_endpoint_for_returns_none_for_unknown_uri() -> None:
+        router = MessageRouter(routes={}, endpoints=[])
+        assert router.endpoint_for('local://missing') is None

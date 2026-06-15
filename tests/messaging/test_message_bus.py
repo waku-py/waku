@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import pytest
 from typing_extensions import override
 
-from waku.di import object_
+from waku.di import is_registered, object_
 from waku.messaging import (
     CallNext,
     EventHandler,
@@ -23,15 +24,19 @@ from waku.messaging import (
     ResponseT,
     TransactionalBehavior,
 )
+from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import get_message_context
 from waku.messaging.endpoints.base import external_endpoint, local_queue
+from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.errors.policy import ErrorPolicy
+from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.exceptions import (
     HandlerNotFound,
     ImproperlyConfiguredError,
     MultipleHandlersRegistered,
     NoRouteError,
 )
+from waku.messaging.modules import DeadLetterLifecycleExtension
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
@@ -378,7 +383,7 @@ class TestMessagingConfigValidation:
         config = MessagingConfig(
             default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
         )
-        with pytest.raises(ImproperlyConfiguredError, match='dead_letter_store'):
+        with pytest.raises(ImproperlyConfiguredError, match='dead_letter'):
             async with create_test_app(imports=[MessagingModule.register(config)]):
                 pass  # pragma: no cover
 
@@ -387,18 +392,38 @@ class TestMessagingConfigValidation:
         config = MessagingConfig(
             default_error_policies=(ErrorPolicy.on_any_exception().retry(max_attempts=3).then_move_to_dead_letter(),),
         )
-        with pytest.raises(ImproperlyConfiguredError, match='dead_letter_store'):
+        with pytest.raises(ImproperlyConfiguredError, match='dead_letter'):
             async with create_test_app(imports=[MessagingModule.register(config)]):
                 pass  # pragma: no cover
 
     @staticmethod
     async def test_dead_letter_store_without_uow_raises_at_startup() -> None:
         config = MessagingConfig(
-            dead_letter_store=RecordingDeadLetterStore,
+            dead_letter=DeadLetterConfig(store=RecordingDeadLetterStore),
         )
         with pytest.raises(ImproperlyConfiguredError, match='IUnitOfWork is required'):
             async with create_test_app(imports=[MessagingModule.register(config)]):
                 pass  # pragma: no cover
+
+    @staticmethod
+    def test_dead_letter_config_defaults() -> None:
+        config = DeadLetterConfig(store=RecordingDeadLetterStore)
+        assert config.auto_replay_enabled is False
+        assert config.max_replay_count == 3
+        assert config.retention is None
+
+    @staticmethod
+    async def test_dead_letter_config_registers_store_and_replay_executor() -> None:
+        config = MessagingConfig(dead_letter=DeadLetterConfig(store=RecordingDeadLetterStore))
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(config)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            ) as app,
+            app.container() as scope,
+        ):
+            assert await is_registered(scope, IDeadLetterStore)
+            assert await is_registered(scope, ReplayExecutor)
 
     @staticmethod
     async def test_partition_by_without_allocator_raises_at_startup() -> None:
@@ -423,3 +448,30 @@ class TestMessagingConfigValidation:
         )
         async with create_test_app(imports=[MessagingModule.register(config)]):
             pass
+
+    @staticmethod
+    async def test_dead_letter_worker_starts_when_auto_replay_enabled() -> None:
+        config = MessagingConfig(
+            dead_letter=DeadLetterConfig(store=RecordingDeadLetterStore, auto_replay_enabled=True),
+        )
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+        ):
+            pass  # the lifecycle hooks start + stop the worker without error
+
+    @staticmethod
+    def test_no_dead_letter_worker_when_store_only() -> None:
+        dynamic = MessagingModule.register(
+            MessagingConfig(dead_letter=DeadLetterConfig(store=RecordingDeadLetterStore)),
+        )
+        assert not any(isinstance(ext, DeadLetterLifecycleExtension) for ext in dynamic.extensions)
+
+    @staticmethod
+    def test_dead_letter_worker_when_retention_set() -> None:
+        dynamic = MessagingModule.register(
+            MessagingConfig(
+                dead_letter=DeadLetterConfig(store=RecordingDeadLetterStore, retention=timedelta(days=30)),
+            ),
+        )
+        assert any(isinstance(ext, DeadLetterLifecycleExtension) for ext in dynamic.extensions)

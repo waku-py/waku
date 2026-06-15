@@ -28,6 +28,7 @@ from waku.messaging import (
     local_queue,
     route,
 )
+from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import message_context_scope
 from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
 from waku.messaging.errors.dead_letter import DeadLetterEntry
@@ -217,7 +218,7 @@ class TestErrorPolicyIntegration:
 
         config = MessagingConfig(
             default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
-            dead_letter_store=lambda: dl_store,
+            dead_letter=DeadLetterConfig(store=lambda: dl_store),
         )
 
         async with (

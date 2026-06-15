@@ -1,5 +1,5 @@
 from waku.messaging.behaviors.transactional import TransactionalBehavior
-from waku.messaging.config import MessagingConfig, OutboxConfig
+from waku.messaging.config import DeadLetterConfig, MessagingConfig, OutboxConfig
 from waku.messaging.context import MessageContext, get_message_context, try_get_message_context
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.contracts.identity import MessageIdentity
@@ -19,6 +19,7 @@ from waku.messaging.router import route, route_module
 
 __all__ = [
     'CallNext',
+    'DeadLetterConfig',
     'EndpointMode',
     'EventHandler',
     'ExecutionOutcome',
