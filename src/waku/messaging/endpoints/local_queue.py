@@ -5,11 +5,13 @@ from typing import TYPE_CHECKING, Any
 
 from typing_extensions import override
 
+from waku.messaging.circuit_breaker.breaker import CircuitBreaker
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.endpoints.worker import MemoryStreamWorker
 
 if TYPE_CHECKING:
     from waku.di import AsyncContainer
+    from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.endpoints.executor import EndpointExecutor
     from waku.messaging.router import HandlerSubscriptions
@@ -33,6 +35,7 @@ class LocalQueueEndpoint(Endpoint):
     """
 
     __slots__ = (
+        '_circuit_breaker',
         '_executor',
         '_handler_subscriptions',
         '_worker',
@@ -47,6 +50,7 @@ class LocalQueueEndpoint(Endpoint):
         stop_timeout: float,
         max_buffer_size: float,
         max_parallel: int = 1,
+        circuit_breaker_config: CircuitBreakerConfig | None = None,
     ) -> None:
         super().__init__(uri=uri)
         self._handler_subscriptions = handler_subscriptions
@@ -55,6 +59,11 @@ class LocalQueueEndpoint(Endpoint):
             max_buffer_size=max_buffer_size,
             stop_timeout=stop_timeout,
             max_parallel=max_parallel,
+        )
+        self._circuit_breaker = (
+            CircuitBreaker(config=circuit_breaker_config, pause=self.pause, resume=self.resume)
+            if circuit_breaker_config is not None
+            else None
         )
 
     @override
@@ -74,6 +83,8 @@ class LocalQueueEndpoint(Endpoint):
     @override
     async def stop(self) -> None:
         await self._worker.stop()
+        if self._circuit_breaker is not None:
+            await self._circuit_breaker.aclose()
 
     @override
     async def pause(self) -> None:
@@ -84,5 +95,6 @@ class LocalQueueEndpoint(Endpoint):
         await self._worker.resume()
 
     async def _process_envelope(self, envelope: MessageEnvelope[Any]) -> None:
+        on_result = self._circuit_breaker.record if self._circuit_breaker is not None else None
         for handler_type in self._handler_subscriptions.get(type(envelope.payload), ()):
-            await self._executor.execute(envelope, handler_type)
+            await self._executor.execute(envelope, handler_type, on_result=on_result)

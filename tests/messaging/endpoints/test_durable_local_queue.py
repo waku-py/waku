@@ -5,9 +5,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
+import anyio
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku.messaging.circuit_breaker import CircuitBreakerConfig
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.durable_local_queue import DurableLocalQueueEndpoint
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome
@@ -30,6 +32,8 @@ from tests.messaging.helpers import (
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.contracts.message import IMessage
@@ -63,16 +67,25 @@ class _SecondHandler(EventHandler[_DomainEvent]):
 
 
 class _StubExecutor(EndpointExecutor):
-    def __init__(self, *, return_value: ExecutionOutcome) -> None:
+    def __init__(self, *, return_value: ExecutionOutcome, exc: Exception | None = None) -> None:
         # Bypass parent __init__: tests don't exercise real dispatch.
         self.return_value = return_value
+        self.exc = exc
         self.calls = 0
         self.handled: list[HandlerType] = []
 
     @override
-    async def execute(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> ExecutionOutcome:
+    async def execute(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        *,
+        on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
+    ) -> ExecutionOutcome:
         self.calls += 1
         self.handled.append(handler_type)
+        if on_result is not None:
+            await on_result(self.return_value, self.exc)
         return self.return_value
 
 
@@ -120,6 +133,7 @@ def _endpoint(
     *,
     partition_by: PartitionKeyExtractor | None = None,
     inbox_owner_id: str = 'node-a:1',
+    circuit_breaker_config: CircuitBreakerConfig | None = None,
 ) -> DurableLocalQueueEndpoint:
     return DurableLocalQueueEndpoint(
         uri='local://orders',
@@ -131,6 +145,7 @@ def _endpoint(
         max_buffer_size=math.inf,
         partition_by=partition_by,
         inbox_owner_id=inbox_owner_id,
+        circuit_breaker_config=circuit_breaker_config,
     )
 
 
@@ -253,6 +268,30 @@ class TestDurableLocalQueueEndpoint:
         stored = next(iter(inbox.entries.values()))
         assert stored.owner_id == 'owner-claim-test'
 
+    @staticmethod
+    async def test_pause_blocks_processing_until_resume() -> None:
+        _NoopHandler.invocations = []
+        inbox = FakeInboxStore()
+        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+            endpoint = _endpoint(container, executor, frozenset([_NoopHandler]))
+            await endpoint.start()
+            await endpoint.pause()
+            async with container() as scope:
+                await endpoint.dispatch(make_envelope(_DomainEvent(kind='OrderPlaced')), scope)
+            # Pausing BEFORE dispatch eliminates the dequeue race: the item enters the stream already
+            # gated, so the worker blocks on _paused.wait() before _process_envelope. Give it ample loop
+            # turns to (wrongly) advance — it must NOT, because it is paused.
+            for _ in range(10):
+                await anyio.lowlevel.checkpoint()
+            assert executor.calls == 0
+            assert len(inbox.entries) == 1  # dispatch ran; only processing is gated
+            await endpoint.resume()
+            await wait_until(lambda: executor.calls == 1)
+            await endpoint.stop()
+
+        assert executor.calls == 1
+
 
 class TestDurableLocalQueuePartitioning:
     @staticmethod
@@ -294,3 +333,36 @@ class TestDurableLocalQueuePartitioning:
         assert {e.group_id for e in inbox.entries.values()} == {'order-1'}
         assert {e.sequence_number for e in inbox.entries.values()} == {1}
         assert allocator.calls == ['order-1']
+
+
+class TestDurableLocalQueueCircuitBreaker:
+    @staticmethod
+    async def test_circuit_breaker_trips_and_pauses_processing() -> None:
+        _NoopHandler.invocations = []
+        inbox = FakeInboxStore()
+        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.FAILED_NO_POLICY, exc=RuntimeError())
+            endpoint = _endpoint(
+                container,
+                executor,
+                frozenset([_NoopHandler]),
+                circuit_breaker_config=CircuitBreakerConfig(
+                    minimum_throughput=2,
+                    failure_rate_threshold=0.5,
+                    pause_time=timedelta(minutes=5),  # large: the timed resume must NOT fire during the test
+                ),
+            )
+            await endpoint.start()
+            try:
+                async with container() as scope:
+                    for _ in range(4):
+                        await endpoint.dispatch(make_envelope(_DomainEvent(kind='OrderFailed')), scope)
+                # After minimum_throughput=2 failing handler-executions the breaker trips → pause() → worker halts.
+                await wait_until(lambda: executor.calls >= 2)
+                # Plateau: remaining messages stay enqueued, UNprocessed, because the worker is paused.
+                # (If the CB were not wired, all 4 would process and calls would reach 4.)
+                for _ in range(10):
+                    await anyio.lowlevel.checkpoint()
+                assert executor.calls == 2
+            finally:
+                await endpoint.stop()  # aclose()s the CB, cancelling the parked resume (no real time elapsed)

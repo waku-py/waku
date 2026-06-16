@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any
 
 import anyio
 import pytest
@@ -21,19 +23,25 @@ from waku.messaging import (
     MessagingModule,
     RequestHandler,
 )
+from waku.messaging.circuit_breaker import CircuitBreakerConfig
 from waku.messaging.contracts.event import IEvent as _IEvent
 from waku.messaging.endpoints.base import local_queue
-from waku.messaging.endpoints.executor import EndpointExecutor
+from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
 from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.messaging.router import route
 from waku.testing import create_test_app
 
-from tests.messaging.helpers import NOOP_EVALUATOR, make_envelope
+from tests.messaging.helpers import NOOP_EVALUATOR, make_envelope, wait_until
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from pytest_mock import MockerFixture
+
+    from waku.messaging.contracts.envelope import MessageEnvelope
+    from waku.messaging.contracts.handler import HandlerType
 
 
 @pytest.fixture
@@ -191,3 +199,64 @@ class TestLocalQueueConcurrency:
             release.set()
 
         assert max_observed == parallelism
+
+
+@dataclass(frozen=True)
+class _CbEvent(IEvent):
+    pass
+
+
+class _CbHandler(EventHandler[_CbEvent]):
+    @override
+    async def handle(self, event: _CbEvent, /) -> None: ...
+
+
+class _AlwaysFailStubExecutor(EndpointExecutor):
+    def __init__(self) -> None:
+        # Bypass parent __init__: this stub does not exercise real dispatch.
+        self.calls = 0
+
+    @override
+    async def execute(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        *,
+        on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
+    ) -> ExecutionOutcome:
+        self.calls += 1
+        if on_result is not None:
+            await on_result(ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
+        return ExecutionOutcome.FAILED_NO_POLICY
+
+
+class TestLocalQueueCircuitBreaker:
+    @staticmethod
+    async def test_circuit_breaker_trips_and_pauses_processing(mocker: MockerFixture) -> None:
+        executor = _AlwaysFailStubExecutor()
+        endpoint = LocalQueueEndpoint(
+            uri='cb-q',
+            handler_subscriptions={_CbEvent: frozenset([_CbHandler])},
+            executor=executor,
+            stop_timeout=1.0,
+            max_buffer_size=math.inf,
+            circuit_breaker_config=CircuitBreakerConfig(
+                minimum_throughput=2,
+                failure_rate_threshold=0.5,
+                pause_time=timedelta(minutes=5),  # large: the timed resume must NOT fire during the test
+            ),
+        )
+        await endpoint.start()
+        try:
+            scope = mocker.Mock(spec_set=AsyncContainer)
+            for _ in range(4):
+                await endpoint.dispatch(make_envelope(_CbEvent()), scope)
+            # After minimum_throughput=2 failures the breaker trips → it calls pause() → the worker halts.
+            await wait_until(lambda: executor.calls >= 2)
+            # Plateau: the remaining messages stay enqueued, UNprocessed, because the worker is paused.
+            # (If the CB were not wired, all 4 would process and calls would reach 4.)
+            for _ in range(10):
+                await anyio.lowlevel.checkpoint()
+            assert executor.calls == 2
+        finally:
+            await endpoint.stop()  # aclose()s the CB, cancelling the parked resume (no real time elapsed)

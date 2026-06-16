@@ -362,6 +362,7 @@ def _create_endpoint(
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,
                 max_parallel=entry.max_parallel,
+                circuit_breaker_config=entry.circuit_breaker,
             )
         case EndpointMode.DURABLE:
             if config.inbox is None:
@@ -377,6 +378,7 @@ def _create_endpoint(
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,
                 partition_by=entry.partition_by,
+                circuit_breaker_config=entry.circuit_breaker,
             )
         case _:
             assert_never(entry.mode)

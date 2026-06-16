@@ -21,6 +21,7 @@ from tests.messaging.helpers import FakeUoW, RecordingDeadLetterStore, make_enve
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
     from uuid import UUID
 
     from waku.messaging.contracts.envelope import MessageEnvelope
@@ -46,8 +47,16 @@ class _StubExecutor(EndpointExecutor):
         self.calls: list[tuple[str, HandlerType]] = []
 
     @override
-    async def execute(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> ExecutionOutcome:
+    async def execute(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        *,
+        on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
+    ) -> ExecutionOutcome:
         self.calls.append((envelope.message_type, handler_type))
+        if on_result is not None:
+            await on_result(self.return_value, None)
         return self.return_value
 
 

@@ -1,4 +1,5 @@
 from waku.messaging.behaviors.transactional import TransactionalBehavior
+from waku.messaging.circuit_breaker import CircuitBreakerConfig
 from waku.messaging.config import DeadLetterConfig, MessagingConfig, OutboxConfig
 from waku.messaging.context import MessageContext, get_message_context, try_get_message_context
 from waku.messaging.contracts.event import IEvent
@@ -19,6 +20,7 @@ from waku.messaging.router import route, route_module
 
 __all__ = [
     'CallNext',
+    'CircuitBreakerConfig',
     'DeadLetterConfig',
     'EndpointMode',
     'EventHandler',

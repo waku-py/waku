@@ -10,6 +10,7 @@ import anyio
 from anyio import create_memory_object_stream
 from typing_extensions import override
 
+from waku.messaging.circuit_breaker.breaker import CircuitBreaker
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.endpoints.executor import ExecutionOutcome
 from waku.messaging.inbox._destination import handler_destination
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
     from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
     from dishka import AsyncContainer
 
+    from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.endpoints.executor import EndpointExecutor
@@ -52,12 +54,14 @@ class DurableLocalQueueEndpoint(Endpoint):
     deletes it on DLQ/discard). Crash recovery is supplied by InboxRecoveryWorker.
 
     Unlike ``LocalQueueEndpoint`` (which composes ``MemoryStreamWorker``), this owns a single
-    sequential worker loop over a ``_WorkItem``-typed stream and does NOT yet support
-    ``max_parallel``/``pause``/``resume`` — the inbox claim model (FOR UPDATE SKIP LOCKED, per-handler
-    rows) is the cross-pod concurrency mechanism here. Bounded-pool parallelism is a future addition.
+    sequential worker loop over a ``_WorkItem``-typed stream and does NOT yet support ``max_parallel``
+    (bounded-pool parallelism is a future addition). ``pause()``/``resume()`` gate the worker loop
+    (the circuit breaker uses them); the inbox claim model (FOR UPDATE SKIP LOCKED, per-handler rows)
+    is the cross-pod concurrency mechanism here.
     """
 
     __slots__ = (
+        '_circuit_breaker',
         '_container',
         '_executor',
         '_handler_subscriptions',
@@ -65,6 +69,7 @@ class DurableLocalQueueEndpoint(Endpoint):
         '_keep_after_handled',
         '_max_buffer_size',
         '_partition_by',
+        '_paused',
         '_receive_stream',
         '_send_stream',
         '_stop_timeout',
@@ -83,6 +88,7 @@ class DurableLocalQueueEndpoint(Endpoint):
         stop_timeout: float,
         max_buffer_size: float,
         partition_by: PartitionKeyExtractor | None = None,
+        circuit_breaker_config: CircuitBreakerConfig | None = None,
     ) -> None:
         super().__init__(uri=uri)
         self._handler_subscriptions = handler_subscriptions
@@ -96,6 +102,13 @@ class DurableLocalQueueEndpoint(Endpoint):
         self._send_stream: MemoryObjectSendStream[_WorkItem] | None = None
         self._receive_stream: MemoryObjectReceiveStream[_WorkItem] | None = None
         self._worker_task: asyncio.Task[None] | None = None
+        self._paused = asyncio.Event()
+        self._paused.set()  # not paused by default
+        self._circuit_breaker: CircuitBreaker | None = (
+            CircuitBreaker(config=circuit_breaker_config, pause=self.pause, resume=self.resume)
+            if circuit_breaker_config is not None
+            else None
+        )
 
     @override
     async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None:
@@ -159,6 +172,7 @@ class DurableLocalQueueEndpoint(Endpoint):
 
     @override
     async def stop(self) -> None:
+        self._paused.set()  # unblock a paused worker so it can observe the closed stream
         send_stream, self._send_stream = self._send_stream, None
         if send_stream is not None:
             send_stream.close()
@@ -168,6 +182,16 @@ class DurableLocalQueueEndpoint(Endpoint):
         if self._receive_stream is not None:
             self._receive_stream.close()
             self._receive_stream = None
+        if self._circuit_breaker is not None:
+            await self._circuit_breaker.aclose()
+
+    @override
+    async def pause(self) -> None:
+        self._paused.clear()
+
+    @override
+    async def resume(self) -> None:
+        self._paused.set()
 
     async def _drain_worker(self, task: asyncio.Task[None]) -> None:
         try:
@@ -185,6 +209,7 @@ class DurableLocalQueueEndpoint(Endpoint):
 
     async def _worker_loop(self, receive_stream: MemoryObjectReceiveStream[_WorkItem]) -> None:
         async for envelope, handler_types in receive_stream:
+            await self._paused.wait()
             try:
                 await self._process_envelope(envelope, handler_types)
             except Exception:
@@ -196,8 +221,9 @@ class DurableLocalQueueEndpoint(Endpoint):
     async def _process_envelope(self, envelope: MessageEnvelope[Any], handler_types: frozenset[HandlerType]) -> None:
         # Process only the handlers whose row was newly stored in dispatch(). Dedup was already
         # resolved at persist time, so no re-check here.
+        on_result = self._circuit_breaker.record if self._circuit_breaker is not None else None
         for handler_type in handler_types:
-            outcome = await self._executor.execute(envelope, handler_type)
+            outcome = await self._executor.execute(envelope, handler_type, on_result=on_result)
             await self._finalize(envelope, handler_destination(handler_type), outcome)
 
     async def _finalize(self, envelope: MessageEnvelope[Any], destination: str, outcome: ExecutionOutcome) -> None:

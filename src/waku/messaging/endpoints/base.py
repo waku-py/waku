@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from waku.di import AsyncContainer
+    from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.message import IMessage
     from waku.messaging.sending.policy import SendingFailurePolicy
@@ -42,6 +43,7 @@ class LocalQueueEntry:
     stop_timeout: float = 5.0
     max_buffer_size: float = math.inf
     partition_by: Callable[[IMessage], str | None] | None = None
+    circuit_breaker: CircuitBreakerConfig | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -62,6 +64,7 @@ def local_queue(
     stop_timeout: float = 5.0,
     max_buffer_size: float = math.inf,
     partition_by: Callable[[IMessage], str | None] | None = None,
+    circuit_breaker: CircuitBreakerConfig | None = None,
 ) -> LocalQueueEntry:
     return LocalQueueEntry(
         uri=uri,
@@ -70,6 +73,7 @@ def local_queue(
         stop_timeout=stop_timeout,
         max_buffer_size=max_buffer_size,
         partition_by=partition_by,
+        circuit_breaker=circuit_breaker,
     )
 
 

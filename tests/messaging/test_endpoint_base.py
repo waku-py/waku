@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import math
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from waku.messaging.circuit_breaker import CircuitBreakerConfig
 from waku.messaging.endpoints.base import (
     EndpointMode,
     ExternalEntry,
@@ -80,6 +82,18 @@ class TestLocalQueueNewFields:
 
         entry = local_queue('q://x', partition_by=strategy)
         assert entry.partition_by is strategy
+
+
+class TestLocalQueueCircuitBreaker:
+    @staticmethod
+    def test_local_queue_carries_circuit_breaker_config() -> None:
+        cb = CircuitBreakerConfig(failure_rate_threshold=0.3, pause_time=timedelta(seconds=5))
+        entry = local_queue('q', circuit_breaker=cb)
+        assert entry.circuit_breaker is cb
+
+    @staticmethod
+    def test_local_queue_circuit_breaker_defaults_none() -> None:
+        assert local_queue('q').circuit_breaker is None
 
 
 class TestExternalEntryPartitionBy:

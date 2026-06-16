@@ -29,6 +29,8 @@ from tests.messaging.helpers import (
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.partition import PartitionKeyExtractor
@@ -98,8 +100,16 @@ class _StubExecutor(EndpointExecutor):
         self.invocations = 0
 
     @override
-    async def execute(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> ExecutionOutcome:
+    async def execute(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        *,
+        on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
+    ) -> ExecutionOutcome:
         self.invocations += 1
+        if on_result is not None:
+            await on_result(self.return_value, None)
         return self.return_value
 
 

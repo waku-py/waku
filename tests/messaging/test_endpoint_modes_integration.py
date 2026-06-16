@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import ClassVar
 
 import anyio
 from typing_extensions import override
 
+import waku.messaging
 from waku.messaging import (
+    CircuitBreakerConfig,
     EndpointMode,
     EventHandler,
     IEvent,
@@ -19,6 +22,8 @@ from waku.messaging import (
     route,
 )
 from waku.testing import create_test_app
+
+from tests.messaging.helpers import wait_until
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,3 +109,59 @@ class TestBufferedModeConcurrencyEndToEnd:
             release.set()
 
         assert max_observed == parallelism
+
+
+class TestCircuitBreakerEndToEnd:
+    @staticmethod
+    async def test_buffered_breaker_trips_and_halts_processing() -> None:
+        handled: list[int] = []
+
+        @dataclass(frozen=True)
+        class _Boom(IEvent):
+            n: int
+
+        class _FailingHandler(EventHandler[_Boom]):
+            @override
+            async def handle(self, event: _Boom, /) -> None:
+                handled.append(event.n)
+                msg = 'boom'
+                raise RuntimeError(msg)
+
+        config = MessagingConfig(
+            endpoints=[
+                local_queue(
+                    'cb-q',
+                    mode=EndpointMode.BUFFERED,
+                    circuit_breaker=CircuitBreakerConfig(
+                        minimum_throughput=2,
+                        failure_rate_threshold=0.5,
+                        pause_time=timedelta(minutes=5),  # large: the timed resume must NOT fire during the test
+                    ),
+                ),
+            ],
+            routing=[route(_Boom).to('cb-q')],
+        )
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(config)],
+                extensions=[MessagingExtension().bind(_Boom, _FailingHandler)],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            for i in range(4):
+                await bus.publish(_Boom(n=i))
+            # Each handler raises → FAILED_NO_POLICY → the breaker records a failure. After
+            # minimum_throughput=2 failures it trips → pause() halts the BUFFERED worker; the remaining
+            # 2 messages stay buffered, unprocessed. (If _create_endpoint did NOT thread the CB, all 4
+            # would process and len(handled) would reach 4.)
+            await wait_until(lambda: len(handled) >= 2)
+            for _ in range(10):
+                await anyio.lowlevel.checkpoint()
+            assert len(handled) == 2
+
+    @staticmethod
+    def test_circuit_breaker_config_is_in_messaging_public_api() -> None:
+        assert 'CircuitBreakerConfig' in waku.messaging.__all__
+        assert waku.messaging.CircuitBreakerConfig is CircuitBreakerConfig

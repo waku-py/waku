@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 import logging
-from typing import TYPE_CHECKING, Any, assert_never
+from typing import TYPE_CHECKING, Any, TypeAlias, assert_never
 
 import anyio
 
@@ -14,6 +14,8 @@ from waku.messaging.transport.serialization import IEnvelopeSerializer
 from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from dishka import AsyncContainer
 
     from waku.messaging.contracts.envelope import MessageEnvelope
@@ -36,6 +38,9 @@ class ExecutionOutcome(enum.Enum):
     DEAD_LETTERED = 'DEAD_LETTERED'
     DISCARDED = 'DISCARDED'
     FAILED_NO_POLICY = 'FAILED_NO_POLICY'
+
+
+_ResultObserver: TypeAlias = 'Callable[[ExecutionOutcome, Exception | None], Awaitable[None]]'
 
 
 class EndpointExecutor:
@@ -62,7 +67,25 @@ class EndpointExecutor:
         self._invoker = invoker
         self._registry = registry
 
-    async def execute(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> ExecutionOutcome:
+    async def execute(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        *,
+        on_result: _ResultObserver | None = None,
+    ) -> ExecutionOutcome:
+        outcome, exc = await self._run_attempts(envelope, handler_type)
+        # Fire once per handler-execution with the TERMINAL outcome — never per retry-attempt. The
+        # circuit breaker samples message throughput, so a message retried N times is one data-point.
+        if on_result is not None:
+            await on_result(outcome, exc)
+        return outcome
+
+    async def _run_attempts(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+    ) -> tuple[ExecutionOutcome, Exception | None]:
         attempt = 0
         while True:
             attempt += 1
@@ -72,14 +95,14 @@ class EndpointExecutor:
                 outcome = self._evaluate(envelope, handler_type, exc, attempt)
                 if outcome is None:
                     logger.exception('%s failed: message_id=%s', handler_type.__name__, envelope.message_id)
-                    return ExecutionOutcome.FAILED_NO_POLICY
+                    return ExecutionOutcome.FAILED_NO_POLICY, exc
                 if await self._apply_outcome(outcome, envelope, exc, attempt):
                     continue
                 if outcome.action is RetryAction.DEAD_LETTER:
-                    return ExecutionOutcome.DEAD_LETTERED
-                return ExecutionOutcome.DISCARDED
+                    return ExecutionOutcome.DEAD_LETTERED, exc
+                return ExecutionOutcome.DISCARDED, exc
             else:
-                return ExecutionOutcome.SUCCESS
+                return ExecutionOutcome.SUCCESS, None
 
     async def _dispatch_in_scope(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> None:
         async with self._container() as scope:

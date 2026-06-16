@@ -33,6 +33,8 @@ from tests.messaging.helpers import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     import pytest
 
     from waku.application import WakuApplication
@@ -74,6 +76,19 @@ def _make_always_fail_handler() -> tuple[type[RequestHandler[_FailingCommand, No
 
 def _evaluator_for(policy: ErrorPolicy) -> ErrorPolicyEvaluator:
     return ErrorPolicyEvaluator(ErrorPolicyRegistry(handler_policies={}, default_policies=(policy,)))
+
+
+def _make_observer() -> tuple[
+    Callable[[ExecutionOutcome, Exception | None], Awaitable[None]],
+    list[tuple[ExecutionOutcome, Exception | None]],
+]:
+    recorded: list[tuple[ExecutionOutcome, Exception | None]] = []
+
+    # Observer must be async to satisfy the _ResultObserver signature, though it never awaits.
+    async def observer(outcome: ExecutionOutcome, exc: Exception | None) -> None:  # noqa: RUF029
+        recorded.append((outcome, exc))
+
+    return observer, recorded
 
 
 async def _make_executor(
@@ -197,3 +212,70 @@ class TestEndpointExecutorDeadLetter:
                 await executor.execute(envelope, handler)
 
         assert 'Failed to write dead letter entry' in caplog.text
+
+
+async def test_on_result_called_with_success() -> None:
+    handler, _ = _make_fail_n_times_handler(fail_count=0)
+    observer, recorded = _make_observer()
+
+    async with create_test_app(
+        imports=[MessagingModule.register()],
+        extensions=[MessagingExtension().bind(_FailingCommand, handler)],
+    ) as app:
+        executor = await _make_executor(app, NOOP_EVALUATOR)
+        envelope = make_envelope(_FailingCommand(value='test'))
+        result = await executor.execute(envelope, handler, on_result=observer)
+
+    assert result is ExecutionOutcome.SUCCESS
+    assert recorded == [(ExecutionOutcome.SUCCESS, None)]
+
+
+async def test_on_result_called_with_failure_no_policy() -> None:
+    handler, _ = _make_always_fail_handler()
+    observer, recorded = _make_observer()
+
+    async with create_test_app(
+        imports=[MessagingModule.register()],
+        extensions=[MessagingExtension().bind(_FailingCommand, handler)],
+    ) as app:
+        executor = await _make_executor(app, NOOP_EVALUATOR)
+        envelope = make_envelope(_FailingCommand(value='test'))
+        result = await executor.execute(envelope, handler, on_result=observer)
+
+    assert result is ExecutionOutcome.FAILED_NO_POLICY
+    assert len(recorded) == 1
+    outcome, exc = recorded[0]
+    assert outcome is ExecutionOutcome.FAILED_NO_POLICY
+    assert isinstance(exc, ValueError)
+
+
+async def test_execute_without_on_result_is_unchanged() -> None:
+    handler, _ = _make_always_fail_handler()
+
+    async with create_test_app(
+        imports=[MessagingModule.register()],
+        extensions=[MessagingExtension().bind(_FailingCommand, handler)],
+    ) as app:
+        executor = await _make_executor(app, NOOP_EVALUATOR)
+        envelope = make_envelope(_FailingCommand(value='test'))
+        result = await executor.execute(envelope, handler)
+
+    assert result is ExecutionOutcome.FAILED_NO_POLICY
+
+
+async def test_on_result_fired_once_across_retries() -> None:
+    handler, calls = _make_fail_n_times_handler(fail_count=1)
+    evaluator = _evaluator_for(ErrorPolicy.on_any_exception().retry(max_attempts=3))
+    observer, recorded = _make_observer()
+
+    async with create_test_app(
+        imports=[MessagingModule.register()],
+        extensions=[MessagingExtension().bind(_FailingCommand, handler)],
+    ) as app:
+        executor = await _make_executor(app, evaluator)
+        envelope = make_envelope(_FailingCommand(value='retry'))
+        result = await executor.execute(envelope, handler, on_result=observer)
+
+    assert len(calls) == 2  # one failure + one success — two handler attempts
+    assert recorded == [(ExecutionOutcome.SUCCESS, None)]  # observer fired once with the terminal outcome only
+    assert result is ExecutionOutcome.SUCCESS
