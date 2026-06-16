@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from waku.exceptions import ImproperlyConfiguredError
+from waku.messaging._escalation import best_match
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -47,31 +48,10 @@ class ErrorPolicyRegistry:
 
     def resolve(self, handler_type: _HandlerType, exc: Exception) -> ErrorPolicy | None:
         per_handler = self._handler_policies.get(handler_type, ())
-        match = _best_match(per_handler, exc)
+        match = best_match(per_handler, exc)
         if match is not None:
             return match
-        return _best_match(self._default_policies, exc)
-
-
-def _best_match(policies: Sequence[ErrorPolicy], exc: Exception) -> ErrorPolicy | None:
-    # Most specific match wins (predicate > type-only > any); first-match on ties.
-    best: ErrorPolicy | None = None
-    best_score = -1
-    for policy in policies:
-        if _policy_matches(policy, exc) and (score := _specificity(policy)) > best_score:
-            best = policy
-            best_score = score
-    return best
-
-
-def _specificity(policy: ErrorPolicy) -> int:
-    return (2 if policy.exception_type is not None else 0) + (1 if policy.predicate is not None else 0)
-
-
-def _policy_matches(policy: ErrorPolicy, exc: Exception) -> bool:
-    if policy.exception_type is not None and not isinstance(exc, policy.exception_type):
-        return False
-    return policy.predicate is None or policy.predicate(exc)
+        return best_match(self._default_policies, exc)
 
 
 def _reject_duplicates(handler_type: _HandlerType | None, policies: Sequence[ErrorPolicy]) -> None:

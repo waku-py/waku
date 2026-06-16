@@ -14,16 +14,19 @@ from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.outbox.interfaces import IOutboxStore
+from waku.messaging.outbox.relay import OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.partition import ISequenceAllocator
+from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicyRegistry
 from waku.messaging.transport.interfaces import ITransport
 from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
 from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Mapping, Sequence
     from uuid import UUID
 
     from waku.messaging.contracts.message import IMessage
+    from waku.messaging.sending import SendingFailurePolicy
 
 
 async def wait_until(predicate: Callable[[], bool]) -> None:
@@ -59,6 +62,19 @@ def make_envelope(
         headers=headers or {},
         group_id=group_id,
     )
+
+
+def make_relay_evaluator(
+    config: OutboxRelayConfig,
+    *,
+    destination_policies: Mapping[str, Sequence[SendingFailurePolicy]] | None = None,
+) -> SendingFailureEvaluator:
+    """Build the relay's `SendingFailureEvaluator` with the synthesized default + optional per-destination policies."""
+    registry = SendingFailurePolicyRegistry(
+        destination_policies=destination_policies or {},
+        default_policies=(build_relay_default_policy(config),),
+    )
+    return SendingFailureEvaluator(registry=registry)
 
 
 NOOP_EVALUATOR = ErrorPolicyEvaluator(registry=ErrorPolicyRegistry(handler_policies={}, default_policies=()))

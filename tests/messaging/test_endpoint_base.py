@@ -10,6 +10,7 @@ from waku.messaging.endpoints.base import (
     external_endpoint,
     local_queue,
 )
+from waku.messaging.sending import SendingFailurePolicy
 
 if TYPE_CHECKING:
     from waku.messaging.contracts.message import IMessage
@@ -94,3 +95,21 @@ class TestExternalEntryPartitionBy:
 
         entry = external_endpoint('ext://bus', partition_by=strategy)
         assert entry.partition_by is strategy
+
+
+class TestExternalEntrySendingFailurePolicies:
+    @staticmethod
+    def test_default_sending_failure_policies_is_empty() -> None:
+        entry = external_endpoint('ext://bus')
+        assert entry.sending_failure_policies == ()
+
+    @staticmethod
+    def test_external_endpoint_carries_sending_failure_policies() -> None:
+        policy = (
+            SendingFailurePolicy
+            .on_exception(ConnectionError)
+            .retry_with_backoff(max_attempts=3)
+            .then_move_to_dead_letter()
+        )
+        entry = external_endpoint('amqp://orders', sending_failure_policies=[policy])
+        assert entry.sending_failure_policies == (policy,)

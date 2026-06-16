@@ -42,6 +42,10 @@ class FakeOutboxStore(IOutboxStore):
         pass
 
     @override
+    async def mark_discarded(self, message_id: UUID, error: str) -> None:  # pragma: no cover
+        pass
+
+    @override
     async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry) -> None:  # pragma: no cover
         pass
 

@@ -7,13 +7,16 @@ import time
 import traceback
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
 
 import anyio
 
-from waku._internal.adaptive_interval import AdaptiveInterval, calculate_backoff_with_jitter
+from waku._internal.adaptive_interval import AdaptiveInterval
+from waku.messaging._escalation import RetryAction
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.outbox.interfaces import IOutboxStore
+from waku.messaging.sending.evaluator import SendingFailureContext, SendingFailureEvaluator
+from waku.messaging.sending.policy import SendingFailurePolicy
 from waku.messaging.transport.interfaces import ITransport
 from waku.messaging.transport.serialization import IEnvelopeSerializer
 from waku.uow import IUnitOfWork
@@ -21,11 +24,13 @@ from waku.uow import IUnitOfWork
 if TYPE_CHECKING:
     from dishka import AsyncContainer
 
+    from waku.messaging._escalation import PolicyOutcome
     from waku.messaging.outbox.models import OutboxMessage
 
 __all__ = [
     'OutboxRelay',
     'OutboxRelayConfig',
+    'build_relay_default_policy',
 ]
 
 logger = logging.getLogger(__name__)
@@ -49,19 +54,50 @@ class OutboxRelayConfig:
     stop_timeout: float = 10.0
 
 
+def build_relay_default_policy(config: OutboxRelayConfig) -> SendingFailurePolicy:
+    """Express the relay's built-in retry tuning AS a catch-all sending policy.
+
+    Appended (lowest specificity) to the sending registry defaults so the relay has ONE retry
+    authority. Reproduces the legacy fixed loop: retries attempts 1..N-1 with backoff, dead-letters
+    at attempt N (behavior-equivalent to the old ``max_attempts``/backoff arithmetic).
+    """
+    return (
+        SendingFailurePolicy
+        .on_any_exception()
+        .retry_with_backoff(
+            max_attempts=config.max_attempts,
+            base_delay=config.base_delay,
+            max_delay=config.max_delay,
+        )
+        .then_move_to_dead_letter()
+    )
+
+
+def _format_error(exc: Exception) -> str:
+    return ''.join(traceback.format_exception(exc))
+
+
 class OutboxRelay:
     __slots__ = (
         '_config',
         '_container',
         '_interval',
         '_last_recovery',
+        '_sending_evaluator',
         '_shutdown_event',
         '_worker_task',
     )
 
-    def __init__(self, *, container: AsyncContainer, config: OutboxRelayConfig) -> None:
+    def __init__(
+        self,
+        *,
+        container: AsyncContainer,
+        config: OutboxRelayConfig,
+        sending_failure_evaluator: SendingFailureEvaluator,
+    ) -> None:
         self._container = container
         self._config = config
+        self._sending_evaluator = sending_failure_evaluator
         self._interval = AdaptiveInterval(
             min_seconds=config.poll_interval,
             max_seconds=config.max_poll_interval,
@@ -146,19 +182,54 @@ class OutboxRelay:
         uow = await scope.get(IUnitOfWork)
         await uow.rollback()
 
-        new_retry_count = message.retry_count + 1
-        if new_retry_count >= self._config.max_attempts:
+        ctx = SendingFailureContext(
+            destination=message.destination,
+            exc=exc,
+            attempt=message.retry_count + 1,
+        )
+        outcome: PolicyOutcome | None = self._sending_evaluator.evaluate(ctx)
+        if outcome is None:
+            # No policy matched — the evaluator has no synthesized catch-all; a missing outcome means a
+            # misconfigured (empty) evaluator. Safe default for a durable queue: dead-letter, never
+            # silently drop or infinite-retry.
             await self._handle_exhausted(store, uow, message, exc)
             return
+        await self._apply_outcome(store, uow, message, exc, outcome)
 
-        error = ''.join(traceback.format_exception(exc))
-        delay = calculate_backoff_with_jitter(
-            attempt=new_retry_count,
-            base_delay_seconds=self._config.base_delay,
-            max_delay_seconds=self._config.max_delay,
-        )
-        next_retry_at = datetime.now(tz=UTC) + timedelta(seconds=delay)
-        await store.mark_failed(message.id, error, next_retry_at)
+    async def _apply_outcome(
+        self,
+        store: IOutboxStore,
+        uow: IUnitOfWork,
+        message: OutboxMessage,
+        exc: Exception,
+        outcome: PolicyOutcome,
+    ) -> None:
+        match outcome.action:
+            case RetryAction.RETRY:
+                await self._reschedule(store, uow, message, exc, next_retry_at=datetime.now(tz=UTC))
+            case RetryAction.RETRY_WITH_BACKOFF:
+                delay = outcome.retry_delay or 0.0
+                next_retry_at = datetime.now(tz=UTC) + timedelta(seconds=delay)
+                await self._reschedule(store, uow, message, exc, next_retry_at=next_retry_at)
+            case RetryAction.DISCARD:
+                await store.mark_discarded(message.id, _format_error(exc))
+                await uow.commit()
+                logger.info('Discarded outbox message %s after %d attempt(s)', message.id, message.retry_count + 1)
+            case RetryAction.DEAD_LETTER:
+                await self._handle_exhausted(store, uow, message, exc)
+            case _ as unreachable:  # pragma: no cover
+                assert_never(unreachable)
+
+    @staticmethod
+    async def _reschedule(
+        store: IOutboxStore,
+        uow: IUnitOfWork,
+        message: OutboxMessage,
+        exc: Exception,
+        *,
+        next_retry_at: datetime,
+    ) -> None:
+        await store.mark_failed(message.id, _format_error(exc), next_retry_at)
         await uow.commit()
 
     @staticmethod
@@ -186,7 +257,7 @@ class OutboxRelay:
         else:
             logger.info('Message %s moved to dead letter after %d attempts', message.id, message.retry_count + 1)
             return
-        error = ''.join(traceback.format_exception(exc))
+        error = _format_error(exc)
         try:
             await store.mark_failed(message.id, error, next_retry_at=None)
             await uow.commit()

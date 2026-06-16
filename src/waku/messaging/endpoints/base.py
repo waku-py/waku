@@ -7,11 +7,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, TypeAlias
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from waku.di import AsyncContainer
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.message import IMessage
+    from waku.messaging.sending.policy import SendingFailurePolicy
 
 __all__ = [
     'DEFAULT_ENDPOINT_URI',
@@ -47,6 +48,7 @@ class LocalQueueEntry:
 class ExternalEntry:
     uri: str
     partition_by: Callable[[IMessage], str | None] | None = None
+    sending_failure_policies: Sequence[SendingFailurePolicy] = ()
 
 
 EndpointEntry: TypeAlias = LocalQueueEntry | ExternalEntry
@@ -75,8 +77,13 @@ def external_endpoint(
     uri: str,
     *,
     partition_by: Callable[[IMessage], str | None] | None = None,
+    sending_failure_policies: Sequence[SendingFailurePolicy] = (),
 ) -> ExternalEntry:
-    return ExternalEntry(uri=uri, partition_by=partition_by)
+    return ExternalEntry(
+        uri=uri,
+        partition_by=partition_by,
+        sending_failure_policies=tuple(sending_failure_policies),
+    )
 
 
 class Endpoint(ABC):

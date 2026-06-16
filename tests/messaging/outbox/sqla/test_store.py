@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 from waku.messaging.outbox.sqla.store import SqlAlchemyOutboxStore
-from waku.messaging.outbox.sqla.tables import bind_outbox_tables
+from waku.messaging.outbox.sqla.tables import bind_outbox_tables, outbox_messages_table
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -139,3 +139,23 @@ class TestSqlAlchemyOutboxStore:
         assert len(fetched) == 1
         assert fetched[0].group_id == 'order-9'
         assert fetched[0].sequence_number == 4
+
+    @staticmethod
+    async def test_mark_discarded_is_terminal(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyOutboxStore(pg_session)
+        msg = _make_message()
+        await store.save_batch([msg])
+        await pg_session.flush()
+
+        fetched = await store.fetch_and_mark_processing(batch_size=10)
+        await store.mark_discarded(fetched[0].id, 'transport gave up')
+        await pg_session.flush()
+
+        # DISCARDED is terminal: never re-fetched by the head-of-queue / processing claim.
+        assert await store.fetch_head_of_queue(batch_size=10) == []
+        status_stmt = select(outbox_messages_table.c.status, outbox_messages_table.c.last_error).where(
+            outbox_messages_table.c.id == fetched[0].id,
+        )
+        row = (await pg_session.execute(status_stmt)).one()
+        assert row.status == OutboxStatus.DISCARDED.value
+        assert row.last_error == 'transport gave up'

@@ -4,7 +4,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
@@ -12,17 +12,20 @@ import anyio
 from dishka import make_async_container
 from typing_extensions import override
 
+from waku.messaging._escalation import RetryAction, walk_stages  # noqa: PLC2701
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage
-from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
+from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig, build_relay_default_policy
+from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicy, SendingFailurePolicyRegistry
 from waku.messaging.transport.interfaces import ITransport
 
 from tests.messaging.helpers import (
     RecordingTransport,
     RelayDepsProvider,
     make_envelope,
+    make_relay_evaluator,
     make_serializer,
 )
 
@@ -61,6 +64,7 @@ class _TrackingOutboxStore(IOutboxStore):
     dead_letter_entries: list[DeadLetterEntry] = field(default_factory=list)
     failed_ids: list[UUID] = field(default_factory=list)
     failure_records: list[_FailureRecord] = field(default_factory=list)
+    discarded_ids: list[UUID] = field(default_factory=list)
     recovered: int = 0
     move_to_dead_letter_error: Exception | None = None
     mark_failed_error: Exception | None = None
@@ -98,6 +102,10 @@ class _TrackingOutboxStore(IOutboxStore):
             raise self.move_to_dead_letter_error
         self.dead_lettered_ids.append(message_id)
         self.dead_letter_entries.append(entry)
+
+    @override
+    async def mark_discarded(self, message_id: UUID, error: str) -> None:
+        self.discarded_ids.append(message_id)
 
     @override
     async def recover_stuck(self, threshold: timedelta) -> int:
@@ -146,15 +154,37 @@ _EXHAUST_ON_FIRST_FAILURE_CONFIG = OutboxRelayConfig(
 )
 
 
+def test_build_relay_default_policy_mirrors_config() -> None:
+    policy = build_relay_default_policy(OutboxRelayConfig(max_attempts=5))
+    assert policy.exception_type is None  # on_any_exception catch-all
+    actions = [s.action for s in policy.stages]
+    assert actions == [RetryAction.RETRY_WITH_BACKOFF, RetryAction.DEAD_LETTER]
+    assert policy.stages[0].max_attempts == 5
+
+
+def test_build_relay_default_policy_boundary_matches_legacy_loop() -> None:
+    # Pins behavior-equivalence with the legacy fixed loop for N>1: with relay attempt = retry_count+1,
+    # retries at attempts 1..N-1, dead-letters at attempt N. A mutation to walk_stages' boundary
+    # (< vs <=) is caught here.
+    stages = build_relay_default_policy(OutboxRelayConfig(max_attempts=2)).stages
+    assert walk_stages(stages, attempt=1).action is RetryAction.RETRY_WITH_BACKOFF
+    assert walk_stages(stages, attempt=2).action is RetryAction.DEAD_LETTER
+
+
 @asynccontextmanager
 async def _run_relay(
     provider: RelayDepsProvider,
     config: OutboxRelayConfig = _FAST_CONFIG,
     *,
     sleep: float = 0.1,
+    evaluator: SendingFailureEvaluator | None = None,
 ) -> AsyncGenerator[None]:
     async with make_async_container(provider) as container:
-        relay = OutboxRelay(container=container, config=config)
+        relay = OutboxRelay(
+            container=container,
+            config=config,
+            sending_failure_evaluator=evaluator or make_relay_evaluator(config),
+        )
         await relay.start()
         await anyio.sleep(sleep)
         try:
@@ -211,7 +241,11 @@ class TestOutboxRelay:
         )
 
         async with make_async_container(RelayDepsProvider(store, transport, serializer)) as container:
-            relay = OutboxRelay(container=container, config=slow_config)
+            relay = OutboxRelay(
+                container=container,
+                config=slow_config,
+                sending_failure_evaluator=make_relay_evaluator(slow_config),
+            )
             await relay.start()
             await anyio.sleep(0.05)
             await asyncio.wait_for(relay.stop(), timeout=1.0)
@@ -291,7 +325,11 @@ class TestOutboxRelay:
 
         with caplog.at_level(logging.WARNING, logger='waku.messaging.outbox.relay'):
             async with make_async_container(RelayDepsProvider(blocking_store, transport, serializer)) as container:
-                relay = OutboxRelay(container=container, config=config)
+                relay = OutboxRelay(
+                    container=container,
+                    config=config,
+                    sending_failure_evaluator=make_relay_evaluator(config),
+                )
                 await relay.start()
                 await anyio.sleep(0.02)
                 await relay.stop()
@@ -305,7 +343,11 @@ class TestOutboxRelay:
         serializer = make_serializer(_TestEvent)
 
         async with make_async_container(RelayDepsProvider(store, transport, serializer)) as container:
-            relay = OutboxRelay(container=container, config=_FAST_CONFIG)
+            relay = OutboxRelay(
+                container=container,
+                config=_FAST_CONFIG,
+                sending_failure_evaluator=make_relay_evaluator(_FAST_CONFIG),
+            )
             await relay.stop()
 
     @staticmethod
@@ -331,3 +373,121 @@ class TestOutboxRelay:
                 pass
 
         assert 'Recovered 5 stuck messages' in caplog.text
+
+    @staticmethod
+    async def test_discard_policy_marks_discarded() -> None:
+        store, msg = _make_pending_store()
+        serializer = make_serializer(_TestEvent)
+        evaluator = make_relay_evaluator(
+            _FAST_CONFIG,
+            destination_policies={'test://dest': (SendingFailurePolicy.on_any_exception().discard(),)},
+        )
+
+        async with _run_relay(
+            RelayDepsProvider(store, _FailingTransport(), serializer),
+            evaluator=evaluator,
+        ):
+            pass
+
+        assert msg.id in store.discarded_ids
+        assert msg.id not in store.failed_ids
+        assert msg.id not in store.dead_lettered_ids
+
+    @staticmethod
+    async def test_dead_letter_outcome_dead_letters_immediately() -> None:
+        store, msg = _make_pending_store()
+        serializer = make_serializer(_TestEvent)
+        evaluator = make_relay_evaluator(
+            _FAST_CONFIG,
+            destination_policies={'test://dest': (SendingFailurePolicy.on_any_exception().move_to_dead_letter(),)},
+        )
+
+        async with _run_relay(
+            RelayDepsProvider(store, _FailingTransport(), serializer),
+            evaluator=evaluator,
+        ):
+            pass
+
+        assert msg.id in store.dead_lettered_ids
+
+    @staticmethod
+    async def test_retry_with_backoff_policy_reschedules_with_future_next_retry_at(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Pin the jittered backoff (whose floor is 0) to a fixed delay so the RETRY_WITH_BACKOFF arm is
+        # observably distinct from the no-delay RETRY arm — otherwise a "schedule now" regression passes.
+        monkeypatch.setattr('waku.messaging._escalation.calculate_backoff_with_jitter', lambda *_a, **_kw: 60.0)
+        before = datetime.now(tz=UTC)
+        store, msg = _make_pending_store()
+        serializer = make_serializer(_TestEvent)
+        evaluator = make_relay_evaluator(
+            _FAST_CONFIG,
+            destination_policies={
+                'test://dest': (
+                    SendingFailurePolicy
+                    .on_any_exception()
+                    .retry_with_backoff(max_attempts=3)
+                    .then_move_to_dead_letter(),
+                )
+            },
+        )
+
+        async with _run_relay(
+            RelayDepsProvider(store, _FailingTransport(), serializer),
+            evaluator=evaluator,
+        ):
+            pass
+
+        assert msg.id in store.failed_ids
+        assert store.failure_records
+        record = store.failure_records[0]
+        assert record.next_retry_at is not None
+        assert record.next_retry_at > before + timedelta(seconds=30)
+
+    @staticmethod
+    async def test_retry_policy_reschedules_for_next_poll() -> None:
+        # Exercises the RETRY (no-backoff) arm of _apply_outcome: reschedule for the next poll
+        # (next_retry_at≈now), NOT a future backoff delay.
+        before = datetime.now(tz=UTC)
+        store, msg = _make_pending_store()
+        serializer = make_serializer(_TestEvent)
+        evaluator = make_relay_evaluator(
+            _FAST_CONFIG,
+            destination_policies={
+                'test://dest': (
+                    SendingFailurePolicy.on_any_exception().retry(max_attempts=2).then_move_to_dead_letter(),
+                )
+            },
+        )
+
+        async with _run_relay(
+            RelayDepsProvider(store, _FailingTransport(), serializer),
+            evaluator=evaluator,
+        ):
+            pass
+
+        assert msg.id in store.failed_ids
+        assert store.failure_records
+        record = store.failure_records[0]
+        assert record.next_retry_at is not None
+        assert before <= record.next_retry_at <= before + timedelta(seconds=5)
+
+    @staticmethod
+    async def test_missing_outcome_dead_letters_as_failsafe() -> None:
+        # An empty evaluator (no synthesized default — only happens under misconfiguration) must
+        # dead-letter rather than silently drop or infinite-retry a durable message.
+        store, msg = _make_pending_store()
+        serializer = make_serializer(_TestEvent)
+        empty_evaluator = SendingFailureEvaluator(
+            registry=SendingFailurePolicyRegistry(destination_policies={}, default_policies=()),
+        )
+
+        async with _run_relay(
+            RelayDepsProvider(store, _FailingTransport(), serializer),
+            evaluator=empty_evaluator,
+        ):
+            pass
+
+        assert msg.id in store.dead_lettered_ids
+        assert msg.id not in store.failed_ids
+        assert msg.id not in store.discarded_ids

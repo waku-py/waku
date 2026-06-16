@@ -53,13 +53,14 @@ from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.recovery import InboxRecoveryWorker
 from waku.messaging.interfaces import IMessageBus
 from waku.messaging.outbox.interfaces import IOutboxStore
-from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
+from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.outgoing import IOutgoingMessages, IOutgoingMessagesFrames, OutgoingMessages
 from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.messaging.registry import MessageRegistry
 from waku.messaging.router import MessageRouter, RoutingTable
 from waku.messaging.routing_builder import RoutingTableBuilder
+from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicyRegistry
 from waku.messaging.transport.interfaces import ITransport
 from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
 from waku.modules import DynamicModule, ModuleMetadataRegistry, module
@@ -278,6 +279,19 @@ def _handler_needs_uow(registry: MessageRegistry) -> bool:
     )
 
 
+def _build_sending_failure_registry(config: MessagingConfig) -> SendingFailurePolicyRegistry:
+    destination_policies = {
+        entry.uri: entry.sending_failure_policies
+        for entry in config.endpoints
+        if isinstance(entry, ExternalEntry) and entry.sending_failure_policies
+    }
+    synthesized = (build_relay_default_policy(config.outbox.relay),) if config.outbox is not None else ()
+    return SendingFailurePolicyRegistry(
+        destination_policies=destination_policies,
+        default_policies=(*config.default_sending_failure_policies, *synthesized),
+    )
+
+
 def _build_message_type_registry(
     registry: MessageRegistry,
     config: MessagingConfig,
@@ -428,6 +442,10 @@ class MessageRegistryAggregator(OnModuleRegistration):
         evaluator = ErrorPolicyEvaluator(registry=error_policy_registry)
         registry.add_provider(owning_module, object_(evaluator))
 
+        sending_registry = _build_sending_failure_registry(self._config)
+        registry.add_provider(owning_module, object_(sending_registry))
+        registry.add_provider(owning_module, object_(SendingFailureEvaluator(registry=sending_registry)))
+
     @staticmethod
     def _validate_request_handler_counts(registry: MessageRegistry) -> None:
         for msg_type, handlers in registry.handler_map.items():
@@ -541,7 +559,12 @@ class OutboxRelayLifecycleExtension(AfterApplicationInit, OnApplicationShutdown)
 
     @override
     async def after_app_init(self, app: 'WakuApplication') -> None:
-        self._relay = OutboxRelay(container=app.container, config=self._config)
+        evaluator = await app.container.get(SendingFailureEvaluator)
+        self._relay = OutboxRelay(
+            container=app.container,
+            config=self._config,
+            sending_failure_evaluator=evaluator,
+        )
         await self._relay.start()
 
     @override

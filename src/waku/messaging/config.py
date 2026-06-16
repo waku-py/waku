@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from waku.messaging.inbox.config import InboxConfig
     from waku.messaging.outbox.interfaces import IOutboxStore
     from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor
+    from waku.messaging.sending.policy import SendingFailurePolicy
     from waku.messaging.transport.interfaces import ITransport
     from waku.messaging.transport.serialization import IEnvelopeSerializer
 
@@ -63,6 +64,8 @@ class MessagingConfig:
     routing: Sequence[RouteDescriptor | ModuleRouteDescriptor] = ()
     default_error_policies: Sequence[ErrorPolicy] = ()
     """Fallback policies; a handler's own `error_policies` shadow these per-exception."""
+    default_sending_failure_policies: Sequence[SendingFailurePolicy] = ()
+    """Fallback send-failure policies; a destination's own `sending_failure_policies` shadow these per-exception."""
 
     dead_letter: DeadLetterConfig | None = None
     outbox: OutboxConfig | None = None

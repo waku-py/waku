@@ -49,6 +49,7 @@ from tests.messaging.helpers import (
     RecordingTransport,
     RelayDepsProvider,
     make_envelope,
+    make_relay_evaluator,
     make_serializer,
     order_id_partition,
     wait_until,
@@ -143,6 +144,10 @@ class _InMemoryOutboxStore(IOutboxStore):
         self._update_status(message_id, status=OutboxStatus.DEAD_LETTERED)
 
     @override
+    async def mark_discarded(self, message_id: UUID, error: str) -> None:  # pragma: no cover
+        self._update_status(message_id, status=OutboxStatus.DISCARDED, last_error=error)
+
+    @override
     async def recover_stuck(self, threshold: timedelta) -> int:  # pragma: no cover
         return 0
 
@@ -198,7 +203,11 @@ class TestEndToEndOutboxFlow:
         async with make_async_container(
             RelayDepsProvider(outbox, transport, serializer),
         ) as relay_container:
-            relay = OutboxRelay(container=relay_container, config=relay_config)
+            relay = OutboxRelay(
+                container=relay_container,
+                config=relay_config,
+                sending_failure_evaluator=make_relay_evaluator(relay_config),
+            )
             await relay.start()
             await anyio.sleep(0.05)
             await relay.stop()
@@ -422,7 +431,11 @@ class TestRelayPartitionOrdering:
 
         relay_config = OutboxRelayConfig(poll_interval=0.01, recovery_interval=timedelta(hours=1))
         async with make_async_container(RelayDepsProvider(store, transport, serializer)) as container:
-            relay = OutboxRelay(container=container, config=relay_config)
+            relay = OutboxRelay(
+                container=container,
+                config=relay_config,
+                sending_failure_evaluator=make_relay_evaluator(relay_config),
+            )
             await relay.start()
             await wait_until(lambda: sum(1 for m in store.messages if m.status == OutboxStatus.DISPATCHED) == 3)
             await relay.stop()

@@ -22,6 +22,7 @@ class OutboxStatus(enum.StrEnum):
     DISPATCHED = 'DISPATCHED'
     FAILED = 'FAILED'
     DEAD_LETTERED = 'DEAD_LETTERED'
+    DISCARDED = 'DISCARDED'
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

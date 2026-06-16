@@ -162,6 +162,10 @@ class SqlAlchemyOutboxStore(IOutboxStore):
         )
         await self._session.execute(stmt)
 
+    async def mark_discarded(self, message_id: UUID, error: str) -> None:
+        stmt = update(_t).where(_t.c.id == message_id).values(status=OutboxStatus.DISCARDED.value, last_error=error)
+        await self._session.execute(stmt)
+
     async def recover_stuck(self, threshold: timedelta) -> int:
         cutoff = func.now() - threshold
         stmt = (

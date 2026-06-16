@@ -41,6 +41,16 @@ class IOutboxStore(abc.ABC):
     async def mark_failed(self, message_id: UUID, error: str, next_retry_at: datetime | None = None) -> None: ...
 
     @abc.abstractmethod
+    async def mark_discarded(self, message_id: UUID, error: str) -> None:
+        """Terminally drop a message a sending policy chose to DISCARD (status DISCARDED).
+
+        Intentional policy drop — distinct from DEAD_LETTERED (normal exhaustion) and from FAILED
+        (the degradation when a DLQ write itself fails). Never bumps retry_count. The relay owns the
+        transaction; this method must not commit.
+        """
+        ...
+
+    @abc.abstractmethod
     async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry) -> None: ...
 
     @abc.abstractmethod
