@@ -61,6 +61,7 @@ class DurableLocalQueueEndpoint(Endpoint):
         '_container',
         '_executor',
         '_handler_subscriptions',
+        '_inbox_owner_id',
         '_keep_after_handled',
         '_max_buffer_size',
         '_partition_by',
@@ -78,6 +79,7 @@ class DurableLocalQueueEndpoint(Endpoint):
         executor: EndpointExecutor,
         container: AsyncContainer,
         inbox_config_keep_after_handled_seconds: float,
+        inbox_owner_id: str,
         stop_timeout: float,
         max_buffer_size: float,
         partition_by: PartitionKeyExtractor | None = None,
@@ -86,6 +88,7 @@ class DurableLocalQueueEndpoint(Endpoint):
         self._handler_subscriptions = handler_subscriptions
         self._executor = executor
         self._container = container
+        self._inbox_owner_id = inbox_owner_id
         self._keep_after_handled = timedelta(seconds=inbox_config_keep_after_handled_seconds)
         self._stop_timeout = stop_timeout
         self._max_buffer_size = max_buffer_size
@@ -135,6 +138,7 @@ class DurableLocalQueueEndpoint(Endpoint):
                     destination=handler_destination(handler_type),
                     group_id=group_id,
                     sequence_number=sequence_number,
+                    owner_id=self._inbox_owner_id,
                 )
                 if await inbox.store_incoming(entry):
                     fresh.add(handler_type)

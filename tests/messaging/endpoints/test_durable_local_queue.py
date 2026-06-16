@@ -119,6 +119,7 @@ def _endpoint(
     handlers: frozenset[type[EventHandler[_DomainEvent]]],
     *,
     partition_by: PartitionKeyExtractor | None = None,
+    inbox_owner_id: str = 'node-a:1',
 ) -> DurableLocalQueueEndpoint:
     return DurableLocalQueueEndpoint(
         uri='local://orders',
@@ -129,6 +130,7 @@ def _endpoint(
         stop_timeout=1.0,
         max_buffer_size=math.inf,
         partition_by=partition_by,
+        inbox_owner_id=inbox_owner_id,
     )
 
 
@@ -233,6 +235,23 @@ class TestDurableLocalQueueEndpoint:
             await endpoint.stop()
 
         assert executor.calls == 4
+
+    @staticmethod
+    async def test_dispatch_claims_rows_with_owner_id() -> None:
+        _NoopHandler.invocations = []
+        inbox = FakeInboxStore()
+        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+            # NON-default owner id: a regression that drops the claim yields owner_id=None, not this value.
+            endpoint = _endpoint(container, executor, frozenset([_NoopHandler]), inbox_owner_id='owner-claim-test')
+            await endpoint.start()
+            async with container() as scope:
+                await endpoint.dispatch(make_envelope(_DomainEvent(kind='OrderPlaced')), scope)
+            await endpoint.stop()  # drains the worker deterministically
+
+        # owner_id is set ONLY at dispatch in this flow (mark_as_handled preserves it in FakeInboxStore).
+        stored = next(iter(inbox.entries.values()))
+        assert stored.owner_id == 'owner-claim-test'
 
 
 class TestDurableLocalQueuePartitioning:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from typing_extensions import override
@@ -10,7 +11,7 @@ from waku.messaging.inbox.models import InboxEntry, InboxStatus
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from datetime import datetime, timedelta
+    from datetime import timedelta
     from uuid import UUID
 
     from waku.messaging.errors.dead_letter import DeadLetterEntry
@@ -42,7 +43,9 @@ class FakeInboxStore(IInboxStore):
     @override
     async def mark_as_handled(self, entry_id: UUID, destination: str, keep_until: datetime) -> None:
         key = (entry_id, destination)
-        current = self.entries[key]
+        current = self.entries.get(key)
+        if current is None:
+            return  # mirror the real UPDATE: matching zero rows is a harmless no-op
         self.entries[key] = InboxEntry(
             id=current.id,
             payload=current.payload,
@@ -147,9 +150,16 @@ class FakeInboxStore(IInboxStore):
 
     @override
     async def recover_stale(self, threshold: timedelta) -> int:
+        # Mirror the SQLAlchemy store: only reclaim owned INCOMING rows whose updated_at is older than
+        # `now - threshold`. A just-written/claimed row (updated_at unset) is treated as fresh (now),
+        # so a positive threshold leaves it alone — matching the production server-default behaviour.
+        now = datetime.now(tz=UTC)
+        cutoff = now - threshold
         recovered = 0
         for key, entry in list(self.entries.items()):
             if entry.status is not InboxStatus.INCOMING or entry.owner_id is None:
+                continue
+            if (entry.updated_at or now) >= cutoff:
                 continue
             self.entries[key] = InboxEntry(
                 id=entry.id,
@@ -165,7 +175,7 @@ class FakeInboxStore(IInboxStore):
                 group_id=entry.group_id,
                 sequence_number=entry.sequence_number,
                 created_at=entry.created_at,
-                updated_at=entry.updated_at,
+                updated_at=now,
             )
             recovered += 1
         return recovered

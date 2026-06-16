@@ -29,14 +29,14 @@ classifiers = [
 ]
 dependencies = [
   "adaptix>=3.0.0b12",
-  "anyio>=4.13.0",
+  "anyio>=4.14.0",
   "dishka>=1.10.1",
   "typing-extensions>=4.15.0",
 ]
 
 [project.optional-dependencies]
 faststream = ["faststream>=0.7.1"]
-sqla = ["sqlalchemy[asyncio]>=2.0.50"]
+sqla = ["sqlalchemy[asyncio]>=2.0.51"]
 
 [project.urls]
 Repository = "https://github.com/waku-py/waku"
@@ -56,20 +56,20 @@ docs = [
 lint = [
   "deptry==0.25.1",
   "gitlint==0.19.1",
-  "prek==0.4.4",
+  "prek==0.4.5",
   "ruff==0.15.17",
 ]
 test = [
   "coverage==7.14.1",
   "psycopg[binary]>=3.3.4",
-  "pytest==9.0.3",
+  "pytest==9.1.0",
   "pytest-clarity==1.0.1",
   "pytest-cov==7.1.0",
   "pytest-deadfixtures==3.1.0",
   "pytest-mock==3.15.1",
   "pytest-randomly==4.1.0",
   "pytest-timeout==2.4.0",
-  "sqlalchemy[asyncio]>=2.0.50",
+  "sqlalchemy[asyncio]>=2.0.51",
   "testcontainers[postgres]>=4.14.2",
   "uvloop==0.22.1; sys_platform != 'win32' and python_version < '3.14'",
 ]

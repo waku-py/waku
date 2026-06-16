@@ -86,10 +86,14 @@ class IInboxStore(abc.ABC):
 
     @abc.abstractmethod
     async def recover_stale(self, threshold: timedelta) -> int:
-        """Reclaim all entries whose ``updated_at`` is older than ``threshold``.
+        """Release owned, stale INCOMING entries back into circulation, returning the count.
 
-        Reclaims regardless of ``owner_id`` so crashed-node entries come back into circulation.
-        Sets ``owner_id=NULL``, ``status=INCOMING``. Returns the number of recovered rows.
+        Releases (sets ``owner_id=NULL``) only OWNED (``owner_id IS NOT NULL``) INCOMING rows whose
+        ``updated_at`` is older than ``now - threshold``. MUST NOT touch never-claimed
+        (``owner_id IS NULL``) rows: they are already fetchable, so reclaiming them is spurious churn that
+        resets their stale clock — and the crash-recovery drain relies on ``owner_id IS NULL`` meaning
+        "abandoned, ready to claim". Implementations refresh ``updated_at`` on release so a reclaimed row
+        does not immediately re-match on the next tick.
         """
         ...
 

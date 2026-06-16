@@ -359,6 +359,24 @@ class TestRecoverStale:
         recovered = await store.recover_stale(threshold=timedelta(seconds=-1))
         assert recovered == 0
 
+    @staticmethod
+    async def test_recover_stale_releases_owned_row_past_threshold(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyInboxStore(pg_session)
+        await store.store_incoming(_make_entry(owner_id='dead-node:1'))
+        await pg_session.flush()
+        # negative threshold -> cutoff = now + 1h -> the owned row's updated_at (=now) is past it -> released
+        recovered = await store.recover_stale(timedelta(seconds=-3600))
+        assert recovered == 1
+
+    @staticmethod
+    async def test_recover_stale_leaves_fresh_owned_row(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyInboxStore(pg_session)
+        await store.store_incoming(_make_entry(owner_id='live-node:1'))
+        await pg_session.flush()
+        # 1h threshold -> cutoff = now - 1h -> a just-stored owned row is NOT stale -> not released
+        recovered = await store.recover_stale(timedelta(hours=1))
+        assert recovered == 0
+
 
 @pytest.fixture
 async def pg_session_with_dlq(pg_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:

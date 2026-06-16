@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import logging
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import anyio
 
@@ -23,6 +23,11 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
+@runtime_checkable
+class _SupportsDrain(Protocol):
+    async def drain_once(self) -> int: ...
+
+
 class InboxRecoveryWorker:
     """Background task that reclaims stale inbox entries and cleans up expired handled rows.
 
@@ -33,11 +38,14 @@ class InboxRecoveryWorker:
     dedup key does not change this: retention purges whole rows and the predicate never touches the key.
     """
 
-    __slots__ = ('_config', '_container', '_shutdown_event', '_worker_task')
+    __slots__ = ('_config', '_container', '_drainer', '_shutdown_event', '_worker_task')
 
-    def __init__(self, *, container: AsyncContainer, config: InboxConfig) -> None:
+    def __init__(
+        self, *, container: AsyncContainer, config: InboxConfig, drainer: _SupportsDrain | None = None
+    ) -> None:
         self._container = container
         self._config = config
+        self._drainer = drainer
         self._shutdown_event = anyio.Event()
         self._worker_task: asyncio.Task[None] | None = None
 
@@ -85,3 +93,7 @@ class InboxRecoveryWorker:
             logger.info('Recovered %d stale inbox entries', recovered)
         if cleaned > 0:
             logger.debug('Cleaned %d expired handled entries', cleaned)
+        if self._drainer is not None:
+            drained = await self._drainer.drain_once()
+            if drained > 0:
+                logger.info('Drained %d abandoned inbox entries', drained)

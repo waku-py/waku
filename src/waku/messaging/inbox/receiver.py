@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, assert_never
+from typing import TYPE_CHECKING, Any
 
-from waku.messaging.endpoints.executor import ExecutionOutcome
 from waku.messaging.inbox._destination import handler_destination
+from waku.messaging.inbox.finalize import apply_inbox_outcome
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxEntry
 from waku.messaging.partition import resolve_and_allocate
@@ -88,7 +87,13 @@ class DurableReceiver:
             return
 
         outcome = await self._executor.execute(envelope, handler_type)
-        await self._apply_outcome(envelope, destination, outcome)
+        await apply_inbox_outcome(
+            self._container,
+            entry_id=envelope.message_id,
+            destination=destination,
+            outcome=outcome,
+            keep_after_handled=self._inbox_config.keep_after_handled,
+        )
 
     async def _persist(self, envelope: MessageEnvelope[Any], destination: str) -> bool:
         async with self._container() as scope:
@@ -109,36 +114,3 @@ class DurableReceiver:
             stored: bool = await inbox.store_incoming(entry)
             await uow.commit()
             return stored
-
-    async def _apply_outcome(
-        self,
-        envelope: MessageEnvelope[Any],
-        destination: str,
-        outcome: ExecutionOutcome,
-    ) -> None:
-        match outcome:
-            case ExecutionOutcome.SUCCESS:
-                await self._mark_handled(envelope, destination)
-            case ExecutionOutcome.DEAD_LETTERED | ExecutionOutcome.DISCARDED | ExecutionOutcome.FAILED_NO_POLICY:
-                await self._delete(envelope, destination)
-            case _ as unreachable:  # pragma: no cover
-                assert_never(unreachable)
-
-    async def _mark_handled(self, envelope: MessageEnvelope[Any], destination: str) -> None:
-        keep_until = datetime.now(tz=UTC) + self._inbox_config.keep_after_handled
-        async with self._container() as scope:
-            inbox = await scope.get(IInboxStore)
-            uow = await scope.get(IUnitOfWork)
-            await inbox.mark_as_handled(envelope.message_id, destination, keep_until)
-            await uow.commit()
-
-    async def _delete(self, envelope: MessageEnvelope[Any], destination: str) -> None:
-        # EndpointExecutor already wrote to IDeadLetterStore (on DEAD_LETTERED) or logged the
-        # discard. Remove this handler's inbox row directly — do NOT reuse mark_as_handled for
-        # non-success outcomes, because that pollutes observability (a DLQ'd message would read
-        # as HANDLED in the inbox).
-        async with self._container() as scope:
-            inbox = await scope.get(IInboxStore)
-            uow = await scope.get(IUnitOfWork)
-            await inbox.delete(envelope.message_id, destination)
-            await uow.commit()

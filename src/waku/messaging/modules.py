@@ -48,6 +48,7 @@ from waku.messaging.exceptions import HandlerAlreadyRegistered, ImproperlyConfig
 from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.impl import MessageBus
 from waku.messaging.inbox.config import InboxConfig
+from waku.messaging.inbox.drainer import build_inbox_drainer
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.recovery import InboxRecoveryWorker
 from waku.messaging.interfaces import IMessageBus
@@ -358,6 +359,7 @@ def _create_endpoint(
                 executor=executor,
                 container=container,
                 inbox_config_keep_after_handled_seconds=config.inbox.keep_after_handled.total_seconds(),
+                inbox_owner_id=config.inbox.resolve_owner_id(),
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,
                 partition_by=entry.partition_by,
@@ -557,7 +559,8 @@ class InboxRecoveryLifecycleExtension(AfterApplicationInit, OnApplicationShutdow
 
     @override
     async def after_app_init(self, app: 'WakuApplication') -> None:
-        self._worker = InboxRecoveryWorker(container=app.container, config=self._config)
+        drainer = await build_inbox_drainer(app.container, self._config)
+        self._worker = InboxRecoveryWorker(container=app.container, config=self._config, drainer=drainer)
         await self._worker.start()
 
     @override

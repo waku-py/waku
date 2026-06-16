@@ -32,3 +32,9 @@ class TestInboxConfig:
     def test_resolve_owner_id_preserves_explicit_value() -> None:
         config = InboxConfig(store=FakeInboxStore, owner_id='worker-a')
         assert config.resolve_owner_id() == 'worker-a'
+
+    @staticmethod
+    def test_drain_defaults() -> None:
+        config = InboxConfig(store=FakeInboxStore)
+        assert config.drain_batch_size == 100
+        assert config.max_drain_attempts == 5
