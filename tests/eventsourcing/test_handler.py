@@ -8,10 +8,10 @@ from typing_extensions import override
 
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, EventSourcingError
-from waku.eventsourcing.handler import EventSourcedVoidCommandHandler
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
+from waku.integrations.eventsourcing_messaging import EventSourcedVoidCommandHandler
 from waku.messaging import IRequest, MessagingExtension, MessagingModule
 from waku.messaging.interfaces import IMessageBus
 from waku.modules import module

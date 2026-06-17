@@ -6,7 +6,7 @@ from typing_extensions import override
 
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate, IDecider
 from waku.eventsourcing.repository import EventSourcedRepository
-from waku.messaging.contracts.event import IEvent
+from waku.messages import IEvent
 
 
 @dataclass(frozen=True)

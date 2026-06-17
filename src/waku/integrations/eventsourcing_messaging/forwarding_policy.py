@@ -4,9 +4,9 @@ from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
-from waku.eventsourcing.decider.handler import DeciderCommandHandler
-from waku.eventsourcing.forwarding import EventForwardingBehavior
-from waku.eventsourcing.handler import EventSourcedCommandHandler
+from waku.integrations.eventsourcing_messaging.decider_handler import DeciderCommandHandler
+from waku.integrations.eventsourcing_messaging.forwarding import EventForwardingBehavior
+from waku.integrations.eventsourcing_messaging.handler import EventSourcedCommandHandler
 from waku.messaging.pipeline.policy import IBehaviorPolicy, Position, PositionedBehavior
 
 if TYPE_CHECKING:

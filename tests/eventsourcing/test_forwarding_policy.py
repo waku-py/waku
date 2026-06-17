@@ -5,9 +5,11 @@ from typing import Any
 
 from typing_extensions import override
 
-from waku.eventsourcing.forwarding import EventForwardingBehavior
-from waku.eventsourcing.forwarding_policy import ForwardingPolicy
-from waku.eventsourcing.handler import EventSourcedVoidCommandHandler
+from waku.integrations.eventsourcing_messaging import (
+    EventForwardingBehavior,
+    EventSourcedVoidCommandHandler,
+    ForwardingPolicy,
+)
 from waku.messaging import IRequest, RequestHandler
 from waku.messaging.behaviors.outbox_cascading import OutboxCascadingBehavior
 from waku.messaging.behaviors.transactional import TransactionalBehavior

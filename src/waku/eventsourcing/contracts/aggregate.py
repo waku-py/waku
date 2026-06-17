@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
-from waku.messaging.contracts.event import IEvent
+from waku.messages import IEvent
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

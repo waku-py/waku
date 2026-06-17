@@ -4,9 +4,9 @@ from dataclasses import dataclass
 
 from typing_extensions import override
 
-from waku.eventsourcing.decider.handler import DeciderVoidCommandHandler
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
+from waku.integrations.eventsourcing_messaging import DeciderVoidCommandHandler
 from waku.messaging import IRequest, MessagingExtension, MessagingModule
 from waku.messaging.interfaces import IMessageBus
 from waku.modules import module

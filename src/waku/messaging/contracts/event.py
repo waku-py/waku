@@ -1,11 +1,5 @@
 from __future__ import annotations
 
-from waku.messaging.contracts.message import IMessage
+from waku.messages import IEvent
 
 __all__ = ['IEvent']
-
-
-class IEvent(IMessage):
-    """Marker for event-type messages. Optional for messaging, required for event sourcing."""
-
-    __slots__ = ()

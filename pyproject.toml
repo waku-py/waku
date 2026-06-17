@@ -56,6 +56,7 @@ docs = [
 lint = [
   "deptry==0.25.1",
   "gitlint==0.19.1",
+  "import-linter==2.11",
   "prek==0.4.5",
   "ruff==0.15.17",
 ]
@@ -122,6 +123,27 @@ exclude_also = [
   "class .*\\(.*\\bProtocol\\b.*\\):",
   "(?:t(yping)?\\.)?assert_never",
 ]
+
+
+# ----- Import Linter settings -----
+[tool.importlinter]
+root_packages = ["waku"]
+
+[[tool.importlinter.contracts]]
+name = "Event sourcing core does not import messaging"
+type = "forbidden"
+source_modules = ["waku.eventsourcing"]
+forbidden_modules = ["waku.messaging"]
+# The integration package (waku.integrations.eventsourcing_messaging) is the sanctioned both-importer;
+# it is NOT a source_module here, so its messaging imports are allowed.
+
+[[tool.importlinter.contracts]]
+name = "Neutral messages package does not import messaging"
+type = "forbidden"
+source_modules = ["waku.messages"]
+forbidden_modules = ["waku.messaging"]
+# waku.messages is the neutral wire-contract package (IMessage/IEvent/MessageIdentity); it must stay
+# dependency-free so messaging and event sourcing can both source the markers without a back-edge.
 
 
 # ----- Ruff settings -----

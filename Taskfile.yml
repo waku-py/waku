@@ -77,6 +77,7 @@ tasks:
     cmds:
       - uv run ruff check {{.CLI_ARGS}} {{.SOURCES}}
       - uv run ruff format --check {{.SOURCES}}
+      - uv run lint-imports
 
   format:
     aliases: [ fmt ]

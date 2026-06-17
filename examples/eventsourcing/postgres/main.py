@@ -22,7 +22,6 @@ from waku import WakuFactory, module
 from waku.di import object_, scoped
 from waku.eventsourcing import (
     EventSourcedAggregate,
-    EventSourcedCommandHandler,
     EventSourcedRepository,
     EventSourcingConfig,
     EventSourcingExtension,
@@ -31,6 +30,7 @@ from waku.eventsourcing import (
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
 from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
+from waku.integrations.eventsourcing_messaging import EventSourcedCommandHandler, EventSourcingMessagingModule
 from waku.messaging import (
     EventHandler,
     IEvent,
@@ -225,6 +225,7 @@ class BankModule:
     imports=[
         BankModule,
         EventSourcingModule.register(es_config),
+        EventSourcingMessagingModule.register(),
         MessagingModule.register(),
     ],
     providers=[

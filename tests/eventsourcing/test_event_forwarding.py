@@ -8,10 +8,10 @@ from typing_extensions import override
 
 from waku.eventsourcing.forwarding import (
     AppendedEventsCollector,
-    EventForwardingBehavior,
     ForwardingRegistry,
     forward,
 )
+from waku.integrations.eventsourcing_messaging.forwarding import EventForwardingBehavior
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.interfaces import ISender

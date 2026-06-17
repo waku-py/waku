@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
     from waku.eventsourcing.contracts.event import StoredEvent
     from waku.eventsourcing.projection.checkpoint import Checkpoint
-    from waku.messaging.contracts.event import IEvent
+    from waku.messages import IEvent
 
 __all__ = [
     'ErrorPolicy',

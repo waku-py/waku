@@ -14,7 +14,7 @@ from waku.eventsourcing.exceptions import AggregateNotFoundError
 from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Dishka needs runtime access
 
 if TYPE_CHECKING:
-    from waku.messaging.contracts.event import IEvent
+    from waku.messages import IEvent
 
 __all__ = ['EventSourcedRepository']
 

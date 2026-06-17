@@ -13,11 +13,11 @@ from typing_extensions import override
 from waku.di import scoped
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.forwarding import ForwardDescriptor, forward
-from waku.eventsourcing.handler import EventSourcedVoidCommandHandler
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
 from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
+from waku.integrations.eventsourcing_messaging import EventSourcedVoidCommandHandler, EventSourcingMessagingModule
 from waku.messaging import (
     EventHandler,
     IMessageBus,
@@ -159,7 +159,11 @@ async def _forwarding_app(
     )
 
     @module(
-        imports=[EventSourcingModule.register(es_config), MessagingModule.register(msg_config)],
+        imports=[
+            EventSourcingModule.register(es_config),
+            EventSourcingMessagingModule.register(),
+            MessagingModule.register(msg_config),
+        ],
         extensions=[es_ext, msg_ext],
     )
     class _AppModule:

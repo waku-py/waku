@@ -2,6 +2,7 @@ from waku import module
 from waku.messaging import MessagingExtension, MessagingModule
 from waku.eventsourcing import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
+from waku.integrations.eventsourcing_messaging import EventSourcingMessagingModule
 
 from app.commands import (
     DepositCommand,
@@ -30,6 +31,7 @@ class BankModule:
     imports=[
         BankModule,
         EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore)),
+        EventSourcingMessagingModule.register(),
         MessagingModule.register(),
     ],
 )

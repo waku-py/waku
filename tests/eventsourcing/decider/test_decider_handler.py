@@ -19,8 +19,8 @@ if TYPE_CHECKING:
 from typing_extensions import override
 
 from waku.eventsourcing.contracts.stream import StreamId
-from waku.eventsourcing.decider.handler import DeciderCommandHandler, DeciderVoidCommandHandler
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, EventSourcingError
+from waku.integrations.eventsourcing_messaging import DeciderCommandHandler, DeciderVoidCommandHandler
 from waku.messaging.contracts.request import IRequest
 
 from tests.eventsourcing.domain import CounterState, Increment, Incremented

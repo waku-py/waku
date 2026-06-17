@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from waku.eventsourcing.contracts.stream import StreamId
-    from waku.messaging.contracts.event import IEvent
+    from waku.messages import IEvent
 
 DataT = TypeVar('DataT', bound='IEvent', default='IEvent')
 

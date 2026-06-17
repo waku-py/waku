@@ -10,7 +10,7 @@ from waku.eventsourcing.exceptions import (
 )
 
 if TYPE_CHECKING:
-    from waku.messaging.contracts.event import IEvent
+    from waku.messages import IEvent
 
 __all__ = ['EventTypeRegistry']
 

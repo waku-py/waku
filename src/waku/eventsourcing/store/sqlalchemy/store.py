@@ -40,7 +40,7 @@ from waku.eventsourcing.upcasting.chain import UpcasterChain  # noqa: TC001  # D
 if TYPE_CHECKING:
     from waku.eventsourcing.contracts.event import EventEnvelope
     from waku.eventsourcing.contracts.stream import ExpectedVersion
-    from waku.messaging.contracts.event import IEvent
+    from waku.messages import IEvent
 
 __all__ = [
     'SqlAlchemyEventStore',

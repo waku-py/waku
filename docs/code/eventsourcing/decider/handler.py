@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing_extensions import override
 
 from waku.messaging import IRequest
-from waku.eventsourcing import DeciderCommandHandler
+from waku.integrations.eventsourcing_messaging import DeciderCommandHandler
 
 from app.decider import BankCommand, BankEvent, OpenAccount
 from app.state import BankAccountState

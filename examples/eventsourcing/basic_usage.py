@@ -20,13 +20,13 @@ from typing_extensions import override
 from waku import WakuFactory, module
 from waku.eventsourcing import (
     EventSourcedAggregate,
-    EventSourcedCommandHandler,
     EventSourcedRepository,
     EventSourcingConfig,
     EventSourcingExtension,
     EventSourcingModule,
 )
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
+from waku.integrations.eventsourcing_messaging import EventSourcedCommandHandler, EventSourcingMessagingModule
 from waku.messaging import (
     EventHandler,
     IEvent,
@@ -201,6 +201,7 @@ class BankModule:
     imports=[
         BankModule,
         EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore)),
+        EventSourcingMessagingModule.register(),
         MessagingModule.register(),
     ],
 )

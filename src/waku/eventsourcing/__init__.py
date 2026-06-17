@@ -10,9 +10,7 @@ from waku.eventsourcing.contracts.stream import (
     StreamPosition,
 )
 from waku.eventsourcing.decider import (
-    DeciderCommandHandler,
     DeciderRepository,
-    DeciderVoidCommandHandler,
     SnapshotDeciderRepository,
 )
 from waku.eventsourcing.exceptions import (
@@ -29,7 +27,6 @@ from waku.eventsourcing.exceptions import (
     StreamTooLargeError,
     UnknownEventTypeError,
 )
-from waku.eventsourcing.handler import EventSourcedCommandHandler, EventSourcedVoidCommandHandler
 from waku.eventsourcing.modules import (
     EventSourcingConfig,
     EventSourcingExtension,
@@ -65,17 +62,13 @@ __all__ = [
     'CommandT',
     'ConcurrencyConflictError',
     'DataT',
-    'DeciderCommandHandler',
     'DeciderRepository',
-    'DeciderVoidCommandHandler',
     'DuplicateIdempotencyKeyError',
     'ErrorPolicy',
     'EventEnvelope',
     'EventMetadata',
     'EventSourcedAggregate',
-    'EventSourcedCommandHandler',
     'EventSourcedRepository',
-    'EventSourcedVoidCommandHandler',
     'EventSourcingConfig',
     'EventSourcingError',
     'EventSourcingExtension',

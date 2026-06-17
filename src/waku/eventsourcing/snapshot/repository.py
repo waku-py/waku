@@ -17,7 +17,7 @@ from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Di
 
 if TYPE_CHECKING:
     from waku.eventsourcing.snapshot.interfaces import Snapshot
-    from waku.messaging.contracts.event import IEvent
+    from waku.messages import IEvent
 
 __all__ = ['SnapshotEventSourcedRepository']
 

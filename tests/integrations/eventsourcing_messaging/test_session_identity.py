@@ -12,7 +12,8 @@ from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.eventsourcing.store.sqlalchemy.store import SqlAlchemyEventStore, make_sqlalchemy_event_store
 from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
-from waku.messaging.exceptions import ImproperlyConfiguredError
+from waku.exceptions import ImproperlyConfiguredError
+from waku.integrations.eventsourcing_messaging import EventSourcingMessagingModule
 from waku.messaging.sqla.uow import SqlAlchemyUnitOfWork, shared_session
 from waku.modules import DynamicModule
 from waku.testing import create_test_app
@@ -24,14 +25,26 @@ def _fake_session() -> AsyncSession:
     return cast('AsyncSession', object())
 
 
-def _sqla_es_module() -> DynamicModule:
+def _sqla_es_imports() -> list[DynamicModule]:
+    # Atomic append+forward requires the event store and UoW to share one session; the integration
+    # module contributes that check, so it is composed alongside the ES module.
     tables = bind_event_store_tables(MetaData())
-    return EventSourcingModule.register(EventSourcingConfig(store=make_sqlalchemy_event_store(tables)))
+    return [
+        EventSourcingModule.register(EventSourcingConfig(store=make_sqlalchemy_event_store(tables))),
+        EventSourcingMessagingModule.register(),
+    ]
+
+
+def _in_memory_es_imports() -> list[DynamicModule]:
+    return [
+        EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore)),
+        EventSourcingMessagingModule.register(),
+    ]
 
 
 async def test_event_store_and_uow_sharing_one_session_boots() -> None:
     async with (
-        create_test_app(imports=[_sqla_es_module()], providers=[*shared_session(_fake_session)]) as app,
+        create_test_app(imports=_sqla_es_imports(), providers=[*shared_session(_fake_session)]) as app,
         app.container() as scope,
     ):
         store = await scope.get(IEventStore)
@@ -45,7 +58,7 @@ async def test_split_sessions_raise_at_startup() -> None:
     rogue_session = cast('AsyncSession', object())
     with pytest.raises(ImproperlyConfiguredError, match='different sessions'):
         async with create_test_app(
-            imports=[_sqla_es_module()],
+            imports=_sqla_es_imports(),
             providers=[
                 scoped(AsyncSession, _fake_session),
                 object_(SqlAlchemyUnitOfWork(rogue_session), provided_type=IUnitOfWork),
@@ -57,7 +70,7 @@ async def test_split_sessions_raise_at_startup() -> None:
 async def test_non_sqla_store_skips_identity_check() -> None:
     # InMemoryEventStore exposes no session -> identity cannot be proven -> no-op (no spurious raise).
     async with create_test_app(
-        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
+        imports=_in_memory_es_imports(),
         providers=[*shared_session(_fake_session)],
     ):
         pass
@@ -65,9 +78,7 @@ async def test_non_sqla_store_skips_identity_check() -> None:
 
 async def test_no_unit_of_work_skips_identity_check() -> None:
     # Event Sourcing configured without a UoW -> nothing to validate identity against.
-    async with create_test_app(
-        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
-    ):
+    async with create_test_app(imports=_in_memory_es_imports()):
         pass
 
 
