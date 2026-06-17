@@ -10,6 +10,7 @@ import anyio
 from anyio import create_memory_object_stream
 from typing_extensions import override
 
+from waku.di import unit_of_work_scope
 from waku.messaging.circuit_breaker.breaker import CircuitBreaker
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.inbox._destination import handler_destination
@@ -18,7 +19,6 @@ from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxEntry
 from waku.messaging.partition import resolve_and_allocate
 from waku.messaging.transport.serialization import IEnvelopeSerializer
-from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -133,10 +133,9 @@ class DurableLocalQueueEndpoint(Endpoint):
         if not handler_types:
             return
 
-        async with self._container() as write_scope:
+        async with unit_of_work_scope(self._container) as write_scope:
             inbox = await write_scope.get(IInboxStore)
             serializer = await write_scope.get(IEnvelopeSerializer)
-            uow = await write_scope.get(IUnitOfWork)
             # Allocate ONCE per message: every per-handler row shares the message's position in the
             # partition. Per-handler ordering is then by (group_id, destination) head-of-queue.
             group_id, sequence_number = await resolve_and_allocate(envelope, self._partition_by, write_scope)
@@ -155,7 +154,6 @@ class DurableLocalQueueEndpoint(Endpoint):
                 )
                 if await inbox.store_incoming(entry):
                     fresh.add(handler_type)
-            await uow.commit()
 
         if not fresh:
             logger.debug('Duplicate message discarded for all handlers: message_id=%s', envelope.message_id)

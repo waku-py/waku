@@ -20,6 +20,7 @@ from waku.eventsourcing.exceptions import (
     UpcasterChainError,
 )
 from waku.eventsourcing.forwarding import AppendedEventsCollector, ForwardingRegistry, IAppendedEvents
+from waku.eventsourcing.forwarding_policy import ForwardingPolicy
 from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
 from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, ICheckpointStore, IProjection
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
@@ -31,13 +32,14 @@ from waku.eventsourcing.snapshot.migration import SnapshotMigrationChain
 from waku.eventsourcing.snapshot.registry import SnapshotConfig, SnapshotConfigRegistry
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.eventsourcing.upcasting.chain import UpcasterChain
-from waku.extensions import AfterApplicationInit, OnModuleConfigure, OnModuleRegistration
+from waku.extensions import AfterApplicationInit, OnModuleConfigure, RegistryAggregator
 from waku.messaging.exceptions import ImproperlyConfiguredError
+from waku.messaging.pipeline.policy import BehaviorPolicyExtension
 from waku.modules import DynamicModule, ModuleMetadataRegistry, module
 from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Mapping, Sequence
+    from collections.abc import Callable, Iterator, Sequence
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -221,6 +223,7 @@ class EventSourcingModule:
             extensions=[
                 EventSourcingRegistryAggregator(has_serializer=config.event_serializer is not None),
                 _StoreSessionIdentityExtension(),
+                BehaviorPolicyExtension(ForwardingPolicy()),
             ],
             is_global=True,
         )
@@ -341,30 +344,44 @@ class EventSourcingExtension(OnModuleConfigure):
         return IDecider  # pragma: no cover
 
 
-class EventSourcingRegistryAggregator(OnModuleRegistration):
+class EventSourcingRegistryAggregator(RegistryAggregator['EventSourcingExtension', EventSourcingRegistry]):
     def __init__(self, *, has_serializer: bool = False) -> None:
         self._has_serializer = has_serializer
+        self._aggregate_names: defaultdict[str, list[str]] = defaultdict(list)
+        self._catch_up_bindings: list[CatchUpProjectionBinding] = []
 
     @override
-    def on_module_registration(
+    def _extension_type(self) -> type[EventSourcingExtension]:
+        return EventSourcingExtension
+
+    @override
+    def _new_registry(self) -> EventSourcingRegistry:
+        return EventSourcingRegistry()
+
+    @override
+    def _merge(
         self,
+        aggregated: EventSourcingRegistry,
+        ext: EventSourcingExtension,
+        module_type: ModuleType,
+    ) -> None:
+        aggregated.merge(ext.registry)
+        self._catch_up_bindings.extend(ext.catch_up_bindings)
+        for name, repo_type in ext.aggregate_names():
+            self._aggregate_names[name].append(repo_type.__qualname__)
+
+    @override
+    def _extension_providers(self, ext: EventSourcingExtension) -> Iterator[Provider]:
+        return ext.registry.handler_providers()
+
+    @override
+    def _finalize(
+        self,
+        aggregated: EventSourcingRegistry,
         registry: ModuleMetadataRegistry,
         owning_module: ModuleType,
-        context: Mapping[Any, Any] | None,
     ) -> None:
-        aggregated = EventSourcingRegistry()
-        all_aggregate_names: defaultdict[str, list[str]] = defaultdict(list)
-        all_catch_up_bindings: list[CatchUpProjectionBinding] = []
-
-        for module_type, ext in registry.find_extensions(EventSourcingExtension):
-            aggregated.merge(ext.registry)
-            all_catch_up_bindings.extend(ext.catch_up_bindings)
-            for provider in ext.registry.handler_providers():
-                registry.add_provider(module_type, provider)
-            for name, repo_type in ext.aggregate_names():
-                all_aggregate_names[name].append(repo_type.__qualname__)
-
-        for name, repo_names in all_aggregate_names.items():
+        for name, repo_names in self._aggregate_names.items():
             if len(repo_names) > 1:
                 raise DuplicateAggregateNameError(name, repo_names)
 
@@ -375,7 +392,7 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
         registry.add_provider(owning_module, object_(event_type_registry))
         registry.add_provider(owning_module, object_(upcaster_chain))
 
-        resolved_bindings = self._resolve_catch_up_bindings(all_catch_up_bindings, event_type_registry)
+        resolved_bindings = self._resolve_catch_up_bindings(self._catch_up_bindings, event_type_registry)
         registry.add_provider(
             owning_module,
             object_(CatchUpProjectionRegistry(resolved_bindings)),

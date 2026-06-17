@@ -158,7 +158,7 @@ async def test_publish_runs_per_handler_behavior_for_bound_event() -> None:
             return await call_next()
 
     class Handler(EventHandler[_SomeEvent]):
-        additional_behaviors = (ScopedBehavior,)
+        behaviors = (ScopedBehavior,)
 
         @override
         async def handle(self, event: _SomeEvent, /) -> None:
@@ -193,7 +193,7 @@ async def test_publish_runs_global_then_per_handler_behaviors() -> None:
             return await call_next()
 
     class Handler(EventHandler[_SomeEvent]):
-        additional_behaviors = (ScopedBehavior,)
+        behaviors = (ScopedBehavior,)
 
         @override
         async def handle(self, event: _SomeEvent, /) -> None:
@@ -226,7 +226,7 @@ async def test_publish_per_handler_behavior_does_not_run_for_other_event() -> No
             return await call_next()
 
     class SomeEventHandler(EventHandler[_SomeEvent]):
-        additional_behaviors = (ScopedBehavior,)
+        behaviors = (ScopedBehavior,)
 
         @override
         async def handle(self, event: _SomeEvent, /) -> None:  # pragma: no cover

@@ -9,17 +9,13 @@ from typing_extensions import override
 
 from waku.eventsourcing._retry import execute_with_optimistic_retry
 from waku.eventsourcing.contracts.aggregate import AggregateT
-from waku.eventsourcing.forwarding import EventForwardingBehavior, check_forwarding_preserved
 from waku.eventsourcing.repository import EventSourcedRepository  # noqa: TC001  # Dishka needs runtime access
 from waku.messaging.contracts.message import ResponseT
 from waku.messaging.contracts.request import RequestT
 from waku.messaging.handler import RequestHandler
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
     from contextlib import AbstractAsyncContextManager
-
-    from waku.messaging.contracts.pipeline import IPipelineBehavior
 
 __all__ = ['EventSourcedCommandHandler', 'EventSourcedVoidCommandHandler']
 
@@ -32,18 +28,12 @@ class EventSourcedCommandHandler(
     Generic[RequestT, AggregateT, ResponseT],
 ):
     max_attempts: ClassVar[int] = 3
-    # Framework-applied: forward appended events to the outbox post-commit (M2e). Subclasses that set
-    # their own additional_behaviors must unpack (*EventSourcedCommandHandler.additional_behaviors, ...)
-    # to keep forwarding active (enforced by __init_subclass__). The explicit ClassVar annotation keeps
-    # the type wide so subclass overrides type-check.
-    additional_behaviors: ClassVar[Sequence[type[IPipelineBehavior[Any, Any]]]] = (EventForwardingBehavior,)
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
         if 'max_attempts' in cls.__dict__ and cls.max_attempts < 1:
             msg = f'{cls.__name__}.max_attempts must be >= 1, got {cls.max_attempts}'
             raise ValueError(msg)
-        check_forwarding_preserved(cls)
 
     def __init__(
         self,

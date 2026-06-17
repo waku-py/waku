@@ -53,7 +53,7 @@ async def _make_endpoint(
     handler: type[EventHandler[_OrderPlaced]],
 ) -> LocalQueueEndpoint:
     type_registry = await app.container.get(MessageTypeRegistry)
-    invoker = HandlerPipelineInvoker()
+    invoker = await app.container.get(HandlerPipelineInvoker)
     executor = EndpointExecutor(
         container=app.container,
         evaluator=NOOP_EVALUATOR,

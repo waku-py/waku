@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING
 import anyio
 
 from waku._internal.adaptive_interval import AdaptiveInterval
+from waku.di import unit_of_work_scope
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.errors.replay import ReplayExecutor
-from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from dishka import AsyncContainer
@@ -98,16 +98,14 @@ class DeadLetterWorker:
                 await self._shutdown_event.wait()
 
     async def _replay_batch(self) -> int:
-        async with self._container() as scope:
+        async with unit_of_work_scope(self._container) as scope:
             store = await scope.get(IDeadLetterStore)
-            uow = await scope.get(IUnitOfWork)
             replayer = await scope.get(ReplayExecutor)
             entries = await store.claim_replayable(self._config.batch_size, self._config.max_replay_count)
             replayed = 0
             for entry in entries:
                 if await replayer.replay(entry):
                     replayed += 1
-            await uow.commit()
         return replayed
 
     async def _maybe_cleanup(self) -> None:
@@ -117,10 +115,8 @@ class DeadLetterWorker:
         if now - self._last_cleanup < self._config.cleanup_interval.total_seconds():
             return
         self._last_cleanup = now
-        async with self._container() as scope:
+        async with unit_of_work_scope(self._container) as scope:
             store = await scope.get(IDeadLetterStore)
-            uow = await scope.get(IUnitOfWork)
             purged = await store.purge(datetime.now(tz=UTC) - self._config.retention)
-            await uow.commit()
         if purged > 0:
             logger.info('Purged %d dead letters older than retention', purged)

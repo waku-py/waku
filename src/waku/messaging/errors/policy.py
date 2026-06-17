@@ -12,13 +12,19 @@ from waku.messaging._escalation import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
 __all__ = [
     'ErrorPolicy',
     'RetryAction',
     'RetryStage',
+    'policies_need_dead_letter',
 ]
+
+
+def policies_need_dead_letter(policies: Sequence[ErrorPolicy]) -> bool:
+    """True if any policy escalates to the dead-letter queue (has a DEAD_LETTER stage)."""
+    return any(stage.action is RetryAction.DEAD_LETTER for policy in policies for stage in policy.stages)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

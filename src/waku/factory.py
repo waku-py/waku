@@ -15,6 +15,7 @@ from waku.extensions import (
     ExtensionRegistry,
     OnApplicationInit,
     OnApplicationShutdown,
+    OnContainerBuilt,
 )
 from waku.modules import ModuleRegistryBuilder
 
@@ -81,7 +82,10 @@ class WakuFactory:
         for module in modules:
             for module_extension in module.extensions:
                 extension_registry.register_module_extension(module.target, module_extension)
-                if isinstance(module_extension, (OnApplicationInit, AfterApplicationInit, OnApplicationShutdown)):
+                if isinstance(
+                    module_extension,
+                    (OnApplicationInit, OnContainerBuilt, AfterApplicationInit, OnApplicationShutdown),
+                ):
                     extension_registry.register_application_extension(module_extension)
         return extension_registry
 

@@ -167,7 +167,7 @@ async def test_multi_module_pipeline_behaviors_all_resolved() -> None:
             return await call_next()
 
     class ValidatingHandler(ProcessOrderHandler):
-        additional_behaviors = (RequestValidationBehavior,)
+        behaviors = (RequestValidationBehavior,)
 
     @module(
         extensions=[
@@ -273,13 +273,13 @@ async def test_behavior_shared_across_modules_registers_once() -> None:
         pass
 
     class HandlerOne(EventHandler[EventOne]):
-        additional_behaviors = (SharedBehavior,)
+        behaviors = (SharedBehavior,)
 
         @override
         async def handle(self, event: EventOne, /) -> None: ...
 
     class HandlerTwo(EventHandler[EventTwo]):
-        additional_behaviors = (SharedBehavior,)
+        behaviors = (SharedBehavior,)
 
         @override
         async def handle(self, event: EventTwo, /) -> None: ...

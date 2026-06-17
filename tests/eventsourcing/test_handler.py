@@ -8,13 +8,11 @@ from typing_extensions import override
 
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, EventSourcingError
-from waku.eventsourcing.forwarding import EventForwardingBehavior
 from waku.eventsourcing.handler import EventSourcedVoidCommandHandler
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.messaging import IRequest, MessagingExtension, MessagingModule
-from waku.messaging.exceptions import ImproperlyConfiguredError
 from waku.messaging.interfaces import IMessageBus
 from waku.modules import module
 from waku.testing import create_test_app
@@ -248,30 +246,6 @@ def test_max_attempts_zero_raises_value_error() -> None:
         # noinspection PyUnusedLocal
         class ZeroAttemptHandler(EditNoteHandler):
             max_attempts = 0
-
-
-def test_overriding_additional_behaviors_without_forwarding_raises() -> None:
-    with pytest.raises(ImproperlyConfiguredError, match='disables event forwarding'):
-        # noinspection PyUnusedLocal
-        class ForwardingDroppedHandler(EditNoteHandler):
-            additional_behaviors = ()
-
-
-def test_overriding_additional_behaviors_preserving_forwarding_is_allowed() -> None:
-    # noinspection PyUnusedLocal
-    class ForwardingKeptHandler(EditNoteHandler):
-        additional_behaviors = (*EditNoteHandler.additional_behaviors,)
-
-    assert EventForwardingBehavior in ForwardingKeptHandler.additional_behaviors
-
-
-def test_subclass_not_redeclaring_additional_behaviors_inherits_forwarding() -> None:
-    # The guard checks own-class declarations only — a subclass that does not redeclare inherits
-    # forwarding and must not trip the guard.
-    class PlainEditHandler(EditNoteHandler):
-        max_attempts = 2
-
-    assert EventForwardingBehavior in PlainEditHandler.additional_behaviors
 
 
 class EditNoteWithContextHandler(EventSourcedVoidCommandHandler[EditNote, Note]):

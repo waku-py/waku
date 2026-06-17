@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from waku.di import is_registered
+from waku.di import is_registered, unit_of_work_scope
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
@@ -15,7 +15,6 @@ from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.messaging.registry import MessageRegistry
 from waku.messaging.transport.serialization import IEnvelopeSerializer
-from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -81,11 +80,9 @@ class InboxDrainer:
         self._max_attempts = max_attempts
 
     async def drain_once(self) -> int:
-        async with self._container() as scope:
+        async with unit_of_work_scope(self._container) as scope:
             inbox = await scope.get(IInboxStore)
-            uow = await scope.get(IUnitOfWork)
             entries = await inbox.fetch_pending_partitioned(self._batch_size, self._owner_id)
-            await uow.commit()
         processed = 0
         for entry in entries:
             try:
@@ -118,9 +115,8 @@ class InboxDrainer:
 
     async def _handle_poison(self, entry: InboxEntry, reason: str) -> None:
         attempt = entry.attempts + 1
-        async with self._container() as scope:
+        async with unit_of_work_scope(self._container) as scope:
             inbox = await scope.get(IInboxStore)
-            uow = await scope.get(IUnitOfWork)
             if attempt >= self._max_attempts:
                 if await is_registered(scope, IDeadLetterStore):
                     store = await scope.get(IDeadLetterStore)
@@ -144,7 +140,6 @@ class InboxDrainer:
                     self._max_attempts,
                     reason,
                 )
-            await uow.commit()
 
 
 async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) -> InboxDrainer:

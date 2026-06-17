@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, assert_never
 import anyio
 
 from waku._internal.adaptive_interval import AdaptiveInterval
+from waku.di import unit_of_work_scope
 from waku.messaging._escalation import RetryAction
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.outbox.interfaces import IOutboxStore
@@ -142,11 +143,9 @@ class OutboxRelay:
         if now - self._last_recovery < self._config.recovery_interval.total_seconds():
             return
         self._last_recovery = now
-        async with self._container() as scope:
+        async with unit_of_work_scope(self._container) as scope:
             store = await scope.get(IOutboxStore)
-            uow = await scope.get(IUnitOfWork)
             recovered = await store.recover_stuck(self._config.stuck_threshold)
-            await uow.commit()
         if recovered > 0:
             logger.info('Recovered %d stuck messages', recovered)
 

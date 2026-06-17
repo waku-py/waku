@@ -16,15 +16,18 @@ from waku.messaging.inbox.models import InboxEntry, InboxStatus
 from waku.messaging.interfaces import IMessageBus, IPublisher, ISender
 from waku.messaging.modules import MessagingExtension, MessagingModule
 from waku.messaging.outgoing import IOutgoingMessages
+from waku.messaging.pipeline.policy import BehaviorPolicyExtension, IBehaviorPolicy, Position, PositionedBehavior
 from waku.messaging.router import route, route_module
 
 __all__ = [
+    'BehaviorPolicyExtension',
     'CallNext',
     'CircuitBreakerConfig',
     'DeadLetterConfig',
     'EndpointMode',
     'EventHandler',
     'ExecutionOutcome',
+    'IBehaviorPolicy',
     'IEvent',
     'IInboxStore',
     'IMessage',
@@ -45,6 +48,8 @@ __all__ = [
     'MessagingExtension',
     'MessagingModule',
     'OutboxConfig',
+    'Position',
+    'PositionedBehavior',
     'RequestHandler',
     'RequestT',
     'ResponseT',

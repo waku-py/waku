@@ -23,8 +23,8 @@ class MessageHandler(abc.ABC, Generic[MessageT, ResponseT]):
     error_policies: ClassVar[Sequence[ErrorPolicy]] = ()
     """OVERRIDE: shadow `default_error_policies` per-exception. Inherits via MRO (declaring replaces wholesale; extend via `(*Parent.error_policies, ...)`)."""
 
-    additional_behaviors: ClassVar[Sequence[type[IPipelineBehavior[Any, Any]]]] = ()
-    """COMPOSE: `global_pipeline_behaviors` wrap (outer); these run inner. Inherits via MRO."""
+    behaviors: ClassVar[Sequence[type[IPipelineBehavior[Any, Any]]]] = ()
+    """COMPOSE: framework + user-global behaviors wrap (outer); these run at the HANDLER_LOCAL tier (inner). Inherits via MRO."""
 
     @abc.abstractmethod
     async def handle(self, message: MessageT, /) -> ResponseT:

@@ -98,7 +98,7 @@ async def _make_executor(
     uri: str = 'test://q',
 ) -> EndpointExecutor:
     type_registry = await app.container.get(MessageTypeRegistry)
-    invoker = HandlerPipelineInvoker()
+    invoker = await app.container.get(HandlerPipelineInvoker)
     return EndpointExecutor(
         container=app.container,
         evaluator=evaluator,

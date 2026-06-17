@@ -399,7 +399,7 @@ class _RecordingBehavior(IPipelineBehavior[Any, Any]):
 
 class _BehaviorHandler(EventHandler[_OrderPlaced]):
     handled: ClassVar[list[str]] = []
-    additional_behaviors = (_RecordingBehavior,)
+    behaviors = (_RecordingBehavior,)
 
     @override
     async def handle(self, event: _OrderPlaced, /) -> None:

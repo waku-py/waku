@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any, Protocol
 from typing_extensions import override
 
 from waku.messaging.contracts.pipeline import IPipelineBehavior
-from waku.messaging.exceptions import ImproperlyConfiguredError
 
 # Runtime imports: these are DI-injected into EventForwardingBehavior.__init__, which dishka
 # introspects via get_type_hints at container-build time — they must resolve at runtime.
@@ -185,24 +184,3 @@ class EventForwardingBehavior(IPipelineBehavior[Any, Any]):
             await self._sender.invoke(forwarded)
         elif self._router.resolve(type(forwarded)):
             self._outgoing.publish(forwarded)
-
-
-def check_forwarding_preserved(handler_type: type, /) -> None:
-    """Fail fast if a subclass overrides ``additional_behaviors`` and drops ``EventForwardingBehavior``.
-
-    Option A wires forwarding via the ES command-handler bases' ``additional_behaviors`` ClassVar; a
-    subclass that redeclares it without the behavior would silently lose forwarding. Checked at
-    class-definition time (own-class declaration only — inherited tuples are fine).
-
-    Raises:
-        ImproperlyConfiguredError: If the class declares ``additional_behaviors`` without
-            ``EventForwardingBehavior``.
-    """
-    own = handler_type.__dict__.get('additional_behaviors')
-    if own is not None and EventForwardingBehavior not in own:
-        msg = (
-            f'{handler_type.__name__} overrides additional_behaviors without EventForwardingBehavior, '
-            f'which disables event forwarding. Extend the base instead, e.g. '
-            f'additional_behaviors = (*<BaseHandler>.additional_behaviors, ...).'
-        )
-        raise ImproperlyConfiguredError(msg)

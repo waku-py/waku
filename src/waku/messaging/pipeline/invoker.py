@@ -1,11 +1,13 @@
-from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from waku.di import AsyncContainer
 from waku.messaging.contracts.handler import HandlerType
 from waku.messaging.contracts.message import IMessage
-from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.pipeline.executor import PipelineExecutor
+from waku.messaging.pipeline.policy import BehaviorPlan
+
+if TYPE_CHECKING:
+    from waku.messaging.contracts.pipeline import IPipelineBehavior
 
 __all__ = [
     'HandlerPipelineInvoker',
@@ -13,7 +15,10 @@ __all__ = [
 
 
 class HandlerPipelineInvoker:
-    __slots__ = ()
+    __slots__ = ('_plan',)
+
+    def __init__(self, plan: BehaviorPlan) -> None:
+        self._plan = plan
 
     async def invoke(
         self,
@@ -22,20 +27,6 @@ class HandlerPipelineInvoker:
         handler_type: HandlerType,
     ) -> Any:
         handler = await scope.get(handler_type)
-        behaviors = await self._resolve_behaviors(scope, handler_type)
+        behavior_types = self._plan.for_handler(handler_type)
+        behaviors: list[IPipelineBehavior[Any, Any]] = [await scope.get(bt) for bt in behavior_types]
         return await PipelineExecutor.execute(message=message, handler=handler, behaviors=behaviors)
-
-    @staticmethod
-    async def _resolve_behaviors(
-        scope: AsyncContainer,
-        handler_type: HandlerType,
-    ) -> Sequence[IPipelineBehavior[Any, Any]]:
-        # The collection is always registered by MessagingModule (it carries the
-        # auto-registered CascadingBehavior at index 0), so it resolves unconditionally.
-        global_behaviors = await scope.get(Sequence[IPipelineBehavior[Any, Any]])
-
-        # Per-handler behaviors from the ClassVar (direct access -> MRO inheritance).
-        per_handler = [await scope.get(behavior_type) for behavior_type in handler_type.additional_behaviors]
-
-        # global (incl. CascadingBehavior, outer) -> per-handler inner -> handler
-        return (*global_behaviors, *per_handler)

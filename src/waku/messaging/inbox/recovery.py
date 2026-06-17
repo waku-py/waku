@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import anyio
 
+from waku.di import unit_of_work_scope
 from waku.messaging.inbox.interfaces import IInboxStore
-from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from dishka import AsyncContainer
@@ -81,14 +81,12 @@ class InboxRecoveryWorker:
                 await self._shutdown_event.wait()
 
     async def _tick(self) -> None:
-        async with self._container() as scope:
+        async with unit_of_work_scope(self._container) as scope:
             store = await scope.get(IInboxStore)
-            uow = await scope.get(IUnitOfWork)
             recovered = await store.recover_stale(self._config.stale_threshold)
             # Per-pod cleanup is idempotent (set-DELETE over status/keep_until); races between pods
             # harmlessly delete the same already-expired rows.
             cleaned = await store.cleanup_handled(datetime.now(tz=UTC))
-            await uow.commit()
         if recovered > 0:
             logger.info('Recovered %d stale inbox entries', recovered)
         if cleaned > 0:

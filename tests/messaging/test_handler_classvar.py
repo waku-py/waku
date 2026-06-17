@@ -80,19 +80,19 @@ class TestErrorPoliciesClassVar:
         assert Child.error_policies == (parent_policy, extra_policy)
 
 
-class TestAdditionalBehaviorsClassVar:
+class TestBehaviorsClassVar:
     @staticmethod
     def test_default_is_empty() -> None:
         class H(EventHandler[_Evt]):
             async def handle(self, message: _Evt) -> None: ...
 
-        assert H.additional_behaviors == ()
+        assert H.behaviors == ()
 
     @staticmethod
     def test_declared_behaviors_readable_directly() -> None:
         class H(EventHandler[_Evt]):
-            additional_behaviors = (TransactionalBehavior,)
+            behaviors = (TransactionalBehavior,)
 
             async def handle(self, message: _Evt) -> None: ...
 
-        assert H.additional_behaviors == (TransactionalBehavior,)
+        assert H.behaviors == (TransactionalBehavior,)

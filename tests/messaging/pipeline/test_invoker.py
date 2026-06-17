@@ -18,6 +18,7 @@ from waku.messaging import (
 )
 from waku.messaging.behaviors.cascading import CascadingBehavior
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
+from waku.messaging.pipeline.policy import BehaviorPlan
 from waku.testing import create_test_app
 
 
@@ -53,7 +54,7 @@ async def test_invoke_without_behaviors_runs_only_handler() -> None:
         ) as app,
         app.container() as scope,
     ):
-        invoker = HandlerPipelineInvoker()
+        invoker = await app.container.get(HandlerPipelineInvoker)
         await invoker.invoke(scope, _Evt(value='x'), _H)
 
     assert called == ['handle']
@@ -65,7 +66,7 @@ async def test_global_outer_then_per_handler_inner_then_handle() -> None:
     per_b = _make_tracking_behavior('per-handler', called)
 
     class _H(EventHandler[_Evt]):
-        additional_behaviors = (per_b,)
+        behaviors = (per_b,)
 
         @override
         async def handle(self, message: _Evt, /) -> None:
@@ -78,13 +79,13 @@ async def test_global_outer_then_per_handler_inner_then_handle() -> None:
         ) as app,
         app.container() as scope,
     ):
-        invoker = HandlerPipelineInvoker()
+        invoker = await app.container.get(HandlerPipelineInvoker)
         await invoker.invoke(scope, _Evt(value='x'), _H)
 
     assert called == ['global', 'per-handler', 'handle']
 
 
-async def test_handler_without_additional_behaviors_uses_only_global() -> None:
+async def test_handler_without_behaviors_uses_only_global() -> None:
     called: list[str] = []
     global_b = _make_tracking_behavior('global', called)
 
@@ -100,7 +101,7 @@ async def test_handler_without_additional_behaviors_uses_only_global() -> None:
         ) as app,
         app.container() as scope,
     ):
-        invoker = HandlerPipelineInvoker()
+        invoker = await app.container.get(HandlerPipelineInvoker)
         await invoker.invoke(scope, _Evt(value='x'), _Bare)
 
     assert called == ['global', 'handle']
@@ -115,17 +116,15 @@ async def test_cascading_behavior_is_outermost_in_resolved_chain() -> None:
         @override
         async def handle(self, message: _Evt, /) -> None: ...
 
-    async with (
-        create_test_app(
-            imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[global_b]))],
-            extensions=[MessagingExtension().bind(_Evt, _H)],
-        ) as app,
-        app.container() as scope,
-    ):
-        behaviors = await HandlerPipelineInvoker._resolve_behaviors(scope, _H)  # noqa: SLF001
+    async with create_test_app(
+        imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[global_b]))],
+        extensions=[MessagingExtension().bind(_Evt, _H)],
+    ) as app:
+        plan = await app.container.get(BehaviorPlan)
 
-    assert isinstance(behaviors[0], CascadingBehavior)
-    assert isinstance(behaviors[1], global_b)
+    chain = plan.for_handler(_H)
+    assert chain[0] is CascadingBehavior
+    assert chain[1] is global_b
 
 
 async def test_two_handlers_of_same_event_have_independent_chains() -> None:
@@ -133,7 +132,7 @@ async def test_two_handlers_of_same_event_have_independent_chains() -> None:
     per_a = _make_tracking_behavior('a-behavior', called)
 
     class _HandlerA(EventHandler[_Evt]):
-        additional_behaviors = (per_a,)
+        behaviors = (per_a,)
 
         @override
         async def handle(self, message: _Evt, /) -> None:
@@ -151,7 +150,7 @@ async def test_two_handlers_of_same_event_have_independent_chains() -> None:
         ) as app,
         app.container() as scope,
     ):
-        invoker = HandlerPipelineInvoker()
+        invoker = await app.container.get(HandlerPipelineInvoker)
         await invoker.invoke(scope, _Evt(value='x'), _HandlerA)
         await invoker.invoke(scope, _Evt(value='x'), _HandlerB)
 

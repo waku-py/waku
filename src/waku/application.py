@@ -9,6 +9,7 @@ from waku.extensions import (
     ExtensionRegistry,
     OnApplicationInit,
     OnApplicationShutdown,
+    OnContainerBuilt,
     OnModuleDestroy,
     OnModuleInit,
 )
@@ -57,6 +58,7 @@ class WakuApplication:
         if self._initialized:
             return
         await self._call_on_init_extensions()
+        await self._call_on_container_built_extensions()
         self._initialized = True
         await self._call_after_init_extensions()
 
@@ -99,6 +101,10 @@ class WakuApplication:
 
         for app_ext in self._extension_registry.get_application_extensions(OnApplicationInit):
             await app_ext.on_app_init(self)
+
+    async def _call_on_container_built_extensions(self) -> None:
+        for extension in self._extension_registry.get_application_extensions(OnContainerBuilt):
+            await extension.on_container_built(self)
 
     async def _call_after_init_extensions(self) -> None:
         for extension in self._extension_registry.get_application_extensions(AfterApplicationInit):

@@ -28,6 +28,7 @@ from waku.di._providers import (
     scoped,
     singleton,
     transient,
+    unit_of_work_scope,
 )
 
 __all__ = [
@@ -57,4 +58,5 @@ __all__ = [
     'scoped',
     'singleton',
     'transient',
+    'unit_of_work_scope',
 ]

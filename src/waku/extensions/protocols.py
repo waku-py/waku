@@ -16,6 +16,7 @@ __all__ = [
     'ModuleExtension',
     'OnApplicationInit',
     'OnApplicationShutdown',
+    'OnContainerBuilt',
     'OnModuleConfigure',
     'OnModuleDestroy',
     'OnModuleInit',
@@ -30,6 +31,19 @@ class OnApplicationInit(Protocol):
     __slots__ = ()
 
     async def on_app_init(self, app: WakuApplication) -> None: ...
+
+
+@runtime_checkable
+class OnContainerBuilt(Protocol):
+    """Extension hook fired after the DI container is built and before ``AfterApplicationInit``.
+
+    Use for fail-fast validation that needs container introspection (e.g. ``is_registered``) but must
+    run before side-effecting worker startup. Runs once, in application-extension order.
+    """
+
+    __slots__ = ()
+
+    async def on_container_built(self, app: WakuApplication) -> None: ...
 
 
 @runtime_checkable
@@ -121,13 +135,14 @@ class OnModuleDestroy(Protocol):
 
 
 ApplicationExtension: TypeAlias = (
-    OnApplicationInit | AfterApplicationInit | OnApplicationShutdown | OnModuleRegistration
+    OnApplicationInit | OnContainerBuilt | AfterApplicationInit | OnApplicationShutdown | OnModuleRegistration
 )
 ModuleExtension: TypeAlias = (
     OnModuleConfigure
     | OnModuleInit
     | OnModuleDestroy
     | OnModuleRegistration
+    | OnContainerBuilt
     | AfterApplicationInit
     | OnApplicationShutdown
 )

@@ -1,4 +1,4 @@
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Sequence
 from typing import TYPE_CHECKING, Any, Self, TypeAlias, TypeVar, assert_never, overload
 
 from typing_extensions import override
@@ -9,7 +9,6 @@ from waku.di import (
     Provider,
     WithParents,
     is_registered,
-    many,
     object_,
     scoped,
     singleton,
@@ -19,11 +18,10 @@ from waku.extensions import (
     AfterApplicationInit,
     ModuleExtension,
     OnApplicationShutdown,
+    OnContainerBuilt,
     OnModuleConfigure,
-    OnModuleRegistration,
+    RegistryAggregator,
 )
-from waku.messaging.behaviors.cascading import CascadingBehavior
-from waku.messaging.behaviors.outbox_cascading import DeferredCascadingBehavior, OutboxCascadingBehavior
 from waku.messaging.behaviors.transactional import TransactionalBehavior, _TransactionDepth
 from waku.messaging.config import DeadLetterConfig, MessagingConfig
 from waku.messaging.context import MessageContext, get_message_context
@@ -40,7 +38,7 @@ from waku.messaging.endpoints.inline import InlineEndpoint
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
-from waku.messaging.errors.policy import ErrorPolicy, RetryAction
+from waku.messaging.errors.policy import policies_need_dead_letter
 from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.errors.worker import DeadLetterWorker
@@ -57,6 +55,16 @@ from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig, build_re
 from waku.messaging.outgoing import IOutgoingMessages, IOutgoingMessagesFrames, OutgoingMessages
 from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
+from waku.messaging.pipeline.policies import (
+    CascadingPolicy,
+    DeferredCascadingPolicy,
+    HandlerLocalPolicy,
+    OutboxDrainPolicy,
+    TransactionalPolicy,
+    UserGlobalPolicy,
+    _config_requires_uow,
+)
+from waku.messaging.pipeline.policy import BehaviorPlan, BehaviorPolicyExtension, IBehaviorPolicy, build_behavior_plan
 from waku.messaging.registry import MessageRegistry
 from waku.messaging.router import MessageRouter, RoutingTable
 from waku.messaging.routing_builder import RoutingTableBuilder
@@ -82,6 +90,17 @@ _HandlerProviders: TypeAlias = tuple[Provider, ...]
 _ReqT = TypeVar('_ReqT', bound=IRequest[Any])
 _MsgT = TypeVar('_MsgT', bound=IMessage)
 
+# Ordered framework policy set assembled into every handler's pipeline (declaration order is the
+# tie-break within a Position tier). Forwarding is contributed by the ES module, not listed here.
+_FRAMEWORK_POLICIES: tuple[IBehaviorPolicy, ...] = (
+    CascadingPolicy(),
+    DeferredCascadingPolicy(),
+    UserGlobalPolicy(),
+    OutboxDrainPolicy(),
+    TransactionalPolicy(),
+    HandlerLocalPolicy(),
+)
+
 
 @module()
 class MessagingModule:
@@ -102,7 +121,6 @@ class MessagingModule:
             singleton(HandlerPipelineInvoker),
             singleton(MessageDispatcher),
             transient(MessageContext, get_message_context),
-            *cls._create_pipeline_behavior_providers(config_),
             *cls._infrastructure_providers(config_),
         ]
         if serializer_provider is not None:
@@ -140,7 +158,8 @@ class MessagingModule:
             msg = 'EndpointMode.DURABLE on a local_queue entry requires inbox in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
         # Durability requires transactions: outbox/inbox writes must be atomic with business data.
-        # TransactionalBehavior is user-explicit in global_pipeline_behaviors (NOT auto-added).
+        # TransactionalPolicy performs the per-type attach (C10); listing TransactionalBehavior in
+        # global_pipeline_behaviors stays a required explicit opt-in, enforced here.
         durable = config.outbox is not None or config.inbox is not None
         has_tx = any(issubclass(b, TransactionalBehavior) for b in config.global_pipeline_behaviors)
         if durable and not has_tx:
@@ -176,24 +195,6 @@ class MessagingModule:
                 object_(config.inbox, provided_type=InboxConfig),
             ))
         return tuple(providers)
-
-    @staticmethod
-    def _create_pipeline_behavior_providers(config: MessagingConfig) -> _HandlerProviders:
-        # Cascade behaviors are auto-registered (framework plumbing) as the outermost/innermost
-        # globals; the collection registers UNCONDITIONALLY so Sequence[IPipelineBehavior] always
-        # resolves (else cascades would silently not auto-register). Presence-gated on the outbox,
-        # NOT an XOR with config:
-        #   - no outbox -> only CascadingBehavior (outermost, post-commit fire-and-forget).
-        #   - outbox    -> DeferredCascadingBehavior (outermost, post-commit deferred flush, owns frame)
-        #                  + OutboxCascadingBehavior (innermost global, INSIDE TransactionalBehavior,
-        #                    drains frame + partitions cascades by destination durability).
-        # The `many(...)` collection preserves registration order, so the chain resolves
-        # outermost -> innermost exactly as listed.
-        if config.outbox is not None:
-            chain = (DeferredCascadingBehavior, *config.global_pipeline_behaviors, OutboxCascadingBehavior)
-        else:
-            chain = (CascadingBehavior, *config.global_pipeline_behaviors)
-        return (many(IPipelineBehavior[Any, Any], *chain),)
 
 
 class MessagingExtension(OnModuleConfigure):
@@ -235,23 +236,10 @@ class MessagingExtension(OnModuleConfigure):
         return self._registry
 
 
-def _policies_need_dead_letter(policies: Sequence[ErrorPolicy]) -> bool:
-    return any(stage.action is RetryAction.DEAD_LETTER for policy in policies for stage in policy.stages)
-
-
 def _requires_dead_letter_store(registry: MessageRegistry, config: MessagingConfig) -> bool:
-    if _policies_need_dead_letter(config.default_error_policies):
+    if policies_need_dead_letter(config.default_error_policies):
         return True
-    return any(_policies_need_dead_letter(ht.error_policies) for ht in registry.handler_map.handler_types())
-
-
-def _requires_uow(config: MessagingConfig) -> bool:
-    return (
-        config.dead_letter is not None
-        or config.outbox is not None
-        or config.inbox is not None
-        or any(issubclass(b, TransactionalBehavior) for b in config.global_pipeline_behaviors)
-    )
+    return any(policies_need_dead_letter(ht.error_policies) for ht in registry.handler_map.handler_types())
 
 
 def _has_durable_local_queue(entries: Sequence[EndpointEntry]) -> bool:
@@ -269,14 +257,6 @@ def _requires_sequence_allocator(entries: Sequence[EndpointEntry]) -> bool:
         if isinstance(entry, LocalQueueEntry) and entry.mode == EndpointMode.DURABLE:
             return True
     return False
-
-
-def _handler_needs_uow(registry: MessageRegistry) -> bool:
-    return any(
-        issubclass(behavior, TransactionalBehavior)
-        for ht in registry.handler_map.handler_types()
-        for behavior in ht.additional_behaviors
-    )
 
 
 def _build_sending_failure_registry(config: MessagingConfig) -> SendingFailurePolicyRegistry:
@@ -384,44 +364,55 @@ def _create_endpoint(
             assert_never(entry.mode)
 
 
-class MessageRegistryAggregator(OnModuleRegistration):
-    __slots__ = ('_config',)
+class MessageRegistryAggregator(RegistryAggregator['MessagingExtension', MessageRegistry]):
+    __slots__ = ('_config', '_module_routing_map', '_policies', '_seen_behaviors', '_seen_handlers')
 
-    def __init__(self, config: MessagingConfig) -> None:
+    def __init__(self, config: MessagingConfig, policies: Sequence[IBehaviorPolicy] = _FRAMEWORK_POLICIES) -> None:
         self._config = config
+        self._policies = tuple(policies)
+        self._module_routing_map: dict[ModuleType, dict[type[IMessage], Sequence[HandlerType]]] = {}
+        self._seen_handlers: set[HandlerType] = set()
+        self._seen_behaviors: set[type[IPipelineBehavior[Any, Any]]] = set()
 
     @override
-    def on_module_registration(
+    def _extension_type(self) -> 'type[MessagingExtension]':
+        return MessagingExtension
+
+    @override
+    def _new_registry(self) -> MessageRegistry:
+        return MessageRegistry()
+
+    @override
+    def _merge(self, aggregated: MessageRegistry, ext: 'MessagingExtension', module_type: 'ModuleType') -> None:
+        try:
+            aggregated.merge(ext.registry)
+        except HandlerAlreadyRegistered as exc:
+            msg = f'{exc} (from module {module_type.__qualname__})'
+            raise ImproperlyConfiguredError(msg) from exc
+        if ext.registry.handler_map:
+            self._module_routing_map[module_type] = dict(ext.registry.handler_map.items())
+
+    @override
+    def _extension_providers(self, ext: 'MessagingExtension') -> Iterator[Provider]:
+        return self._handler_providers(ext.registry, self._seen_handlers, self._seen_behaviors)
+
+    @override
+    def _finalize(
         self,
+        aggregated: MessageRegistry,
         registry: ModuleMetadataRegistry,
         owning_module: 'ModuleType',
-        context: Mapping[Any, Any] | None,
     ) -> None:
-        aggregated = MessageRegistry()
-        module_routing_map: dict[ModuleType, dict[type[IMessage], Sequence[HandlerType]]] = {}
-        seen_handlers: set[HandlerType] = set()
-        seen_behaviors: set[type[IPipelineBehavior[Any, Any]]] = set()
-
-        for module_type, ext in registry.find_extensions(MessagingExtension):
-            try:
-                aggregated.merge(ext.registry)
-            except HandlerAlreadyRegistered as exc:
-                msg = f'{exc} (from module {module_type.__qualname__})'
-                raise ImproperlyConfiguredError(msg) from exc
-            if ext.registry.handler_map:
-                module_routing_map[module_type] = dict(ext.registry.handler_map.items())
-            for provider in self._handler_providers(ext.registry, seen_handlers, seen_behaviors):
-                registry.add_provider(module_type, provider)
-
         self._validate_request_handler_counts(aggregated)
 
         aggregated.freeze()
         registry.add_provider(owning_module, object_(aggregated))
+        self._register_behavior_plan(registry, owning_module, aggregated)
 
         routing_table = RoutingTableBuilder(
             self._config,
             aggregated=aggregated,
-            module_routing_map=module_routing_map,
+            module_routing_map=self._module_routing_map,
         ).build()
         registry.add_provider(owning_module, object_(routing_table))
         registry.add_provider(owning_module, singleton(MessageRouter, _build_router))
@@ -454,23 +445,50 @@ class MessageRegistryAggregator(OnModuleRegistration):
             if issubclass(msg_type, IRequest) and len(handlers) > 1:
                 raise MultipleHandlersRegistered(msg_type)
 
+    def _register_behavior_plan(
+        self,
+        registry: ModuleMetadataRegistry,
+        owning_module: 'ModuleType',
+        aggregated: MessageRegistry,
+    ) -> None:
+        # Resolve every handler's chain once at registration and publish it as an immutable lookup.
+        # The chain references behavior TYPES that the invoker resolves per-scope. Per-handler
+        # behaviors are already registered in their binding module (see _handler_providers, which
+        # seeds `seen_behaviors`) so their module-local deps stay accessible; the remaining framework
+        # behaviors have global deps and register in the owning (global) module, resolvable everywhere.
+        # Modules contribute extra policies (e.g. ES event forwarding) via BehaviorPolicyExtension.
+        contributed = tuple(ext.policy for _module, ext in registry.find_extensions(BehaviorPolicyExtension))
+        plan = build_behavior_plan(
+            tuple(aggregated.handler_map.handler_types()),
+            (*self._policies, *contributed),
+            aggregated,
+            self._config,
+        )
+        registry.add_provider(owning_module, object_(plan, provided_type=BehaviorPlan))
+
+        for handler_type in aggregated.handler_map.handler_types():
+            for behavior_type in plan.for_handler(handler_type):
+                if behavior_type not in self._seen_behaviors:
+                    self._seen_behaviors.add(behavior_type)
+                    registry.add_provider(owning_module, scoped(behavior_type))
+
     @staticmethod
     def _handler_providers(
         reg: MessageRegistry,
         seen_handlers: 'set[HandlerType]',
         seen_behaviors: set[type[IPipelineBehavior[Any, Any]]],
     ) -> Iterator[Provider]:
-        # Each handler/behavior registers once, in its first binding module's scope
-        # (deps resolve there). The `seen_*` sets span all modules: a handler bound
-        # to >1 message type, or a behavior shared across handlers/modules, would
-        # otherwise emit duplicate scoped providers — which dishka rejects under
-        # strict validation.
+        # Each handler/behavior registers once, in its first binding module's scope (deps resolve
+        # there). The `seen_*` sets span all modules: a handler bound to >1 message type, or a behavior
+        # shared across handlers/modules, would otherwise emit duplicate scoped providers — which dishka
+        # rejects under strict validation. Per-handler behaviors register in the BINDING module so their
+        # module-local deps stay accessible (validated against the originating module).
         for handler_type in reg.handler_map.handler_types():
             if handler_type in seen_handlers:
                 continue
             seen_handlers.add(handler_type)
             yield scoped(handler_type)
-            for behavior_type in handler_type.additional_behaviors:
+            for behavior_type in handler_type.behaviors:
                 if behavior_type not in seen_behaviors:
                     seen_behaviors.add(behavior_type)
                     yield scoped(behavior_type)
@@ -492,14 +510,14 @@ class EndpointLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
             await endpoint.stop()
 
 
-class _UnitOfWorkValidationExtension(AfterApplicationInit):
+class _UnitOfWorkValidationExtension(OnContainerBuilt):
     __slots__ = ('_config',)
 
     def __init__(self, config: MessagingConfig) -> None:
         self._config = config
 
     @override
-    async def after_app_init(self, app: 'WakuApplication') -> None:
+    async def on_container_built(self, app: 'WakuApplication') -> None:
         if not await self._uow_required(app):
             return
         # Check inside a request scope: IUnitOfWork is typically scoped (one session per request) and
@@ -514,13 +532,20 @@ class _UnitOfWorkValidationExtension(AfterApplicationInit):
             raise ImproperlyConfiguredError(msg)
 
     async def _uow_required(self, app: 'WakuApplication') -> bool:
-        if _requires_uow(self._config):
+        # Durable infra / a global TransactionalBehavior needs a UoW even with no local handlers (the
+        # relay and recovery workers commit). Otherwise the BehaviorPlan is the single source of truth:
+        # a UoW is required iff some handler's resolved chain contains TransactionalBehavior.
+        if _config_requires_uow(self._config):
             return True
+        plan = await app.container.get(BehaviorPlan)
         registry = await app.container.get(MessageRegistry)
-        return _handler_needs_uow(registry)
+        return any(
+            TransactionalBehavior in plan.for_handler(handler_type)
+            for handler_type in registry.handler_map.handler_types()
+        )
 
 
-class _SequenceAllocatorValidationExtension(AfterApplicationInit):
+class _SequenceAllocatorValidationExtension(OnContainerBuilt):
     """Fail fast when partition_by is used but no ISequenceAllocator is registered.
 
     The allocator is user-provided infrastructure (like IUnitOfWork) — auto-registering the sqla
@@ -528,6 +553,8 @@ class _SequenceAllocatorValidationExtension(AfterApplicationInit):
     deferred 'no allocator' failure (raised at the first partitioned dispatch) into a clear startup
     error. NOTE: it triggers on declared partition_by only; a cascade-propagated envelope.group_id
     without any partition_by also needs the allocator but cannot be detected statically.
+
+    Runs at OnContainerBuilt — after the container exists, before workers start.
     """
 
     __slots__ = ('_config',)
@@ -536,7 +563,7 @@ class _SequenceAllocatorValidationExtension(AfterApplicationInit):
         self._config = config
 
     @override
-    async def after_app_init(self, app: 'WakuApplication') -> None:
+    async def on_container_built(self, app: 'WakuApplication') -> None:
         if not _requires_sequence_allocator(self._config.endpoints):
             return
         # Check inside a request scope: the allocator is typically scoped and is not registered at app
