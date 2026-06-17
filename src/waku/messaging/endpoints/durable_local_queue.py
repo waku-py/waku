@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 import anyio
@@ -12,8 +12,8 @@ from typing_extensions import override
 
 from waku.messaging.circuit_breaker.breaker import CircuitBreaker
 from waku.messaging.endpoints.base import Endpoint
-from waku.messaging.endpoints.executor import ExecutionOutcome
 from waku.messaging.inbox._destination import handler_destination
+from waku.messaging.inbox.finalize import apply_inbox_outcome
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxEntry
 from waku.messaging.partition import resolve_and_allocate
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.endpoints.executor import EndpointExecutor
+    from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome
     from waku.messaging.partition import PartitionKeyExtractor
     from waku.messaging.router import HandlerSubscriptions
 
@@ -227,16 +227,10 @@ class DurableLocalQueueEndpoint(Endpoint):
             await self._finalize(envelope, handler_destination(handler_type), outcome)
 
     async def _finalize(self, envelope: MessageEnvelope[Any], destination: str, outcome: ExecutionOutcome) -> None:
-        async with self._container() as scope:
-            inbox = await scope.get(IInboxStore)
-            uow = await scope.get(IUnitOfWork)
-            match outcome:
-                case ExecutionOutcome.SUCCESS:
-                    keep_until = datetime.now(tz=UTC) + self._keep_after_handled
-                    await inbox.mark_as_handled(envelope.message_id, destination, keep_until)
-                case _:
-                    # DEAD_LETTERED / DISCARDED / FAILED_NO_POLICY: delete this handler's inbox row
-                    # directly (a DEAD_LETTERED message is already in IDeadLetterStore via
-                    # EndpointExecutor; a HANDLED row would pollute observability). Siblings untouched.
-                    await inbox.delete(envelope.message_id, destination)
-            await uow.commit()
+        await apply_inbox_outcome(
+            self._container,
+            entry_id=envelope.message_id,
+            destination=destination,
+            outcome=outcome,
+            keep_after_handled=self._keep_after_handled,
+        )

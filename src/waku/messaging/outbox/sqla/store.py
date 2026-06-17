@@ -78,28 +78,33 @@ class SqlAlchemyOutboxStore(IOutboxStore):
         pending = _t.c.status == OutboxStatus.PENDING.value
         ready = func.coalesce(_t.c.next_retry_at, now) <= now
 
-        # Head of each partition: the lowest unprocessed sequence per group_id. DISTINCT ON cannot
-        # carry a locking clause (PostgreSQL rejects FOR UPDATE with DISTINCT), so this CTE only reads.
-        # No xmin/commit-order filter is needed — the allocator's per-group row lock + MVCC already
-        # serialize allocations and hide uncommitted rows (verified .research/sequence_rowlock_mre.md);
-        # the xid8 fix addresses the global-BIGSERIAL variant we do not have.
+        # Head of each partition: the lowest-sequence PENDING row per group_id, INDEPENDENT of
+        # next_retry_at. Readiness is NOT applied here — a not-ready head must remain the group's
+        # head so it blocks its successors; gating readiness at head-SELECTION would promote a
+        # later sequence the moment the head is rescheduled (TXN-1). DISTINCT ON cannot carry a
+        # locking clause, so this CTE only reads.
         partitioned_heads = (
             select(_t.c.id)
             .distinct(_t.c.group_id)
             .where(pending)
-            .where(ready)
             .where(_t.c.group_id.isnot(None))
             .order_by(_t.c.group_id, _t.c.sequence_number.asc())
             .cte('partitioned_heads')
         )
 
-        # Claim against the BASE TABLE: FOR UPDATE SKIP LOCKED is invalid over a UNION/DISTINCT
-        # subquery, so the locking SELECT reads `outbox_messages` directly and filters to each group's
-        # head OR any keyless (group_id IS NULL) row. `OF outbox_messages` scopes the lock to base rows,
-        # never the read-only heads CTE. If a group's head row is already locked by another worker,
-        # SKIP LOCKED drops that group for this cycle — it never falls through to a higher sequence, so
-        # per-group FIFO holds. Keyless rows are claimed concurrently; their created_at ordering is
-        # fetch fairness only, NOT a serialization guarantee.
+        # Claim against the BASE TABLE, where BOTH readiness and the FOR UPDATE SKIP LOCKED claim are
+        # applied. FOR UPDATE SKIP LOCKED is invalid over a UNION/DISTINCT subquery, so the locking
+        # SELECT reads `outbox_messages` directly and filters to each group's head OR any keyless
+        # (group_id IS NULL) row. `OF outbox_messages` scopes the lock to base rows, never the
+        # read-only heads CTE. A group's head that is not-ready (future next_retry_at) OR already
+        # locked by another worker simply isn't claimed this cycle — and because only the head id is
+        # in `partitioned_heads`, the successor is never promoted in its place. So per-group FIFO holds
+        # for BOTH the contention path and the retry-backoff path (TXN-1). Keyless rows are claimed
+        # concurrently; their created_at ordering is fetch fairness only, NOT a serialization
+        # guarantee. No xmin/commit-order filter is needed — the allocator's per-group row lock + MVCC
+        # already serialize allocations and hide uncommitted rows (verified
+        # .research/sequence_rowlock_mre.md); the xid8 fix addresses the global-BIGSERIAL variant we
+        # do not have.
         to_process = (
             select(_t.c.id)
             .where(pending)

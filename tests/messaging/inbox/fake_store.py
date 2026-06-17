@@ -132,7 +132,11 @@ class FakeInboxStore(IInboxStore):
         # DISTINCT ON (group_id, destination) ORDER BY ..., sequence_number.
         seen: set[tuple[str, str]] = set()
         selected: list[InboxEntry] = []
-        for entry in sorted(candidates, key=lambda e: (e.group_id or '', e.destination, e.sequence_number or 0)):
+        for entry in sorted(
+            candidates,
+            # NULL sequence_number sorts last, mirroring PostgreSQL's ORDER BY ... ASC default.
+            key=lambda e: (e.group_id or '', e.destination, e.sequence_number is None, e.sequence_number or 0),
+        ):
             if entry.group_id is not None:
                 key = (entry.group_id, entry.destination)
                 if key in seen:

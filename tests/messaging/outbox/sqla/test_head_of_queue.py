@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
@@ -117,3 +118,60 @@ class TestFetchHeadOfQueue:
         second = await store.fetch_head_of_queue(batch_size=10)
         assert len(second) == 1
         assert second[0].sequence_number == 2
+
+    @staticmethod
+    async def test_failed_group_head_blocks_successor_until_ready(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyOutboxStore(pg_session)
+        # Two messages in ONE group: head seq=1, successor seq=2.
+        head = _make_message(group_id='order-1', sequence_number=1)
+        successor = _make_message(group_id='order-1', sequence_number=2)
+        await store.save_batch([head, successor])
+        await pg_session.flush()
+
+        # Head transiently fails and is rescheduled into the future (the mark_failed RETRY path).
+        future = datetime.now(tz=UTC) + timedelta(seconds=60)
+        await store.mark_failed(head.id, 'transient', next_retry_at=future)
+        await pg_session.flush()
+
+        claimed = await store.fetch_head_of_queue(batch_size=10)
+        claimed_ids = {m.id for m in claimed}
+        # FIFO: the not-ready head blocks its group — neither the head NOR the successor is dispatched.
+        assert head.id not in claimed_ids
+        assert successor.id not in claimed_ids
+
+    @staticmethod
+    async def test_fetch_head_of_queue_skip_locked(pg_engine: AsyncEngine) -> None:
+        # Concurrent claim safety: while one worker holds the claimed head in an open tx, a second
+        # worker's fetch is SKIPPED (not blocked) and never double-claims it. Mirrors
+        # test_claim_replayable_skip_locked; the final phase diverges because fetch_head_of_queue is a
+        # consume-once claim (status -> PROCESSING) — once the first worker commits, the row is NOT
+        # re-claimable, whereas claim_replayable holds rows without mutating them.
+        metadata = MetaData()
+        bind_outbox_tables(metadata)
+        async with pg_engine.begin() as conn:
+            await conn.run_sync(metadata.create_all)
+        try:
+            async with AsyncSession(pg_engine, expire_on_commit=False) as seed:
+                await SqlAlchemyOutboxStore(seed).save_batch([_make_message(group_id='g1', sequence_number=1)])
+                await seed.commit()
+            async with (
+                AsyncSession(pg_engine, expire_on_commit=False) as s1,
+                AsyncSession(pg_engine, expire_on_commit=False) as s2,
+            ):
+                store1, store2 = SqlAlchemyOutboxStore(s1), SqlAlchemyOutboxStore(s2)
+                async with s1.begin():
+                    claimed1 = await store1.fetch_head_of_queue(batch_size=10)
+                    assert len(claimed1) == 1
+                    async with s2.begin():
+                        # A short lock_timeout turns a regression (skip_locked dropped) into a fast,
+                        # loud failure: s2 would block on s1's row lock and raise, not hang the suite.
+                        await s2.execute(text("SET LOCAL lock_timeout = '500ms'"))
+                        claimed2 = await store2.fetch_head_of_queue(batch_size=10)
+                        assert list(claimed2) == []  # s2 SKIPPED (not blocked) while s1 holds the row
+                async with s2.begin():
+                    claimed3 = await store2.fetch_head_of_queue(batch_size=10)
+                    # consume-once: the row is PROCESSING after s1 commits, so it is never re-claimed.
+                    assert list(claimed3) == []
+        finally:
+            async with pg_engine.begin() as conn:
+                await conn.run_sync(metadata.drop_all)

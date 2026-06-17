@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import dataclasses
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, ClassVar
+from datetime import timedelta
+from typing import Any, ClassVar
 from uuid import uuid4
 
 import anyio
@@ -54,10 +53,7 @@ from tests.messaging.helpers import (
     order_id_partition,
     wait_until,
 )
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
-    from uuid import UUID
+from tests.messaging.outbox.in_memory_store import InMemoryOutboxStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,79 +79,6 @@ class _AlwaysFailingHandler(RequestHandler[_FailingCommand, None]):
         raise ValueError(msg)
 
 
-class _InMemoryOutboxStore(IOutboxStore):
-    def __init__(self) -> None:
-        self.messages: list[OutboxMessage] = []
-
-    def _update_status(self, message_id: UUID, **changes: Any) -> None:
-        for i, m in enumerate(self.messages):
-            if m.id == message_id:
-                self.messages[i] = dataclasses.replace(m, **changes)
-                return
-
-    @override
-    async def save_batch(self, messages: Sequence[OutboxMessage]) -> None:
-        self.messages.extend(messages)
-
-    @override
-    async def fetch_and_mark_processing(self, batch_size: int) -> Sequence[OutboxMessage]:
-        pending = [m for m in self.messages if m.status == OutboxStatus.PENDING][:batch_size]
-        for m in pending:
-            self._update_status(m.id, status=OutboxStatus.PROCESSING)
-        return [dataclasses.replace(m, status=OutboxStatus.PROCESSING) for m in pending]
-
-    @override
-    async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
-        # Mirror the real SQL `coalesce(next_retry_at, now) <= now` filter so a backoff'd group head
-        # blocks its group rather than letting a higher sequence advance past it.
-        now = datetime.now(tz=UTC)
-        pending = [
-            m
-            for m in self.messages
-            if m.status == OutboxStatus.PENDING and (m.next_retry_at is None or m.next_retry_at <= now)
-        ]
-        seen: set[str] = set()
-        selected: list[OutboxMessage] = []
-        for m in sorted(pending, key=lambda m: (m.group_id or '', m.sequence_number or 0)):
-            if m.group_id is None:
-                selected.append(m)
-            elif m.group_id not in seen:
-                seen.add(m.group_id)
-                selected.append(m)
-            if len(selected) == batch_size:
-                break
-        for m in selected:
-            self._update_status(m.id, status=OutboxStatus.PROCESSING)
-        return [dataclasses.replace(m, status=OutboxStatus.PROCESSING) for m in selected]
-
-    @override
-    async def mark_dispatched(self, message_id: UUID) -> None:
-        self._update_status(message_id, status=OutboxStatus.DISPATCHED)
-
-    @override
-    async def mark_failed(
-        self, message_id: UUID, error: str, next_retry_at: datetime | None = None
-    ) -> None:  # pragma: no cover
-        status = OutboxStatus.FAILED if next_retry_at is None else OutboxStatus.PENDING
-        self._update_status(message_id, status=status, last_error=error, next_retry_at=next_retry_at)
-
-    @override
-    async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry) -> None:  # pragma: no cover
-        self._update_status(message_id, status=OutboxStatus.DEAD_LETTERED)
-
-    @override
-    async def mark_discarded(self, message_id: UUID, error: str) -> None:  # pragma: no cover
-        self._update_status(message_id, status=OutboxStatus.DISCARDED, last_error=error)
-
-    @override
-    async def recover_stuck(self, threshold: timedelta) -> int:  # pragma: no cover
-        return 0
-
-    @override
-    async def cleanup_dispatched(self, older_than: timedelta) -> int:  # pragma: no cover
-        return 0
-
-
 class _SignalingDeadLetterStore(RecordingDeadLetterStore):
     def __init__(self) -> None:
         super().__init__()
@@ -175,7 +98,7 @@ class TestEndToEndOutboxFlow:
         config = MessagingConfig(
             endpoints=[external_endpoint('test://notifications')],
             routing=[route(_OrderPlaced).to('test://notifications')],
-            outbox=OutboxConfig(store=_InMemoryOutboxStore, transport=RecordingTransport),
+            outbox=OutboxConfig(store=InMemoryOutboxStore, transport=RecordingTransport),
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 
@@ -195,7 +118,7 @@ class TestEndToEndOutboxFlow:
             outbox = await c.get(IOutboxStore)
             serializer = await c.get(IEnvelopeSerializer)
 
-        assert isinstance(outbox, _InMemoryOutboxStore)
+        assert isinstance(outbox, InMemoryOutboxStore)
         assert len(outbox.messages) == 1
         assert outbox.messages[0].destination == 'test://notifications'
 
@@ -252,7 +175,7 @@ class TestOutboxRelayLifecycleIntegration:
     @staticmethod
     async def test_outbox_relay_starts_and_stops_via_lifecycle_extension() -> None:
         transport = RecordingTransport()
-        outbox = _InMemoryOutboxStore()
+        outbox = InMemoryOutboxStore()
 
         config = MessagingConfig(
             endpoints=[external_endpoint('test://notifications')],
@@ -290,7 +213,7 @@ class TestOutboxRelayLifecycleIntegration:
 class TestCustomEnvelopeSerializer:
     @staticmethod
     async def test_custom_envelope_serializer_is_used() -> None:
-        outbox = _InMemoryOutboxStore()
+        outbox = InMemoryOutboxStore()
 
         class CustomSerializer(IEnvelopeSerializer):
             def __init__(self) -> None:
@@ -341,7 +264,7 @@ class TestCustomEnvelopeSerializer:
 class TestMessageIdentityPropagation:
     @staticmethod
     async def test_outbox_entry_uses_configured_identity() -> None:
-        store = _InMemoryOutboxStore()
+        store = InMemoryOutboxStore()
         transport = RecordingTransport()
 
         config = MessagingConfig(
@@ -368,7 +291,7 @@ class TestMessageIdentityPropagation:
 
     @staticmethod
     async def test_outbox_entry_falls_back_to_fqn_without_identity_config() -> None:
-        store = _InMemoryOutboxStore()
+        store = InMemoryOutboxStore()
         transport = RecordingTransport()
 
         config = MessagingConfig(
@@ -419,7 +342,7 @@ class TestRelayPartitionOrdering:
     async def test_relay_dispatches_group_heads_in_sequence_order() -> None:
         transport = RecordingTransport()
         serializer = make_serializer(_OrderPlaced)
-        store = _InMemoryOutboxStore()
+        store = InMemoryOutboxStore()
         # Staged OUT of sequence order: the relay must still dispatch A-1, A-2, A-3 because it claims
         # the head (lowest pending sequence) of the group each poll — not whatever was inserted first.
         # If the relay used FIFO fetch this would dispatch A-2, A-1, A-3 and the assert would fail.
@@ -577,7 +500,7 @@ class TestGroupIdPropagation:
     async def test_cascaded_message_inherits_parent_group_id_via_context() -> None:
         # partition_by is deliberately NOT set: the ONLY way the cascaded _OrderShipped outbox row can
         # carry group_id='order-9' is propagation parent-context -> _create_envelope -> cascade envelope.
-        outbox = _InMemoryOutboxStore()
+        outbox = InMemoryOutboxStore()
         config = MessagingConfig(
             endpoints=[external_endpoint('test://shipped')],
             routing=[route(_OrderShipped).to('test://shipped')],
@@ -617,7 +540,7 @@ class TestPartitionOrderingEndToEnd:
     @staticmethod
     async def test_concurrent_groups_each_dispatched_in_strict_sequence_order() -> None:
         transport = RecordingTransport()
-        outbox = _InMemoryOutboxStore()
+        outbox = InMemoryOutboxStore()
         config = MessagingConfig(
             endpoints=[external_endpoint('test://orders', partition_by=order_id_partition)],
             routing=[route(_OrderPlaced).to('test://orders')],

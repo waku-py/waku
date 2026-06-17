@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 class ExecutionOutcome(enum.Enum):
     SUCCESS = 'SUCCESS'
     DEAD_LETTERED = 'DEAD_LETTERED'
+    DEAD_LETTER_FAILED = 'DEAD_LETTER_FAILED'  # DLQ write did not persist; keep a durable row for recovery
     DISCARDED = 'DISCARDED'
     FAILED_NO_POLICY = 'FAILED_NO_POLICY'
 
@@ -96,11 +97,10 @@ class EndpointExecutor:
                 if outcome is None:
                     logger.exception('%s failed: message_id=%s', handler_type.__name__, envelope.message_id)
                     return ExecutionOutcome.FAILED_NO_POLICY, exc
-                if await self._apply_outcome(outcome, envelope, exc, attempt):
+                terminal = await self._handle_failure(outcome, envelope, exc, attempt)
+                if terminal is None:
                     continue
-                if outcome.action is RetryAction.DEAD_LETTER:
-                    return ExecutionOutcome.DEAD_LETTERED, exc
-                return ExecutionOutcome.DISCARDED, exc
+                return terminal, exc
             else:
                 return ExecutionOutcome.SUCCESS, None
 
@@ -125,22 +125,26 @@ class EndpointExecutor:
             )
         )
 
-    async def _apply_outcome(
+    async def _handle_failure(
         self,
         outcome: PolicyOutcome,
         envelope: MessageEnvelope[Any],
         exc: Exception,
         attempt: int,
-    ) -> bool:
-        """Apply policy outcome. Returns True if execution should retry."""
+    ) -> ExecutionOutcome | None:
+        """Apply a failure policy. Returns the terminal ExecutionOutcome, or None to retry.
+
+        DEAD_LETTER routes through _write_dead_letter: a successful write yields DEAD_LETTERED; a write
+        that does not persist yields DEAD_LETTER_FAILED so a durable inbox row survives for recovery (ERR-2).
+        """
         match outcome.action:
             case RetryAction.DEAD_LETTER:
                 logger.warning('Moving message_id=%s to dead letter after %d attempt(s)', envelope.message_id, attempt)
-                await self._write_dead_letter(envelope, exc, attempt)
-                return False
+                persisted = await self._write_dead_letter(envelope, exc, attempt)
+                return ExecutionOutcome.DEAD_LETTERED if persisted else ExecutionOutcome.DEAD_LETTER_FAILED
             case RetryAction.DISCARD:
                 logger.info('Discarded message_id=%s after %d attempt(s)', envelope.message_id, attempt)
-                return False
+                return ExecutionOutcome.DISCARDED
             case RetryAction.RETRY | RetryAction.RETRY_WITH_BACKOFF:
                 logger.info(
                     'Retrying message_id=%s (attempt %d, delay=%.2fs)',
@@ -150,11 +154,11 @@ class EndpointExecutor:
                 )
                 if outcome.retry_delay:
                     await anyio.sleep(outcome.retry_delay)
-                return True
+                return None
             case _ as unreachable:  # pragma: no cover
                 assert_never(unreachable)
 
-    async def _write_dead_letter(self, envelope: MessageEnvelope[Any], exc: Exception, attempt: int) -> None:
+    async def _write_dead_letter(self, envelope: MessageEnvelope[Any], exc: Exception, attempt: int) -> bool:
         async with self._container() as scope:
             store = await scope.get(IDeadLetterStore)
             serializer = await scope.get(IEnvelopeSerializer)
@@ -173,3 +177,5 @@ class EndpointExecutor:
                 await uow.commit()
             except Exception:
                 logger.exception('Failed to write dead letter entry for message_id=%s', envelope.message_id)
+                return False
+            return True

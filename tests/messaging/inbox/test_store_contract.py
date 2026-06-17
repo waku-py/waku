@@ -1,0 +1,112 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
+from uuid import uuid4
+
+from waku.messaging.errors.dead_letter import DeadLetterEntry
+from waku.messaging.inbox.models import InboxEntry
+
+if TYPE_CHECKING:
+    from waku.messaging.inbox.interfaces import IInboxStore
+
+# Behavioral contract shared by every IInboxStore implementation. Parametrized via the `inbox_store`
+# fixture (conftest.py) over the canonical fake and the SQLAlchemy store, so both must behave
+# identically. SQLAlchemy-only concerns (concurrent FOR UPDATE SKIP LOCKED) stay in sqla/.
+
+
+def _make_entry(**overrides: object) -> InboxEntry:
+    defaults = {
+        'id': uuid4(),
+        'payload': {'test': True},
+        'message_type': 'test.Event',
+        'source_uri': 'local://orders',
+        'destination': 'tests.messaging.HandlerA',
+    }
+    return InboxEntry(**(defaults | overrides))  # type: ignore[arg-type]
+
+
+def _dead_letter_for(entry: InboxEntry) -> DeadLetterEntry:
+    return DeadLetterEntry.from_failure(
+        message_type=entry.message_type,
+        payload=entry.payload,
+        destination=entry.destination,
+        correlation_id=uuid4(),
+        causation_id=uuid4(),
+        exc=RuntimeError('boom'),
+        attempt=3,
+    )
+
+
+async def test_store_incoming_then_fetch_claims_with_owner(inbox_store: IInboxStore) -> None:
+    entry = _make_entry()
+    assert await inbox_store.store_incoming(entry) is True
+
+    claimed = await inbox_store.fetch_pending(batch_size=10, owner_id='w-1')
+    assert [e.id for e in claimed] == [entry.id]
+    assert claimed[0].owner_id == 'w-1'
+
+
+async def test_store_incoming_duplicate_returns_false(inbox_store: IInboxStore) -> None:
+    entry = _make_entry()
+    assert await inbox_store.store_incoming(entry) is True
+    assert await inbox_store.store_incoming(entry) is False
+
+
+async def test_store_incoming_same_id_different_destination_both_stored(inbox_store: IInboxStore) -> None:
+    first = _make_entry(destination='tests.messaging.HandlerA')
+    second = _make_entry(id=first.id, destination='tests.messaging.HandlerB')
+    assert await inbox_store.store_incoming(first) is True
+    assert await inbox_store.store_incoming(second) is True
+
+    assert await inbox_store.exists(first.id, 'tests.messaging.HandlerA') is True
+    assert await inbox_store.exists(first.id, 'tests.messaging.HandlerB') is True
+
+
+async def test_mark_as_handled_then_cleanup_removes(inbox_store: IInboxStore) -> None:
+    entry = _make_entry()
+    await inbox_store.store_incoming(entry)
+
+    await inbox_store.mark_as_handled(entry.id, entry.destination, datetime.now(tz=UTC) - timedelta(seconds=1))
+    removed = await inbox_store.cleanup_handled(datetime.now(tz=UTC))
+    assert removed == 1
+    assert await inbox_store.exists(entry.id, entry.destination) is False
+
+
+async def test_fetch_pending_partitioned_returns_one_head_per_group(inbox_store: IInboxStore) -> None:
+    await inbox_store.store_incoming(_make_entry(group_id='A', sequence_number=2))
+    await inbox_store.store_incoming(_make_entry(group_id='A', sequence_number=1))
+    await inbox_store.store_incoming(_make_entry(group_id='B', sequence_number=1))
+
+    fetched = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
+    assert {e.group_id: e.sequence_number for e in fetched} == {'A': 1, 'B': 1}
+
+
+async def test_fetch_pending_partitioned_claim_is_exclusive(inbox_store: IInboxStore) -> None:
+    await inbox_store.store_incoming(_make_entry(group_id='A', sequence_number=1))
+
+    first = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
+    second = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w-2')
+    assert len(first) == 1
+    assert list(second) == []
+
+
+async def test_recover_stale_reclaims_owned_past_threshold(inbox_store: IInboxStore) -> None:
+    entry = _make_entry()
+    await inbox_store.store_incoming(entry)
+    await inbox_store.fetch_pending(batch_size=1, owner_id='crashed-worker')
+
+    recovered = await inbox_store.recover_stale(threshold=timedelta(seconds=-1))
+    assert recovered == 1
+
+    reclaimed = await inbox_store.fetch_pending(batch_size=10, owner_id='new-worker')
+    assert len(reclaimed) == 1
+    assert reclaimed[0].owner_id == 'new-worker'
+
+
+async def test_move_to_dead_letter_deletes_entry(inbox_store: IInboxStore) -> None:
+    entry = _make_entry()
+    await inbox_store.store_incoming(entry)
+
+    await inbox_store.move_to_dead_letter(entry.id, entry.destination, _dead_letter_for(entry))
+    assert await inbox_store.exists(entry.id, entry.destination) is False

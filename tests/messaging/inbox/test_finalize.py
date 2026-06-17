@@ -81,3 +81,21 @@ async def test_non_success_deletes(outcome: ExecutionOutcome) -> None:
         )
     assert (entry_id, destination) not in inbox.entries
     assert uow.commit_count == 1
+
+
+async def test_dead_letter_failed_keeps_row() -> None:
+    # ERR-2: a failed durable DLQ write must NOT delete the inbox row — recovery re-drains it.
+    inbox = FakeInboxStore()
+    uow = FakeUoW()
+    entry_id, destination = _seed(inbox)
+    async with make_async_container(_Deps(inbox, uow)) as container:
+        await apply_inbox_outcome(
+            container,
+            entry_id=entry_id,
+            destination=destination,
+            outcome=ExecutionOutcome.DEAD_LETTER_FAILED,
+            keep_after_handled=timedelta(minutes=5),
+        )
+    assert (entry_id, destination) in inbox.entries  # row kept for recovery
+    assert inbox.entries[entry_id, destination].status is InboxStatus.INCOMING
+    assert uow.commit_count == 1

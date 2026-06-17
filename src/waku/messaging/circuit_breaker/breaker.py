@@ -21,7 +21,11 @@ __all__ = [
     'CircuitState',
 ]
 
-_FAILURE_OUTCOMES = frozenset({ExecutionOutcome.DEAD_LETTERED, ExecutionOutcome.FAILED_NO_POLICY})
+_FAILURE_OUTCOMES = frozenset({
+    ExecutionOutcome.DEAD_LETTERED,
+    ExecutionOutcome.DEAD_LETTER_FAILED,
+    ExecutionOutcome.FAILED_NO_POLICY,
+})
 
 
 @enum.unique

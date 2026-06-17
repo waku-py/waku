@@ -234,3 +234,19 @@ async def test_aclose_cancels_pending_resume_so_resume_never_fires() -> None:
     await anyio.lowlevel.checkpoint()
     assert calls == ['pause']  # resume() never fired — proves the cancel
     await breaker.aclose()  # idempotent — no-op on an already-closed breaker
+
+
+async def test_dead_letter_failed_counts_as_failure() -> None:
+    # ERR-2: a failed durable DLQ write is a processing failure — it must trip the breaker like
+    # DEAD_LETTERED, not be treated as a success.
+    clock, sleep = _Clock(), _ControllableSleep()
+    breaker, calls = _make_breaker(
+        CircuitBreakerConfig(failure_rate_threshold=0.5, minimum_throughput=2),
+        clock=clock,
+        sleep=sleep,
+    )
+    await _record(breaker, ExecutionOutcome.DEAD_LETTER_FAILED, RuntimeError())
+    await _record(breaker, ExecutionOutcome.DEAD_LETTER_FAILED, RuntimeError())  # 2/2 = 1.0 > 0.5 → trips
+    _assert_state(breaker, CircuitState.OPEN)
+    assert calls == ['pause']
+    await breaker.aclose()

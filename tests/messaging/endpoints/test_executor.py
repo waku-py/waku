@@ -209,8 +209,11 @@ class TestEndpointExecutorDeadLetter:
                 evaluator = await app.container.get(ErrorPolicyEvaluator)
                 executor = await _make_executor(app, evaluator)
                 envelope = make_envelope(_FailingCommand(value='dlq-fail'))
-                await executor.execute(envelope, handler)
+                outcome = await executor.execute(envelope, handler)
 
+        # The failed DLQ write is swallowed (logged, not raised) AND surfaces as DEAD_LETTER_FAILED so
+        # the durable inbox row is kept for recovery (ERR-2).
+        assert outcome is ExecutionOutcome.DEAD_LETTER_FAILED
         assert 'Failed to write dead letter entry' in caplog.text
 
 

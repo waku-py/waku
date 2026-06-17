@@ -5,11 +5,9 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from waku.messaging.errors.dead_letter import DeadLetterEntry
-from waku.messaging.errors.sqla.tables import bind_dead_letter_tables
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 from waku.messaging.inbox.sqla.store import SqlAlchemyInboxStore
 from waku.messaging.inbox.sqla.tables import bind_inbox_tables
@@ -54,28 +52,6 @@ class TestStoreIncoming:
         await pg_session.flush()
 
         assert stored is True
-
-    @staticmethod
-    async def test_store_incoming_returns_false_on_duplicate_id_and_destination(pg_session: AsyncSession) -> None:
-        store = SqlAlchemyInboxStore(pg_session)
-        entry = _make_entry()
-        assert await store.store_incoming(entry) is True
-        await pg_session.flush()
-
-        assert await store.store_incoming(entry) is False
-
-    @staticmethod
-    async def test_store_incoming_same_id_different_destination_both_stored(pg_session: AsyncSession) -> None:
-        # Fan-out: one message_id, two handler destinations -> two rows.
-        store = SqlAlchemyInboxStore(pg_session)
-        first = _make_entry(destination='tests.messaging.HandlerA')
-        second = _make_entry(id=first.id, destination='tests.messaging.HandlerB')
-        assert await store.store_incoming(first) is True
-        assert await store.store_incoming(second) is True
-        await pg_session.flush()
-
-        assert await store.exists(first.id, 'tests.messaging.HandlerA') is True
-        assert await store.exists(first.id, 'tests.messaging.HandlerB') is True
 
     @staticmethod
     async def test_store_incoming_persists_group_id_and_sequence(pg_session: AsyncSession) -> None:
@@ -186,18 +162,6 @@ class TestExists:
 
 class TestFetchPending:
     @staticmethod
-    async def test_fetch_pending_claims_incoming_entries_with_owner(pg_session: AsyncSession) -> None:
-        store = SqlAlchemyInboxStore(pg_session)
-        entry = _make_entry()
-        await store.store_incoming(entry)
-        await pg_session.flush()
-
-        claimed = await store.fetch_pending(batch_size=10, owner_id='worker-1')
-        assert len(claimed) == 1
-        assert claimed[0].id == entry.id
-        assert claimed[0].owner_id == 'worker-1'
-
-    @staticmethod
     async def test_fetch_pending_skips_already_owned_entries(pg_session: AsyncSession) -> None:
         store = SqlAlchemyInboxStore(pg_session)
         entry = _make_entry()
@@ -275,18 +239,6 @@ class TestFetchPendingPartitioned:
         assert all(e.sequence_number == 1 for e in fetched)
 
     @staticmethod
-    async def test_claim_is_exclusive(pg_session: AsyncSession) -> None:
-        store = SqlAlchemyInboxStore(pg_session)
-        await store.store_incoming(_make_entry(group_id='A', sequence_number=1))
-        await pg_session.flush()
-
-        first = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
-        second = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-2')
-
-        assert len(first) == 1
-        assert list(second) == []
-
-    @staticmethod
     async def test_keyless_entries_are_claimed_unordered(pg_session: AsyncSession) -> None:
         # Keyless entries bypass sequencing: claimed, batch-limited, NO ordering guarantee (created_at
         # is constant within one tx, so which one is claimed is intentionally unasserted).
@@ -318,24 +270,44 @@ class TestFetchPendingPartitioned:
         second = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-2')
         assert [e.sequence_number for e in second] == [2]
 
+    @staticmethod
+    async def test_fetch_pending_partitioned_skip_locked(pg_engine: AsyncEngine) -> None:
+        # Concurrent claim safety across two sessions: while one worker holds the claimed head in an
+        # open tx, a second worker's claim is SKIPPED (not blocked) and never double-claims it. The
+        # final phase diverges from test_claim_replayable_skip_locked because the partitioned claim
+        # sets owner_id (consume-once) — once the first worker commits, the row is owned, not re-claimable.
+        metadata = MetaData()
+        bind_inbox_tables(metadata)
+        async with pg_engine.begin() as conn:
+            await conn.run_sync(metadata.create_all)
+        try:
+            async with AsyncSession(pg_engine, expire_on_commit=False) as seed:
+                await SqlAlchemyInboxStore(seed).store_incoming(_make_entry(group_id='g1', sequence_number=1))
+                await seed.commit()
+            async with (
+                AsyncSession(pg_engine, expire_on_commit=False) as s1,
+                AsyncSession(pg_engine, expire_on_commit=False) as s2,
+            ):
+                store1, store2 = SqlAlchemyInboxStore(s1), SqlAlchemyInboxStore(s2)
+                async with s1.begin():
+                    claimed1 = await store1.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
+                    assert len(claimed1) == 1
+                    async with s2.begin():
+                        # A short lock_timeout turns a regression (skip_locked dropped) into a fast,
+                        # loud failure: s2 would block on s1's row lock and raise, not hang the suite.
+                        await s2.execute(text("SET LOCAL lock_timeout = '500ms'"))
+                        claimed2 = await store2.fetch_pending_partitioned(batch_size=10, owner_id='w-2')
+                        assert list(claimed2) == []  # s2 SKIPPED (not blocked) while s1 holds the row
+                async with s2.begin():
+                    claimed3 = await store2.fetch_pending_partitioned(batch_size=10, owner_id='w-2')
+                    # consume-once: the row is owned after s1 commits, so it is never re-claimed.
+                    assert list(claimed3) == []
+        finally:
+            async with pg_engine.begin() as conn:
+                await conn.run_sync(metadata.drop_all)
+
 
 class TestRecoverStale:
-    @staticmethod
-    async def test_recover_stale_reclaims_owned_incoming_past_threshold(pg_session: AsyncSession) -> None:
-        store = SqlAlchemyInboxStore(pg_session)
-        entry = _make_entry()
-        await store.store_incoming(entry)
-        await pg_session.flush()
-        await store.fetch_pending(batch_size=1, owner_id='crashed-worker')
-        await pg_session.flush()
-
-        recovered = await store.recover_stale(threshold=timedelta(seconds=-1))
-        assert recovered == 1
-
-        reclaimed = await store.fetch_pending(batch_size=10, owner_id='new-worker')
-        assert len(reclaimed) == 1
-        assert reclaimed[0].owner_id == 'new-worker'
-
     @staticmethod
     async def test_recover_stale_ignores_fresh_entries(pg_session: AsyncSession) -> None:
         store = SqlAlchemyInboxStore(pg_session)
@@ -376,42 +348,3 @@ class TestRecoverStale:
         # 1h threshold -> cutoff = now - 1h -> a just-stored owned row is NOT stale -> not released
         recovered = await store.recover_stale(timedelta(hours=1))
         assert recovered == 0
-
-
-@pytest.fixture
-async def pg_session_with_dlq(pg_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
-    metadata = MetaData()
-    bind_inbox_tables(metadata)
-    bind_dead_letter_tables(metadata)
-
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(metadata.create_all)
-
-    async with AsyncSession(pg_engine, expire_on_commit=False) as session, session.begin():
-        yield session
-
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(metadata.drop_all)
-
-
-class TestMoveToDeadLetter:
-    @staticmethod
-    async def test_move_to_dead_letter_deletes_inbox_entry(pg_session_with_dlq: AsyncSession) -> None:
-        store = SqlAlchemyInboxStore(pg_session_with_dlq)
-        entry = _make_entry()
-        await store.store_incoming(entry)
-        await pg_session_with_dlq.flush()
-
-        dl = DeadLetterEntry.from_failure(
-            message_type='test.Event',
-            payload=entry.payload,
-            destination=entry.destination,
-            correlation_id=uuid4(),
-            causation_id=uuid4(),
-            exc=RuntimeError('boom'),
-            attempt=3,
-        )
-        await store.move_to_dead_letter(entry.id, entry.destination, dl)
-        await pg_session_with_dlq.flush()
-
-        assert await store.exists(entry.id, entry.destination) is False

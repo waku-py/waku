@@ -17,14 +17,16 @@ from waku.messaging import (
     MessagingModule,
     TransactionalBehavior,
 )
+from waku.messaging.config import DeadLetterConfig
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.base import EndpointMode, local_queue
+from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.handler import EventHandler
 from waku.messaging.router import route
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, wait_until
+from tests.messaging.helpers import FailingDeadLetterStore, FakeUoW, wait_until
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -56,6 +58,26 @@ def _durable_config(inbox: FakeInboxStore) -> MessagingConfig:
         endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0, max_buffer_size=math.inf)],
         routing=[route(_OrderPlaced).to('orders')],
         inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+        global_pipeline_behaviors=[TransactionalBehavior],
+    )
+
+
+class _FailingOrderHandler(EventHandler[_OrderPlaced]):
+    @override
+    async def handle(self, message: _OrderPlaced, /) -> None:
+        msg = 'handler always fails'
+        raise RuntimeError(msg)
+
+
+# DLQ-failure config: the handler always fails (-> move_to_dead_letter), but the dead-letter store is
+# unavailable (save raises). Exercises ERR-2 — a failed durable DLQ write must keep the inbox row.
+def _dlq_failing_config(inbox: FakeInboxStore) -> MessagingConfig:
+    return MessagingConfig(
+        endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0, max_buffer_size=math.inf)],
+        routing=[route(_OrderPlaced).to('orders')],
+        inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+        default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
+        dead_letter=DeadLetterConfig(store=FailingDeadLetterStore),
         global_pipeline_behaviors=[TransactionalBehavior],
     )
 
@@ -136,3 +158,24 @@ class TestDurableInboxIntegration:
             # Retention window purges the HANDLED rows -> dedup window closes.
             purged = await inbox.cleanup_handled(datetime.now(tz=UTC) + timedelta(minutes=10))
             assert purged == 2
+
+    @staticmethod
+    async def test_failed_dead_letter_write_keeps_inbox_row_for_recovery() -> None:
+        # ERR-2: when a durable message's DLQ write FAILS, its inbox row must survive (still INCOMING)
+        # so the recovery drain re-runs it. Deleting it would lose the message from BOTH stores.
+        inbox = FakeInboxStore()
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(_dlq_failing_config(inbox))],
+                extensions=[MessagingExtension().bind(_OrderPlaced, _FailingOrderHandler)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            await bus.publish(_OrderPlaced(order_id='o-dlq-fail'))
+            # app shutdown drains the worker deterministically (see test_message_is_persisted_and_handled).
+
+        entries = list(inbox.entries.values())
+        assert len(entries) == 1  # row KEPT, not deleted
+        assert entries[0].status is InboxStatus.INCOMING  # recoverable; never marked HANDLED
