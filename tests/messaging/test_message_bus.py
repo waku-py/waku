@@ -78,7 +78,7 @@ async def test_invoke_returns_handler_result() -> None:
     async with (
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            extensions=[MessagingExtension().bind(_Command, _CommandHandler)],
+            extensions=[MessagingExtension().bind(_CommandHandler)],
         ) as app,
         app.container() as container,
     ):
@@ -96,7 +96,7 @@ async def test_multiple_request_handlers_rejected_at_startup() -> None:
     with pytest.raises(MultipleHandlersRegistered, match='_Command'):
         async with create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            extensions=[MessagingExtension().bind(_Command, _CommandHandler).bind(_Command, _AnotherCommandHandler)],
+            extensions=[MessagingExtension().bind(_CommandHandler).bind(_AnotherCommandHandler)],
         ):
             pass  # pragma: no cover
 
@@ -137,7 +137,7 @@ async def test_publish_runs_global_behaviors_per_handler() -> None:
             imports=[
                 MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[TrackingBehavior])),
             ],
-            extensions=[MessagingExtension().bind(_SomeEvent, HandlerA, HandlerB)],
+            extensions=[MessagingExtension().bind(HandlerA, HandlerB)],
         ) as app,
         app.container() as container,
     ):
@@ -169,7 +169,7 @@ async def test_publish_runs_per_handler_behavior_for_bound_event() -> None:
     async with (
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            extensions=[MessagingExtension().bind(_SomeEvent, Handler)],
+            extensions=[MessagingExtension().bind(Handler)],
         ) as app,
         app.container() as container,
     ):
@@ -204,7 +204,7 @@ async def test_publish_runs_global_then_per_handler_behaviors() -> None:
     async with (
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[GlobalBehavior]))],
-            extensions=[MessagingExtension().bind(_SomeEvent, Handler)],
+            extensions=[MessagingExtension().bind(Handler)],
         ) as app,
         app.container() as container,
     ):
@@ -243,7 +243,7 @@ async def test_publish_per_handler_behavior_does_not_run_for_other_event() -> No
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
             extensions=[
-                MessagingExtension().bind(_SomeEvent, SomeEventHandler).bind(OtherEvent, OtherEventHandler),
+                MessagingExtension().bind(SomeEventHandler).bind(OtherEventHandler),
             ],
         ) as app,
         app.container() as container,
@@ -299,7 +299,7 @@ async def test_publish_event_handler_failure_does_not_block_other_handlers() -> 
     async with (
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            extensions=[MessagingExtension().bind(_SomeEvent, FailingHandler, SucceedingHandler)],
+            extensions=[MessagingExtension().bind(FailingHandler, SucceedingHandler)],
         ) as app,
         app.container() as container,
     ):
@@ -326,7 +326,7 @@ async def test_send_dispatches_through_default_endpoint() -> None:
     async with (
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            extensions=[MessagingExtension().bind(_FireAndForgetCommand, _FireAndForgetHandler)],
+            extensions=[MessagingExtension().bind(_FireAndForgetHandler)],
         ) as app,
         app.container() as container,
     ):
@@ -363,7 +363,7 @@ async def test_publish_propagates_correlation_context_through_queue() -> None:
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
             extensions=[
-                MessagingExtension().bind(_Command, PublishingCommandHandler).bind(_SomeEvent, ContextCapturingHandler),
+                MessagingExtension().bind(PublishingCommandHandler).bind(ContextCapturingHandler),
             ],
         ) as app,
         app.container() as container,
@@ -418,7 +418,7 @@ class TestMessagingConfigValidation:
         )
         async with create_test_app(
             imports=[MessagingModule.register(config)],
-            extensions=[MessagingExtension().bind(_Command, _CommandHandler)],
+            extensions=[MessagingExtension().bind(_CommandHandler)],
             providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
         ) as app:
             plan = await app.container.get(BehaviorPlan)

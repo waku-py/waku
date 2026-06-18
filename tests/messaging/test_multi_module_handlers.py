@@ -46,19 +46,19 @@ class AuditLogHandler(EventHandler[OrderPlaced]):
 
 async def test_multi_module_event_handlers_all_resolved() -> None:
     @module(
-        extensions=[MessagingExtension().bind(OrderPlaced, SendEmailHandler)],
+        extensions=[MessagingExtension().bind(SendEmailHandler)],
     )
     class NotificationModule:
         pass
 
     @module(
-        extensions=[MessagingExtension().bind(OrderPlaced, UpdateStatsHandler)],
+        extensions=[MessagingExtension().bind(UpdateStatsHandler)],
     )
     class AnalyticsModule:
         pass
 
     @module(
-        extensions=[MessagingExtension().bind(OrderPlaced, AuditLogHandler)],
+        extensions=[MessagingExtension().bind(AuditLogHandler)],
     )
     class AuditModule:
         pass
@@ -99,13 +99,13 @@ async def test_multi_module_event_handlers_publish() -> None:
             called.append('stats')
 
     @module(
-        extensions=[MessagingExtension().bind(OrderPlaced, TrackingEmailHandler)],
+        extensions=[MessagingExtension().bind(TrackingEmailHandler)],
     )
     class ModuleA:
         pass
 
     @module(
-        extensions=[MessagingExtension().bind(OrderPlaced, TrackingStatsHandler)],
+        extensions=[MessagingExtension().bind(TrackingStatsHandler)],
     )
     class ModuleB:
         pass
@@ -171,7 +171,7 @@ async def test_multi_module_pipeline_behaviors_all_resolved() -> None:
 
     @module(
         extensions=[
-            MessagingExtension().bind(ProcessOrder, ValidatingHandler),
+            MessagingExtension().bind(ValidatingHandler),
         ],
     )
     class HandlerModule:
@@ -204,7 +204,7 @@ async def test_module_with_empty_messaging_extension_starts_without_error() -> N
         pass
 
     @module(
-        extensions=[MessagingExtension().bind(OrderPlaced, SendEmailHandler)],
+        extensions=[MessagingExtension().bind(SendEmailHandler)],
     )
     class HandlerModule:
         pass
@@ -230,13 +230,13 @@ async def test_module_with_empty_messaging_extension_starts_without_error() -> N
 
 def test_duplicate_handler_across_modules_raises_improperly_configured() -> None:
     @module(
-        extensions=[MessagingExtension().bind(OrderPlaced, SendEmailHandler)],
+        extensions=[MessagingExtension().bind(SendEmailHandler)],
     )
     class ModuleA:
         pass
 
     @module(
-        extensions=[MessagingExtension().bind(OrderPlaced, SendEmailHandler)],
+        extensions=[MessagingExtension().bind(SendEmailHandler)],
     )
     class ModuleB:
         pass
@@ -284,11 +284,11 @@ async def test_behavior_shared_across_modules_registers_once() -> None:
         @override
         async def handle(self, event: EventTwo, /) -> None: ...
 
-    @module(extensions=[MessagingExtension().bind(EventOne, HandlerOne)])
+    @module(extensions=[MessagingExtension().bind(HandlerOne)])
     class ModuleOne:
         pass
 
-    @module(extensions=[MessagingExtension().bind(EventTwo, HandlerTwo)])
+    @module(extensions=[MessagingExtension().bind(HandlerTwo)])
     class ModuleTwo:
         pass
 

@@ -53,7 +53,7 @@ class TestRoutingBranches:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_Notif, _DummyNotifHandler)],
+                extensions=[MessagingExtension().bind(_DummyNotifHandler)],
                 providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
             ) as app,
             app.container() as container,
@@ -81,7 +81,7 @@ class TestRoutingBranches:
             routing=[route(Cmd).to('cmd-q')],
         )
 
-        @module(extensions=[MessagingExtension().bind(Cmd, CmdHandler)])
+        @module(extensions=[MessagingExtension().bind(CmdHandler)])
         class CmdModule:
             pass
 
@@ -111,7 +111,7 @@ class TestRoutingBranches:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_Notif, NotifHandler)],
+                extensions=[MessagingExtension().bind(NotifHandler)],
             ) as app,
             app.container() as container,
         ):

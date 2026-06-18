@@ -201,7 +201,7 @@ async def test_event_sourced_command_handler_creates_and_persists_aggregate() ->
         ],
         extensions=[
             EventSourcingExtension().bind_aggregate(repository=NoteRepository, event_types=[NoteCreated, NoteEdited]),
-            MessagingExtension().bind(CreateNote, CreateNoteHandler),
+            MessagingExtension().bind(CreateNoteHandler),
         ],
     )
     class NoteModule:

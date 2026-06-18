@@ -1,5 +1,5 @@
 from collections.abc import Iterator, Sequence
-from typing import TYPE_CHECKING, Any, Self, TypeAlias, TypeVar, assert_never, cast, get_args, get_origin, overload
+from typing import TYPE_CHECKING, Any, Self, TypeAlias, assert_never, cast, get_args, get_origin, overload
 
 from typing_extensions import override
 
@@ -81,7 +81,6 @@ from waku.uow import IUnitOfWork
 if TYPE_CHECKING:
     from waku.application import WakuApplication
     from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.handler import EventHandler, RequestHandler
     from waku.modules import ModuleMetadata, ModuleType
 
 __all__ = [
@@ -91,8 +90,6 @@ __all__ = [
 
 
 _HandlerProviders: TypeAlias = tuple[Provider, ...]
-_ReqT = TypeVar('_ReqT', bound=IRequest[Any])
-_MsgT = TypeVar('_MsgT', bound=IMessage)
 
 # Ordered framework policy set assembled into every handler's pipeline (declaration order is the
 # tie-break within a Position tier). Forwarding is contributed by the ES module, not listed here.
@@ -200,41 +197,31 @@ class MessagingExtension(OnModuleConfigure):
         pass  # No-op: implements OnModuleConfigure for discovery via find_extensions()
 
     @overload
+    def bind(self, *handlers: 'type[MessageHandler[Any, Any]]') -> Self: ...
+
+    @overload
     def bind(
         self,
+        message_type: type[IMessage],
         handler_type: 'type[MessageHandler[Any, Any]]',
         /,
-    ) -> Self: ...
-
-    @overload
-    def bind(
-        self,
-        message_type: type[_ReqT],
-        handler_type: 'type[RequestHandler[_ReqT, Any]]',
-    ) -> Self: ...
-
-    @overload
-    def bind(
-        self,
-        message_type: type[_MsgT],
-        handler_type: 'type[EventHandler[_MsgT]]',
-        *additional_handlers: 'type[EventHandler[_MsgT]]',
-    ) -> Self: ...
-
-    def bind(
-        self,
-        message_type: 'type[IMessage | MessageHandler[Any, Any]]',
-        handler_type: 'type[MessageHandler[Any, Any]] | None' = None,
         *additional_handlers: 'type[MessageHandler[Any, Any]]',
-    ) -> Self:
-        if handler_type is None:
-            inferred_handler = cast('type[MessageHandler[Any, Any]]', message_type)
-            resolved_message_type = _infer_message_type(inferred_handler)
-            self._registry.handler_map.bind(resolved_message_type, inferred_handler)
+    ) -> Self: ...
+
+    def bind(self, *args: 'type[IMessage | MessageHandler[Any, Any]]') -> Self:
+        if not args:
             return self
-        self._registry.handler_map.bind(cast('type[IMessage]', message_type), handler_type)
-        for additional in additional_handlers:
-            self._registry.handler_map.bind(cast('type[IMessage]', message_type), additional)
+        if issubclass(args[0], MessageHandler):
+            for handler in cast('tuple[type[MessageHandler[Any, Any]], ...]', args):
+                self._registry.handler_map.bind(_infer_message_type(handler), handler)
+            return self
+        message_type = args[0]
+        handlers = cast('tuple[type[MessageHandler[Any, Any]], ...]', args[1:])
+        if not handlers:
+            msg = 'bind(message_type, ...) requires at least one handler type'
+            raise ImproperlyConfiguredError(msg)
+        for handler in handlers:
+            self._registry.handler_map.bind(message_type, handler)
         return self
 
     @property

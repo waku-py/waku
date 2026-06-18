@@ -98,10 +98,7 @@ class TestOutboxCascadingPerDestination:
             create_test_app(
                 imports=[MessagingModule.register(_config(outbox))],
                 extensions=[
-                    MessagingExtension()
-                    .bind(_PlaceOrder, PlaceOrderHandler)
-                    .bind(_OrderShipped, _NoopShippedHandler)
-                    .bind(_OrderLogged, LoggedHandler),
+                    MessagingExtension().bind(PlaceOrderHandler).bind(_NoopShippedHandler).bind(LoggedHandler),
                 ],
                 providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
             ) as app,
@@ -138,10 +135,7 @@ class TestOutboxCascadingPerDestination:
             create_test_app(
                 imports=[MessagingModule.register(_config(outbox))],
                 extensions=[
-                    MessagingExtension()
-                    .bind(_PlaceOrder, PlaceOrderHandler)
-                    .bind(_OrderShipped, _NoopShippedHandler)
-                    .bind(_OrderLogged, LoggedHandler),
+                    MessagingExtension().bind(PlaceOrderHandler).bind(_NoopShippedHandler).bind(LoggedHandler),
                 ],
                 providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
             ) as app,
@@ -181,10 +175,7 @@ class TestOutboxCascadingPerDestination:
             create_test_app(
                 imports=[MessagingModule.register(_config(outbox))],
                 extensions=[
-                    MessagingExtension()
-                    .bind(_PlaceOrder, FailingHandler)
-                    .bind(_OrderShipped, _NoopShippedHandler)
-                    .bind(_OrderLogged, LoggedHandler),
+                    MessagingExtension().bind(FailingHandler).bind(_NoopShippedHandler).bind(LoggedHandler),
                 ],
                 providers=[object_(uow, provided_type=IUnitOfWork)],
             ) as app,
@@ -222,10 +213,7 @@ class TestOutboxCascadingPerDestination:
             create_test_app(
                 imports=[MessagingModule.register(_config(outbox))],
                 extensions=[
-                    MessagingExtension()
-                    .bind(_PlaceOrder, PlaceOrderHandler)
-                    .bind(_OrderShipped, _NoopShippedHandler)
-                    .bind(_OrderLogged, LoggedHandler),
+                    MessagingExtension().bind(PlaceOrderHandler).bind(_NoopShippedHandler).bind(LoggedHandler),
                 ],
                 providers=[object_(uow, provided_type=IUnitOfWork)],
             ) as app,

@@ -114,7 +114,7 @@ async def _run_executor(
 ) -> ExecutionOutcome:
     async with create_test_app(
         imports=[MessagingModule.register()],
-        extensions=[MessagingExtension().bind(_FailingCommand, handler)],
+        extensions=[MessagingExtension().bind(handler)],
     ) as app:
         executor = await _make_executor(app, evaluator)
         envelope = make_envelope(_FailingCommand(value='test'))
@@ -177,7 +177,7 @@ class TestEndpointExecutorDeadLetter:
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
-            extensions=[MessagingExtension().bind(_FailingCommand, handler)],
+            extensions=[MessagingExtension().bind(handler)],
             providers=[object_(uow, provided_type=IUnitOfWork)],
         ) as app:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
@@ -203,7 +203,7 @@ class TestEndpointExecutorDeadLetter:
         with caplog.at_level(logging.ERROR, logger='waku.messaging.endpoints.executor'):
             async with create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_FailingCommand, handler)],
+                extensions=[MessagingExtension().bind(handler)],
                 providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
             ) as app:
                 evaluator = await app.container.get(ErrorPolicyEvaluator)
@@ -223,7 +223,7 @@ async def test_on_result_called_with_success() -> None:
 
     async with create_test_app(
         imports=[MessagingModule.register()],
-        extensions=[MessagingExtension().bind(_FailingCommand, handler)],
+        extensions=[MessagingExtension().bind(handler)],
     ) as app:
         executor = await _make_executor(app, NOOP_EVALUATOR)
         envelope = make_envelope(_FailingCommand(value='test'))
@@ -239,7 +239,7 @@ async def test_on_result_called_with_failure_no_policy() -> None:
 
     async with create_test_app(
         imports=[MessagingModule.register()],
-        extensions=[MessagingExtension().bind(_FailingCommand, handler)],
+        extensions=[MessagingExtension().bind(handler)],
     ) as app:
         executor = await _make_executor(app, NOOP_EVALUATOR)
         envelope = make_envelope(_FailingCommand(value='test'))
@@ -257,7 +257,7 @@ async def test_execute_without_on_result_is_unchanged() -> None:
 
     async with create_test_app(
         imports=[MessagingModule.register()],
-        extensions=[MessagingExtension().bind(_FailingCommand, handler)],
+        extensions=[MessagingExtension().bind(handler)],
     ) as app:
         executor = await _make_executor(app, NOOP_EVALUATOR)
         envelope = make_envelope(_FailingCommand(value='test'))
@@ -273,7 +273,7 @@ async def test_on_result_fired_once_across_retries() -> None:
 
     async with create_test_app(
         imports=[MessagingModule.register()],
-        extensions=[MessagingExtension().bind(_FailingCommand, handler)],
+        extensions=[MessagingExtension().bind(handler)],
     ) as app:
         executor = await _make_executor(app, evaluator)
         envelope = make_envelope(_FailingCommand(value='retry'))

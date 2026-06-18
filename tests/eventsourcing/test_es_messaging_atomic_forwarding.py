@@ -190,7 +190,7 @@ async def _forwarding_app(
 
 
 async def test_appended_event_forwarded_to_outbox_exactly_once(pg_engine: AsyncEngine) -> None:
-    msg_ext = MessagingExtension().bind(CreateNote, CreateNoteHandler).bind(NoteCreated, _NoteCreatedSubscriber)
+    msg_ext = MessagingExtension().bind(CreateNoteHandler).bind(_NoteCreatedSubscriber)
     async with _forwarding_app(pg_engine, msg_ext=msg_ext, routing=[route(NoteCreated).to('test://notes')]) as c:
         bus = await c.get(IMessageBus)
         await bus.invoke(CreateNote(note_id='n-1', title='Hello'))
@@ -208,10 +208,7 @@ async def test_appended_event_forwarded_to_outbox_exactly_once(pg_engine: AsyncE
 
 async def test_each_appended_event_forwarded_once_no_double_flush(pg_engine: AsyncEngine) -> None:
     msg_ext = (
-        MessagingExtension()
-        .bind(CreateNote, CreateAndEditNoteHandler)
-        .bind(NoteCreated, _NoteCreatedSubscriber)
-        .bind(NoteEdited, _NoteEditedSubscriber)
+        MessagingExtension().bind(CreateAndEditNoteHandler).bind(_NoteCreatedSubscriber).bind(_NoteEditedSubscriber)
     )
     routing = [route(NoteCreated).to('test://notes'), route(NoteEdited).to('test://notes')]
     async with _forwarding_app(pg_engine, msg_ext=msg_ext, routing=routing) as c:
@@ -226,7 +223,7 @@ async def test_each_appended_event_forwarded_once_no_double_flush(pg_engine: Asy
 
 
 async def test_unrouted_appended_event_not_forwarded(pg_engine: AsyncEngine) -> None:
-    msg_ext = MessagingExtension().bind(CreateNote, CreateNoteHandler)
+    msg_ext = MessagingExtension().bind(CreateNoteHandler)
     async with _forwarding_app(pg_engine, msg_ext=msg_ext, routing=[]) as c:
         bus = await c.get(IMessageBus)
         await bus.invoke(CreateNote(note_id='n-3', title='Hello'))
@@ -241,7 +238,7 @@ async def test_unrouted_appended_event_not_forwarded(pg_engine: AsyncEngine) -> 
 
 
 async def test_rollback_after_append_forwards_nothing(pg_engine: AsyncEngine) -> None:
-    msg_ext = MessagingExtension().bind(CreateNote, FailAfterAppendHandler).bind(NoteCreated, _NoteCreatedSubscriber)
+    msg_ext = MessagingExtension().bind(FailAfterAppendHandler).bind(_NoteCreatedSubscriber)
     async with _forwarding_app(pg_engine, msg_ext=msg_ext, routing=[route(NoteCreated).to('test://notes')]) as c:
         bus = await c.get(IMessageBus)
         with pytest.raises(RuntimeError, match='boom after append'):
@@ -257,11 +254,7 @@ async def test_rollback_after_append_forwards_nothing(pg_engine: AsyncEngine) ->
 
 
 async def test_translation_seam_forwards_integration_event(pg_engine: AsyncEngine) -> None:
-    msg_ext = (
-        MessagingExtension()
-        .bind(CreateNote, CreateNoteHandler)
-        .bind(NoteCreatedIntegration, _NoteCreatedIntegrationSubscriber)
-    )
+    msg_ext = MessagingExtension().bind(CreateNoteHandler).bind(_NoteCreatedIntegrationSubscriber)
     forwarding = [forward(NoteCreated).transformed_to(lambda e: NoteCreatedIntegration(title=_note_title(e)))]
     async with _forwarding_app(
         pg_engine,

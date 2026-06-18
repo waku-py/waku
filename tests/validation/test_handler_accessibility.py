@@ -46,7 +46,7 @@ async def test_event_handler_deps_validated_against_originating_module() -> None
     @module(
         providers=[scoped(IRepository, ConcreteRepository)],
         exports=[IRepository],
-        extensions=[MessagingExtension().bind(SomeEvent, EventHandlerWithDep)],
+        extensions=[MessagingExtension().bind(EventHandlerWithDep)],
     )
     class DomainModule:
         pass
@@ -109,7 +109,7 @@ async def test_pipeline_behavior_deps_validated_against_originating_module() -> 
     @module(
         providers=[scoped(IRepository, ConcreteRepository)],
         exports=[IRepository],
-        extensions=[MessagingExtension().bind(ProcessCommand, ValidatingHandler)],
+        extensions=[MessagingExtension().bind(ValidatingHandler)],
     )
     class DomainModule:
         pass

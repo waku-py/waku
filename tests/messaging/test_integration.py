@@ -70,7 +70,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind(_SayHello, _ContextCapturingHandler)],
+                extensions=[MessagingExtension().bind(_ContextCapturingHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -92,7 +92,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind(_SayHello, _ContextCapturingHandler)],
+                extensions=[MessagingExtension().bind(_ContextCapturingHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -107,7 +107,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind(_SayHello, _ContextCapturingHandler)],
+                extensions=[MessagingExtension().bind(_ContextCapturingHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -124,7 +124,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind(_FireAndForget, _FireAndForgetHandler)],
+                extensions=[MessagingExtension().bind(_FireAndForgetHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -152,7 +152,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind(_SomethingHappened, HandlerA, HandlerB)],
+                extensions=[MessagingExtension().bind(HandlerA, HandlerB)],
             ) as app,
             app.container() as container,
         ):
@@ -171,7 +171,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind(_SayHello, _ContextCapturingHandler)],
+                extensions=[MessagingExtension().bind(_ContextCapturingHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -201,7 +201,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[ContextReadingBehavior]))],
-                extensions=[MessagingExtension().bind(_SayHello, SimpleHandler)],
+                extensions=[MessagingExtension().bind(SimpleHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -239,7 +239,7 @@ class TestMessagingIntegration:
             create_test_app(
                 imports=[MessagingModule.register()],
                 extensions=[
-                    MessagingExtension().bind(_SayHello, OuterHandler).bind(_InnerRequest, InnerHandler),
+                    MessagingExtension().bind(OuterHandler).bind(InnerHandler),
                 ],
             ) as app,
             app.container() as container,
@@ -274,7 +274,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind(_SomethingHappened, HandlerA, HandlerB)],
+                extensions=[MessagingExtension().bind(HandlerA, HandlerB)],
             ) as app,
             app.container() as container,
         ):
@@ -300,7 +300,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind(_FailingRequest, FailingHandler)],
+                extensions=[MessagingExtension().bind(FailingHandler)],
             ) as app,
             app.container() as container,
         ):

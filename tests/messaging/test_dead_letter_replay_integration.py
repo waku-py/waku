@@ -100,7 +100,7 @@ async def test_dead_letter_then_replay_reprocesses_message() -> None:
     async with (
         create_test_app(
             imports=[MessagingModule.register(config)],
-            extensions=[MessagingExtension().bind(_Charge, _ChargeHandler)],
+            extensions=[MessagingExtension().bind(_ChargeHandler)],
             providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
         ) as app,
         app.container() as scope,

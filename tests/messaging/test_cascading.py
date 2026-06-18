@@ -72,7 +72,7 @@ class TestCascadingThroughInvoke:
             create_test_app(
                 imports=[MessagingModule.register()],
                 extensions=[
-                    MessagingExtension().bind(_PlaceOrder, PlaceOrderHandler).bind(_OrderPlaced, OrderPlacedHandler),
+                    MessagingExtension().bind(PlaceOrderHandler).bind(OrderPlacedHandler),
                 ],
             ) as app,
             app.container() as container,
@@ -116,7 +116,7 @@ class TestCascadingThroughInvoke:
             create_test_app(
                 imports=[MessagingModule.register()],
                 extensions=[
-                    MessagingExtension().bind(_PlaceOrder, PlaceOrderHandler).bind(_OrderPlaced, OrderPlacedHandler),
+                    MessagingExtension().bind(PlaceOrderHandler).bind(OrderPlacedHandler),
                 ],
             ) as app,
             app.container() as container,
@@ -160,10 +160,7 @@ class TestCascadingThroughInvoke:
             create_test_app(
                 imports=[MessagingModule.register()],
                 extensions=[
-                    MessagingExtension()
-                    .bind(_PlaceOrder, MultiCascadeHandler)
-                    .bind(_OrderPlaced, OrderPlacedHandler)
-                    .bind(_AuditRecorded, AuditRecordedHandler),
+                    MessagingExtension().bind(MultiCascadeHandler).bind(OrderPlacedHandler).bind(AuditRecordedHandler),
                 ],
             ) as app,
             app.container() as container,
@@ -200,7 +197,7 @@ class TestCascadingErrorIsolation:
             create_test_app(
                 imports=[MessagingModule.register()],
                 extensions=[
-                    MessagingExtension().bind(_PlaceOrder, FailingHandler).bind(_OrderPlaced, OrderPlacedHandler),
+                    MessagingExtension().bind(FailingHandler).bind(OrderPlacedHandler),
                 ],
             ) as app,
             app.container() as container,
@@ -235,7 +232,7 @@ class TestCascadingErrorIsolation:
             create_test_app(
                 imports=[MessagingModule.register()],
                 extensions=[
-                    MessagingExtension().bind(_PlaceOrder, Handler).bind(_OrderPlaced, BrokenCascadeHandler),
+                    MessagingExtension().bind(Handler).bind(BrokenCascadeHandler),
                 ],
             ) as app,
             app.container() as container,
@@ -268,7 +265,7 @@ class TestCascadingErrorIsolation:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind(_PlaceOrder, Handler)],
+                extensions=[MessagingExtension().bind(Handler)],
             ) as app,
             app.container() as container,
         ):
@@ -328,10 +325,10 @@ class TestCascadingNested:
                 imports=[MessagingModule.register()],
                 extensions=[
                     MessagingExtension()
-                    .bind(_PlaceOrder, OuterHandler)
-                    .bind(_ValidateOrder, ValidateHandler)
-                    .bind(_OrderPlaced, OrderPlacedHandler)
-                    .bind(_AuditRecorded, AuditRecordedHandler),
+                    .bind(OuterHandler)
+                    .bind(ValidateHandler)
+                    .bind(OrderPlacedHandler)
+                    .bind(AuditRecordedHandler),
                 ],
             ) as app,
             app.container() as container,
@@ -393,10 +390,10 @@ class TestCascadingNested:
                 imports=[MessagingModule.register()],
                 extensions=[
                     MessagingExtension()
-                    .bind(_PlaceOrder, ToleratingOuter)
-                    .bind(_ValidateOrder, FailingValidator)
-                    .bind(_OrderPlaced, OrderPlacedHandler)
-                    .bind(_AuditRecorded, AuditHandler),
+                    .bind(ToleratingOuter)
+                    .bind(FailingValidator)
+                    .bind(OrderPlacedHandler)
+                    .bind(AuditHandler),
                 ],
             ) as app,
             app.container() as container,
@@ -434,7 +431,7 @@ class TestCascadingViaPublishAndSend:
             create_test_app(
                 imports=[MessagingModule.register()],
                 extensions=[
-                    MessagingExtension().bind(_OrderPlaced, OrderPlacedCascader).bind(_AuditRecorded, AuditHandler),
+                    MessagingExtension().bind(OrderPlacedCascader).bind(AuditHandler),
                 ],
             ) as app,
             app.container() as container,
@@ -474,7 +471,7 @@ class TestCascadingViaPublishAndSend:
             create_test_app(
                 imports=[MessagingModule.register()],
                 extensions=[
-                    MessagingExtension().bind(_PlaceOrder, PlaceOrderHandler).bind(_FulfillOrder, FulfillHandler),
+                    MessagingExtension().bind(PlaceOrderHandler).bind(FulfillHandler),
                 ],
             ) as app,
             app.container() as container,

@@ -174,7 +174,7 @@ class TestTransactionalBehaviorViaDI:
             create_test_app(
                 providers=[object_(uow, provided_type=IUnitOfWork)],
                 imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[TransactionalBehavior]))],
-                extensions=[MessagingExtension().bind(_TxRequest, _Handler)],
+                extensions=[MessagingExtension().bind(_Handler)],
             ) as app,
             app.container() as container,
         ):
@@ -198,7 +198,7 @@ class TestTransactionalBehaviorViaDI:
             create_test_app(
                 providers=[object_(uow, provided_type=IUnitOfWork)],
                 imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[TransactionalBehavior]))],
-                extensions=[MessagingExtension().bind(_TxRequest, _Handler)],
+                extensions=[MessagingExtension().bind(_Handler)],
             ) as app,
             app.container() as container,
         ):

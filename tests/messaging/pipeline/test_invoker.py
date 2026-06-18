@@ -50,7 +50,7 @@ async def test_invoke_without_behaviors_runs_only_handler() -> None:
     async with (
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            extensions=[MessagingExtension().bind(_Evt, _H)],
+            extensions=[MessagingExtension().bind(_H)],
         ) as app,
         app.container() as scope,
     ):
@@ -75,7 +75,7 @@ async def test_global_outer_then_per_handler_inner_then_handle() -> None:
     async with (
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[global_b]))],
-            extensions=[MessagingExtension().bind(_Evt, _H)],
+            extensions=[MessagingExtension().bind(_H)],
         ) as app,
         app.container() as scope,
     ):
@@ -97,7 +97,7 @@ async def test_handler_without_behaviors_uses_only_global() -> None:
     async with (
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[global_b]))],
-            extensions=[MessagingExtension().bind(_Evt, _Bare)],
+            extensions=[MessagingExtension().bind(_Bare)],
         ) as app,
         app.container() as scope,
     ):
@@ -118,7 +118,7 @@ async def test_cascading_behavior_is_outermost_in_resolved_chain() -> None:
 
     async with create_test_app(
         imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[global_b]))],
-        extensions=[MessagingExtension().bind(_Evt, _H)],
+        extensions=[MessagingExtension().bind(_H)],
     ) as app:
         plan = await app.container.get(BehaviorPlan)
 
@@ -146,7 +146,7 @@ async def test_two_handlers_of_same_event_have_independent_chains() -> None:
     async with (
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            extensions=[MessagingExtension().bind(_Evt, _HandlerA, _HandlerB)],
+            extensions=[MessagingExtension().bind(_HandlerA, _HandlerB)],
         ) as app,
         app.container() as scope,
     ):

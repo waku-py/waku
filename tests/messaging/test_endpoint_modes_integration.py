@@ -51,7 +51,7 @@ class TestInlineModeEndToEnd:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_OrderPlaced, _SyncHandler)],
+                extensions=[MessagingExtension().bind(_SyncHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -96,7 +96,7 @@ class TestBufferedModeConcurrencyEndToEnd:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(WorkEvent, BlockingHandler)],
+                extensions=[MessagingExtension().bind(BlockingHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -144,7 +144,7 @@ class TestCircuitBreakerEndToEnd:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_Boom, _FailingHandler)],
+                extensions=[MessagingExtension().bind(_FailingHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -188,7 +188,7 @@ class TestCircuitBreakerEndToEnd:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_Bang, _FailingHandler)],
+                extensions=[MessagingExtension().bind(_FailingHandler)],
             ) as app,
             app.container() as container,
         ):

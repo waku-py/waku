@@ -50,7 +50,7 @@ class TestBusOutboxIntegration:
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 
-        @module(extensions=[MessagingExtension().bind(_OrderPlaced, _InlineHandler)])
+        @module(extensions=[MessagingExtension().bind(_InlineHandler)])
         class TestModule:
             pass
 
@@ -78,7 +78,7 @@ class TestBusOutboxIntegration:
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 
-        @module(extensions=[MessagingExtension().bind(_OrderPlaced, _InlineHandler)])
+        @module(extensions=[MessagingExtension().bind(_InlineHandler)])
         class TestModule:
             pass
 

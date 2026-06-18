@@ -52,7 +52,7 @@ class TestInvokeRequest:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(MessagingConfig())],
-                extensions=[MessagingExtension().bind(_Cmd, CmdHandler)],
+                extensions=[MessagingExtension().bind(CmdHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -90,7 +90,7 @@ class TestInvokeEvent:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(MessagingConfig())],
-                extensions=[MessagingExtension().bind(_Evt, HandlerA, HandlerB)],
+                extensions=[MessagingExtension().bind(HandlerA, HandlerB)],
             ) as app,
             app.container() as container,
         ):
@@ -118,7 +118,7 @@ class TestInvokeEvent:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(MessagingConfig())],
-                extensions=[MessagingExtension().bind(_Evt, Failing, NeverRuns)],
+                extensions=[MessagingExtension().bind(Failing, NeverRuns)],
             ) as app,
             app.container() as container,
         ):

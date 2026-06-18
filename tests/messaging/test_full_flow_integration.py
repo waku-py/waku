@@ -102,7 +102,7 @@ class TestEndToEndOutboxFlow:
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 
-        @module(extensions=[MessagingExtension().bind(_OrderPlaced, _OrderPlacedHandler)])
+        @module(extensions=[MessagingExtension().bind(_OrderPlacedHandler)])
         class TestModule:
             pass
 
@@ -158,7 +158,7 @@ class TestErrorPolicyIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_FailingCommand, _AlwaysFailingHandler)],
+                extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
                 providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
             ) as app,
             app.container() as c,
@@ -192,7 +192,7 @@ class TestOutboxRelayLifecycleIntegration:
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 
-        @module(extensions=[MessagingExtension().bind(_OrderPlaced, _OrderPlacedHandler)])
+        @module(extensions=[MessagingExtension().bind(_OrderPlacedHandler)])
         class TestModule:
             pass
 
@@ -244,7 +244,7 @@ class TestCustomEnvelopeSerializer:
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 
-        @module(extensions=[MessagingExtension().bind(_OrderPlaced, _OrderPlacedHandler)])
+        @module(extensions=[MessagingExtension().bind(_OrderPlacedHandler)])
         class TestModule:
             pass
 
@@ -281,7 +281,7 @@ class TestMessageIdentityPropagation:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_OrderPlaced, _OrderPlacedHandler)],
+                extensions=[MessagingExtension().bind(_OrderPlacedHandler)],
                 providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
             ) as app,
             app.container() as c,
@@ -307,7 +307,7 @@ class TestMessageIdentityPropagation:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_OrderPlaced, _OrderPlacedHandler)],
+                extensions=[MessagingExtension().bind(_OrderPlacedHandler)],
                 providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
             ) as app,
             app.container() as c,
@@ -422,7 +422,7 @@ class TestClassVarHandlerConfig:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_OrderPlaced, _ClassVarRetryHandler)],
+                extensions=[MessagingExtension().bind(_ClassVarRetryHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -442,7 +442,7 @@ class TestClassVarHandlerConfig:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_OrderPlaced, _DefaultFallbackHandler)],
+                extensions=[MessagingExtension().bind(_DefaultFallbackHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -462,7 +462,7 @@ class TestClassVarHandlerConfig:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_OrderPlaced, _BehaviorHandler)],
+                extensions=[MessagingExtension().bind(_BehaviorHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -515,7 +515,7 @@ class TestGroupIdPropagation:
 
         @module(
             extensions=[
-                MessagingExtension().bind(_ShipOrder, _ShipOrderHandler).bind(_OrderShipped, _OrderShippedHandler),
+                MessagingExtension().bind(_ShipOrderHandler).bind(_OrderShippedHandler),
             ],
         )
         class TestModule:
@@ -559,7 +559,7 @@ class TestPartitionOrderingEndToEnd:
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 
-        @module(extensions=[MessagingExtension().bind(_OrderPlaced, _OrderPlacedHandler)])
+        @module(extensions=[MessagingExtension().bind(_OrderPlacedHandler)])
         class TestModule:
             pass
 

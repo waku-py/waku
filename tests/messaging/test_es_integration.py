@@ -47,7 +47,7 @@ class TestESBusIntegration:
             event_types=[NoteCreated],
         )
 
-        msg_ext = MessagingExtension().bind(CreateNote, CreateNoteHandler)
+        msg_ext = MessagingExtension().bind(CreateNoteHandler)
 
         @module(extensions=[es_ext, msg_ext])
         class TestModule:

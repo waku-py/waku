@@ -67,7 +67,7 @@ class TestInvokeEventEndToEnd:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind(_OrderShipped, NotifyHandler, AuditHandler)],
+                extensions=[MessagingExtension().bind(NotifyHandler, AuditHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -114,7 +114,7 @@ class TestInvokeEventEndToEnd:
             create_test_app(
                 imports=[MessagingModule.register()],
                 extensions=[
-                    MessagingExtension().bind(_OrderShipped, ShippedHandler).bind(_PlaceOrder, PlaceOrderHandler),
+                    MessagingExtension().bind(ShippedHandler).bind(PlaceOrderHandler),
                 ],
             ) as app,
             app.container() as container,
@@ -144,7 +144,7 @@ class TestInvokeEventAtomicity:
                 seen.add('b')
 
         async with (
-            _transactional_app(uow, MessagingExtension().bind(_OrderShipped, HandlerA, HandlerB)) as app,
+            _transactional_app(uow, MessagingExtension().bind(HandlerA, HandlerB)) as app,
             app.container() as container,
         ):
             bus = await container.get(IMessageBus)
@@ -170,7 +170,7 @@ class TestInvokeEventAtomicity:
                 raise RuntimeError(msg)
 
         async with (
-            _transactional_app(uow, MessagingExtension().bind(_OrderShipped, OkHandler, BoomHandler)) as app,
+            _transactional_app(uow, MessagingExtension().bind(OkHandler, BoomHandler)) as app,
             app.container() as container,
         ):
             bus = await container.get(IMessageBus)
@@ -203,9 +203,7 @@ class TestInvokeEventAtomicity:
         async with (
             _transactional_app(
                 uow,
-                MessagingExtension()
-                .bind(_OrderShipped, ShippedHandler, AuditShippedHandler)
-                .bind(_PlaceOrder, PlaceOrderHandler),
+                MessagingExtension().bind(ShippedHandler, AuditShippedHandler).bind(PlaceOrderHandler),
             ) as app,
             app.container() as container,
         ):

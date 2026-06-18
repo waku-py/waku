@@ -191,7 +191,7 @@ async def create_test_app(
 
         # Create test app from scratch
         async def test_my_extension():
-            extension = MyExtension().bind(SomeEvent, SomeHandler)
+            extension = MyExtension().bind(SomeHandler)
 
             async with create_test_app(
                 extensions=[extension],

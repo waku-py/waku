@@ -90,7 +90,7 @@ class TestDurableInboxIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(_durable_config(inbox))],
-                extensions=[MessagingExtension().bind(_OrderPlaced, _RecordingHandler)],
+                extensions=[MessagingExtension().bind(_RecordingHandler)],
                 providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
             ) as app,
             app.container() as container,
@@ -113,7 +113,7 @@ class TestDurableInboxIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(_durable_config(inbox))],
-                extensions=[MessagingExtension().bind(_OrderPlaced, _RecordingHandler)],
+                extensions=[MessagingExtension().bind(_RecordingHandler)],
                 providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
             ) as app,
             app.container() as container,
@@ -141,7 +141,7 @@ class TestDurableInboxIntegration:
             create_test_app(
                 imports=[MessagingModule.register(_durable_config(inbox))],
                 extensions=[
-                    MessagingExtension().bind(_OrderPlaced, _RecordingHandler, _SecondRecordingHandler),
+                    MessagingExtension().bind(_RecordingHandler, _SecondRecordingHandler),
                 ],
                 providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
             ) as app,
@@ -167,7 +167,7 @@ class TestDurableInboxIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(_dlq_failing_config(inbox))],
-                extensions=[MessagingExtension().bind(_OrderPlaced, _FailingOrderHandler)],
+                extensions=[MessagingExtension().bind(_FailingOrderHandler)],
                 providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
             ) as app,
             app.container() as container,

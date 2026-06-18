@@ -78,7 +78,7 @@ class TestLocalQueueEndpoint:
 
         async with create_test_app(
             imports=[MessagingModule.register()],
-            extensions=[MessagingExtension().bind(_OrderPlaced, _RecordingHandler)],
+            extensions=[MessagingExtension().bind(_RecordingHandler)],
         ) as app:
             endpoint = await _make_endpoint(app, _RecordingHandler)
             await endpoint.start()
@@ -96,7 +96,7 @@ class TestLocalQueueEndpoint:
 
         async with create_test_app(
             imports=[MessagingModule.register()],
-            extensions=[MessagingExtension().bind(_OrderPlaced, _RecordingHandler)],
+            extensions=[MessagingExtension().bind(_RecordingHandler)],
         ) as app:
             endpoint = await _make_endpoint(app, _RecordingHandler)
             await endpoint.start()
@@ -118,7 +118,7 @@ class TestLocalQueueEndpoint:
 
         async with create_test_app(
             imports=[MessagingModule.register()],
-            extensions=[MessagingExtension().bind(_OrderPlaced, _FailingThenRecordingHandler)],
+            extensions=[MessagingExtension().bind(_FailingThenRecordingHandler)],
         ) as app:
             endpoint = await _make_endpoint(app, _FailingThenRecordingHandler)
             await endpoint.start()

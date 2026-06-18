@@ -110,7 +110,7 @@ class TestLocalQueueLifecycle:
             async with (
                 create_test_app(
                     imports=[MessagingModule.register(config)],
-                    extensions=[MessagingExtension().bind(SlowEvent, SlowHandler)],
+                    extensions=[MessagingExtension().bind(SlowHandler)],
                 ) as app,
                 app.container() as container,
             ):
@@ -138,7 +138,7 @@ class TestLocalQueueLifecycle:
             routing=[route(PingRequest).to('request-q')],
         )
 
-        @module(extensions=[MessagingExtension().bind(PingRequest, PingHandler)])
+        @module(extensions=[MessagingExtension().bind(PingHandler)])
         class Mod:
             pass
 
@@ -187,7 +187,7 @@ class TestLocalQueueConcurrency:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(WorkEvent, BlockingHandler)],
+                extensions=[MessagingExtension().bind(BlockingHandler)],
             ) as app,
             app.container() as container,
         ):

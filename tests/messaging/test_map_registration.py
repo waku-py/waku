@@ -125,26 +125,37 @@ def test_handler_map_merge_after_freeze_raises_map_frozen_error() -> None:
 class TestBindInfersMessageType:
     @staticmethod
     def test_bind_infers_request_message_type_from_handler() -> None:
-        extension = MessagingExtension().bind(_Handler)
-        assert _Request in extension.registry.handler_map.message_types()
+        hm = MessagingExtension().bind(_Handler).registry.handler_map
+        assert hm.get_handler_types(_Request) == [_Handler]
 
     @staticmethod
     def test_bind_infers_event_message_type_from_handler() -> None:
-        extension = MessagingExtension().bind(_EventHandler)
-        assert _Event in extension.registry.handler_map.message_types()
+        hm = MessagingExtension().bind(_EventHandler).registry.handler_map
+        assert hm.get_handler_types(_Event) == [_EventHandler]
+
+    @staticmethod
+    def test_bind_varargs_infers_each_handler_for_mixed_types() -> None:
+        hm = MessagingExtension().bind(_Handler, _EventHandler).registry.handler_map
+        assert hm.get_handler_types(_Request) == [_Handler]
+        assert hm.get_handler_types(_Event) == [_EventHandler]
 
     @staticmethod
     def test_bind_explicit_two_arg_form_still_works() -> None:
-        extension = MessagingExtension().bind(_Request, _Handler)
-        assert _Request in extension.registry.handler_map.message_types()
+        hm = MessagingExtension().bind(_Request, _Handler).registry.handler_map
+        assert hm.get_handler_types(_Request) == [_Handler]
+
+    @staticmethod
+    def test_bind_explicit_escape_binds_handler_beyond_its_generic() -> None:
+        hm = MessagingExtension().bind(_Event, _Handler).registry.handler_map
+        assert hm.get_handler_types(_Event) == [_Handler]
 
     @staticmethod
     def test_bind_inference_resolves_through_indirect_subclass() -> None:
         class _SubHandler(_Handler):
             pass
 
-        extension = MessagingExtension().bind(_SubHandler)
-        assert _Request in extension.registry.handler_map.message_types()
+        hm = MessagingExtension().bind(_SubHandler).registry.handler_map
+        assert hm.get_handler_types(_Request) == [_SubHandler]
 
     @staticmethod
     def test_bind_raises_when_message_type_cannot_be_inferred() -> None:
@@ -157,6 +168,11 @@ class TestBindInfersMessageType:
 
         with pytest.raises(ImproperlyConfiguredError, match='Cannot infer message type'):
             MessagingExtension().bind(_GenericHandler)
+
+    @staticmethod
+    def test_bind_explicit_form_without_handler_raises() -> None:
+        with pytest.raises(ImproperlyConfiguredError, match='at least one handler'):
+            MessagingExtension().bind(_Request)  # type: ignore[arg-type]
 
     @staticmethod
     def test_bind_raises_when_message_type_is_any() -> None:

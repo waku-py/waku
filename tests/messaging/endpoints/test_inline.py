@@ -56,7 +56,7 @@ class TestInlineEndpointDispatch:
 
         async with create_test_app(
             imports=[MessagingModule.register()],
-            extensions=[MessagingExtension().bind(_OrderPlaced, _RecordingHandler)],
+            extensions=[MessagingExtension().bind(_RecordingHandler)],
         ) as app:
             endpoint = await _make_inline_endpoint(app)
             envelope = (await app.container.get(EnvelopeFactory)).create(_OrderPlaced(order_id='sync-1'))

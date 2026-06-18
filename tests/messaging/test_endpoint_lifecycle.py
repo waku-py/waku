@@ -44,7 +44,7 @@ class TestEndpointLifecycle:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_TaskCreated, _TaskHandler)],
+                extensions=[MessagingExtension().bind(_TaskHandler)],
             ) as app,
             app.container() as container,
         ):

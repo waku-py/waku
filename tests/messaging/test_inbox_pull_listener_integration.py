@@ -54,7 +54,7 @@ async def test_abandoned_row_is_drained_and_handled() -> None:
     async with (
         create_test_app(
             imports=[MessagingModule.register(config)],
-            extensions=[MessagingExtension().bind(_OrderPlaced, _RecordingHandler)],
+            extensions=[MessagingExtension().bind(_RecordingHandler)],
             providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
         ) as app,
         app.container() as scope,
