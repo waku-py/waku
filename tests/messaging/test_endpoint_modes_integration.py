@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import ClassVar
 
-import anyio
+import anyio.lowlevel
 from typing_extensions import override
 
 import waku.messaging

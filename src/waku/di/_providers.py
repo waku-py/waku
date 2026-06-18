@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncGenerator, Callable, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -35,7 +35,7 @@ async def is_registered(container: AsyncContainer, dependency: Any) -> bool:
 
 
 @asynccontextmanager
-async def unit_of_work_scope(container: AsyncContainer) -> AsyncIterator[AsyncContainer]:
+async def unit_of_work_scope(container: AsyncContainer) -> AsyncGenerator[AsyncContainer]:
     """Open a request scope, yield it, commit on clean exit / roll back on exception.
 
     Centralizes the 'scope owner commits' invariant for background workers and one-shot writes.

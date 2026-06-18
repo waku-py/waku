@@ -11,7 +11,7 @@ from waku.eventsourcing.forwarding import AppendedEventsCollector
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.store.sqlalchemy.store import SqlAlchemyEventStore
 from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
-from waku.eventsourcing.upcasting.chain import UpcasterChain
+from waku.serialization.upcasting.chain import UpcasterChain
 
 from tests.eventsourcing.store.domain import ItemAdded, OrderCreated, make_envelope
 

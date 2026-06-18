@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
-import anyio
+import anyio.lowlevel
 import pytest
 from dishka import AsyncContainer
 from typing_extensions import override

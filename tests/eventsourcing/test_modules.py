@@ -40,9 +40,9 @@ from waku.eventsourcing.snapshot.registry import SnapshotConfig, SnapshotConfigR
 from waku.eventsourcing.snapshot.strategy import EventCountStrategy
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import IEventStore
-from waku.eventsourcing.upcasting import UpcasterChain, add_field, rename_field
 from waku.messaging.contracts.event import IEvent
 from waku.modules import module
+from waku.serialization.upcasting import UpcasterChain, add_field, rename_field
 from waku.testing import create_test_app
 
 if TYPE_CHECKING:

@@ -21,5 +21,6 @@ class MessageEnvelope(Generic[_MessageT]):
     message_type: str
     timestamp: datetime
     payload: _MessageT
+    message_version: int = 1
     headers: Mapping[str, str] = field(default_factory=dict)
     group_id: str | None = None

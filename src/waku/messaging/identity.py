@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from waku.exceptions import ImproperlyConfiguredError
-from waku.messaging.contracts.identity import MessageIdentity
+from waku.messages import MessageIdentity
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -27,7 +27,8 @@ def _own_class_identity(cls: type) -> str | MessageIdentity | None:
 
     Raises:
         ImproperlyConfiguredError: if present but not ``str``/``MessageIdentity``
-            (e.g. declared without ``ClassVar`` → a slot descriptor, not a value).
+            (e.g. declared without ``ClassVar`` → a slot descriptor, not a value),
+            or set to an empty string (a typo, not an opt-out).
     """
     own = cls.__dict__.get('message_identity')
     if own is None:
@@ -39,29 +40,39 @@ def _own_class_identity(cls: type) -> str | MessageIdentity | None:
             f'did you forget the ClassVar annotation?'
         )
         raise ImproperlyConfiguredError(msg)
+    if isinstance(own, str) and not own:
+        msg = f'{cls.__qualname__}.message_identity must not be an empty string — omit it to use the FQN fallback'
+        raise ImproperlyConfiguredError(msg)
     return own
 
 
 def resolve_message_identity(
     msg_type: type[IMessage],
     config_identities: Mapping[type[IMessage], str | MessageIdentity],
-) -> str:
-    """Single source of truth for a message type's wire name.
+) -> MessageIdentity:
+    """Single source of truth for a message type's wire identity.
 
     Own-class ClassVar (see ``_own_class_identity``) → ``config_identities``
     override (third-party types) → FQN fallback.
+
+    Raises:
+        ImproperlyConfiguredError: if the own-class ClassVar is malformed, or either
+            the ClassVar or the config override is an empty string.
     """
     own = _own_class_identity(msg_type)
-    if own:  # empty '' is a mis-set, not an opt-in -> fall through to FQN
-        return str(own)
+    if own is not None:
+        return own if isinstance(own, MessageIdentity) else MessageIdentity(name=own)
     override = config_identities.get(msg_type)
-    if override:
-        return str(override)
-    return _fqn(msg_type)
+    if override is not None:
+        if isinstance(override, str) and not override:
+            msg = f'message_identity override for {msg_type.__qualname__} must not be an empty string'
+            raise ImproperlyConfiguredError(msg)
+        return override if isinstance(override, MessageIdentity) else MessageIdentity(name=override)
+    return MessageIdentity(name=_fqn(msg_type))
 
 
 class MessageTypeRegistry:
-    __slots__ = ('_identities', '_name_to_type', '_type_to_name')
+    __slots__ = ('_identities', '_name_to_type', '_type_to_identity')
 
     def __init__(
         self,
@@ -69,28 +80,34 @@ class MessageTypeRegistry:
         known_types: Iterable[type[IMessage]],
     ) -> None:
         self._identities = identities
-        self._type_to_name: dict[type[IMessage], str] = {}
+        self._type_to_identity: dict[type[IMessage], MessageIdentity] = {}
         self._name_to_type: dict[str, type[IMessage]] = {}
         # Build bidirectional map for known (handler-bound) types so
         # deserialization can map a wire name back to a type.
         for cls in known_types:
             self._register(cls, resolve_message_identity(cls, identities))
 
-    def _register(self, cls: type[IMessage], name: str) -> None:
-        existing = self._name_to_type.get(name)
+    def _register(self, cls: type[IMessage], identity: MessageIdentity) -> None:
+        existing = self._name_to_type.get(identity.name)
         if existing is not None and existing is not cls:
-            msg = f'Duplicate message identity {name!r}: {existing.__qualname__} and {cls.__qualname__}'
+            msg = f'Duplicate message identity {identity.name!r}: {existing.__qualname__} and {cls.__qualname__}'
             raise ImproperlyConfiguredError(msg)
-        self._type_to_name[cls] = name
-        self._name_to_type[name] = cls
+        self._type_to_identity[cls] = identity
+        self._name_to_type[identity.name] = cls
 
-    def resolve_name(self, cls: type[IMessage]) -> str:
-        cached = self._type_to_name.get(cls)
+    def resolve_identity(self, cls: type[IMessage]) -> MessageIdentity:
+        cached = self._type_to_identity.get(cls)
         if cached is not None:
             return cached
         # Not pre-registered (e.g. a send-only message) — resolve on the fly so
         # the ClassVar/config override is still honored, FQN as last resort.
         return resolve_message_identity(cls, self._identities)
+
+    def resolve_name(self, cls: type[IMessage]) -> str:
+        return self.resolve_identity(cls).name
+
+    def resolve_version(self, cls: type[IMessage]) -> int:
+        return self.resolve_identity(cls).version
 
     def resolve_type(self, name: str) -> type[IMessage]:
         cls = self._name_to_type.get(name)

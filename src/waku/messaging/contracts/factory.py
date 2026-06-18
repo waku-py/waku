@@ -36,6 +36,7 @@ class EnvelopeFactory:
             correlation_id=correlation_id or uuid4(),
             causation_id=causation_id or message_id_,
             message_type=self._registry.resolve_name(type(message)),
+            message_version=self._registry.resolve_version(type(message)),
             timestamp=datetime.now(tz=UTC),
             payload=message,
             headers=headers or {},

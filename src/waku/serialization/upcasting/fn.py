@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from waku.eventsourcing.upcasting.interfaces import IEventUpcaster
+from waku.serialization.upcasting.interfaces import IPayloadUpcaster
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 __all__ = ['FnUpcaster']
 
 
-class FnUpcaster(IEventUpcaster):
+class FnUpcaster(IPayloadUpcaster):
     __slots__ = ('_fn', 'from_version')
 
     def __init__(self, from_version: int, fn: Callable[[dict[str, Any]], dict[str, Any]]) -> None:

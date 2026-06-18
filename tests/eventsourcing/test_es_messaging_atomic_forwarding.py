@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator  # noqa: TC003  # dishka introspects the session factory return type
+from collections.abc import (  # noqa: TC003  # dishka introspects the session factory return type
+    AsyncGenerator,
+    AsyncIterator,
+)
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -134,7 +137,7 @@ async def _forwarding_app(
     msg_ext: MessagingExtension,
     routing: Sequence[RouteDescriptor] = (),
     forwarding: Sequence[ForwardDescriptor] = (),
-) -> AsyncIterator[AsyncContainer]:
+) -> AsyncGenerator[AsyncContainer]:
     metadata = MetaData()
     es_tables = bind_event_store_tables(metadata)
     async with pg_engine.begin() as conn:

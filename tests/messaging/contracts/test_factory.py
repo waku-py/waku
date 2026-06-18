@@ -52,6 +52,12 @@ class TestEnvelopeFactory:
         assert envelope.message_type == 'sample'
 
     @staticmethod
+    def test_create_sets_message_version_from_registry() -> None:
+        envelope = _make_factory().create(SampleMessage())
+
+        assert envelope.message_version == 1
+
+    @staticmethod
     def test_create_sets_utc_timestamp() -> None:
         before = datetime.now(tz=UTC)
         envelope = _make_factory().create(SampleMessage())

@@ -32,7 +32,6 @@ from waku.messaging.context import message_context_scope
 from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.errors.policy import ErrorPolicy
-from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
@@ -222,8 +221,7 @@ class TestCustomEnvelopeSerializer:
             @override
             def serialize(self, envelope: Any) -> dict[str, Any]:
                 self.serialize_called = True
-                registry = MessageTypeRegistry(identities={}, known_types=[type(envelope.payload)])
-                fallback = JsonEnvelopeSerializer(type_registry=registry)
+                fallback = make_serializer(type(envelope.payload))
                 return fallback.serialize(envelope)
 
             @override

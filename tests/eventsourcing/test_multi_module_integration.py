@@ -9,9 +9,9 @@ from waku.eventsourcing.projection.interfaces import IProjection
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
-from waku.eventsourcing.upcasting import UpcasterChain, rename_field
 from waku.messaging.contracts.event import IEvent
 from waku.modules import module
+from waku.serialization.upcasting import UpcasterChain, rename_field
 from waku.testing import create_test_app
 
 if TYPE_CHECKING:

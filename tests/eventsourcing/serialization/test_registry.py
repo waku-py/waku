@@ -11,6 +11,7 @@ from waku.eventsourcing.exceptions import (
     UnknownEventTypeError,
 )
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
+from waku.messages import MessageIdentity
 from waku.messaging import IEvent
 
 
@@ -166,7 +167,7 @@ def test_is_frozen() -> None:
     assert registry.is_frozen is False
 
     registry.freeze()
-    assert registry.is_frozen is True
+    assert registry.is_frozen is True  # pyrefly: ignore[unnecessary-comparison]
 
 
 def test_contains() -> None:
@@ -214,3 +215,17 @@ def test_get_version_for_unregistered_type_raises() -> None:
 
     with pytest.raises(UnknownEventTypeError, match='OrderCreated'):
         registry.get_version(OrderCreated)
+
+
+def test_get_identity_returns_name_and_version() -> None:
+    registry = EventTypeRegistry()
+    registry.register(OrderCreated, name='order.created', version=3)
+
+    assert registry.get_identity(OrderCreated) == MessageIdentity(name='order.created', version=3)
+
+
+def test_get_identity_for_unregistered_type_raises() -> None:
+    registry = EventTypeRegistry()
+
+    with pytest.raises(UnknownEventTypeError, match='OrderCreated'):
+        registry.get_identity(OrderCreated)

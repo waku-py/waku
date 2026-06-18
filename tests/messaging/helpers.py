@@ -4,10 +4,11 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-import anyio
+import anyio.lowlevel
 from dishka import Provider, Scope, provide
 from typing_extensions import override
 
+from waku._internal.retort import default_retort  # noqa: PLC2701
 from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
@@ -19,6 +20,8 @@ from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicyRegistry
 from waku.messaging.transport.interfaces import ITransport
 from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
+from waku.serialization.codec import PayloadCodec
+from waku.serialization.upcasting import UpcasterChain
 from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
@@ -42,7 +45,8 @@ async def wait_until(predicate: Callable[[], bool]) -> None:
 
 def make_serializer(*types: type[IMessage]) -> JsonEnvelopeSerializer:
     registry = MessageTypeRegistry(identities={}, known_types=list(types))
-    return JsonEnvelopeSerializer(type_registry=registry)
+    codec = PayloadCodec(default_retort, UpcasterChain({}))
+    return JsonEnvelopeSerializer(type_registry=registry, codec=codec)
 
 
 def make_envelope(

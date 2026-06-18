@@ -41,16 +41,6 @@ from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.projection.runner import CatchUpProjectionRunner
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.snapshot.repository import SnapshotEventSourcedRepository
-from waku.eventsourcing.upcasting import (
-    FnUpcaster,
-    IEventUpcaster,
-    UpcasterChain,
-    add_field,
-    noop,
-    remove_field,
-    rename_field,
-    upcast,
-)
 
 __all__ = [
     'AggregateNotFoundError',
@@ -78,11 +68,9 @@ __all__ = [
     'EventTypeSpec',
     'Exact',
     'ExpectedVersion',
-    'FnUpcaster',
     'ICatchUpProjection',
     'ICheckpointStore',
     'IDecider',
-    'IEventUpcaster',
     'IMetadataEnricher',
     'IProjection',
     'NoStream',
@@ -102,10 +90,4 @@ __all__ = [
     'StreamPosition',
     'StreamTooLargeError',
     'UnknownEventTypeError',
-    'UpcasterChain',
-    'add_field',
-    'noop',
-    'remove_field',
-    'rename_field',
-    'upcast',
 ]

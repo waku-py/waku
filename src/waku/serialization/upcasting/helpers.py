@@ -3,12 +3,12 @@ from __future__ import annotations
 import copy
 from typing import TYPE_CHECKING, Any
 
-from waku.eventsourcing.upcasting.fn import FnUpcaster
+from waku.serialization.upcasting.fn import FnUpcaster
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from waku.eventsourcing.upcasting.interfaces import IEventUpcaster
+    from waku.serialization.upcasting.interfaces import IPayloadUpcaster
 
 __all__ = [
     'add_field',
@@ -19,11 +19,11 @@ __all__ = [
 ]
 
 
-def noop(from_version: int) -> IEventUpcaster:
+def noop(from_version: int) -> IPayloadUpcaster:
     return FnUpcaster(from_version, fn=dict)
 
 
-def rename_field(from_version: int, *, old: str, new: str) -> IEventUpcaster:
+def rename_field(from_version: int, *, old: str, new: str) -> IPayloadUpcaster:
     def _rename(data: dict[str, Any]) -> dict[str, Any]:
         result = {k: v for k, v in data.items() if k != old}
         if old in data:
@@ -33,7 +33,7 @@ def rename_field(from_version: int, *, old: str, new: str) -> IEventUpcaster:
     return FnUpcaster(from_version, fn=_rename)
 
 
-def add_field(from_version: int, *, field: str, default: Any) -> IEventUpcaster:
+def add_field(from_version: int, *, field: str, default: Any) -> IPayloadUpcaster:
     def _add(data: dict[str, Any]) -> dict[str, Any]:
         result = dict(data)
         if field not in result:
@@ -43,9 +43,9 @@ def add_field(from_version: int, *, field: str, default: Any) -> IEventUpcaster:
     return FnUpcaster(from_version, fn=_add)
 
 
-def remove_field(from_version: int, *, field: str) -> IEventUpcaster:
+def remove_field(from_version: int, *, field: str) -> IPayloadUpcaster:
     return FnUpcaster(from_version, fn=lambda data: {k: v for k, v in data.items() if k != field})
 
 
-def upcast(from_version: int, fn: Callable[[dict[str, Any]], dict[str, Any]]) -> IEventUpcaster:
+def upcast(from_version: int, fn: Callable[[dict[str, Any]], dict[str, Any]]) -> IPayloadUpcaster:
     return FnUpcaster(from_version, fn=fn)

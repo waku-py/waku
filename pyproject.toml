@@ -46,38 +46,38 @@ Issues = "https://github.com/waku-py/waku/issues"
 
 [dependency-groups]
 dev = [
-  "pysentry-rs==0.4.6",
+  "pysentry-rs>=0.4.6",
 ]
 docs = [
   "mkdocstrings[python]>=1.0.4",
   "pymdown-extensions>=10.21.3",
-  "zensical==0.0.45",
+  "zensical>=0.0.45",
 ]
 lint = [
-  "deptry==0.25.1",
-  "gitlint==0.19.1",
-  "import-linter==2.11",
-  "prek==0.4.5",
-  "ruff==0.15.17",
+  "deptry>=0.25.1",
+  "gitlint>=0.19.1",
+  "import-linter>=2.11",
+  "prek>=0.4.5",
+  "ruff>=0.15.17",
 ]
 test = [
-  "coverage==7.14.1",
+  "coverage>=7.14.1",
   "psycopg[binary]>=3.3.4",
-  "pytest==9.1.0",
-  "pytest-clarity==1.0.1",
-  "pytest-cov==7.1.0",
-  "pytest-deadfixtures==3.1.0",
-  "pytest-mock==3.15.1",
-  "pytest-randomly==4.1.0",
-  "pytest-timeout==2.4.0",
+  "pytest>=9.1.0",
+  "pytest-clarity>=1.0.1",
+  "pytest-cov>=7.1.0",
+  "pytest-deadfixtures>=3.1.0",
+  "pytest-mock>=3.15.1",
+  "pytest-randomly>=4.1.0",
+  "pytest-timeout>=2.4.0",
   "sqlalchemy[asyncio]>=2.0.51",
   "testcontainers[postgres]>=4.14.2",
-  "uvloop==0.22.1; sys_platform != 'win32' and python_version < '3.14'",
+  "uvloop>=0.22.1; sys_platform != 'win32' and python_version < '3.14'",
 ]
 typecheck = [
   "mypy[faster-cache]>=2.1.0",
   "pyrefly>=1.0.0",
-  "ty==0.0.49",
+  "ty>=0.0.50",
   "zuban>=0.8.2"
 ]
 
@@ -144,6 +144,14 @@ source_modules = ["waku.messages"]
 forbidden_modules = ["waku.messaging"]
 # waku.messages is the neutral wire-contract package (IMessage/IEvent/MessageIdentity); it must stay
 # dependency-free so messaging and event sourcing can both source the markers without a back-edge.
+
+[[tool.importlinter.contracts]]
+name = "Neutral serialization package stays inward-only"
+type = "forbidden"
+source_modules = ["waku.serialization"]
+forbidden_modules = ["waku.messaging", "waku.eventsourcing"]
+# waku.serialization is the shared codec/versioning package; it depends only on waku.messages +
+# waku._internal + adaptix, so messaging and event sourcing can both source it without a back-edge.
 
 
 # ----- Ruff settings -----

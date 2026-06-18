@@ -112,7 +112,7 @@ es_ext.bind_aggregate(
 | `name`       | `str | None`               | `None` (uses class name) | Custom serialization name                         |
 | `aliases`    | `Sequence[str]`            | `()`                     | Alternative names accepted during deserialization |
 | `version`    | `int`                      | `1`                      | Current schema version                            |
-| `upcasters`  | `Sequence[IEventUpcaster]` | `()`                     | Upcasters for migrating old versions              |
+| `upcasters`  | `Sequence[IPayloadUpcaster]` | `()`                   | Upcasters for migrating old versions              |
 
 ## Type Aliases
 
@@ -152,7 +152,7 @@ When reading an event stored at version *N*, the `UpcasterChain` applies every u
 | `noop`         | `noop(from_version)`                        | No-op placeholder for version bumps without data changes |
 | `upcast`       | `upcast(from_version, fn)`                  | Custom function `(dict) -> dict`                         |
 
-All helpers return an `IEventUpcaster` instance and are imported from `waku.eventsourcing`.
+All helpers return an `IPayloadUpcaster` instance and are imported from `waku.serialization`.
 
 ### Upcasting Pipeline
 

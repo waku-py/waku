@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from waku.eventsourcing.exceptions import UpcasterChainError
-from waku.eventsourcing.upcasting.chain import UpcasterChain
-from waku.eventsourcing.upcasting.helpers import add_field, remove_field, rename_field
+from waku.serialization.exceptions import UpcasterChainError
+from waku.serialization.upcasting.chain import UpcasterChain
+from waku.serialization.upcasting.helpers import add_field, remove_field, rename_field
 
 
 class TestEmptyChain:

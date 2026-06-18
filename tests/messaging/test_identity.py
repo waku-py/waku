@@ -66,36 +66,43 @@ class TestMessageIdentity:
 class TestResolveMessageIdentity:
     @staticmethod
     def test_classvar_string_wins_over_config_and_fqn() -> None:
-        name = resolve_message_identity(AnnotatedEvent, {AnnotatedEvent: 'from-config'})
-        assert name == 'annotated-event'
+        identity = resolve_message_identity(AnnotatedEvent, {AnnotatedEvent: 'from-config'})
+        assert identity == MessageIdentity(name='annotated-event')
 
     @staticmethod
-    def test_classvar_message_identity_object_renders_versioned() -> None:
-        assert resolve_message_identity(VersionedEvent, {}) == 'versioned.v2'
+    def test_classvar_message_identity_carries_name_and_version() -> None:
+        assert resolve_message_identity(VersionedEvent, {}) == MessageIdentity(name='versioned', version=2)
 
     @staticmethod
     def test_classvar_is_own_class_only_not_inherited() -> None:
         expected = f'{ChildOfAnnotated.__module__}.{ChildOfAnnotated.__qualname__}'
-        assert resolve_message_identity(ChildOfAnnotated, {}) == expected
+        assert resolve_message_identity(ChildOfAnnotated, {}) == MessageIdentity(name=expected)
 
     @staticmethod
     def test_config_override_used_when_no_classvar() -> None:
-        assert resolve_message_identity(SampleEvent, {SampleEvent: 'sample-event'}) == 'sample-event'
+        assert resolve_message_identity(SampleEvent, {SampleEvent: 'sample-event'}) == MessageIdentity(
+            name='sample-event'
+        )
 
     @staticmethod
-    def test_config_override_message_identity_object_renders_versioned() -> None:
-        name = resolve_message_identity(SampleEvent, {SampleEvent: MessageIdentity(name='sample', version=3)})
-        assert name == 'sample.v3'
+    def test_config_override_message_identity_carries_version() -> None:
+        identity = resolve_message_identity(SampleEvent, {SampleEvent: MessageIdentity(name='sample', version=3)})
+        assert identity == MessageIdentity(name='sample', version=3)
 
     @staticmethod
     def test_fqn_fallback_when_neither_classvar_nor_config() -> None:
         expected = f'{SampleEvent.__module__}.{SampleEvent.__qualname__}'
-        assert resolve_message_identity(SampleEvent, {}) == expected
+        assert resolve_message_identity(SampleEvent, {}) == MessageIdentity(name=expected)
 
     @staticmethod
-    def test_empty_classvar_string_falls_back_to_fqn() -> None:
-        expected = f'{EmptyIdentityEvent.__module__}.{EmptyIdentityEvent.__qualname__}'
-        assert resolve_message_identity(EmptyIdentityEvent, {}) == expected
+    def test_empty_classvar_string_rejected() -> None:
+        with pytest.raises(ImproperlyConfiguredError, match='empty string'):
+            resolve_message_identity(EmptyIdentityEvent, {})
+
+    @staticmethod
+    def test_empty_config_override_rejected() -> None:
+        with pytest.raises(ImproperlyConfiguredError, match='empty string'):
+            resolve_message_identity(SampleEvent, {SampleEvent: ''})
 
     @staticmethod
     def test_message_identity_without_classvar_annotation_is_rejected() -> None:
@@ -143,6 +150,12 @@ class TestMessageTypeRegistryResolveName:
         registry = MessageTypeRegistry(identities={}, known_types=[])
         expected = f'{SampleEvent.__module__}.{SampleEvent.__qualname__}'
         assert registry.resolve_name(SampleEvent) == expected
+
+    @staticmethod
+    def test_resolve_version_reflects_classvar_versioned_identity() -> None:
+        registry = MessageTypeRegistry(identities={}, known_types=[VersionedEvent])
+        assert registry.resolve_name(VersionedEvent) == 'versioned'
+        assert registry.resolve_version(VersionedEvent) == 2
 
 
 class TestMessageTypeRegistryResolveType:

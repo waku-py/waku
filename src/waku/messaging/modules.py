@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any, Self, TypeAlias, TypeVar, assert_never, o
 
 from typing_extensions import override
 
+from waku._internal.retort import default_retort
 from waku.di import (
     AnyOf,
     AsyncContainer,
@@ -72,6 +73,8 @@ from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicy
 from waku.messaging.transport.interfaces import ITransport
 from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
 from waku.modules import DynamicModule, ModuleMetadataRegistry, module
+from waku.serialization.codec import PayloadCodec
+from waku.serialization.upcasting import UpcasterChain
 from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
@@ -117,6 +120,7 @@ class MessagingModule:
             scoped(_TransactionDepth),
             object_(config_, provided_type=MessagingConfig),
             singleton(MessageTypeRegistry, _build_message_type_registry),
+            singleton(PayloadCodec, _create_envelope_codec),
             singleton(EnvelopeFactory),
             singleton(HandlerPipelineInvoker),
             singleton(MessageDispatcher),
@@ -282,8 +286,12 @@ def _build_message_type_registry(
     )
 
 
-def _create_envelope_serializer(type_registry: MessageTypeRegistry) -> JsonEnvelopeSerializer:
-    return JsonEnvelopeSerializer(type_registry=type_registry)
+def _create_envelope_codec() -> PayloadCodec:
+    return PayloadCodec(default_retort, UpcasterChain({}))
+
+
+def _create_envelope_serializer(type_registry: MessageTypeRegistry, codec: PayloadCodec) -> JsonEnvelopeSerializer:
+    return JsonEnvelopeSerializer(type_registry=type_registry, codec=codec)
 
 
 def _build_router(

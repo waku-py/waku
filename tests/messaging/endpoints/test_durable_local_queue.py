@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
-import anyio
+import anyio.lowlevel
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 

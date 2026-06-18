@@ -111,7 +111,7 @@ def test_create_sets_title_and_complete_sets_completed() -> None:
 
     aggregate.complete()
 
-    assert aggregate.completed is True
+    assert aggregate.completed is True  # pyrefly: ignore[unnecessary-comparison]
 
 
 def test_completing_already_completed_aggregate_raises_error() -> None:

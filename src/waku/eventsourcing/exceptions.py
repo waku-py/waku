@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from waku.exceptions import ImproperlyConfiguredError, WakuError
+from waku.serialization.exceptions import UpcasterChainError
 
 if TYPE_CHECKING:
     from waku.eventsourcing.contracts.stream import StreamId
@@ -169,8 +170,4 @@ class SnapshotConfigNotFoundError(EventSourcingConfigError):
 
 
 class SnapshotMigrationChainError(EventSourcingConfigError):
-    pass
-
-
-class UpcasterChainError(EventSourcingConfigError):
     pass

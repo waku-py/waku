@@ -3,10 +3,10 @@ from __future__ import annotations
 import abc
 from typing import Any
 
-__all__ = ['IEventUpcaster']
+__all__ = ['IPayloadUpcaster']
 
 
-class IEventUpcaster(abc.ABC):
+class IPayloadUpcaster(abc.ABC):
     from_version: int
 
     @abc.abstractmethod

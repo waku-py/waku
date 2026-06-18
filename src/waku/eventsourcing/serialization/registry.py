@@ -8,6 +8,7 @@ from waku.eventsourcing.exceptions import (
     RegistryFrozenError,
     UnknownEventTypeError,
 )
+from waku.messages import MessageIdentity
 
 if TYPE_CHECKING:
     from waku.messages import IEvent
@@ -16,12 +17,11 @@ __all__ = ['EventTypeRegistry']
 
 
 class EventTypeRegistry:
-    __slots__ = ('_frozen', '_name_to_type', '_type_to_name', '_type_to_version')
+    __slots__ = ('_frozen', '_name_to_type', '_type_to_identity')
 
     def __init__(self) -> None:
         self._name_to_type: dict[str, type[IEvent]] = {}
-        self._type_to_name: dict[type[IEvent], str] = {}
-        self._type_to_version: dict[type[IEvent], int] = {}
+        self._type_to_identity: dict[type[IEvent], MessageIdentity] = {}
         self._frozen = False
 
     def register(self, event_type: type[IEvent], /, *, name: str | None = None, version: int = 1) -> None:
@@ -29,24 +29,22 @@ class EventTypeRegistry:
             raise RegistryFrozenError
         type_name = name or event_type.__name__
 
-        if event_type in self._type_to_name:
-            existing_name = self._type_to_name[event_type]
-            existing_version = self._type_to_version[event_type]
-            if existing_name == type_name and existing_version == version:
+        if event_type in self._type_to_identity:
+            existing = self._type_to_identity[event_type]
+            if existing.name == type_name and existing.version == version:
                 return
-            raise ConflictingEventTypeError(event_type.__name__, existing_name, existing_version, type_name, version)
+            raise ConflictingEventTypeError(event_type.__name__, existing.name, existing.version, type_name, version)
 
         if type_name in self._name_to_type:
             raise DuplicateEventTypeError(type_name)
 
         self._name_to_type[type_name] = event_type
-        self._type_to_name[event_type] = type_name
-        self._type_to_version[event_type] = version
+        self._type_to_identity[event_type] = MessageIdentity(name=type_name, version=version)
 
     def add_alias(self, event_type: type[IEvent], alias: str, /) -> None:
         if self._frozen:
             raise RegistryFrozenError
-        if event_type not in self._type_to_name:
+        if event_type not in self._type_to_identity:
             raise UnknownEventTypeError(event_type.__name__)
         if alias in self._name_to_type:
             if self._name_to_type[alias] is event_type:
@@ -61,16 +59,16 @@ class EventTypeRegistry:
             raise UnknownEventTypeError(event_type_name) from None
 
     def get_name(self, event_type: type[IEvent], /) -> str:
+        return self.get_identity(event_type).name
+
+    def get_identity(self, event_type: type[IEvent], /) -> MessageIdentity:
         try:
-            return self._type_to_name[event_type]
+            return self._type_to_identity[event_type]
         except KeyError:
             raise UnknownEventTypeError(event_type.__name__) from None
 
     def get_version(self, event_type: type[IEvent], /) -> int:
-        try:
-            return self._type_to_version[event_type]
-        except KeyError:
-            raise UnknownEventTypeError(event_type.__name__) from None
+        return self.get_identity(event_type).version
 
     def freeze(self) -> None:
         self._frozen = True

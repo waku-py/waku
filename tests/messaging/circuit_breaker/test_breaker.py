@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-import anyio
+import anyio.lowlevel
 
 from waku.messaging.circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitState
 from waku.messaging.endpoints.executor import ExecutionOutcome

@@ -35,7 +35,7 @@ from waku.eventsourcing.store.sqlalchemy.tables import (  # Dishka needs runtime
     IDEMPOTENCY_KEY_CONSTRAINT,
     EventStoreTables,
 )
-from waku.eventsourcing.upcasting.chain import UpcasterChain  # noqa: TC001  # Dishka needs runtime access
+from waku.serialization.upcasting.chain import UpcasterChain  # noqa: TC001  # Dishka needs runtime access
 
 if TYPE_CHECKING:
     from waku.eventsourcing.contracts.event import EventEnvelope

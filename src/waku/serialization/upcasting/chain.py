@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from waku.eventsourcing.exceptions import UpcasterChainError
+from waku.serialization.exceptions import UpcasterChainError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from waku.eventsourcing.upcasting.interfaces import IEventUpcaster
+    from waku.serialization.upcasting.interfaces import IPayloadUpcaster
 
 __all__ = ['UpcasterChain']
 
@@ -15,8 +15,8 @@ __all__ = ['UpcasterChain']
 class UpcasterChain:
     __slots__ = ('_chains',)
 
-    def __init__(self, upcasters_by_type: Mapping[str, Sequence[IEventUpcaster]]) -> None:
-        chains: dict[str, tuple[IEventUpcaster, ...]] = {}
+    def __init__(self, upcasters_by_type: Mapping[str, Sequence[IPayloadUpcaster]]) -> None:
+        chains: dict[str, tuple[IPayloadUpcaster, ...]] = {}
         for event_type, upcasters in upcasters_by_type.items():
             sorted_upcasters = sorted(upcasters, key=lambda u: u.from_version)
             seen: set[int] = set()

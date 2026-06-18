@@ -8,7 +8,7 @@ from waku.eventsourcing.contracts.stream import StreamId
 if TYPE_CHECKING:
     from waku.eventsourcing.serialization.interfaces import IEventSerializer
     from waku.eventsourcing.serialization.registry import EventTypeRegistry
-    from waku.eventsourcing.upcasting.chain import UpcasterChain
+    from waku.serialization.upcasting.chain import UpcasterChain
 
 __all__ = [
     'deserialize_metadata',

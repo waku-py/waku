@@ -30,9 +30,9 @@ from waku.eventsourcing.snapshot.interfaces import ISnapshotStore
 from waku.eventsourcing.snapshot.migration import SnapshotMigrationChain
 from waku.eventsourcing.snapshot.registry import SnapshotConfig, SnapshotConfigRegistry
 from waku.eventsourcing.store.interfaces import IEventStore
-from waku.eventsourcing.upcasting.chain import UpcasterChain
 from waku.extensions import OnModuleConfigure, RegistryAggregator
 from waku.modules import DynamicModule, ModuleMetadataRegistry, module
+from waku.serialization.upcasting.chain import UpcasterChain
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -41,9 +41,9 @@ if TYPE_CHECKING:
     from waku.eventsourcing.repository import EventSourcedRepository
     from waku.eventsourcing.snapshot.interfaces import ISnapshotStrategy
     from waku.eventsourcing.snapshot.migration import ISnapshotMigration
-    from waku.eventsourcing.upcasting.interfaces import IEventUpcaster
     from waku.messages import IEvent
     from waku.modules import ModuleMetadata, ModuleType
+    from waku.serialization.upcasting.interfaces import IPayloadUpcaster
 
 
 __all__ = [
@@ -62,7 +62,7 @@ class EventType:
     name: str | None = field(default=None, kw_only=True)
     aliases: Sequence[str] = field(default=(), kw_only=True)
     version: int = field(default=1, kw_only=True)
-    upcasters: Sequence[IEventUpcaster] = field(default=(), kw_only=True)
+    upcasters: Sequence[IPayloadUpcaster] = field(default=(), kw_only=True)
 
 
 EventTypeSpec: TypeAlias = 'type[IEvent] | EventType'
@@ -403,7 +403,7 @@ class EventSourcingRegistryAggregator(RegistryAggregator['EventSourcingExtension
     @classmethod
     def _build_type_registry(cls, aggregated: EventSourcingRegistry) -> tuple[EventTypeRegistry, UpcasterChain]:
         registry = EventTypeRegistry()
-        upcasters: dict[str, Sequence[IEventUpcaster]] = {}
+        upcasters: dict[str, Sequence[IPayloadUpcaster]] = {}
 
         for spec in cls._deduplicate(aggregated.event_type_bindings):
             item = spec if isinstance(spec, EventType) else EventType(spec)
@@ -433,7 +433,7 @@ class EventSourcingRegistryAggregator(RegistryAggregator['EventSourcingExtension
                 yield item
 
     @staticmethod
-    def _validate_upcaster_versions(upcasters: Sequence[IEventUpcaster], type_name: str, version: int) -> None:
+    def _validate_upcaster_versions(upcasters: Sequence[IPayloadUpcaster], type_name: str, version: int) -> None:
         for u in upcasters:
             if u.from_version >= version:
                 msg = (
