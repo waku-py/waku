@@ -52,7 +52,7 @@ class TestInboxRecoveryWorker:
         store = _TickCountingStore()
         config = InboxConfig(
             store=FakeInboxStore,
-            stale_threshold=timedelta(seconds=0),
+            stuck_threshold=timedelta(seconds=0),
             recovery_interval=timedelta(milliseconds=10),
             stop_timeout=1.0,
         )

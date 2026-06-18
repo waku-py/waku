@@ -4,11 +4,13 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
+from waku._internal.polling import PollingConfig
 from waku.messaging.outbox.relay import OutboxRelayConfig
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
+    from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.identity import MessageIdentity
     from waku.messaging.contracts.message import IMessage
     from waku.messaging.contracts.pipeline import IPipelineBehavior
@@ -48,10 +50,12 @@ class DeadLetterConfig:
     """When set, the worker periodically purges entries older than this. None = no purge."""
     cleanup_interval: timedelta = field(default_factory=lambda: timedelta(hours=1))
     batch_size: int = 100
-    poll_interval: float = 1.0
-    max_poll_interval: float = 30.0
-    poll_step: float = 1.0
-    jitter_factor: float = 0.1
+    polling: PollingConfig = PollingConfig(  # noqa: RUF009
+        poll_interval_min_seconds=1.0,
+        poll_interval_max_seconds=30.0,
+        poll_interval_step_seconds=1.0,
+        poll_interval_jitter_factor=0.1,
+    )
     stop_timeout: float = 10.0
 
 
@@ -70,5 +74,7 @@ class MessagingConfig:
     dead_letter: DeadLetterConfig | None = None
     outbox: OutboxConfig | None = None
     inbox: InboxConfig | None = None
+    default_circuit_breaker: CircuitBreakerConfig | None = None
+    """Fallback per-endpoint circuit-breaker config; an endpoint's own breaker shadows this."""
     message_identities: Mapping[type[IMessage], str | MessageIdentity] = field(default_factory=dict)
     """Third-party override for types you can't annotate; the default path is the ClassVar."""

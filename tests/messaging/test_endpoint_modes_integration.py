@@ -8,7 +8,6 @@ from typing import ClassVar
 import anyio.lowlevel
 from typing_extensions import override
 
-import waku.messaging
 from waku.messaging import (
     CircuitBreakerConfig,
     EndpointMode,
@@ -162,6 +161,43 @@ class TestCircuitBreakerEndToEnd:
             assert len(handled) == 2
 
     @staticmethod
-    def test_circuit_breaker_config_is_in_messaging_public_api() -> None:
-        assert 'CircuitBreakerConfig' in waku.messaging.__all__
-        assert waku.messaging.CircuitBreakerConfig is CircuitBreakerConfig
+    async def test_default_circuit_breaker_applies_when_endpoint_declares_none() -> None:
+        handled: list[int] = []
+
+        @dataclass(frozen=True)
+        class _Bang(IEvent):
+            n: int
+
+        class _FailingHandler(EventHandler[_Bang]):
+            @override
+            async def handle(self, event: _Bang, /) -> None:
+                handled.append(event.n)
+                msg = 'bang'
+                raise RuntimeError(msg)
+
+        config = MessagingConfig(
+            default_circuit_breaker=CircuitBreakerConfig(
+                minimum_throughput=2,
+                failure_rate_threshold=0.5,
+                pause_time=timedelta(minutes=5),  # large: the timed resume must NOT fire during the test
+            ),
+            endpoints=[local_queue('cb-default-q', mode=EndpointMode.BUFFERED)],
+            routing=[route(_Bang).to('cb-default-q')],
+        )
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(config)],
+                extensions=[MessagingExtension().bind(_Bang, _FailingHandler)],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            for i in range(4):
+                await bus.publish(_Bang(n=i))
+            # The endpoint declares no circuit_breaker, so the fallback default_circuit_breaker must apply.
+            # After 2 failures it trips → pause() halts the worker; the remaining 2 stay buffered.
+            await wait_until(lambda: len(handled) >= 2)
+            for _ in range(10):
+                await anyio.lowlevel.checkpoint()
+            assert len(handled) == 2

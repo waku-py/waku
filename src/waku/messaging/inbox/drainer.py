@@ -173,7 +173,7 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
         executor_factory=executor_factory,
         owner_id=config.resolve_owner_id(),
         keep_after_handled=config.keep_after_handled,
-        batch_size=config.drain_batch_size,
+        batch_size=config.batch_size,
         max_attempts=config.max_drain_attempts,
     )
 

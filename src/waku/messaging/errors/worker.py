@@ -54,10 +54,10 @@ class DeadLetterWorker:
         self._container = container
         self._config = config
         self._interval = AdaptiveInterval(
-            min_seconds=config.poll_interval,
-            max_seconds=config.max_poll_interval,
-            step_seconds=config.poll_step,
-            jitter_factor=config.jitter_factor,
+            min_seconds=config.polling.poll_interval_min_seconds,
+            max_seconds=config.polling.poll_interval_max_seconds,
+            step_seconds=config.polling.poll_interval_step_seconds,
+            jitter_factor=config.polling.poll_interval_jitter_factor,
         )
         self._shutdown_event = anyio.Event()
         self._last_cleanup = 0.0

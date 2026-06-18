@@ -69,12 +69,6 @@ def spec() -> CounterSpec:
     return DeciderSpec.for_(CounterDecider())
 
 
-def test_for_creates_spec() -> None:
-    result = DeciderSpec.for_(CounterDecider())
-
-    assert isinstance(result, DeciderSpec)
-
-
 def test_given_empty_when_command_then_produces_events(spec: CounterSpec) -> None:
     spec.given([]).when(Increment(amount=3)).then([Incremented(amount=3)])
 

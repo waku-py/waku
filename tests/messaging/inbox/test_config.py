@@ -16,7 +16,7 @@ class TestInboxConfig:
     def test_defaults() -> None:
         config = InboxConfig(store=FakeInboxStore)
         assert config.keep_after_handled == timedelta(minutes=5)
-        assert config.stale_threshold == timedelta(minutes=5)
+        assert config.stuck_threshold == timedelta(minutes=5)
         assert config.recovery_interval == timedelta(minutes=1)
         assert not config.owner_id
         assert config.stop_timeout == pytest.approx(10.0)
@@ -36,5 +36,5 @@ class TestInboxConfig:
     @staticmethod
     def test_drain_defaults() -> None:
         config = InboxConfig(store=FakeInboxStore)
-        assert config.drain_batch_size == 100
+        assert config.batch_size == 100
         assert config.max_drain_attempts == 5

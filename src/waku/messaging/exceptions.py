@@ -41,7 +41,10 @@ class NoRouteError(MessagingError):
         self.message_type = message_type
 
     def __str__(self) -> str:
-        return f'No route found for {self.message_type.__name__}'
+        return (
+            f"no endpoint routes '{self.message_type.__name__}'; in a single-process app use "
+            f'invoke()/publish(), or add a route(...) for it'
+        )
 
 
 class HandlerAlreadyRegistered(ImproperlyConfiguredError):  # noqa: N818

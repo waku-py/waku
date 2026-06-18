@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku.messaging import PollingConfig
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.base import Endpoint
@@ -136,7 +137,11 @@ async def test_worker_replays_claimed_entries_and_commits() -> None:
     container = _container(store, MessageRouter(routes={}, endpoints=[endpoint]), uow)
     worker = DeadLetterWorker(
         container=container,
-        config=DeadLetterConfig(store=RecordingDeadLetterStore, auto_replay_enabled=True, poll_interval=0.01),
+        config=DeadLetterConfig(
+            store=RecordingDeadLetterStore,
+            auto_replay_enabled=True,
+            polling=PollingConfig(poll_interval_min_seconds=0.01),
+        ),
     )
     await worker.start()
     await wait_until(lambda: bool(store.replayed))
@@ -161,7 +166,7 @@ async def test_worker_does_not_claim_when_auto_replay_disabled() -> None:
             auto_replay_enabled=False,
             retention=timedelta(days=30),
             cleanup_interval=timedelta(0),
-            poll_interval=0.01,
+            polling=PollingConfig(poll_interval_min_seconds=0.01),
         ),
     )
     await worker.start()
@@ -183,7 +188,7 @@ async def test_worker_purges_when_retention_set() -> None:
             auto_replay_enabled=False,
             retention=timedelta(days=30),
             cleanup_interval=timedelta(0),
-            poll_interval=0.01,
+            polling=PollingConfig(poll_interval_min_seconds=0.01),
         ),
     )
     await worker.start()
@@ -206,7 +211,7 @@ async def test_worker_does_not_purge_when_retention_none() -> None:
             store=RecordingDeadLetterStore,
             auto_replay_enabled=True,
             retention=None,
-            poll_interval=0.01,
+            polling=PollingConfig(poll_interval_min_seconds=0.01),
         ),
     )
     await worker.start()

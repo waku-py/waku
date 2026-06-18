@@ -37,6 +37,8 @@ from waku.messaging.exceptions import (
     NoRouteError,
 )
 from waku.messaging.modules import DeadLetterLifecycleExtension
+from waku.messaging.pipeline.policy import BehaviorPlan
+from waku.messaging.registry import MessageRegistry
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
@@ -271,8 +273,12 @@ async def test_send_without_route_raises_no_route_error() -> None:
         app.container() as container,
     ):
         bus = await container.get(IMessageBus)
-        with pytest.raises(NoRouteError, match='No route found for _UnregisteredCommand'):
+        with pytest.raises(NoRouteError, match=r"no endpoint routes '_UnregisteredCommand'") as exc_info:
             await bus.send(_UnregisteredCommand())
+        message = str(exc_info.value)
+        assert 'invoke()' in message
+        assert 'publish()' in message
+        assert 'route(' in message
 
 
 async def test_publish_event_handler_failure_does_not_block_other_handlers() -> None:
@@ -404,6 +410,22 @@ class TestMessagingConfigValidation:
         with pytest.raises(ImproperlyConfiguredError, match='IUnitOfWork is required'):
             async with create_test_app(imports=[MessagingModule.register(config)]):
                 pass  # pragma: no cover
+
+    @staticmethod
+    async def test_durable_outbox_without_explicit_transactional_behavior_boots() -> None:
+        config = MessagingConfig(
+            outbox=OutboxConfig(store=FakeOutboxStore, transport=RecordingTransport),
+        )
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_Command, _CommandHandler)],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+        ) as app:
+            plan = await app.container.get(BehaviorPlan)
+            registry = await app.container.get(MessageRegistry)
+            handler_types = registry.handler_map.handler_types()
+            assert handler_types
+            assert all(TransactionalBehavior in plan.for_handler(handler_type) for handler_type in handler_types)
 
     @staticmethod
     def test_dead_letter_config_defaults() -> None:

@@ -1,5 +1,5 @@
 from collections.abc import Iterator, Sequence
-from typing import TYPE_CHECKING, Any, Self, TypeAlias, TypeVar, assert_never, overload
+from typing import TYPE_CHECKING, Any, Self, TypeAlias, TypeVar, assert_never, cast, get_args, get_origin, overload
 
 from typing_extensions import override
 
@@ -44,6 +44,7 @@ from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.errors.worker import DeadLetterWorker
 from waku.messaging.exceptions import HandlerAlreadyRegistered, ImproperlyConfiguredError, MultipleHandlersRegistered
+from waku.messaging.handler import MessageHandler
 from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.impl import MessageBus
 from waku.messaging.inbox.config import InboxConfig
@@ -80,7 +81,7 @@ from waku.uow import IUnitOfWork
 if TYPE_CHECKING:
     from waku.application import WakuApplication
     from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.handler import EventHandler, MessageHandler, RequestHandler
+    from waku.messaging.handler import EventHandler, RequestHandler
     from waku.modules import ModuleMetadata, ModuleType
 
 __all__ = [
@@ -161,17 +162,6 @@ class MessagingModule:
         if _has_durable_local_queue(config.endpoints) and config.inbox is None:
             msg = 'EndpointMode.DURABLE on a local_queue entry requires inbox in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
-        # Durability requires transactions: outbox/inbox writes must be atomic with business data.
-        # TransactionalPolicy performs the per-type attach (C10); listing TransactionalBehavior in
-        # global_pipeline_behaviors stays a required explicit opt-in, enforced here.
-        durable = config.outbox is not None or config.inbox is not None
-        has_tx = any(issubclass(b, TransactionalBehavior) for b in config.global_pipeline_behaviors)
-        if durable and not has_tx:
-            msg = (
-                'outbox/inbox require TransactionalBehavior in '
-                'MessagingConfig.global_pipeline_behaviors (durability needs atomic commits)'
-            )
-            raise ImproperlyConfiguredError(msg)
 
     @staticmethod
     def _serializer_provider(config: MessagingConfig) -> Provider | None:
@@ -212,6 +202,13 @@ class MessagingExtension(OnModuleConfigure):
     @overload
     def bind(
         self,
+        handler_type: 'type[MessageHandler[Any, Any]]',
+        /,
+    ) -> Self: ...
+
+    @overload
+    def bind(
+        self,
         message_type: type[_ReqT],
         handler_type: 'type[RequestHandler[_ReqT, Any]]',
     ) -> Self: ...
@@ -226,18 +223,35 @@ class MessagingExtension(OnModuleConfigure):
 
     def bind(
         self,
-        message_type: type[IMessage],
-        handler_type: 'type[MessageHandler[Any, Any]]',
+        message_type: 'type[IMessage | MessageHandler[Any, Any]]',
+        handler_type: 'type[MessageHandler[Any, Any]] | None' = None,
         *additional_handlers: 'type[MessageHandler[Any, Any]]',
     ) -> Self:
-        self._registry.handler_map.bind(message_type, handler_type)
+        if handler_type is None:
+            inferred_handler = cast('type[MessageHandler[Any, Any]]', message_type)
+            resolved_message_type = _infer_message_type(inferred_handler)
+            self._registry.handler_map.bind(resolved_message_type, inferred_handler)
+            return self
+        self._registry.handler_map.bind(cast('type[IMessage]', message_type), handler_type)
         for additional in additional_handlers:
-            self._registry.handler_map.bind(message_type, additional)
+            self._registry.handler_map.bind(cast('type[IMessage]', message_type), additional)
         return self
 
     @property
     def registry(self) -> MessageRegistry:
         return self._registry
+
+
+def _infer_message_type(handler_type: 'type[MessageHandler[Any, Any]]') -> 'type[IMessage]':
+    for klass in handler_type.__mro__:
+        for base in getattr(klass, '__orig_bases__', ()):
+            origin = get_origin(base)
+            if origin is not None and isinstance(origin, type) and issubclass(origin, MessageHandler):
+                args = get_args(base)
+                if args and isinstance(args[0], type) and args[0] is not Any:
+                    return cast('type[IMessage]', args[0])
+    msg = f'Cannot infer message type from {handler_type.__name__}; use bind(message_type, handler)'
+    raise ImproperlyConfiguredError(msg)
 
 
 def _requires_dead_letter_store(registry: MessageRegistry, config: MessagingConfig) -> bool:
@@ -350,7 +364,7 @@ def _create_endpoint(
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,
                 max_parallel=entry.max_parallel,
-                circuit_breaker_config=entry.circuit_breaker,
+                circuit_breaker_config=entry.circuit_breaker or config.default_circuit_breaker,
             )
         case EndpointMode.DURABLE:
             if config.inbox is None:
@@ -366,7 +380,7 @@ def _create_endpoint(
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,
                 partition_by=entry.partition_by,
-                circuit_breaker_config=entry.circuit_breaker,
+                circuit_breaker_config=entry.circuit_breaker or config.default_circuit_breaker,
             )
         case _:
             assert_never(entry.mode)

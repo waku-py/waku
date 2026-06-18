@@ -83,7 +83,7 @@ class InboxRecoveryWorker:
     async def _tick(self) -> None:
         async with unit_of_work_scope(self._container) as scope:
             store = await scope.get(IInboxStore)
-            recovered = await store.recover_stale(self._config.stale_threshold)
+            recovered = await store.recover_stale(self._config.stuck_threshold)
             # Per-pod cleanup is idempotent (set-DELETE over status/keep_until); races between pods
             # harmlessly delete the same already-expired rows.
             cleaned = await store.cleanup_handled(datetime.now(tz=UTC))

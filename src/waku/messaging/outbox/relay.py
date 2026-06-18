@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, assert_never
 import anyio
 
 from waku._internal.adaptive_interval import AdaptiveInterval
+from waku._internal.polling import PollingConfig
 from waku.di import unit_of_work_scope
 from waku.messaging._escalation import RetryAction
 from waku.messaging.errors.dead_letter import DeadLetterEntry
@@ -43,10 +44,12 @@ _DEFAULT_RECOVERY_INTERVAL = timedelta(minutes=1)
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OutboxRelayConfig:
     batch_size: int = 100
-    poll_interval: float = 1.0
-    max_poll_interval: float = 30.0
-    poll_step: float = 1.0
-    jitter_factor: float = 0.1
+    polling: PollingConfig = PollingConfig(  # noqa: RUF009
+        poll_interval_min_seconds=1.0,
+        poll_interval_max_seconds=30.0,
+        poll_interval_step_seconds=1.0,
+        poll_interval_jitter_factor=0.1,
+    )
     max_attempts: int = 5
     base_delay: float = 1.0
     max_delay: float = 60.0
@@ -100,10 +103,10 @@ class OutboxRelay:
         self._config = config
         self._sending_evaluator = sending_failure_evaluator
         self._interval = AdaptiveInterval(
-            min_seconds=config.poll_interval,
-            max_seconds=config.max_poll_interval,
-            step_seconds=config.poll_step,
-            jitter_factor=config.jitter_factor,
+            min_seconds=config.polling.poll_interval_min_seconds,
+            max_seconds=config.polling.poll_interval_max_seconds,
+            step_seconds=config.polling.poll_interval_step_seconds,
+            jitter_factor=config.polling.poll_interval_jitter_factor,
         )
         self._shutdown_event = anyio.Event()
         self._last_recovery = 0.0

@@ -12,6 +12,7 @@ import anyio
 from dishka import make_async_container
 from typing_extensions import override
 
+from waku.messaging import PollingConfig
 from waku.messaging._escalation import RetryAction, walk_stages  # noqa: PLC2701
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.errors.dead_letter import DeadLetterEntry
@@ -138,20 +139,40 @@ def _make_pending_store() -> tuple[_TrackingOutboxStore, OutboxMessage]:
     return store, msg
 
 
+_FAST_POLLING = PollingConfig(
+    poll_interval_min_seconds=0.01,
+    poll_interval_max_seconds=0.05,
+    poll_interval_step_seconds=0.01,
+)
+
 _FAST_CONFIG = OutboxRelayConfig(
-    poll_interval=0.01,
-    max_poll_interval=0.05,
-    poll_step=0.01,
+    polling=_FAST_POLLING,
     recovery_interval=timedelta(hours=1),
 )
 
 _EXHAUST_ON_FIRST_FAILURE_CONFIG = OutboxRelayConfig(
-    poll_interval=0.01,
-    max_poll_interval=0.05,
-    poll_step=0.01,
+    polling=_FAST_POLLING,
     recovery_interval=timedelta(hours=1),
     max_attempts=1,
 )
+
+
+class TestOutboxRelayConfigPolling:
+    @staticmethod
+    def test_polling_defaults_preserve_relay_cadence() -> None:
+        config = OutboxRelayConfig()
+        assert config.polling.poll_interval_min_seconds == 1.0
+        assert config.polling.poll_interval_max_seconds == 30.0
+        assert config.polling.poll_interval_step_seconds == 1.0
+        assert config.polling.poll_interval_jitter_factor == 0.1
+
+    @staticmethod
+    def test_polling_is_overridable() -> None:
+        config = OutboxRelayConfig(polling=PollingConfig(poll_interval_min_seconds=0.25))
+        assert config.polling.poll_interval_min_seconds == 0.25
+        # A partial override replaces the whole embedded object: un-set fields fall back to
+        # PollingConfig's own defaults, not the relay's cadence.
+        assert config.polling.poll_interval_max_seconds == 5.0
 
 
 def test_build_relay_default_policy_mirrors_config() -> None:
@@ -236,7 +257,7 @@ class TestOutboxRelay:
         serializer = make_serializer(_TestEvent)
 
         slow_config = OutboxRelayConfig(
-            poll_interval=10.0,
+            polling=PollingConfig(poll_interval_min_seconds=10.0),
             recovery_interval=timedelta(hours=1),
         )
 
@@ -318,7 +339,7 @@ class TestOutboxRelay:
         blocking_store = _BlockingOutboxStore()
 
         config = OutboxRelayConfig(
-            poll_interval=0.01,
+            polling=PollingConfig(poll_interval_min_seconds=0.01),
             recovery_interval=timedelta(hours=1),
             stop_timeout=0.05,
         )
@@ -364,7 +385,7 @@ class TestOutboxRelay:
         store.recover_stuck = _recover_stuck_with_results  # type: ignore[assignment]
 
         config = OutboxRelayConfig(
-            poll_interval=0.01,
+            polling=PollingConfig(poll_interval_min_seconds=0.01),
             recovery_interval=timedelta(seconds=0),
         )
 

@@ -21,6 +21,7 @@ from waku.messaging import (
     MessagingExtension,
     MessagingModule,
     OutboxConfig,
+    PollingConfig,
     RequestHandler,
     TransactionalBehavior,
     external_endpoint,
@@ -121,7 +122,9 @@ class TestEndToEndOutboxFlow:
         assert len(outbox.messages) == 1
         assert outbox.messages[0].destination == 'test://notifications'
 
-        relay_config = OutboxRelayConfig(poll_interval=0.01, recovery_interval=timedelta(hours=1))
+        relay_config = OutboxRelayConfig(
+            polling=PollingConfig(poll_interval_min_seconds=0.01), recovery_interval=timedelta(hours=1)
+        )
         async with make_async_container(
             RelayDepsProvider(outbox, transport, serializer),
         ) as relay_container:
@@ -182,7 +185,9 @@ class TestOutboxRelayLifecycleIntegration:
             outbox=OutboxConfig(
                 store=lambda: outbox,
                 transport=lambda: transport,
-                relay=OutboxRelayConfig(poll_interval=0.01, recovery_interval=timedelta(hours=1)),
+                relay=OutboxRelayConfig(
+                    polling=PollingConfig(poll_interval_min_seconds=0.01), recovery_interval=timedelta(hours=1)
+                ),
             ),
             global_pipeline_behaviors=[TransactionalBehavior],
         )
@@ -350,7 +355,9 @@ class TestRelayPartitionOrdering:
             _partitioned_outbox_row(group_id='A', sequence_number=3, order_id='A-3', serializer=serializer),
         ])
 
-        relay_config = OutboxRelayConfig(poll_interval=0.01, recovery_interval=timedelta(hours=1))
+        relay_config = OutboxRelayConfig(
+            polling=PollingConfig(poll_interval_min_seconds=0.01), recovery_interval=timedelta(hours=1)
+        )
         async with make_async_container(RelayDepsProvider(store, transport, serializer)) as container:
             relay = OutboxRelay(
                 container=container,
@@ -545,7 +552,9 @@ class TestPartitionOrderingEndToEnd:
             outbox=OutboxConfig(
                 store=lambda: outbox,
                 transport=lambda: transport,
-                relay=OutboxRelayConfig(poll_interval=0.01, recovery_interval=timedelta(hours=1)),
+                relay=OutboxRelayConfig(
+                    polling=PollingConfig(poll_interval_min_seconds=0.01), recovery_interval=timedelta(hours=1)
+                ),
             ),
             global_pipeline_behaviors=[TransactionalBehavior],
         )
