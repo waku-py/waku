@@ -130,12 +130,13 @@ exclude_also = [
 root_packages = ["waku"]
 
 [[tool.importlinter.contracts]]
-name = "Event sourcing core does not import messaging"
-type = "forbidden"
-source_modules = ["waku.eventsourcing"]
-forbidden_modules = ["waku.messaging"]
-# The integration package (waku.integrations.eventsourcing_messaging) is the sanctioned both-importer;
-# it is NOT a source_module here, so its messaging imports are allowed.
+name = "Messaging and event sourcing are independent siblings"
+type = "independence"
+modules = ["waku.messaging", "waku.eventsourcing"]
+# Siblings: neither may import the other in EITHER direction (closes the lateral back-edge that a
+# one-directional `forbidden` contract could not catch). The integration package
+# (waku.integrations.eventsourcing_messaging) is the sole sanctioned both-importer; it is NOT listed
+# here, so its imports of both siblings are allowed.
 
 [[tool.importlinter.contracts]]
 name = "Neutral messages package does not import messaging"

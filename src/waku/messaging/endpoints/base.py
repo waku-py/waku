@@ -104,6 +104,15 @@ class Endpoint(ABC):
     async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None:
         """Dispatch an envelope to this endpoint.
 
+        Args:
+            envelope: the message envelope to dispatch.
+            scope: the caller's active DI scope. Endpoints whose write must enlist in the caller's
+                transaction use it directly — ``ExternalEndpoint`` writes its outbox row in this scope
+                so the row commits atomically with the caller. Endpoints that hand off to a background
+                worker or open their own scope ignore it: ``LocalQueueEndpoint`` enqueues to its worker,
+                ``DurableLocalQueueEndpoint`` opens its own scope for the persist-before-enqueue inbox
+                write, and ``InlineEndpoint`` lets ``EndpointExecutor`` open a fresh scope per attempt.
+
         Implementations may silently drop messages if the endpoint is stopped.
         """
         ...

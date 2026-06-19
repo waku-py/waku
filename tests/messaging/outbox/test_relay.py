@@ -69,6 +69,8 @@ class _TrackingOutboxStore(IOutboxStore):
     discarded_ids: list[UUID] = field(default_factory=list)
     recovered: int = 0
     poll_calls: int = 0
+    cleanup_calls: int = 0
+    cleanup_count: int = 0
     move_to_dead_letter_error: Exception | None = None
     mark_failed_error: Exception | None = None
     recover_stuck_error: Exception | None = None
@@ -122,8 +124,9 @@ class _TrackingOutboxStore(IOutboxStore):
         return 0
 
     @override
-    async def cleanup_dispatched(self, older_than: timedelta) -> int:  # pragma: no cover
-        return 0
+    async def cleanup_dispatched(self, older_than: timedelta) -> int:
+        self.cleanup_calls += 1
+        return self.cleanup_count
 
 
 def _make_outbox_message(envelope: MessageEnvelope[Any]) -> OutboxMessage:
@@ -417,6 +420,37 @@ class TestOutboxRelay:
                 await wait_until(lambda: 'Recovered 5 stuck messages' in caplog.text)
 
         assert 'Recovered 5 stuck messages' in caplog.text
+
+    @staticmethod
+    async def test_purges_dispatched_messages_when_retention_elapsed(caplog: pytest.LogCaptureFixture) -> None:
+        store = _TrackingOutboxStore(cleanup_count=3)
+        transport = RecordingTransport()
+        serializer = make_serializer(_TestEvent)
+
+        config = OutboxRelayConfig(
+            polling=PollingConfig(poll_interval_min_seconds=0.01),
+            retention=timedelta(hours=1),
+            cleanup_interval=timedelta(seconds=0),
+        )
+
+        with caplog.at_level(logging.INFO, logger='waku.messaging.outbox.relay'):
+            async with _run_relay(RelayDepsProvider(store, transport, serializer), config):
+                await wait_until(lambda: 'Purged 3 dispatched outbox messages older than retention' in caplog.text)
+
+        assert 'Purged 3 dispatched outbox messages older than retention' in caplog.text
+
+    @staticmethod
+    async def test_does_not_purge_dispatched_messages_when_retention_unset() -> None:
+        store = _TrackingOutboxStore(cleanup_count=3)
+        transport = RecordingTransport()
+        serializer = make_serializer(_TestEvent)
+
+        config = OutboxRelayConfig(polling=PollingConfig(poll_interval_min_seconds=0.01))
+
+        async with _run_relay(RelayDepsProvider(store, transport, serializer), config):
+            await wait_until(lambda: store.poll_calls >= 1)
+
+        assert store.cleanup_calls == 0
 
     @staticmethod
     async def test_discard_policy_marks_discarded() -> None:

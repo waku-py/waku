@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from typing_extensions import override
 
-from waku.di import unit_of_work_scope
+from waku._internal.transaction import unit_of_work_scope
 from waku.messaging._polling_agent import FixedPace, Placement, PollingAgent
 from waku.messaging.inbox.interfaces import IInboxStore
 

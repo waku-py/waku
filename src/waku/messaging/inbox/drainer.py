@@ -4,7 +4,8 @@ import logging
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from waku.di import is_registered, unit_of_work_scope
+from waku._internal.transaction import unit_of_work_scope
+from waku.di import is_registered
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator

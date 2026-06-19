@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, assert_never
 from typing_extensions import override
 
 from waku._internal.polling import PollingConfig
-from waku.di import unit_of_work_scope
+from waku._internal.transaction import unit_of_work_scope
 from waku.messaging._escalation import RetryAction
 from waku.messaging._polling_agent import AdaptivePace, Placement, PollingAgent
 from waku.messaging.errors.dead_letter import DeadLetterEntry
@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_STUCK_THRESHOLD = timedelta(minutes=5)
 _DEFAULT_RECOVERY_INTERVAL = timedelta(minutes=1)
+_DEFAULT_CLEANUP_INTERVAL = timedelta(hours=1)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -53,6 +54,8 @@ class OutboxRelayConfig:
     max_delay: float = 60.0
     stuck_threshold: timedelta = _DEFAULT_STUCK_THRESHOLD
     recovery_interval: timedelta = _DEFAULT_RECOVERY_INTERVAL
+    retention: timedelta | None = None
+    cleanup_interval: timedelta = _DEFAULT_CLEANUP_INTERVAL
     stop_timeout: float = 10.0
 
 
@@ -85,6 +88,7 @@ class OutboxRelay(PollingAgent):
     __slots__ = (
         '_config',
         '_container',
+        '_last_cleanup',
         '_last_recovery',
         '_sending_evaluator',
     )
@@ -100,6 +104,7 @@ class OutboxRelay(PollingAgent):
         self._config = config
         self._sending_evaluator = sending_failure_evaluator
         self._last_recovery = 0.0
+        self._last_cleanup = 0.0
         super().__init__(stop_timeout=config.stop_timeout)
 
     @override
@@ -109,6 +114,7 @@ class OutboxRelay(PollingAgent):
     @override
     async def _tick(self) -> int:
         await self._maybe_recover_stuck()
+        await self._maybe_cleanup()
         return await self._process_batch()
 
     async def _maybe_recover_stuck(self) -> None:
@@ -121,6 +127,19 @@ class OutboxRelay(PollingAgent):
             recovered = await store.recover_stuck(self._config.stuck_threshold)
         if recovered > 0:
             logger.info('Recovered %d stuck messages', recovered)
+
+    async def _maybe_cleanup(self) -> None:
+        if self._config.retention is None:
+            return
+        now = time.monotonic()
+        if now - self._last_cleanup < self._config.cleanup_interval.total_seconds():
+            return
+        self._last_cleanup = now
+        async with unit_of_work_scope(self._container) as scope:
+            store = await scope.get(IOutboxStore)
+            purged = await store.cleanup_dispatched(self._config.retention)
+        if purged > 0:
+            logger.info('Purged %d dispatched outbox messages older than retention', purged)
 
     async def _process_batch(self) -> int:
         async with self._container() as batch_scope:

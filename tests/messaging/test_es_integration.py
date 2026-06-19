@@ -8,9 +8,8 @@ from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import IEventStore
-from waku.integrations.eventsourcing_messaging import EventSourcedVoidCommandHandler
+from waku.integrations.eventsourcing_messaging import CorrelationEnricher, EventSourcedVoidCommandHandler
 from waku.messaging import IRequest, MessagingExtension, MessagingModule
-from waku.messaging.enrichers import CorrelationEnricher
 from waku.messaging.interfaces import IMessageBus
 from waku.modules import module
 from waku.testing import create_test_app

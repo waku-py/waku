@@ -41,7 +41,7 @@ class HandlerMap:
         return self
 
     def get_handler_types(self, message_type: type[IMessage]) -> Sequence[HandlerType]:
-        return self._registry.get(message_type, ())
+        return tuple(self._registry.get(message_type, ()))
 
     def handler_types(self) -> Iterator[HandlerType]:
         for handlers in self._registry.values():

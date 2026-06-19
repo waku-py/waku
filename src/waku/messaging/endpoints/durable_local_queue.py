@@ -10,7 +10,7 @@ import anyio
 from anyio import create_memory_object_stream
 from typing_extensions import override
 
-from waku.di import unit_of_work_scope
+from waku._internal.transaction import unit_of_work_scope
 from waku.messaging._identifiers import EndpointUri
 from waku.messaging.circuit_breaker.breaker import CircuitBreaker
 from waku.messaging.endpoints.base import Endpoint

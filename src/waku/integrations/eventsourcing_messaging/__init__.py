@@ -1,3 +1,4 @@
+from waku.integrations.eventsourcing_messaging.correlation_enricher import CorrelationEnricher
 from waku.integrations.eventsourcing_messaging.decider_handler import (
     DeciderCommandHandler,
     DeciderVoidCommandHandler,
@@ -12,6 +13,7 @@ from waku.integrations.eventsourcing_messaging.module import EventSourcingMessag
 from waku.integrations.eventsourcing_messaging.session_identity import StoreSessionIdentityExtension
 
 __all__ = [
+    'CorrelationEnricher',
     'DeciderCommandHandler',
     'DeciderVoidCommandHandler',
     'EventForwardingBehavior',

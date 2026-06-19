@@ -1,11 +1,8 @@
-from collections.abc import AsyncGenerator, Callable, Sequence
-from contextlib import asynccontextmanager
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from dishka import AsyncContainer, Provider, Scope
 from dishka.entities.marker import BaseMarker
-
-from waku.uow import IUnitOfWork
 
 __all__ = [
     'activator',
@@ -17,7 +14,6 @@ __all__ = [
     'scoped',
     'singleton',
     'transient',
-    'unit_of_work_scope',
 ]
 
 
@@ -32,27 +28,6 @@ async def is_registered(container: AsyncContainer, dependency: Any) -> bool:
     coupling is isolated — callers stay clean.
     """
     return await container._has(dependency)  # noqa: SLF001
-
-
-@asynccontextmanager
-async def unit_of_work_scope(container: AsyncContainer) -> AsyncGenerator[AsyncContainer]:
-    """Open a request scope, yield it, commit on clean exit / roll back on exception.
-
-    Centralizes the 'scope owner commits' invariant for background workers and one-shot writes.
-
-    Yields:
-        The request-scoped container; resolve ``IUnitOfWork`` (and any scoped store) from it inside the
-        ``async with`` block.
-    """
-    async with container() as scope:
-        uow = await scope.get(IUnitOfWork)
-        try:
-            yield scope
-        except Exception:
-            await uow.rollback()
-            raise
-        else:
-            await uow.commit()
 
 
 def activator(fn: Callable[..., bool], *markers: Any) -> Provider:
