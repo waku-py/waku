@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 from typing import TYPE_CHECKING
 
 import anyio
@@ -9,7 +10,7 @@ from typing_extensions import override
 
 from waku.di import object_
 from waku.eventsourcing.projection.config import PollingConfig
-from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, ICheckpointStore
+from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore, ProjectionErrorPolicy
 from waku.eventsourcing.projection.lock.in_memory import InMemoryProjectionLock
 from waku.eventsourcing.projection.lock.interfaces import IProjectionLock
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
@@ -19,6 +20,7 @@ from waku.factory import WakuFactory
 from waku.modules import module
 from waku.uow import IUnitOfWork
 
+from tests._wait import wait_until
 from tests.eventsourcing.projection.helpers import (
     RecordingProjection,
     StopProjection,
@@ -27,7 +29,7 @@ from tests.eventsourcing.projection.helpers import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Sequence
+    from collections.abc import AsyncGenerator, Callable, Sequence
 
     from waku.application import WakuApplication
     from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
@@ -83,10 +85,10 @@ def _make_app(
     return WakuFactory(TestModule).create()
 
 
-async def _run_briefly(runner: CatchUpProjectionRunner, duration: float = 0.1) -> None:
+async def _run_until(runner: CatchUpProjectionRunner, predicate: Callable[[], bool]) -> None:
     async with anyio.create_task_group() as tg:
         tg.start_soon(runner.run)
-        await anyio.sleep(duration)
+        await wait_until(predicate)
         runner.request_shutdown()
 
 
@@ -107,7 +109,7 @@ async def test_runner_processes_all_events(
             lock=lock,
             polling=_FAST_POLLING,
         )
-        await _run_briefly(runner)
+        await _run_until(runner, lambda: len(projection.received) >= 5)
 
     assert len(projection.received) == 5
     assert [e.data.value for e in projection.received] == [0, 1, 2, 3, 4]  # type: ignore[attr-defined]
@@ -149,7 +151,7 @@ async def test_rebuild_resets_and_reprocesses(
             polling=_FAST_POLLING,
         )
 
-        await _run_briefly(runner)
+        await _run_until(runner, lambda: len(projection.received) >= 5)
         assert len(projection.received) == 5
 
         await runner.rebuild('recording')
@@ -209,7 +211,9 @@ async def test_runner_skips_locked_projection(
             lock=lock,
             polling=_FAST_POLLING,
         )
-        await _run_briefly(runner)
+        # A fully locked projection skips immediately, so run() returns on its own (no shutdown needed).
+        with anyio.fail_after(2):
+            await runner.run()
 
     assert len(projection.received) == 0
 
@@ -232,7 +236,7 @@ async def test_runner_isolates_projection_errors(
     good_projection = RecordingProjection()
     stop_projection = StopProjection()
     recording_binding = make_binding(RecordingProjection)
-    stop_binding = make_binding(StopProjection, error_policy=ErrorPolicy.STOP)
+    stop_binding = make_binding(StopProjection, error_policy=ProjectionErrorPolicy.STOP)
     app = _make_app(
         event_store,
         in_memory_checkpoint_store,
@@ -248,7 +252,7 @@ async def test_runner_isolates_projection_errors(
             projections=projection_types,
             polling=_FAST_POLLING,
         )
-        await _run_briefly(runner)
+        await _run_until(runner, lambda: len(good_projection.received) >= 5)
 
     assert len(good_projection.received) == 5
 
@@ -256,6 +260,7 @@ async def test_runner_isolates_projection_errors(
 async def test_poll_loop_logs_and_continues_on_scope_error(
     event_store: InMemoryEventStore,
     in_memory_checkpoint_store: InMemoryCheckpointStore,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     await seed_events(event_store, count=5)
 
@@ -263,11 +268,15 @@ async def test_poll_loop_logs_and_continues_on_scope_error(
     binding = make_binding(RecordingProjection)
     app = _make_app(event_store, in_memory_checkpoint_store, lock, (), (binding,))
 
-    async with app:
-        runner = CatchUpProjectionRunner(
-            container=app.container,
-            lock=lock,
-            registry=CatchUpProjectionRegistry((binding,)),
-            polling=_FAST_POLLING,
-        )
-        await _run_briefly(runner)
+    with caplog.at_level(logging.ERROR, logger='waku.eventsourcing.projection.runner'):
+        async with app:
+            runner = CatchUpProjectionRunner(
+                container=app.container,
+                lock=lock,
+                registry=CatchUpProjectionRegistry((binding,)),
+                polling=_FAST_POLLING,
+            )
+            # The projection instance is unresolvable, so each cycle raises -> logs -> continues.
+            await _run_until(runner, lambda: 'cycle failed' in caplog.text)
+
+    assert 'cycle failed' in caplog.text

@@ -22,6 +22,7 @@ from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig, build_re
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicy, SendingFailurePolicyRegistry
 from waku.messaging.transport.interfaces import ITransport
 
+from tests._wait import wait_until
 from tests.messaging.helpers import (
     RecordingTransport,
     RelayDepsProvider,
@@ -67,6 +68,7 @@ class _TrackingOutboxStore(IOutboxStore):
     failure_records: list[_FailureRecord] = field(default_factory=list)
     discarded_ids: list[UUID] = field(default_factory=list)
     recovered: int = 0
+    poll_calls: int = 0
     move_to_dead_letter_error: Exception | None = None
     mark_failed_error: Exception | None = None
     recover_stuck_error: Exception | None = None
@@ -77,6 +79,7 @@ class _TrackingOutboxStore(IOutboxStore):
 
     @override
     async def fetch_and_mark_processing(self, batch_size: int) -> Sequence[OutboxMessage]:
+        self.poll_calls += 1
         batch = self.pending[:batch_size]
         self.pending = self.pending[batch_size:]
         return batch
@@ -202,7 +205,6 @@ async def _run_relay(
     provider: RelayDepsProvider,
     config: OutboxRelayConfig = _FAST_CONFIG,
     *,
-    sleep: float = 0.1,
     evaluator: SendingFailureEvaluator | None = None,
 ) -> AsyncGenerator[None]:
     async with make_async_container(provider) as container:
@@ -212,9 +214,8 @@ async def _run_relay(
             sending_failure_evaluator=evaluator or make_relay_evaluator(config),
         )
         await relay.start()
-        await anyio.sleep(sleep)
         try:
-            yield
+            yield  # the caller awaits the effect it expects, then this CM stops the relay
         finally:
             await relay.stop()
 
@@ -227,7 +228,7 @@ class TestOutboxRelay:
         serializer = make_serializer(_TestEvent)
 
         async with _run_relay(RelayDepsProvider(store, transport, serializer)):
-            pass
+            await wait_until(lambda: msg.id in store.dispatched_ids)
 
         assert msg.id in store.dispatched_ids
         assert len(transport.sent) == 1
@@ -239,7 +240,7 @@ class TestOutboxRelay:
         serializer = make_serializer(_TestEvent)
 
         async with _run_relay(RelayDepsProvider(store, _FailingTransport(), serializer)):
-            pass
+            await wait_until(lambda: msg.id in store.failed_ids)
 
         assert msg.id in store.failed_ids
 
@@ -253,7 +254,7 @@ class TestOutboxRelay:
         serializer = make_serializer(_TestEvent)
 
         async with _run_relay(RelayDepsProvider(store, transport, serializer)):
-            pass
+            await wait_until(lambda: store.recovered >= 1 and msg.id in store.dispatched_ids)
 
         assert store.recovered >= 1
         assert msg.id in store.dispatched_ids
@@ -264,8 +265,10 @@ class TestOutboxRelay:
         transport = RecordingTransport()
         serializer = make_serializer(_TestEvent)
 
-        async with _run_relay(RelayDepsProvider(store, transport, serializer), sleep=0.05):
-            pass
+        # Asserting an absence: wait for one full poll cycle (the relay actually ran), then confirm
+        # nothing was sent. No positive effect exists to await, so the poll counter is the gate.
+        async with _run_relay(RelayDepsProvider(store, transport, serializer)):
+            await wait_until(lambda: store.poll_calls >= 1)
 
         assert len(transport.sent) == 0
         assert len(store.dispatched_ids) == 0
@@ -300,7 +303,7 @@ class TestOutboxRelay:
             RelayDepsProvider(store, _FailingTransport(), serializer),
             _EXHAUST_ON_FIRST_FAILURE_CONFIG,
         ):
-            pass
+            await wait_until(lambda: msg.id in store.dead_lettered_ids)
 
         assert msg.id in store.dead_lettered_ids
         assert msg.id not in store.failed_ids
@@ -320,7 +323,7 @@ class TestOutboxRelay:
             RelayDepsProvider(store, _FailingTransport(), serializer),
             _EXHAUST_ON_FIRST_FAILURE_CONFIG,
         ):
-            pass
+            await wait_until(lambda: msg.id in store.failed_ids)
 
         assert msg.id in store.failed_ids
         assert msg.id not in store.dead_lettered_ids
@@ -341,7 +344,7 @@ class TestOutboxRelay:
                 RelayDepsProvider(store, _FailingTransport(), serializer),
                 _EXHAUST_ON_FIRST_FAILURE_CONFIG,
             ):
-                pass
+                await wait_until(lambda: 'Failed to mark message' in caplog.text)
 
         assert 'Failed to mark message' in caplog.text
 
@@ -410,8 +413,8 @@ class TestOutboxRelay:
         )
 
         with caplog.at_level(logging.INFO, logger='waku.messaging.outbox.relay'):
-            async with _run_relay(RelayDepsProvider(store, transport, serializer), config, sleep=0.05):
-                pass
+            async with _run_relay(RelayDepsProvider(store, transport, serializer), config):
+                await wait_until(lambda: 'Recovered 5 stuck messages' in caplog.text)
 
         assert 'Recovered 5 stuck messages' in caplog.text
 
@@ -428,7 +431,7 @@ class TestOutboxRelay:
             RelayDepsProvider(store, _FailingTransport(), serializer),
             evaluator=evaluator,
         ):
-            pass
+            await wait_until(lambda: msg.id in store.discarded_ids)
 
         assert msg.id in store.discarded_ids
         assert msg.id not in store.failed_ids
@@ -447,7 +450,7 @@ class TestOutboxRelay:
             RelayDepsProvider(store, _FailingTransport(), serializer),
             evaluator=evaluator,
         ):
-            pass
+            await wait_until(lambda: msg.id in store.dead_lettered_ids)
 
         assert msg.id in store.dead_lettered_ids
 
@@ -477,7 +480,7 @@ class TestOutboxRelay:
             RelayDepsProvider(store, _FailingTransport(), serializer),
             evaluator=evaluator,
         ):
-            pass
+            await wait_until(lambda: msg.id in store.failed_ids)
 
         assert msg.id in store.failed_ids
         assert store.failure_records
@@ -505,7 +508,7 @@ class TestOutboxRelay:
             RelayDepsProvider(store, _FailingTransport(), serializer),
             evaluator=evaluator,
         ):
-            pass
+            await wait_until(lambda: msg.id in store.failed_ids)
 
         assert msg.id in store.failed_ids
         assert store.failure_records
@@ -527,7 +530,7 @@ class TestOutboxRelay:
             RelayDepsProvider(store, _FailingTransport(), serializer),
             evaluator=empty_evaluator,
         ):
-            pass
+            await wait_until(lambda: msg.id in store.dead_lettered_ids)
 
         assert msg.id in store.dead_lettered_ids
         assert msg.id not in store.failed_ids

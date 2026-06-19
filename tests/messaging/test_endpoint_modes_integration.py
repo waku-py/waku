@@ -22,7 +22,7 @@ from waku.messaging import (
 )
 from waku.testing import create_test_app
 
-from tests.messaging.helpers import wait_until
+from tests._wait import wait_until
 
 
 @dataclass(frozen=True, slots=True)

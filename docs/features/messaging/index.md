@@ -172,8 +172,8 @@ class AppModule:
 | `pipeline_behaviors`  | `Sequence[type[IPipelineBehavior]]`                  | `()`    | Global pipeline behaviors applied to every message                             |
 | `endpoints`           | `Sequence[EndpointEntry]`                            | `()`    | Available message endpoints (see [Routing](routing.md))                        |
 | `routing`             | `Sequence[RouteDescriptor | ModuleRouteDescriptor]` | `()`    | Route descriptors mapping messages to endpoints (see [Routing](routing.md))    |
-| `error_policies`      | `Sequence[ResolvedRetryPolicy]`                      | `()`    | Error policies for endpoint workers (see [Error Handling](error-handling.md))  |
-| `dead_letter_store`   | `type[IDeadLetterStore] | Callable | None`           | `None`  | Dead letter store for failed messages (see [Error Handling](error-handling.md)) |
+| `default_error_policies` | `Sequence[ErrorPolicy]`                           | `()`    | Default error policies for endpoint workers (see [Error Handling](error-handling.md)) |
+| `dead_letter`         | `DeadLetterConfig | None`                            | `None`  | Dead-letter configuration — store, retention, auto-replay (see [Error Handling](error-handling.md)) |
 | `outbox`              | `OutboxConfig | None`                                | `None`  | Outbox subsystem config — store, transport, relay (see [Outbox](outbox.md))    |
 
 Passing `None` (or no argument) to `MessagingModule.register()` uses the defaults:
@@ -188,7 +188,7 @@ MessagingModule.register(MessagingConfig())
     waku validates configuration dependencies at startup:
 
     - `external_endpoint` in `endpoints` requires `outbox`
-    - Error policies with `DEAD_LETTER` action require `dead_letter_store`
+    - Error policies with `DEAD_LETTER` action require a `dead_letter` config
 
 `MessagingModule` is registered as a **global module** — its providers (message bus, event publisher,
 registry) are available to every module in the application without explicit imports.

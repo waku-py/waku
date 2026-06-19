@@ -7,7 +7,7 @@ import anyio.lowlevel
 from waku.messaging.circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitState
 from waku.messaging.endpoints.executor import ExecutionOutcome
 
-from tests.messaging.helpers import wait_until
+from tests._wait import wait_until
 
 
 class _Clock:

@@ -21,13 +21,13 @@ from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.transport.serialization import IEnvelopeSerializer
 from waku.uow import IUnitOfWork
 
+from tests._wait import wait_until
 from tests.messaging.helpers import (
     FakeUoW,
     RecordingAllocator,
     RecordingDeadLetterStore,
     make_envelope,
     make_serializer,
-    wait_until,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
 

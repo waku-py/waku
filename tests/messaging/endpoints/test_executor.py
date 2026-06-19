@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
+import anyio
 from typing_extensions import override
 
 from waku.di import object_
@@ -19,7 +20,6 @@ from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.registry import ErrorPolicyRegistry
-from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
@@ -96,15 +96,15 @@ async def _make_executor(
     evaluator: ErrorPolicyEvaluator,
     *,
     uri: str = 'test://q',
+    sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
 ) -> EndpointExecutor:
-    type_registry = await app.container.get(MessageTypeRegistry)
     invoker = await app.container.get(HandlerPipelineInvoker)
     return EndpointExecutor(
         container=app.container,
         evaluator=evaluator,
         endpoint_uri=uri,
         invoker=invoker,
-        registry=type_registry,
+        sleep=sleep,
     )
 
 
@@ -146,6 +146,35 @@ async def test_executor_transient_backoff() -> None:
     outcome = await _run_executor(handler, evaluator)
     assert len(calls) == 2
     assert outcome is ExecutionOutcome.SUCCESS
+
+
+async def test_retry_with_backoff_sleeps_for_the_policy_delay(monkeypatch: pytest.MonkeyPatch) -> None:
+    handler, _ = _make_fail_n_times_handler(fail_count=1)
+    recorded: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:  # noqa: RUF029
+        recorded.append(delay)
+
+    # Pin the jittered backoff to a fixed value so the recorded delay is the policy's exact value, not
+    # merely in-range; plain RETRY carries retry_delay=None (no sleep call), so this stays mutation-distinct.
+    monkeypatch.setattr('waku.messaging._escalation.calculate_backoff_with_jitter', lambda *_a, **_kw: 5.0)
+    evaluator = _evaluator_for(
+        ErrorPolicy
+        .on_any_exception()
+        .retry_with_backoff(max_attempts=2, base_delay=5.0, max_delay=5.0)
+        .then_move_to_dead_letter(),
+    )
+
+    async with create_test_app(
+        imports=[MessagingModule.register()],
+        extensions=[MessagingExtension().bind(handler)],
+    ) as app:
+        executor = await _make_executor(app, evaluator, sleep=fake_sleep)
+        envelope = make_envelope(_FailingCommand(value='retry-backoff'))
+        outcome = await executor.execute(envelope, handler)
+
+    assert outcome is ExecutionOutcome.SUCCESS
+    assert recorded == [5.0]
 
 
 async def test_executor_discard() -> None:
@@ -190,6 +219,31 @@ class TestEndpointExecutorDeadLetter:
         assert 'permanent failure' in dl_store.entries[0].error_message
         assert dl_store.entries[0].retry_count == 1
         assert dl_store.entries[0].destination == 'test://q'
+
+    @staticmethod
+    async def test_dead_letter_entry_carries_envelope_wire_name() -> None:
+        handler, _ = _make_always_fail_handler()
+        dl_store = RecordingDeadLetterStore()
+
+        config = MessagingConfig(
+            default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
+            dead_letter=DeadLetterConfig(store=lambda: dl_store),
+        )
+
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(handler)],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+        ) as app:
+            evaluator = await app.container.get(ErrorPolicyEvaluator)
+            executor = await _make_executor(app, evaluator)
+            # The wire name on the envelope differs from the payload type's FQN — e.g. a message_identity
+            # alias that changed since publish. The DLQ entry must carry the authoritative envelope name.
+            envelope = replace(make_envelope(_FailingCommand(value='to-dlq')), message_type='wire.RenamedAlias')
+            outcome = await executor.execute(envelope, handler)
+
+        assert outcome is ExecutionOutcome.DEAD_LETTERED
+        assert dl_store.entries[0].message_type == 'wire.RenamedAlias'
 
     @staticmethod
     async def test_dead_letter_write_failure_is_logged_not_raised(caplog: pytest.LogCaptureFixture) -> None:

@@ -36,38 +36,35 @@ flowchart LR
 
 ## Defining Policies
 
-`RetryPolicy` uses a fluent builder API to declare how failures should be handled per message
-type:
+An error policy is an ordered escalation chain built with a fluent API. The primary path is a
+per-handler `error_policies` ClassVar — each policy matches an exception type and declares how the
+failure escalates:
 
 ```python linenums="1"
-from waku.messaging import MessagingConfig, MessagingModule
-from waku.messaging.errors import RetryPolicy, RetryAction
+from collections.abc import Sequence
+from typing import ClassVar
 
-config = MessagingConfig(
-    error_policies=[
-        RetryPolicy.for_message(PlaceOrder)                     # (1)!
-            .on_any_exception()                                 # (2)!
-            .retry_with_backoff(                                # (3)!
-                max_attempts=5,
-                base_delay=1.0,
-                max_delay=60.0,
-                fallback=RetryAction.DEAD_LETTER,               # (4)!
-            ),
-    ],
-)
-MessagingModule.register(config)
+from waku.messaging import ErrorPolicy, RequestHandler
+
+
+class PlaceOrderHandler(RequestHandler[PlaceOrder, None]):
+    error_policies: ClassVar[Sequence[ErrorPolicy]] = (
+        ErrorPolicy.on_exception(ValueError)
+            .retry_with_backoff(max_attempts=5, base_delay=1.0, max_delay=60.0)
+            .then_move_to_dead_letter(),
+    )
 ```
 
-1. Target a specific message type.
-2. Match any exception. Use `.on_exception(ValueError)` to match a specific type.
-3. Choose a retry strategy — see [Actions](#actions) below.
-4. When retries are exhausted, move to the dead letter store.
+`ErrorPolicy.on_exception(...)` (or `.on_any_exception()`) seeds the chain. An action method
+(`.retry()`, `.retry_with_backoff()`, `.discard()`, `.move_to_dead_letter()`) sets the first stage,
+and `.then_*(...)` appends further stages. The chain above retries with backoff up to five attempts,
+then moves the message to the dead letter store.
 
 ---
 
 ## Actions
 
-The builder offers four terminal actions:
+The builder offers four actions:
 
 | Method                  | Behavior                                                |
 |-------------------------|---------------------------------------------------------|
@@ -81,9 +78,9 @@ The builder offers four terminal actions:
 Retries the handler up to `max_attempts` with no delay between attempts:
 
 ```python linenums="1"
-RetryPolicy.for_message(SendEmail)
-    .on_exception(ConnectionError)
-    .retry(max_attempts=3, fallback=RetryAction.DEAD_LETTER)
+ErrorPolicy.on_exception(ConnectionError)
+    .retry(max_attempts=3)
+    .then_move_to_dead_letter()
 ```
 
 ### `.retry_with_backoff()`
@@ -92,14 +89,13 @@ Retries with exponential backoff and jitter. The delay between attempts grows ex
 from `base_delay` up to `max_delay`:
 
 ```python linenums="1"
-RetryPolicy.for_message(ProcessPayment)
-    .on_any_exception()
+ErrorPolicy.on_any_exception()
     .retry_with_backoff(
         max_attempts=5,
         base_delay=1.0,      # first retry after ~1 second
         max_delay=60.0,      # never wait longer than 60 seconds
-        fallback=RetryAction.DEAD_LETTER,
     )
+    .then_move_to_dead_letter()
 ```
 
 ### `.discard()`
@@ -107,9 +103,7 @@ RetryPolicy.for_message(ProcessPayment)
 Drops the message on first failure — no retries:
 
 ```python linenums="1"
-RetryPolicy.for_message(UpdateAnalytics)
-    .on_any_exception()
-    .discard()
+ErrorPolicy.on_any_exception().discard()
 ```
 
 !!! warning
@@ -121,64 +115,67 @@ RetryPolicy.for_message(UpdateAnalytics)
 Moves the message to the dead letter store on first failure — no retries:
 
 ```python linenums="1"
-RetryPolicy.for_message(CriticalAlert)
-    .on_any_exception()
-    .move_to_dead_letter()
+ErrorPolicy.on_any_exception().move_to_dead_letter()
 ```
 
 ---
 
-## Fallback Actions
+## Escalation stages
 
-When retries are exhausted, the `fallback` parameter determines the final action:
-
-| Fallback                    | Effect                                        |
-|-----------------------------|-----------------------------------------------|
-| `RetryAction.DEAD_LETTER`  | Move to dead letter store after max attempts   |
-| `RetryAction.DISCARD`      | Discard after max attempts (default)           |
-| `None`                     | Same as `DISCARD`                              |
+A policy is a chain of stages. A retry stage (`.retry()`, `.retry_with_backoff()`) consumes its
+`max_attempts`, then hands off to the next stage. A terminal stage (`.then_discard()` or
+`.then_move_to_dead_letter()`) fires once and ends the chain. There is no single fallback argument —
+escalation is expressed by chaining `then_*` stages:
 
 ```python linenums="1"
 # Retry 3 times, then dead-letter
-RetryPolicy.for_message(PlaceOrder)
-    .on_any_exception()
-    .retry(max_attempts=3, fallback=RetryAction.DEAD_LETTER)
-
-# Retry 3 times, then discard (default behavior)
-RetryPolicy.for_message(SendNotification)
-    .on_any_exception()
+ErrorPolicy.on_any_exception()
     .retry(max_attempts=3)
+    .then_move_to_dead_letter()
+
+# Retry 3 times, then discard
+ErrorPolicy.on_any_exception()
+    .retry(max_attempts=3)
+    .then_discard()
 ```
+
+When a handler policy ends in a retry stage with no terminal, an exhausted chain falls back to an
+implicit discard.
 
 ---
 
 ## Exception Matching
 
-Policies can target specific exception types or match any exception:
+A policy targets a specific exception type or matches any exception. Add a `when=` predicate for
+conditional matching:
 
 ```python linenums="1"
-from waku.messaging.errors import RetryPolicy, RetryAction
+from waku.messaging import ErrorPolicy
 
-policies = [
-    # Specific exception — retries on connection errors only
-    RetryPolicy.for_message(PlaceOrder)
-        .on_exception(ConnectionError)
-        .retry_with_backoff(max_attempts=5),
+policies = (
+    # Specific exception — retries connection errors only
+    ErrorPolicy.on_exception(ConnectionError)
+        .retry_with_backoff(max_attempts=5)
+        .then_move_to_dead_letter(),
+
+    # Conditional — match ValueError only when the predicate holds
+    ErrorPolicy.on_exception(ValueError, when=lambda exc: 'retriable' in str(exc))
+        .retry(max_attempts=3)
+        .then_discard(),
 
     # Wildcard — catches everything else
-    RetryPolicy.for_message(PlaceOrder)
-        .on_any_exception()
+    ErrorPolicy.on_any_exception()
         .move_to_dead_letter(),
-]
+)
 ```
 
 !!! tip "Resolution order"
-    When a handler fails, waku walks the exception's MRO to find the most specific policy first.
-    If no specific match is found, the wildcard policy (`on_any_exception()`) is used. If no
-    policy matches at all, the exception is re-raised.
+    When a handler fails, waku selects the most specific matching policy: a `when=` predicate
+    outscores a bare exception type, which outscores `on_any_exception()`. If no policy matches,
+    the exception is re-raised.
 
-!!! warning "One policy per (message, exception) pair"
-    Registering two policies for the same message type and exception type raises
+!!! warning "One policy per (handler, exception) pair"
+    Registering two policies for the same handler and exception type raises
     `DuplicateErrorPolicyError` at startup. This is a safety check — ambiguous policies indicate
     a configuration error.
 
@@ -190,10 +187,10 @@ The **dead letter store** captures messages that could not be processed. Each en
 original message payload, error details, and correlation context:
 
 ```python linenums="1"
-from waku.messaging.errors import IDeadLetterStore, DeadLetterEntry
+from waku.messaging.errors import DeadLetterEntry, IDeadLetterStore
 ```
 
-`IDeadLetterStore` is an ABC with five operations:
+`IDeadLetterStore` is an ABC. Its core operations:
 
 | Method                              | Returns                  | Description                              |
 |-------------------------------------|--------------------------|------------------------------------------|
@@ -205,50 +202,54 @@ from waku.messaging.errors import IDeadLetterStore, DeadLetterEntry
 
 ### DeadLetterEntry Fields
 
-| Field             | Type              | Description                              |
-|-------------------|-------------------|------------------------------------------|
-| `id`              | `UUID`            | Unique entry identifier                  |
-| `message_type`    | `str`             | Fully-qualified message type name        |
-| `payload`         | `dict[str, Any]`  | Serialized message data                  |
-| `destination`     | `str`             | Endpoint URI the message was destined for|
-| `correlation_id`  | `UUID`            | Correlation ID from the message envelope |
-| `causation_id`    | `UUID`            | Causation ID from the message envelope   |
-| `error_type`      | `str`             | Fully-qualified exception type name      |
-| `error_message`   | `str`             | Exception message text                   |
-| `retry_count`     | `int`             | Number of attempts before dead-lettering |
-| `created_at`      | `datetime | None` | Timestamp when the entry was created     |
+| Field             | Type                | Description                              |
+|-------------------|---------------------|------------------------------------------|
+| `id`              | `UUID`              | Unique entry identifier                  |
+| `message_type`    | `str`               | Wire name of the message type            |
+| `payload`         | `dict[str, Any]`    | Serialized message envelope              |
+| `destination`     | `str`               | Where the message was destined (see note)|
+| `correlation_id`  | `UUID`              | Correlation ID from the message envelope |
+| `causation_id`    | `UUID`              | Causation ID from the message envelope   |
+| `error_type`      | `str`               | Fully-qualified exception type name      |
+| `error_message`   | `str`               | Exception message text                   |
+| `retry_count`     | `int`               | Number of attempts before dead-lettering |
+| `status`          | `DeadLetterStatus`  | Replay lifecycle: `PENDING` / `REPLAYED` / `REPLAY_FAILED` |
+| `replay_count`    | `int`               | Number of auto-replay attempts           |
+| `created_at`      | `datetime \| None`  | Timestamp when the entry was created     |
+
+`destination` carries the **endpoint URI** for executor-path dead letters; for inbox poison-path
+entries it carries the **handler FQN** instead.
 
 ---
 
 ## Configuration
 
-Provide the dead letter store implementation in `MessagingConfig`:
+Set process-wide default policies with `default_error_policies`, and provide the dead letter store
+via `dead_letter`:
 
 ```python linenums="1"
-from waku.messaging import MessagingConfig, MessagingModule
-from waku.messaging.errors import RetryPolicy, RetryAction
+from waku.messaging import DeadLetterConfig, ErrorPolicy, MessagingConfig, MessagingModule
 
 MessagingModule.register(
     MessagingConfig(
-        dead_letter_store=MyDeadLetterStore,    # (1)!
-        error_policies=[
-            RetryPolicy.for_message(PlaceOrder)
-                .on_any_exception()
-                .retry_with_backoff(
-                    max_attempts=3,
-                    fallback=RetryAction.DEAD_LETTER,
-                ),
-        ],
+        default_error_policies=(
+            ErrorPolicy.on_any_exception()
+                .retry_with_backoff(max_attempts=3)
+                .then_move_to_dead_letter(),
+        ),
+        dead_letter=DeadLetterConfig(store=MyDeadLetterStore),    # (1)!
     ),
 )
 ```
 
-1. Any class implementing `IDeadLetterStore`. Can also be a factory callable.
+1. `DeadLetterConfig.store` is any class implementing `IDeadLetterStore`, or a factory callable.
+
+A handler's own `error_policies` shadow `default_error_policies` per exception.
 
 !!! warning "Validation"
-    waku validates at startup that any error policy using `DEAD_LETTER` action (either as
-    primary action or fallback) has a corresponding `dead_letter_store` in `MessagingConfig`.
-    Missing it raises `ImproperlyConfiguredError`.
+    waku validates at startup that when any error policy escalates to the `DEAD_LETTER` action, a
+    `dead_letter` config is present. Missing it raises `ImproperlyConfiguredError`:
+    *error policies with DEAD_LETTER action require dead_letter in MessagingConfig*.
 
 ---
 
@@ -316,12 +317,12 @@ When a handler fails and no error policy matches the message type + exception co
 - No exception propagates — the worker loop is never interrupted by unmatched failures.
 
 !!! tip "Start with sensible defaults"
-    Define a wildcard policy for message types that are important enough to track failures:
+    Define a wildcard policy for message types important enough to track failures:
 
     ```python linenums="1"
-    RetryPolicy.for_message(ImportantCommand)
-        .on_any_exception()
-        .retry_with_backoff(max_attempts=3, fallback=RetryAction.DEAD_LETTER)
+    ErrorPolicy.on_any_exception()
+        .retry_with_backoff(max_attempts=3)
+        .then_move_to_dead_letter()
     ```
 
 ---

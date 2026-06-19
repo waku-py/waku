@@ -101,8 +101,3 @@ class IInboxStore(abc.ABC):
     async def cleanup_handled(self, now: datetime) -> int:
         """Delete HANDLED entries whose ``keep_until < now``. Returns row count."""
         ...
-
-    @abc.abstractmethod
-    async def exists(self, entry_id: UUID, destination: str) -> bool:
-        """Return True if the ``(entry_id, destination)`` row exists in any status."""
-        ...

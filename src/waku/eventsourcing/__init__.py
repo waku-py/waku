@@ -36,7 +36,12 @@ from waku.eventsourcing.modules import (
     SnapshotOptions,
 )
 from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
-from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, ICheckpointStore, IProjection
+from waku.eventsourcing.projection.interfaces import (
+    ICatchUpProjection,
+    ICheckpointStore,
+    IProjection,
+    ProjectionErrorPolicy,
+)
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.projection.runner import CatchUpProjectionRunner
 from waku.eventsourcing.repository import EventSourcedRepository
@@ -54,7 +59,6 @@ __all__ = [
     'DataT',
     'DeciderRepository',
     'DuplicateIdempotencyKeyError',
-    'ErrorPolicy',
     'EventEnvelope',
     'EventMetadata',
     'EventSourcedAggregate',
@@ -76,6 +80,7 @@ __all__ = [
     'NoStream',
     'PartialDuplicateAppendError',
     'ProjectionError',
+    'ProjectionErrorPolicy',
     'ProjectionStoppedError',
     'SnapshotDeciderRepository',
     'SnapshotEventSourcedRepository',

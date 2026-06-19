@@ -216,12 +216,6 @@ class SqlAlchemyInboxStore(IInboxStore):
         result = await self._session.execute(stmt)
         return result.rowcount  # type: ignore[attr-defined,no-any-return]
 
-    @override
-    async def exists(self, entry_id: UUID, destination: str) -> bool:
-        stmt = select(_t.c.id).where(_t.c.id == entry_id).where(_t.c.destination == destination).limit(1)
-        result = await self._session.execute(stmt)
-        return result.scalar_one_or_none() is not None
-
 
 def _row_to_entry(row: Any) -> InboxEntry:
     return InboxEntry(

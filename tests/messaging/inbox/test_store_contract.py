@@ -4,7 +4,12 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from typing_extensions import override
+
+from waku.messaging.contracts.event import IEvent
 from waku.messaging.errors.dead_letter import DeadLetterEntry
+from waku.messaging.handler import EventHandler
+from waku.messaging.inbox._destination import handler_destination  # noqa: PLC2701
 from waku.messaging.inbox.models import InboxEntry
 
 if TYPE_CHECKING:
@@ -38,6 +43,27 @@ def _dead_letter_for(entry: InboxEntry) -> DeadLetterEntry:
     )
 
 
+class _DedupEvent(IEvent):
+    pass
+
+
+class _DedupHandler(EventHandler[_DedupEvent]):
+    @override
+    async def handle(self, message: _DedupEvent, /) -> None:  # pragma: no cover
+        pass
+
+
+async def test_destination_round_trips_handler_fqn_byte_identical(inbox_store: IInboxStore) -> None:
+    destination = handler_destination(_DedupHandler)
+    expected_fqn = f'{_DedupHandler.__module__}.{_DedupHandler.__qualname__}'
+    assert destination == expected_fqn
+
+    assert await inbox_store.store_incoming(_make_entry(destination=destination)) is True
+
+    claimed = await inbox_store.fetch_pending(batch_size=10, owner_id='w-1')
+    assert claimed[0].destination == expected_fqn
+
+
 async def test_store_incoming_then_fetch_claims_with_owner(inbox_store: IInboxStore) -> None:
     entry = _make_entry()
     assert await inbox_store.store_incoming(entry) is True
@@ -59,8 +85,11 @@ async def test_store_incoming_same_id_different_destination_both_stored(inbox_st
     assert await inbox_store.store_incoming(first) is True
     assert await inbox_store.store_incoming(second) is True
 
-    assert await inbox_store.exists(first.id, 'tests.messaging.HandlerA') is True
-    assert await inbox_store.exists(first.id, 'tests.messaging.HandlerB') is True
+    claimed = await inbox_store.fetch_pending(batch_size=10, owner_id='w-1')
+    assert {(e.id, e.destination) for e in claimed} == {
+        (first.id, 'tests.messaging.HandlerA'),
+        (first.id, 'tests.messaging.HandlerB'),
+    }
 
 
 async def test_mark_as_handled_then_cleanup_removes(inbox_store: IInboxStore) -> None:
@@ -70,7 +99,8 @@ async def test_mark_as_handled_then_cleanup_removes(inbox_store: IInboxStore) ->
     await inbox_store.mark_as_handled(entry.id, entry.destination, datetime.now(tz=UTC) - timedelta(seconds=1))
     removed = await inbox_store.cleanup_handled(datetime.now(tz=UTC))
     assert removed == 1
-    assert await inbox_store.exists(entry.id, entry.destination) is False
+    # the row is fully purged: re-storing the same (id, destination) is no longer a duplicate
+    assert await inbox_store.store_incoming(_make_entry(id=entry.id, destination=entry.destination)) is True
 
 
 async def test_fetch_pending_partitioned_returns_one_head_per_group(inbox_store: IInboxStore) -> None:
@@ -109,4 +139,5 @@ async def test_move_to_dead_letter_deletes_entry(inbox_store: IInboxStore) -> No
     await inbox_store.store_incoming(entry)
 
     await inbox_store.move_to_dead_letter(entry.id, entry.destination, _dead_letter_for(entry))
-    assert await inbox_store.exists(entry.id, entry.destination) is False
+    # the inbox row is deleted: the same (id, destination) is storable again (not a duplicate)
+    assert await inbox_store.store_incoming(_make_entry(id=entry.id, destination=entry.destination)) is True

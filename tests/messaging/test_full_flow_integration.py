@@ -41,6 +41,7 @@ from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnve
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
+from tests._wait import wait_until
 from tests.messaging.helpers import (
     FakeUoW,
     RecordingAllocator,
@@ -51,7 +52,6 @@ from tests.messaging.helpers import (
     make_relay_evaluator,
     make_serializer,
     order_id_partition,
-    wait_until,
 )
 from tests.messaging.outbox.in_memory_store import InMemoryOutboxStore
 

@@ -18,6 +18,7 @@ from waku.messaging import (
     local_queue,
     route,
 )
+from waku.messaging._identifiers import EndpointUri  # noqa: PLC2701
 from waku.messaging.inbox._destination import handler_destination  # noqa: PLC2701
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
@@ -25,7 +26,8 @@ from waku.messaging.transport.serialization import IEnvelopeSerializer
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, make_envelope, wait_until
+from tests._wait import wait_until
+from tests.messaging.helpers import FakeUoW, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -67,7 +69,7 @@ async def test_abandoned_row_is_drained_and_handled() -> None:
             id=envelope.message_id,
             payload=serializer.serialize(envelope),
             message_type=envelope.message_type,
-            source_uri='local://orders',
+            source_uri=EndpointUri('local://orders'),
             destination=destination,
             owner_id=None,
             status=InboxStatus.INCOMING,

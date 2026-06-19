@@ -8,7 +8,6 @@ from waku.di import is_registered, unit_of_work_scope
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
-from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.inbox._destination import handler_destination
 from waku.messaging.inbox.finalize import apply_inbox_outcome
 from waku.messaging.inbox.interfaces import IInboxStore
@@ -22,6 +21,7 @@ if TYPE_CHECKING:
 
     from dishka import AsyncContainer
 
+    from waku.messaging._identifiers import HandlerDestination
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.inbox.config import InboxConfig
     from waku.messaging.inbox.models import InboxEntry
@@ -63,7 +63,7 @@ class InboxDrainer:
         *,
         container: AsyncContainer,
         serializer: IEnvelopeSerializer,
-        handler_by_fqn: Mapping[str, HandlerType],
+        handler_by_fqn: Mapping[HandlerDestination, HandlerType],
         executor_factory: Callable[[str], EndpointExecutor],
         owner_id: str,
         keep_after_handled: timedelta,
@@ -147,7 +147,6 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
     registry = await container.get(MessageRegistry)
     evaluator = await container.get(ErrorPolicyEvaluator)
     invoker = await container.get(HandlerPipelineInvoker)
-    type_registry = await container.get(MessageTypeRegistry)
     serializer = await container.get(IEnvelopeSerializer)
 
     handler_by_fqn = {handler_destination(ht): ht for ht in registry.handler_map.handler_types()}
@@ -161,7 +160,6 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
                 evaluator=evaluator,
                 endpoint_uri=source_uri,
                 invoker=invoker,
-                registry=type_registry,
             )
             executors[source_uri] = executor
         return executor

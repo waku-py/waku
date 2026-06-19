@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku.messaging._identifiers import EndpointUri, HandlerDestination  # noqa: PLC2701
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome
 from waku.messaging.errors.dead_letter import IDeadLetterStore
@@ -93,8 +94,8 @@ def _abandoned_entry(
         id=envelope.message_id,
         payload=serializer.serialize(envelope),
         message_type=envelope.message_type,
-        source_uri=source_uri,
-        destination=destination,
+        source_uri=EndpointUri(source_uri),
+        destination=HandlerDestination(destination),
         owner_id=None,
         status=InboxStatus.INCOMING,
         attempts=attempts,

@@ -8,6 +8,8 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
+    from waku.messaging._identifiers import EndpointUri, GroupId, HandlerDestination
+
 __all__ = [
     'InboxEntry',
     'InboxStatus',
@@ -30,13 +32,13 @@ class InboxEntry:
     id: UUID
     payload: dict[str, Any]
     message_type: str
-    source_uri: str
+    source_uri: EndpointUri
     # `destination` is the per-handler dedup discriminator: the handler FQN
     # `f'{handler_type.__module__}.{handler_type.__qualname__}'`. Together with `id`
     # it forms the composite primary key, so a fan-out message writes one row per
     # subscribed handler and each handler dedups independently. (`source_uri` stays
     # the endpoint URI the message arrived on — observability metadata, not a dedup key.)
-    destination: str
+    destination: HandlerDestination
     status: InboxStatus = InboxStatus.INCOMING
     owner_id: str | None = None
     # M3 scheduled-messages populate execution_time and gate dispatch on
@@ -45,7 +47,7 @@ class InboxEntry:
     execution_time: datetime | None = None
     attempts: int = 0
     keep_until: datetime | None = None
-    group_id: str | None = None
+    group_id: GroupId | None = None
     sequence_number: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

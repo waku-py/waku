@@ -10,7 +10,7 @@ from waku.eventsourcing.exceptions import ProjectionStoppedError
 from waku.eventsourcing.projection.adaptive_interval import calculate_backoff_with_jitter
 from waku.eventsourcing.projection.checkpoint import Checkpoint
 from waku.eventsourcing.projection.gap_detection import GapTracker
-from waku.eventsourcing.projection.interfaces import ErrorPolicy
+from waku.eventsourcing.projection.interfaces import ProjectionErrorPolicy
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -55,7 +55,7 @@ class ProjectionProcessor:
             return 0
 
         if self._gap_tracker is not None:
-            events = await self._apply_gap_detection(events, event_reader, position)
+            events = await self._apply_gap_detection(self._gap_tracker, events, event_reader, position)
             if not events:
                 return 0
 
@@ -83,18 +83,18 @@ class ProjectionProcessor:
             ),
         )
 
+    @staticmethod
     async def _apply_gap_detection(
-        self,
+        gap_tracker: GapTracker,
         events: list[StoredEvent],
         event_reader: IEventReader,
         checkpoint_position: int,
     ) -> list[StoredEvent]:
-        assert self._gap_tracker is not None  # noqa: S101
         committed = await event_reader.read_positions(
             after_position=checkpoint_position,
             up_to_position=events[-1].global_position,
         )
-        safe = self._gap_tracker.safe_position(checkpoint_position, committed)
+        safe = gap_tracker.safe_position(checkpoint_position, committed)
         if safe <= checkpoint_position:
             return []
         return [e for e in events if e.global_position <= safe]
@@ -125,11 +125,11 @@ class ProjectionProcessor:
             await anyio.sleep(delay)
             return 0
 
-        if self._binding.error_policy is ErrorPolicy.STOP:
+        if self._binding.error_policy is ProjectionErrorPolicy.STOP:
             self._attempts = 0
             raise ProjectionStoppedError(self.projection_name, exc)
 
-        # ErrorPolicy.SKIP
+        # ProjectionErrorPolicy.SKIP
         logger.warning(
             'Projection %r: skipping batch due to error (after %d attempts): %s',
             self.projection_name,

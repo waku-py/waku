@@ -76,7 +76,9 @@ class TestMarkAsHandled:
         await store.mark_as_handled(entry.id, entry.destination, keep_until)
         await pg_session.flush()
 
-        assert await store.exists(entry.id, entry.destination) is True
+        # HANDLED row is retained until keep_until: cleanup at `now` is a no-op, cleanup past it removes it.
+        assert await store.cleanup_handled(datetime.now(tz=UTC)) == 0
+        assert await store.cleanup_handled(keep_until + timedelta(seconds=1)) == 1
 
     @staticmethod
     async def test_mark_as_handled_targets_only_its_destination(pg_session: AsyncSession) -> None:
@@ -94,8 +96,9 @@ class TestMarkAsHandled:
         # Only HandlerA's row is HANDLED -> only it is eligible for cleanup.
         removed = await store.cleanup_handled(datetime.now(tz=UTC))
         assert removed == 1
-        assert await store.exists(a.id, 'tests.messaging.HandlerA') is False
-        assert await store.exists(b.id, 'tests.messaging.HandlerB') is True
+        # HandlerA's row was purged; HandlerB's row survives, still INCOMING and claimable.
+        claimed = await store.fetch_pending(batch_size=10, owner_id='w-1')
+        assert [(e.id, e.destination) for e in claimed] == [(b.id, 'tests.messaging.HandlerB')]
 
 
 class TestIncrementAttempts:
@@ -110,9 +113,9 @@ class TestIncrementAttempts:
         await store.increment_attempts(entry.id, entry.destination)
         await pg_session.flush()
 
-        # observable via cleanup being a no-op (not HANDLED)
-        removed = await store.cleanup_handled(datetime.now(tz=UTC))
-        assert removed == 0
+        # the row stays INCOMING and its attempts counter reflects both increments
+        claimed = await store.fetch_pending(batch_size=10, owner_id='w-1')
+        assert [e.attempts for e in claimed] == [2]
 
 
 class TestCleanupHandled:
@@ -128,7 +131,8 @@ class TestCleanupHandled:
 
         removed = await store.cleanup_handled(datetime.now(tz=UTC))
         assert removed == 1
-        assert await store.exists(entry.id, entry.destination) is False
+        # row fully deleted: the same (id, destination) can be stored again without dedup
+        assert await store.store_incoming(_make_entry(id=entry.id, destination=entry.destination)) is True
 
     @staticmethod
     async def test_cleanup_handled_preserves_unexpired_entries(pg_session: AsyncSession) -> None:
@@ -142,22 +146,8 @@ class TestCleanupHandled:
 
         removed = await store.cleanup_handled(datetime.now(tz=UTC))
         assert removed == 0
-        assert await store.exists(entry.id, entry.destination) is True
-
-
-class TestExists:
-    @staticmethod
-    async def test_exists_false_when_never_stored(pg_session: AsyncSession) -> None:
-        store = SqlAlchemyInboxStore(pg_session)
-        assert await store.exists(uuid4(), 'tests.messaging.HandlerA') is False
-
-    @staticmethod
-    async def test_exists_true_after_store(pg_session: AsyncSession) -> None:
-        store = SqlAlchemyInboxStore(pg_session)
-        entry = _make_entry()
-        await store.store_incoming(entry)
-        await pg_session.flush()
-        assert await store.exists(entry.id, entry.destination) is True
+        # the unexpired HANDLED row is retained: cleanup past its keep_until then removes it
+        assert await store.cleanup_handled(datetime.now(tz=UTC) + timedelta(hours=2)) == 1
 
 
 class TestFetchPending:

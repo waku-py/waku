@@ -8,7 +8,7 @@ from typing_extensions import override
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import NoStream, StreamId
 from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
-from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection
+from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ProjectionErrorPolicy
 from waku.messaging.contracts.event import IEvent
 
 if TYPE_CHECKING:
@@ -66,7 +66,7 @@ async def seed_events(store: InMemoryEventStore, count: int = 5) -> None:
 def make_binding(  # noqa: PLR0913
     projection: type[ICatchUpProjection],
     *,
-    error_policy: ErrorPolicy = ErrorPolicy.STOP,
+    error_policy: ProjectionErrorPolicy = ProjectionErrorPolicy.STOP,
     max_retry_attempts: int = 0,
     base_retry_delay_seconds: float = 10.0,
     max_retry_delay_seconds: float = 300.0,

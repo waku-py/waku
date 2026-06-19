@@ -26,7 +26,8 @@ from waku.messaging.router import route
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FailingDeadLetterStore, FakeUoW, wait_until
+from tests._wait import wait_until
+from tests.messaging.helpers import FailingDeadLetterStore, FakeUoW
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 

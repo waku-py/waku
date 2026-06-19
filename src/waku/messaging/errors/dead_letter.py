@@ -54,6 +54,7 @@ class DeadLetterEntry:
     id: UUID
     message_type: str
     payload: dict[str, Any]
+    # Dual-origin, so deliberately bare `str`: executor path writes the endpoint URI, poison path the handler FQN.
     destination: str
     correlation_id: UUID
     causation_id: UUID

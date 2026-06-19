@@ -9,7 +9,6 @@ from waku.messaging import EventHandler, IEvent, MessagingExtension, MessagingMo
 from waku.messaging.contracts.factory import EnvelopeFactory
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.inline import InlineEndpoint
-from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.testing import create_test_app
 
@@ -34,13 +33,11 @@ class _RecordingHandler(EventHandler[_OrderPlaced]):
 
 async def _make_inline_endpoint(app: WakuApplication) -> InlineEndpoint:
     invoker = await app.container.get(HandlerPipelineInvoker)
-    type_registry = await app.container.get(MessageTypeRegistry)
     executor = EndpointExecutor(
         container=app.container,
         evaluator=NOOP_EVALUATOR,
         endpoint_uri='inline://test',
         invoker=invoker,
-        registry=type_registry,
     )
     return InlineEndpoint(
         uri='inline://test',

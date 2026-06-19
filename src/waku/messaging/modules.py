@@ -300,11 +300,10 @@ def _build_router(
     container: AsyncContainer,
     evaluator: ErrorPolicyEvaluator,
     invoker: HandlerPipelineInvoker,
-    type_registry: MessageTypeRegistry,
     config: MessagingConfig,
 ) -> MessageRouter:
     endpoints_by_uri = {
-        entry.uri: _create_endpoint(entry, routing_table, container, evaluator, invoker, type_registry, config)
+        entry.uri: _create_endpoint(entry, routing_table, container, evaluator, invoker, config)
         for entry in routing_table.entries
     }
     return MessageRouter(
@@ -322,7 +321,6 @@ def _create_endpoint(
     container: AsyncContainer,
     evaluator: ErrorPolicyEvaluator,
     invoker: HandlerPipelineInvoker,
-    type_registry: MessageTypeRegistry,
     config: MessagingConfig,
 ) -> Endpoint:
     if isinstance(entry, ExternalEntry):
@@ -333,7 +331,6 @@ def _create_endpoint(
         evaluator=evaluator,
         endpoint_uri=entry.uri,
         invoker=invoker,
-        registry=type_registry,
     )
     subscriptions = routing_table.endpoint_subscriptions.get(entry.uri, {})
     match entry.mode:

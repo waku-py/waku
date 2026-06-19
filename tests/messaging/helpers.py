@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-import anyio.lowlevel
+import anyio
 from dishka import Provider, Scope, provide
 from typing_extensions import override
 
@@ -25,22 +25,11 @@ from waku.serialization.upcasting import UpcasterChain
 from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Mapping, Sequence
     from uuid import UUID
 
     from waku.messaging.contracts.message import IMessage
     from waku.messaging.sending import SendingFailurePolicy
-
-
-async def wait_until(predicate: Callable[[], bool]) -> None:
-    """Yield to the event loop until *predicate* holds (or a 5s fast-fail deadline trips).
-
-    Deterministic alternative to ``anyio.sleep`` for awaiting background-worker effects: re-checks
-    on each scheduler turn, fast-fails via ``anyio.fail_after``.
-    """
-    with anyio.fail_after(5):
-        while not predicate():
-            await anyio.lowlevel.checkpoint()
 
 
 def make_serializer(*types: type[IMessage]) -> JsonEnvelopeSerializer:
@@ -200,10 +189,12 @@ class FailingDeadLetterStore(IDeadLetterStore):
 class RecordingTransport(ITransport):
     def __init__(self) -> None:
         self.sent: list[tuple[MessageEnvelope[Any], str]] = []
+        self.sent_event = anyio.Event()
 
     @override
     async def send(self, envelope: MessageEnvelope[Any], *, destination: str) -> None:
         self.sent.append((envelope, destination))
+        self.sent_event.set()
 
 
 class RecordingAllocator(ISequenceAllocator):

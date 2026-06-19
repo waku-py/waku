@@ -19,7 +19,8 @@ from waku.messaging.router import MessageRouter
 from waku.messaging.transport.serialization import IEnvelopeSerializer
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, RecordingDeadLetterStore, make_envelope, make_serializer, wait_until
+from tests._wait import wait_until
+from tests.messaging.helpers import FakeUoW, RecordingDeadLetterStore, make_envelope, make_serializer
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

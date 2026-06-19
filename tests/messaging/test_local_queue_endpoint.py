@@ -28,12 +28,12 @@ from waku.messaging.contracts.event import IEvent as _IEvent
 from waku.messaging.endpoints.base import local_queue
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
-from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.messaging.router import route
 from waku.testing import create_test_app
 
-from tests.messaging.helpers import NOOP_EVALUATOR, make_envelope, wait_until
+from tests._wait import wait_until
+from tests.messaging.helpers import NOOP_EVALUATOR, make_envelope
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -51,7 +51,6 @@ def noop_executor(mocker: MockerFixture) -> EndpointExecutor:
         evaluator=NOOP_EVALUATOR,
         endpoint_uri='test://q',
         invoker=mocker.Mock(spec_set=HandlerPipelineInvoker),
-        registry=MessageTypeRegistry(identities={}, known_types=[]),
     )
 
 

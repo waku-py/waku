@@ -11,7 +11,8 @@ from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.recovery import InboxRecoveryWorker
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, wait_until
+from tests._wait import wait_until
+from tests.messaging.helpers import FakeUoW
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:

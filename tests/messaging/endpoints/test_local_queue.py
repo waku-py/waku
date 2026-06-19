@@ -10,7 +10,6 @@ from waku.messaging import EventHandler, IEvent, MessagingExtension, MessagingMo
 from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
-from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.testing import create_test_app
 
@@ -52,14 +51,12 @@ async def _make_endpoint(
     app: WakuApplication,
     handler: type[EventHandler[_OrderPlaced]],
 ) -> LocalQueueEndpoint:
-    type_registry = await app.container.get(MessageTypeRegistry)
     invoker = await app.container.get(HandlerPipelineInvoker)
     executor = EndpointExecutor(
         container=app.container,
         evaluator=NOOP_EVALUATOR,
         endpoint_uri='local://test',
         invoker=invoker,
-        registry=type_registry,
     )
     return LocalQueueEndpoint(
         uri='local://test',

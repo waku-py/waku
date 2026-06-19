@@ -4,6 +4,8 @@ import abc
 import logging
 from typing import TYPE_CHECKING, Any, TypeAlias
 
+from waku.messaging._identifiers import GroupId
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -26,7 +28,7 @@ PartitionKeyExtractor: TypeAlias = 'Callable[[IMessage], str | None]'
 
 class ISequenceAllocator(abc.ABC):
     @abc.abstractmethod
-    async def allocate(self, group_id: str) -> int:
+    async def allocate(self, group_id: GroupId) -> int:
         """Atomically allocate the next monotonic sequence number for ``group_id``.
 
         Implementations MUST run within the same transaction as the entry insertion so the
@@ -40,7 +42,7 @@ async def resolve_and_allocate(
     envelope: MessageEnvelope[Any],
     partition_by: PartitionKeyExtractor | None,
     scope: AsyncContainer,
-) -> tuple[str | None, int | None]:
+) -> tuple[GroupId | None, int | None]:
     """Resolve a message's partition key and, if keyed, allocate its next sequence number.
 
     Precedence: explicit ``envelope.group_id`` -> ``partition_by(payload)`` -> ``None``. A keyless
@@ -51,11 +53,12 @@ async def resolve_and_allocate(
     Shared by ``ExternalEndpoint``, ``DurableLocalQueueEndpoint`` and ``DurableReceiver`` so the
     precedence and the allocate-only-when-keyed rule live in exactly one place.
     """
-    group_id = envelope.group_id
-    if group_id is None and partition_by is not None:
-        group_id = partition_by(envelope.payload)
-    if group_id is None:
+    raw_group_id = envelope.group_id
+    if raw_group_id is None and partition_by is not None:
+        raw_group_id = partition_by(envelope.payload)
+    if raw_group_id is None:
         logger.debug('Keyless message %s bypassing sequencing (order not guaranteed)', envelope.message_type)
         return None, None
+    group_id = GroupId(raw_group_id)
     allocator = await scope.get(ISequenceAllocator)
     return group_id, await allocator.allocate(group_id)

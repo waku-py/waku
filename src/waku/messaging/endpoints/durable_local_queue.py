@@ -11,6 +11,7 @@ from anyio import create_memory_object_stream
 from typing_extensions import override
 
 from waku.di import unit_of_work_scope
+from waku.messaging._identifiers import EndpointUri
 from waku.messaging.circuit_breaker.breaker import CircuitBreaker
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.inbox._destination import handler_destination
@@ -146,7 +147,7 @@ class DurableLocalQueueEndpoint(Endpoint):
                     id=envelope.message_id,
                     payload=payload,
                     message_type=envelope.message_type,
-                    source_uri=self._uri,
+                    source_uri=EndpointUri(self._uri),
                     destination=handler_destination(handler_type),
                     group_id=group_id,
                     sequence_number=sequence_number,

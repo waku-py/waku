@@ -21,7 +21,12 @@ from waku.eventsourcing.exceptions import (
 )
 from waku.eventsourcing.forwarding import AppendedEventsCollector, ForwardingRegistry, IAppendedEvents
 from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
-from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, ICheckpointStore, IProjection
+from waku.eventsourcing.projection.interfaces import (
+    ICatchUpProjection,
+    ICheckpointStore,
+    IProjection,
+    ProjectionErrorPolicy,
+)
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.serialization.interfaces import IEventSerializer, ISnapshotStateSerializer
 from waku.eventsourcing.serialization.json import JsonEventSerializer, JsonSnapshotStateSerializer
@@ -227,7 +232,7 @@ class EventSourcingExtension(OnModuleConfigure):
         self,
         projection: type[ICatchUpProjection],
         *,
-        error_policy: ErrorPolicy = ErrorPolicy.STOP,
+        error_policy: ProjectionErrorPolicy = ProjectionErrorPolicy.STOP,
         max_retry_attempts: int = 0,
         base_retry_delay_seconds: float = 10.0,
         max_retry_delay_seconds: float = 300.0,

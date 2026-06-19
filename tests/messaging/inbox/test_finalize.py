@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 import pytest
 from dishka import Provider, Scope, make_async_container, provide
 
+from waku.messaging._identifiers import EndpointUri, HandlerDestination  # noqa: PLC2701
 from waku.messaging.endpoints.executor import ExecutionOutcome
 from waku.messaging.inbox.finalize import apply_inbox_outcome
 from waku.messaging.inbox.interfaces import IInboxStore
@@ -40,8 +41,8 @@ def _seed(inbox: FakeInboxStore) -> tuple[UUID, str]:
         id=entry_id,
         payload={},
         message_type='tests.Event',
-        source_uri='local://q',
-        destination=destination,
+        source_uri=EndpointUri('local://q'),
+        destination=HandlerDestination(destination),
         owner_id='node-a:1',
     )
     return entry_id, destination

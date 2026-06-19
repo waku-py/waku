@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from waku.messaging._identifiers import EndpointUri
 from waku.messaging.inbox._destination import handler_destination
 from waku.messaging.inbox.finalize import apply_inbox_outcome
 from waku.messaging.inbox.interfaces import IInboxStore
@@ -14,6 +15,7 @@ from waku.uow import IUnitOfWork
 if TYPE_CHECKING:
     from dishka import AsyncContainer
 
+    from waku.messaging._identifiers import HandlerDestination
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.endpoints.executor import EndpointExecutor
@@ -95,7 +97,7 @@ class DurableReceiver:
             keep_after_handled=self._inbox_config.keep_after_handled,
         )
 
-    async def _persist(self, envelope: MessageEnvelope[Any], destination: str) -> bool:
+    async def _persist(self, envelope: MessageEnvelope[Any], destination: HandlerDestination) -> bool:
         async with self._container() as scope:
             inbox = await scope.get(IInboxStore)
             serializer = await scope.get(IEnvelopeSerializer)
@@ -105,7 +107,7 @@ class DurableReceiver:
                 id=envelope.message_id,
                 payload=serializer.serialize(envelope),
                 message_type=envelope.message_type,
-                source_uri=self._endpoint_uri,
+                source_uri=EndpointUri(self._endpoint_uri),
                 destination=destination,
                 owner_id=self._owner_id,
                 group_id=group_id,

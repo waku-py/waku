@@ -21,7 +21,8 @@ from waku.messaging.errors.replay import ReplayExecutor
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, wait_until
+from tests._wait import wait_until
+from tests.messaging.helpers import FakeUoW
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

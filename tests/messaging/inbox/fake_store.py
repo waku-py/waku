@@ -194,7 +194,3 @@ class FakeInboxStore(IInboxStore):
                 del self.entries[key]
                 removed += 1
         return removed
-
-    @override
-    async def exists(self, entry_id: UUID, destination: str) -> bool:
-        return (entry_id, destination) in self.entries

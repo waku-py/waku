@@ -16,10 +16,10 @@ if TYPE_CHECKING:
     from waku.messages import IEvent
 
 __all__ = [
-    'ErrorPolicy',
     'ICatchUpProjection',
     'ICheckpointStore',
     'IProjection',
+    'ProjectionErrorPolicy',
 ]
 
 
@@ -39,7 +39,7 @@ class IProjection(abc.ABC):
 
 
 @enum.unique
-class ErrorPolicy(enum.StrEnum):
+class ProjectionErrorPolicy(enum.StrEnum):
     SKIP = enum.auto()
     STOP = enum.auto()
 

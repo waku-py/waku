@@ -27,7 +27,12 @@ from waku.eventsourcing.modules import (
     SnapshotOptions,
 )
 from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
-from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, ICheckpointStore, IProjection
+from waku.eventsourcing.projection.interfaces import (
+    ICatchUpProjection,
+    ICheckpointStore,
+    IProjection,
+    ProjectionErrorPolicy,
+)
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.interfaces import ISnapshotStateSerializer
@@ -161,7 +166,7 @@ async def test_catch_up_projections_registered_via_binding() -> None:
     es_ext.bind_aggregate(repository=ItemRepository, event_types=[ItemCreated])
     es_ext.bind_catch_up_projection(
         SearchIndexProjection,
-        error_policy=ErrorPolicy.SKIP,
+        error_policy=ProjectionErrorPolicy.SKIP,
         max_retry_attempts=3,
     )
 

@@ -6,7 +6,7 @@ import pytest
 from typing_extensions import override
 
 from waku.eventsourcing.exceptions import ProjectionStoppedError
-from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection
+from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ProjectionErrorPolicy
 from waku.eventsourcing.projection.processor import ProjectionProcessor
 
 from tests.eventsourcing.projection.helpers import (
@@ -97,7 +97,7 @@ async def test_skip_policy_advances_checkpoint(
     in_memory_checkpoint_store: InMemoryCheckpointStore,
 ) -> None:
     projection = StopProjection()
-    processor = ProjectionProcessor(make_binding(StopProjection, error_policy=ErrorPolicy.SKIP))
+    processor = ProjectionProcessor(make_binding(StopProjection, error_policy=ProjectionErrorPolicy.SKIP))
 
     await seed_events(event_store, count=5)
     processed = await processor.run_once(projection, event_store, in_memory_checkpoint_store)
@@ -129,7 +129,7 @@ async def test_skip_policy_calls_on_skip(
             skipped_errors.append(error)
 
     projection = TrackingSkipProjection()
-    processor = ProjectionProcessor(make_binding(TrackingSkipProjection, error_policy=ErrorPolicy.SKIP))
+    processor = ProjectionProcessor(make_binding(TrackingSkipProjection, error_policy=ProjectionErrorPolicy.SKIP))
 
     await seed_events(event_store, count=3)
     await processor.run_once(projection, event_store, in_memory_checkpoint_store)
@@ -163,7 +163,7 @@ async def test_skip_after_retries(
 
     projection = TrackingSkipProjection()
     processor = ProjectionProcessor(
-        make_binding(TrackingSkipProjection, error_policy=ErrorPolicy.SKIP, max_retry_attempts=1)
+        make_binding(TrackingSkipProjection, error_policy=ProjectionErrorPolicy.SKIP, max_retry_attempts=1)
     )
 
     await seed_events(event_store, count=3)
@@ -197,7 +197,7 @@ async def test_on_skip_failure_is_swallowed(
             raise RuntimeError(msg)
 
     projection = BadOnSkipProjection()
-    processor = ProjectionProcessor(make_binding(BadOnSkipProjection, error_policy=ErrorPolicy.SKIP))
+    processor = ProjectionProcessor(make_binding(BadOnSkipProjection, error_policy=ProjectionErrorPolicy.SKIP))
 
     await seed_events(event_store, count=3)
     processed = await processor.run_once(projection, event_store, in_memory_checkpoint_store)

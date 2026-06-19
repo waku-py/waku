@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.errors.executor import ErrorPolicyEvaluator, PolicyOutcome
-    from waku.messaging.identity import MessageTypeRegistry
     from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 
 __all__ = [
@@ -51,7 +50,7 @@ class EndpointExecutor:
     Endpoints delegate to this class; they do not manage scopes, retries, or error handling directly.
     """
 
-    __slots__ = ('_container', '_endpoint_uri', '_evaluator', '_invoker', '_registry')
+    __slots__ = ('_container', '_endpoint_uri', '_evaluator', '_invoker', '_sleep')
 
     def __init__(
         self,
@@ -60,13 +59,13 @@ class EndpointExecutor:
         evaluator: ErrorPolicyEvaluator,
         endpoint_uri: str,
         invoker: HandlerPipelineInvoker,
-        registry: MessageTypeRegistry,
+        sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     ) -> None:
         self._container = container
         self._evaluator = evaluator
         self._endpoint_uri = endpoint_uri
         self._invoker = invoker
-        self._registry = registry
+        self._sleep = sleep
 
     async def execute(
         self,
@@ -153,7 +152,7 @@ class EndpointExecutor:
                     outcome.retry_delay or 0,
                 )
                 if outcome.retry_delay:
-                    await anyio.sleep(outcome.retry_delay)
+                    await self._sleep(outcome.retry_delay)
                 return None
             case _ as unreachable:  # pragma: no cover
                 assert_never(unreachable)
@@ -164,7 +163,7 @@ class EndpointExecutor:
             serializer = await scope.get(IEnvelopeSerializer)
             uow = await scope.get(IUnitOfWork)
             entry = DeadLetterEntry.from_failure(
-                message_type=self._registry.resolve_name(type(envelope.payload)),
+                message_type=envelope.message_type,
                 payload=serializer.serialize(envelope),
                 destination=self._endpoint_uri,
                 correlation_id=envelope.correlation_id,
