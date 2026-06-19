@@ -3,7 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import pytest
+
 from waku.messaging._escalation import (  # noqa: PLC2701
+    EscalationChain,
     RetryAction,
     RetryStage,
     best_match,
@@ -72,3 +75,52 @@ def test_best_match_prefers_predicate_then_type_then_any() -> None:
     assert best_match((any_p, type_p), TimeoutError('quiet')) is type_p
     assert best_match((any_p,), ValueError()) is any_p
     assert best_match((type_p,), ValueError()) is None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _ConcreteChain(EscalationChain['_ConcreteChain']):
+    pass
+
+
+def test_escalation_chain_seeds_single_retry_stage_via_on_exception() -> None:
+    policy = _ConcreteChain.on_exception(ValueError).retry(max_attempts=2)
+    assert isinstance(policy, _ConcreteChain)
+    assert policy.exception_type is ValueError
+    assert policy.predicate is None
+    assert len(policy.stages) == 1
+    assert policy.stages[0].action is RetryAction.RETRY
+    assert policy.stages[0].max_attempts == 2
+
+
+def test_escalation_chain_on_any_exception_seeds_with_no_type() -> None:
+    policy = _ConcreteChain.on_any_exception().retry_with_backoff(max_attempts=3, base_delay=0.5)
+    assert policy.exception_type is None
+    assert policy.stages[0].action is RetryAction.RETRY_WITH_BACKOFF
+    assert policy.stages[0].base_delay == 0.5
+
+
+def test_escalation_chain_then_methods_append_and_return_same_subclass() -> None:
+    policy = _ConcreteChain.on_exception(ValueError).retry(max_attempts=2).then_move_to_dead_letter()
+    assert isinstance(policy, _ConcreteChain)
+    assert [s.action for s in policy.stages] == [RetryAction.RETRY, RetryAction.DEAD_LETTER]
+
+
+def test_escalation_chain_rejects_non_terminal_after_terminal_in_post_init() -> None:
+    with pytest.raises(ValueError, match='terminal stage'):
+        _ConcreteChain(
+            exception_type=None,
+            predicate=None,
+            stages=(
+                RetryStage(action=RetryAction.DISCARD),
+                RetryStage(action=RetryAction.RETRY, max_attempts=2),
+            ),
+        )
+
+
+def test_escalation_chain_predicate_carried_through_seed_and_append() -> None:
+    def pred(exc: Exception) -> bool:
+        return isinstance(exc, ValueError)
+
+    policy = _ConcreteChain.on_exception(ValueError, when=pred).retry(max_attempts=2).then_discard()
+    assert policy.predicate is pred
+    assert [s.action for s in policy.stages] == [RetryAction.RETRY, RetryAction.DISCARD]

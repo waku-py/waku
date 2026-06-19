@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import logging
 import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-import anyio
+from typing_extensions import override
 
-from waku._internal.adaptive_interval import AdaptiveInterval
 from waku.di import unit_of_work_scope
+from waku.messaging._polling_agent import AdaptivePace, Placement, PollingAgent
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.errors.replay import ReplayExecutor
 
@@ -26,7 +24,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-class DeadLetterWorker:
+class DeadLetterWorker(PollingAgent):
     """Background worker (1-per-DC) that auto-replays and/or purges dead letters.
 
     Mirrors ``OutboxRelay``: claims rows via ``claim_replayable`` (``FOR UPDATE SKIP LOCKED``),
@@ -41,61 +39,30 @@ class DeadLetterWorker:
     modest if any replayable destination is INLINE.
     """
 
+    placement = Placement.SINGLETON_PER_DC
+
     __slots__ = (
         '_config',
         '_container',
-        '_interval',
         '_last_cleanup',
-        '_shutdown_event',
-        '_worker_task',
     )
 
     def __init__(self, *, container: AsyncContainer, config: DeadLetterConfig) -> None:
         self._container = container
         self._config = config
-        self._interval = AdaptiveInterval(
-            min_seconds=config.polling.poll_interval_min_seconds,
-            max_seconds=config.polling.poll_interval_max_seconds,
-            step_seconds=config.polling.poll_interval_step_seconds,
-            jitter_factor=config.polling.poll_interval_jitter_factor,
-        )
-        self._shutdown_event = anyio.Event()
         self._last_cleanup = 0.0
-        self._worker_task: asyncio.Task[None] | None = None
+        super().__init__(stop_timeout=config.stop_timeout)
 
-    async def start(self) -> None:
-        self._worker_task = asyncio.create_task(self._run_loop())
+    @override
+    def _make_pace(self) -> AdaptivePace:
+        return AdaptivePace(self._config.polling)
 
-    async def stop(self) -> None:
-        self._shutdown_event.set()
-        if self._worker_task is None:
-            return
-        try:
-            with anyio.fail_after(self._config.stop_timeout):
-                await self._worker_task
-        except TimeoutError:
-            logger.warning('DeadLetterWorker did not terminate within %.1fs, cancelling', self._config.stop_timeout)
-            self._worker_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._worker_task
-        finally:
-            self._worker_task = None
-
-    async def _run_loop(self) -> None:
-        while not self._shutdown_event.is_set():
-            processed = 0
-            try:
-                await self._maybe_cleanup()
-                if self._config.auto_replay_enabled:
-                    processed = await self._replay_batch()
-            except Exception:
-                logger.exception('DeadLetterWorker tick failed, continuing loop')
-            if processed > 0:
-                self._interval.on_work_done()
-            else:
-                self._interval.on_idle()
-            with anyio.move_on_after(self._interval.current_with_jitter()):
-                await self._shutdown_event.wait()
+    @override
+    async def _tick(self) -> int:
+        await self._maybe_cleanup()
+        if self._config.auto_replay_enabled:
+            return await self._replay_batch()
+        return 0
 
     async def _replay_batch(self) -> int:
         async with unit_of_work_scope(self._container) as scope:

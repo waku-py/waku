@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-from uuid import uuid4
-
 import pytest
 
 from waku.messaging.context import (
-    MessageContext,
     get_message_context,
     message_context_scope,
-    reset_message_context,
-    set_message_context,
     try_get_message_context,
 )
 from waku.messaging.contracts.message import IMessage
@@ -21,54 +16,40 @@ class _SampleMessage(IMessage):
     pass
 
 
-def _make_context() -> MessageContext:
-    return MessageContext(
-        correlation_id=uuid4(),
-        causation_id=uuid4(),
-        message_id=uuid4(),
-        headers={},
-    )
-
-
 def test_get_raises_when_no_context_active() -> None:
     with pytest.raises(RuntimeError, match='No active message context'):
         get_message_context()
-
-
-def test_set_then_get_returns_same_context() -> None:
-    ctx = _make_context()
-    token = set_message_context(ctx)
-    try:
-        assert get_message_context() is ctx
-    finally:
-        reset_message_context(token)
 
 
 def test_try_get_returns_none_when_no_context_active() -> None:
     assert try_get_message_context() is None
 
 
-def test_try_get_returns_context_when_active() -> None:
-    ctx = _make_context()
-    token = set_message_context(ctx)
-    try:
-        assert try_get_message_context() is ctx
-    finally:
-        reset_message_context(token)
+def test_scope_activates_context_matching_envelope() -> None:
+    envelope = make_envelope(_SampleMessage())
+    with message_context_scope(envelope):
+        ctx = get_message_context()
+        assert ctx.correlation_id == envelope.correlation_id
+        assert ctx.causation_id == envelope.causation_id
+        assert ctx.message_id == envelope.message_id
 
 
-def test_token_reset_restores_previous_state() -> None:
-    first = _make_context()
-    first_token = set_message_context(first)
-    try:
-        second = _make_context()
-        second_token = set_message_context(second)
-        assert get_message_context() is second
+def test_try_get_returns_active_context_within_scope() -> None:
+    envelope = make_envelope(_SampleMessage())
+    with message_context_scope(envelope):
+        active = try_get_message_context()
+        assert active is not None
+        assert active.message_id == envelope.message_id
 
-        reset_message_context(second_token)
-        assert get_message_context() is first
-    finally:
-        reset_message_context(first_token)
+
+def test_nested_scope_restores_outer_context_on_exit() -> None:
+    outer = make_envelope(_SampleMessage())
+    inner = make_envelope(_SampleMessage())
+    with message_context_scope(outer):
+        assert get_message_context().message_id == outer.message_id
+        with message_context_scope(inner):
+            assert get_message_context().message_id == inner.message_id
+        assert get_message_context().message_id == outer.message_id
 
 
 def test_scope_copies_group_id_from_envelope() -> None:

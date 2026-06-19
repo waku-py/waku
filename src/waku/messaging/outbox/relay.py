@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import logging
 import time
 import traceback
@@ -9,12 +7,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, assert_never
 
-import anyio
+from typing_extensions import override
 
-from waku._internal.adaptive_interval import AdaptiveInterval
 from waku._internal.polling import PollingConfig
 from waku.di import unit_of_work_scope
 from waku.messaging._escalation import RetryAction
+from waku.messaging._polling_agent import AdaptivePace, Placement, PollingAgent
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.sending.evaluator import SendingFailureContext, SendingFailureEvaluator
@@ -81,15 +79,14 @@ def _format_error(exc: Exception) -> str:
     return ''.join(traceback.format_exception(exc))
 
 
-class OutboxRelay:
+class OutboxRelay(PollingAgent):
+    placement = Placement.SINGLETON_PER_DC
+
     __slots__ = (
         '_config',
         '_container',
-        '_interval',
         '_last_recovery',
         '_sending_evaluator',
-        '_shutdown_event',
-        '_worker_task',
     )
 
     def __init__(
@@ -102,44 +99,17 @@ class OutboxRelay:
         self._container = container
         self._config = config
         self._sending_evaluator = sending_failure_evaluator
-        self._interval = AdaptiveInterval(
-            min_seconds=config.polling.poll_interval_min_seconds,
-            max_seconds=config.polling.poll_interval_max_seconds,
-            step_seconds=config.polling.poll_interval_step_seconds,
-            jitter_factor=config.polling.poll_interval_jitter_factor,
-        )
-        self._shutdown_event = anyio.Event()
         self._last_recovery = 0.0
-        self._worker_task: asyncio.Task[None] | None = None
+        super().__init__(stop_timeout=config.stop_timeout)
 
-    async def start(self) -> None:
-        self._worker_task = asyncio.create_task(self._run_loop())
+    @override
+    def _make_pace(self) -> AdaptivePace:
+        return AdaptivePace(self._config.polling)
 
-    async def stop(self) -> None:
-        self._shutdown_event.set()
-        if self._worker_task is None:
-            return
-        try:
-            with anyio.fail_after(self._config.stop_timeout):
-                await self._worker_task
-        except TimeoutError:
-            logger.warning('OutboxRelay did not terminate within %.1fs, cancelling', self._config.stop_timeout)
-            self._worker_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._worker_task
-        finally:
-            self._worker_task = None
-
-    async def _run_loop(self) -> None:
-        while not self._shutdown_event.is_set():
-            await self._maybe_recover_stuck()
-            processed = await self._process_batch()
-            if processed > 0:
-                self._interval.on_work_done()
-            else:
-                self._interval.on_idle()
-            with anyio.move_on_after(self._interval.current_with_jitter()):
-                await self._shutdown_event.wait()
+    @override
+    async def _tick(self) -> int:
+        await self._maybe_recover_stuck()
+        return await self._process_batch()
 
     async def _maybe_recover_stuck(self) -> None:
         now = time.monotonic()

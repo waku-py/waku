@@ -36,11 +36,11 @@ def try_get_message_context() -> MessageContext | None:
     return _message_context.get()
 
 
-def set_message_context(ctx: MessageContext) -> Token[MessageContext | None]:
+def _set_message_context(ctx: MessageContext) -> Token[MessageContext | None]:
     return _message_context.set(ctx)
 
 
-def reset_message_context(token: Token[MessageContext | None]) -> None:
+def _reset_message_context(token: Token[MessageContext | None]) -> None:
     _message_context.reset(token)
 
 
@@ -53,8 +53,8 @@ def message_context_scope(envelope: MessageEnvelope[Any]) -> Generator[None]:
         headers=envelope.headers,
         group_id=envelope.group_id,
     )
-    token = set_message_context(ctx)
+    token = _set_message_context(ctx)
     try:
         yield
     finally:
-        reset_message_context(token)
+        _reset_message_context(token)

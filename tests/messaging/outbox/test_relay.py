@@ -69,6 +69,7 @@ class _TrackingOutboxStore(IOutboxStore):
     recovered: int = 0
     move_to_dead_letter_error: Exception | None = None
     mark_failed_error: Exception | None = None
+    recover_stuck_error: Exception | None = None
 
     @override
     async def save_batch(self, messages: Sequence[OutboxMessage]) -> None:  # pragma: no cover
@@ -111,6 +112,10 @@ class _TrackingOutboxStore(IOutboxStore):
     @override
     async def recover_stuck(self, threshold: timedelta) -> int:
         self.recovered += 1
+        if self.recover_stuck_error is not None:
+            err = self.recover_stuck_error
+            self.recover_stuck_error = None
+            raise err
         return 0
 
     @override
@@ -237,6 +242,21 @@ class TestOutboxRelay:
             pass
 
         assert msg.id in store.failed_ids
+
+    @staticmethod
+    async def test_recovery_failure_does_not_crash_loop() -> None:
+        # A recovery-backend failure does not crash the relay loop: the worker logs it, continues, and
+        # still dispatches pending work on a later poll.
+        store, msg = _make_pending_store()
+        store.recover_stuck_error = ConnectionError('recovery backend down')
+        transport = RecordingTransport()
+        serializer = make_serializer(_TestEvent)
+
+        async with _run_relay(RelayDepsProvider(store, transport, serializer)):
+            pass
+
+        assert store.recovered >= 1
+        assert msg.id in store.dispatched_ids
 
     @staticmethod
     async def test_no_messages_is_noop() -> None:
@@ -512,3 +532,14 @@ class TestOutboxRelay:
         assert msg.id in store.dead_lettered_ids
         assert msg.id not in store.failed_ids
         assert msg.id not in store.discarded_ids
+
+
+def test_build_relay_default_policy_is_catch_all_backoff_then_dead_letter() -> None:
+    policy = build_relay_default_policy(OutboxRelayConfig(max_attempts=5, base_delay=2.0, max_delay=30.0))
+    assert isinstance(policy, SendingFailurePolicy)
+    assert policy.exception_type is None
+    assert policy.predicate is None
+    assert [s.action for s in policy.stages] == [RetryAction.RETRY_WITH_BACKOFF, RetryAction.DEAD_LETTER]
+    assert policy.stages[0].max_attempts == 5
+    assert policy.stages[0].base_delay == 2.0
+    assert policy.stages[0].max_delay == 30.0
