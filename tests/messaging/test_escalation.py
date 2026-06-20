@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import pytest
@@ -10,8 +11,10 @@ from waku.messaging._escalation import (  # noqa: PLC2701
     RetryAction,
     RetryStage,
     best_match,
+    validate_terminal_is_last,
     walk_stages,
 )
+from waku.messaging.errors.policy import ErrorPolicy
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -124,3 +127,64 @@ def test_escalation_chain_predicate_carried_through_seed_and_append() -> None:
     policy = _ConcreteChain.on_exception(ValueError, when=pred).retry(max_attempts=2).then_discard()
     assert policy.predicate is pred
     assert [s.action for s in policy.stages] == [RetryAction.RETRY, RetryAction.DISCARD]
+
+
+def test_walk_requeue_stage_is_deferred_terminal_not_exhausted() -> None:
+    stages = (RetryStage(action=RetryAction.REQUEUE),)
+    outcome = walk_stages(stages, attempt=1)
+    assert outcome.action is RetryAction.REQUEUE
+    assert outcome.exhausted is False
+
+
+def test_walk_retry_then_requeue_hands_off_to_requeue() -> None:
+    stages = (
+        RetryStage(action=RetryAction.RETRY, max_attempts=3),
+        RetryStage(action=RetryAction.REQUEUE),
+    )
+    assert walk_stages(stages, attempt=1).action is RetryAction.RETRY
+    assert walk_stages(stages, attempt=2).action is RetryAction.RETRY
+    assert walk_stages(stages, attempt=3).action is RetryAction.REQUEUE
+
+
+def test_validate_rejects_stage_after_requeue() -> None:
+    stages = (
+        RetryStage(action=RetryAction.REQUEUE),
+        RetryStage(action=RetryAction.RETRY, max_attempts=2),
+    )
+    with pytest.raises(ValueError, match='last stage'):
+        validate_terminal_is_last(stages)
+
+
+def test_error_policy_requeue_seeds_single_requeue_stage() -> None:
+    policy = ErrorPolicy.on_any_exception().requeue()
+    assert [s.action for s in policy.stages] == [RetryAction.REQUEUE]
+
+
+def test_error_policy_then_requeue_follows_retry() -> None:
+    policy = ErrorPolicy.on_any_exception().retry(max_attempts=2).then_requeue()
+    assert [s.action for s in policy.stages] == [RetryAction.RETRY, RetryAction.REQUEUE]
+
+
+def test_error_policy_requeue_rejects_multi_attempt() -> None:
+    with pytest.raises(ValueError, match='max_attempts'):
+        ErrorPolicy.on_any_exception().requeue(max_attempts=2)
+
+
+def test_error_policy_pause_processing_seeds_single_pause_stage() -> None:
+    policy = ErrorPolicy.on_any_exception().pause_processing(timedelta(minutes=10))
+    assert [s.action for s in policy.stages] == [RetryAction.PAUSE]
+    assert policy.stages[0].pause_duration == timedelta(minutes=10)
+
+
+def test_error_policy_then_pause_processing_follows_retry() -> None:
+    policy = ErrorPolicy.on_any_exception().retry(max_attempts=2).then_pause_processing(timedelta(seconds=30))
+    assert [s.action for s in policy.stages] == [RetryAction.RETRY, RetryAction.PAUSE]
+    assert policy.stages[-1].pause_duration == timedelta(seconds=30)
+
+
+def test_walk_pause_stage_carries_duration() -> None:
+    stages = (RetryStage(action=RetryAction.PAUSE, pause_duration=timedelta(seconds=42)),)
+    outcome = walk_stages(stages, attempt=1)
+    assert outcome.action is RetryAction.PAUSE
+    assert outcome.pause_duration == timedelta(seconds=42)
+    assert outcome.exhausted is False

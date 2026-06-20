@@ -30,30 +30,15 @@ logger = logging.getLogger(__name__)
 
 
 class DurableReceiver:
-    """Wraps handler execution with inbox write-ahead persistence.
+    """Wraps handler execution with inbox write-ahead persistence for external-transport listeners.
 
-    Flow: store_incoming + commit -> executor.execute -> mark_handled | delete.
+    Flow: store_incoming + commit → executor.execute → mark_handled | delete.
 
-    M2d wires DurableReceiver into FastStream (and other external transport) listeners. M2b.1
-    ships the class + DI-ready constructor; until the M2d listener-side adapter lands, external
-    listeners process messages directly through EndpointExecutor without inbox persistence.
-
-    IDEMPOTENCY CONTRACT (at-least-once delivery semantics).
-
-    Waku's scope model forbids sharing a UoW across scopes, so the inbox write (scope A), the
-    handler's business writes (scope B, owned by TransactionalBehavior inside EndpointExecutor),
-    and the mark_as_handled (scope C) are THREE distinct transactions. This is architecturally
-    different from Wolverine, which atomically commits inbox + business state via transactional
-    middleware.
-
-    Concrete consequence: if the process crashes AFTER scope B commits (handler wrote business
-    data) but BEFORE scope C commits (inbox marked HANDLED), InboxRecoveryWorker.recover_stale
-    will later reclaim the still-INCOMING entry and re-dispatch to the handler — the handler
-    re-runs and duplicates its side-effects.
-
-    Handlers downstream of a durable inbox MUST be idempotent at the business level (check-before-write
-    on unique keys, UPSERT, idempotency columns, causation_id dedup). The framework does NOT provide
-    at-most-once semantics for handler side-effects.
+    IDEMPOTENCY CONTRACT. Waku's scope model uses THREE distinct transactions: inbox write (scope A),
+    handler business writes (scope B, owned by TransactionalBehavior), mark_as_handled (scope C).
+    A crash after B commits but before C commits leaves a still-INCOMING row;
+    InboxRecoveryWorker re-dispatches, re-running the handler and duplicating its side-effects.
+    Handlers MUST be idempotent at the business level (UPSERT, causation_id dedup, etc.).
     """
 
     __slots__ = ('_container', '_endpoint_uri', '_executor', '_inbox_config', '_owner_id', '_partition_by')
@@ -76,8 +61,7 @@ class DurableReceiver:
         self._partition_by = partition_by
 
     async def receive(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> None:
-        # `destination` is the handler FQN — the per-handler dedup discriminator. A redelivery of
-        # the same message to the same handler dedups; the same message to a different handler proceeds.
+        # `destination` = handler FQN: same (message, handler) deduplicates; same message, different handler proceeds.
         destination = handler_destination(handler_type)
         stored = await self._persist(envelope, destination)
         if not stored:
@@ -88,12 +72,13 @@ class DurableReceiver:
             )
             return
 
-        outcome = await self._executor.execute(envelope, handler_type)
+        # External-listener path: REQUEUE/PAUSE re-delivery is a local-queue concern, unavailable here.
+        result = await self._executor.execute(envelope, handler_type)
         await apply_inbox_outcome(
             self._container,
             entry_id=envelope.message_id,
             destination=destination,
-            outcome=outcome,
+            outcome=result.outcome,
             keep_after_handled=self._inbox_config.keep_after_handled,
         )
 

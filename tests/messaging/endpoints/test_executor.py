@@ -86,7 +86,6 @@ def _make_observer() -> tuple[
 ]:
     recorded: list[tuple[ExecutionOutcome, Exception | None]] = []
 
-    # Observer must be async to satisfy the _ResultObserver signature, though it never awaits.
     async def observer(outcome: ExecutionOutcome, exc: Exception | None) -> None:  # noqa: RUF029
         recorded.append((outcome, exc))
 
@@ -120,7 +119,8 @@ async def _run_executor(
     ) as app:
         executor = await _make_executor(app, evaluator)
         envelope = make_envelope(_FailingCommand(value='test'))
-        return await executor.execute(envelope, handler)
+        outcome = (await executor.execute(envelope, handler)).outcome
+        return outcome
 
 
 async def test_executor_transient_retried() -> None:
@@ -136,8 +136,7 @@ async def test_executor_exhausted_retries() -> None:
     evaluator = _evaluator_for(ErrorPolicy.on_any_exception().retry(max_attempts=2))
     outcome = await _run_executor(handler, evaluator)
     assert len(calls) == 2
-    # Retries exhausted with no explicit fallback -> the evaluator's terminal is DISCARD.
-    assert outcome is ExecutionOutcome.DISCARDED
+    assert outcome is ExecutionOutcome.DISCARDED  # exhausted retries + no fallback → evaluator terminal = DISCARD
 
 
 async def test_executor_transient_backoff() -> None:
@@ -157,8 +156,8 @@ async def test_retry_with_backoff_sleeps_for_the_policy_delay(monkeypatch: pytes
     async def fake_sleep(delay: float) -> None:  # noqa: RUF029
         recorded.append(delay)
 
-    # Pin the jittered backoff to a fixed value so the recorded delay is the policy's exact value, not
-    # merely in-range; plain RETRY carries retry_delay=None (no sleep call), so this stays mutation-distinct.
+    # Pin jitter to a fixed value so the recorded delay is exact, not merely in-range.
+    # Plain RETRY carries retry_delay=None (no sleep), keeping this test mutation-distinct.
     monkeypatch.setattr('waku.messaging._escalation.calculate_backoff_with_jitter', lambda *_a, **_kw: 5.0)
     evaluator = _evaluator_for(
         ErrorPolicy
@@ -173,7 +172,7 @@ async def test_retry_with_backoff_sleeps_for_the_policy_delay(monkeypatch: pytes
     ) as app:
         executor = await _make_executor(app, evaluator, sleep=fake_sleep)
         envelope = make_envelope(_FailingCommand(value='retry-backoff'))
-        outcome = await executor.execute(envelope, handler)
+        outcome = (await executor.execute(envelope, handler)).outcome
 
     assert outcome is ExecutionOutcome.SUCCESS
     assert recorded == [5.0]
@@ -192,6 +191,23 @@ async def test_executor_no_policy() -> None:
     outcome = await _run_executor(handler, NOOP_EVALUATOR)
     assert len(calls) == 1
     assert outcome is ExecutionOutcome.FAILED_NO_POLICY
+
+
+async def test_executor_requeue_policy_surfaces_requeued_outcome() -> None:
+    handler, calls = _make_always_fail_handler()
+    evaluator = _evaluator_for(ErrorPolicy.on_any_exception().requeue())
+
+    async with create_test_app(
+        imports=[MessagingModule.register()],
+        extensions=[MessagingExtension().bind(handler)],
+    ) as app:
+        executor = await _make_executor(app, evaluator)
+        envelope = make_envelope(_FailingCommand(value='requeue'))
+        result = await executor.execute(envelope, handler)
+
+    assert len(calls) == 1  # REQUEUE fires once, no inline retry
+    assert result.outcome is ExecutionOutcome.REQUEUED
+    assert result.pause_duration is None
 
 
 class TestEndpointExecutorDeadLetter:
@@ -214,7 +230,7 @@ class TestEndpointExecutorDeadLetter:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
             executor = await _make_executor(app, evaluator)
             envelope = make_envelope(_FailingCommand(value='to-dlq'))
-            outcome = await executor.execute(envelope, handler)
+            outcome = (await executor.execute(envelope, handler)).outcome
 
         assert outcome is ExecutionOutcome.DEAD_LETTERED
         assert len(dl_store.entries) == 1
@@ -242,7 +258,7 @@ class TestEndpointExecutorDeadLetter:
             # The wire name on the envelope differs from the payload type's FQN — e.g. a message_identity
             # alias that changed since publish. The DLQ entry must carry the authoritative envelope name.
             envelope = replace(make_envelope(_FailingCommand(value='to-dlq')), message_type='wire.RenamedAlias')
-            outcome = await executor.execute(envelope, handler)
+            outcome = (await executor.execute(envelope, handler)).outcome
 
         assert outcome is ExecutionOutcome.DEAD_LETTERED
         assert dl_store.entries[0].message_type == 'wire.RenamedAlias'
@@ -265,11 +281,9 @@ class TestEndpointExecutorDeadLetter:
                 evaluator = await app.container.get(ErrorPolicyEvaluator)
                 executor = await _make_executor(app, evaluator)
                 envelope = make_envelope(_FailingCommand(value='dlq-fail'))
-                outcome = await executor.execute(envelope, handler)
+                outcome = (await executor.execute(envelope, handler)).outcome
 
-        # The failed DLQ write is swallowed (logged, not raised) AND surfaces as DEAD_LETTER_FAILED so
-        # the durable inbox row is kept for recovery (ERR-2).
-        assert outcome is ExecutionOutcome.DEAD_LETTER_FAILED
+        assert outcome is ExecutionOutcome.DEAD_LETTER_FAILED  # ERR-2: failed DLQ write keeps the durable row
         assert 'Failed to write dead letter entry' in caplog.text
 
 
@@ -283,7 +297,7 @@ async def test_on_result_called_with_success() -> None:
     ) as app:
         executor = await _make_executor(app, NOOP_EVALUATOR)
         envelope = make_envelope(_FailingCommand(value='test'))
-        result = await executor.execute(envelope, handler, on_result=observer)
+        result = (await executor.execute(envelope, handler, on_result=observer)).outcome
 
     assert result is ExecutionOutcome.SUCCESS
     assert recorded == [(ExecutionOutcome.SUCCESS, None)]
@@ -299,7 +313,7 @@ async def test_on_result_called_with_failure_no_policy() -> None:
     ) as app:
         executor = await _make_executor(app, NOOP_EVALUATOR)
         envelope = make_envelope(_FailingCommand(value='test'))
-        result = await executor.execute(envelope, handler, on_result=observer)
+        result = (await executor.execute(envelope, handler, on_result=observer)).outcome
 
     assert result is ExecutionOutcome.FAILED_NO_POLICY
     assert len(recorded) == 1
@@ -317,7 +331,7 @@ async def test_execute_without_on_result_is_unchanged() -> None:
     ) as app:
         executor = await _make_executor(app, NOOP_EVALUATOR)
         envelope = make_envelope(_FailingCommand(value='test'))
-        result = await executor.execute(envelope, handler)
+        result = (await executor.execute(envelope, handler)).outcome
 
     assert result is ExecutionOutcome.FAILED_NO_POLICY
 
@@ -333,10 +347,10 @@ async def test_on_result_fired_once_across_retries() -> None:
     ) as app:
         executor = await _make_executor(app, evaluator)
         envelope = make_envelope(_FailingCommand(value='retry'))
-        result = await executor.execute(envelope, handler, on_result=observer)
+        result = (await executor.execute(envelope, handler, on_result=observer)).outcome
 
-    assert len(calls) == 2  # one failure + one success — two handler attempts
-    assert recorded == [(ExecutionOutcome.SUCCESS, None)]  # observer fired once with the terminal outcome only
+    assert len(calls) == 2  # one failure + one success
+    assert recorded == [(ExecutionOutcome.SUCCESS, None)]  # fired once with terminal outcome, not per-retry
     assert result is ExecutionOutcome.SUCCESS
 
 
@@ -367,11 +381,9 @@ class TestHandlerExecutionTimeout:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
             executor = await _make_executor(app, evaluator)
             envelope = make_envelope(_FailingCommand(value='slow'))
-            outcome = await executor.execute(envelope, _BlockingHandler, on_result=observer)
+            outcome = (await executor.execute(envelope, _BlockingHandler, on_result=observer)).outcome
 
-        # The overrun surfaces as a typed HandlerTimeoutError that flows through error_policies like any
-        # exception, so the move_to_dead_letter policy lands it in the DLQ.
-        assert outcome is ExecutionOutcome.DEAD_LETTERED
+        assert outcome is ExecutionOutcome.DEAD_LETTERED  # HandlerTimeoutError flows through error_policies
         recorded_outcome, exc = recorded[0]
         assert recorded_outcome is ExecutionOutcome.DEAD_LETTERED
         assert isinstance(exc, HandlerTimeoutError)
@@ -393,7 +405,7 @@ class TestHandlerExecutionTimeout:
             extensions=[MessagingExtension().bind(_BlockingHandler)],
         ) as app:
             invoker = await app.container.get(HandlerPipelineInvoker)
-            # Handler leaves execution_timeout unset (inherits MISSING) -> the executor-level default fires.
+            # execution_timeout unset (MISSING) → executor-level default fires.
             executor = EndpointExecutor(
                 container=app.container,
                 evaluator=NOOP_EVALUATOR,
@@ -402,7 +414,7 @@ class TestHandlerExecutionTimeout:
                 default_execution_timeout=timedelta(seconds=0.01),
             )
             envelope = make_envelope(_FailingCommand(value='slow'))
-            outcome = await executor.execute(envelope, _BlockingHandler, on_result=observer)
+            outcome = (await executor.execute(envelope, _BlockingHandler, on_result=observer)).outcome
 
         assert outcome is ExecutionOutcome.FAILED_NO_POLICY
         recorded_outcome, exc = recorded[0]
@@ -416,8 +428,7 @@ class TestHandlerExecutionTimeout:
 
             @override
             async def handle(self, request: _FailingCommand, /) -> None:
-                # 50ms comfortably exceeds the 10ms default: were None wrongly treated as "inherit",
-                # the default deadline would cancel this and the outcome would not be SUCCESS.
+                # 50ms > 10ms default: if None were wrongly treated as "inherit" the deadline would cancel this.
                 await anyio.sleep(0.05)
 
         async with create_test_app(
@@ -433,6 +444,6 @@ class TestHandlerExecutionTimeout:
                 default_execution_timeout=timedelta(seconds=0.01),
             )
             envelope = make_envelope(_FailingCommand(value='slow-but-allowed'))
-            outcome = await executor.execute(envelope, _SlowHandler)
+            outcome = (await executor.execute(envelope, _SlowHandler)).outcome
 
         assert outcome is ExecutionOutcome.SUCCESS

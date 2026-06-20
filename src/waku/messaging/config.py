@@ -78,8 +78,10 @@ class MessagingConfig:
     default_circuit_breaker: CircuitBreakerConfig | None = None
     """Fallback per-endpoint circuit-breaker config; an endpoint's own breaker shadows this."""
     default_execution_timeout: timedelta | None = timedelta(seconds=60)
-    """Fallback per-handler execution deadline (DEFAULT-ON 60s); a handler's own `execution_timeout` shadows this; None = off."""
+    """Default-on 60s deadline per handler; None disables it. Per-handler `execution_timeout` overrides."""
     default_endpoint_mode: EndpointMode = EndpointMode.BUFFERED
     """Fallback mode for `local_queue` entries that leave `mode` unset; DURABLE makes all local queues durable."""
+    default_max_requeue_attempts: int = 5
+    """Fallback requeue/pause budget for `local_queue` entries that leave `max_requeue_attempts` unset."""
     message_identities: Mapping[type[IMessage], str | MessageIdentity] = field(default_factory=dict)
     """Third-party override for types you can't annotate; the default path is the ClassVar."""

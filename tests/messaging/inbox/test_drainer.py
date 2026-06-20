@@ -9,7 +9,7 @@ from typing_extensions import override
 
 from waku.messaging._identifiers import EndpointUri, HandlerDestination  # noqa: PLC2701
 from waku.messaging.contracts.event import IEvent
-from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome
+from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox._destination import handler_destination  # noqa: PLC2701
@@ -54,11 +54,11 @@ class _StubExecutor(EndpointExecutor):
         handler_type: HandlerType,
         *,
         on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
-    ) -> ExecutionOutcome:
+    ) -> ExecutionResult:
         self.calls.append((envelope.message_type, handler_type))
         if on_result is not None:
             await on_result(self.return_value, None)
-        return self.return_value
+        return ExecutionResult(self.return_value)
 
 
 class _Deps(Provider):
@@ -238,6 +238,32 @@ async def test_drain_logs_and_continues_when_an_entry_raises() -> None:
     assert processed == 1
     assert inbox.entries[good.id, good.destination].status is InboxStatus.HANDLED
     assert inbox.entries[poison.id, poison.destination].status is InboxStatus.INCOMING
+
+
+async def test_drain_deferred_terminal_under_cap_bumps_attempts_and_leaves_claimed() -> None:
+    # A REQUEUE/PAUSE outcome can't be enacted on the recovery path (no live listener), so it is bounded
+    # like poison: under the cap the row is left INCOMING with attempts bumped — never an endless oscillation.
+    inbox = FakeInboxStore()
+    entry = _abandoned_entry(inbox)
+    executor = _StubExecutor(return_value=ExecutionOutcome.REQUEUED)
+    async with make_async_container(_Deps(inbox, FakeUoW())) as container:
+        processed = await _drainer(container, executor, max_attempts=3).drain_once()
+    assert processed == 0
+    assert executor.calls == [(entry.message_type, _RecordingHandler)]  # the handler DID run
+    stored = inbox.entries[entry.id, entry.destination]
+    assert stored.status is InboxStatus.INCOMING
+    assert stored.attempts == 1
+
+
+async def test_drain_deferred_terminal_at_cap_dead_letters() -> None:
+    inbox = FakeInboxStore()
+    dlq = RecordingDeadLetterStore()
+    entry = _abandoned_entry(inbox, attempts=2)
+    executor = _StubExecutor(return_value=ExecutionOutcome.PAUSED)
+    async with make_async_container(_Deps(inbox, FakeUoW()), _DlqProvider(dlq)) as container:
+        await _drainer(container, executor, max_attempts=3).drain_once()
+    assert (entry.id, entry.destination) not in inbox.entries  # bounded -> dead-lettered + deleted at the cap
+    assert len(dlq.entries) == 1
 
 
 async def test_drain_poison_at_cap_falls_back_to_message_id_for_bad_or_absent_ids() -> None:

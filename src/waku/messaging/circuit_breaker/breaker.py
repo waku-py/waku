@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
+    from waku.messaging.pauser import PauseToken
 
 __all__ = [
     'CircuitBreaker',
@@ -37,9 +38,10 @@ class CircuitState(enum.Enum):
 class CircuitBreaker:
     """Per-endpoint, rate-based circuit breaker. CLOSED → OPEN(pause) → resume+reset → CLOSED.
 
-    Records one data-point per message (terminal `ExecutionOutcome`); `DISCARDED` is not recorded.
-    Trips when, over `tracking_period`, total ≥ `minimum_throughput` AND failures/total >
-    `failure_rate_threshold`. `now`/`sleep` are injected for deterministic tests.
+    One sample per handler-execution. `DISCARDED` is not recorded; `REQUEUED`/`PAUSED` record as
+    NEUTRAL — the message is re-sampled on its eventual terminal outcome (counting them as failures
+    would double-pause via a trip). Trips when total ≥ `minimum_throughput` AND
+    failures/total > `failure_rate_threshold` within `tracking_period`. `now`/`sleep` are injected.
     """
 
     __slots__ = (
@@ -47,6 +49,7 @@ class CircuitBreaker:
         '_lock',
         '_now',
         '_pause',
+        '_pause_token',
         '_resume',
         '_resume_task',
         '_sleep',
@@ -58,8 +61,8 @@ class CircuitBreaker:
         self,
         *,
         config: CircuitBreakerConfig,
-        pause: Callable[[], Awaitable[None]],
-        resume: Callable[[], Awaitable[None]],
+        pause: Callable[[], Awaitable[PauseToken]],
+        resume: Callable[[PauseToken], Awaitable[None]],
         now: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     ) -> None:
@@ -71,9 +74,10 @@ class CircuitBreaker:
         self._state = CircuitState.CLOSED
         self._window: deque[tuple[float, bool]] = deque()
         self._resume_task: asyncio.Task[None] | None = None
-        # Serializes concurrent record() calls — BUFFERED endpoints run max_parallel consumers that
-        # each call record() on the SAME breaker; without this two could both observe should_trip()
-        # and double-trip (orphaning a resume task). The lock makes the check-and-trip atomic.
+        self._pause_token: PauseToken | None = None
+        # BUFFERED endpoints run max_parallel consumers all calling record() on the same breaker;
+        # without the lock two could both observe should_trip() and double-trip (orphaning a resume
+        # task). Makes the check-and-trip atomic.
         self._lock = asyncio.Lock()
 
     @property
@@ -113,31 +117,32 @@ class CircuitBreaker:
 
     async def _trip(self) -> None:
         self._state = CircuitState.OPEN
-        await self._pause()
+        self._pause_token = await self._pause()
         self._resume_task = asyncio.create_task(self._run_resume())
 
     async def _run_resume(self) -> None:
         await self._sleep(self._config.pause_time.total_seconds())
-        # Reset state + window BEFORE un-pausing the worker, so the first post-resume record() starts
-        # from a clean window (spec §3 order: clear → CLOSED → resume). These sync statements run
-        # atomically w.r.t. the event loop; the worker stays paused until resume() returns.
+        # Clear window + set CLOSED BEFORE resuming: first post-resume record() starts from a clean
+        # window. Sync statements run atomically w.r.t. the event loop; worker stays paused until
+        # resume() returns.
         self._window.clear()
         self._state = CircuitState.CLOSED
-        await self._resume()
-        # Clear the slot only if we are still the active task: if resume() yielded and a fresh trip
-        # replaced _resume_task, clobbering it here would orphan the new task past aclose().
+        # Release ONLY the token this trip minted — a coexisting hold (e.g. a PAUSE action) keeps
+        # the gate closed. Refcounted resume, not an unconditional un-pause.
+        token, self._pause_token = self._pause_token, None
+        if token is not None:
+            await self._resume(token)
+        # Guard against clobbering a newer _resume_task spawned while resume() yielded.
         if self._resume_task is asyncio.current_task():
             self._resume_task = None
 
     async def wait_for_resume(self) -> None:
-        # Test helper: await the pending resume task (if any) to completion. Capture locally — the
-        # task clears self._resume_task on completion.
+        # Test helper. Capture locally — the task clears _resume_task on completion.
         task = self._resume_task
         if task is not None:
             await task
 
     async def aclose(self) -> None:
-        # Cancel a pending resume on endpoint shutdown.
         if self._resume_task is not None:
             self._resume_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

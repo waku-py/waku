@@ -14,14 +14,21 @@ from waku._internal.transaction import unit_of_work_scope
 from waku.messaging._identifiers import EndpointUri
 from waku.messaging.circuit_breaker.breaker import CircuitBreaker
 from waku.messaging.endpoints.base import Endpoint
+from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES
+from waku.messaging.errors.dead_letter import DeadLetterEntry
+from waku.messaging.exceptions import RequeueBudgetExceededError
 from waku.messaging.inbox._destination import handler_destination
 from waku.messaging.inbox.finalize import apply_inbox_outcome
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxEntry
 from waku.messaging.partition import resolve_and_allocate
+from waku.messaging.pauser import PauseRegistry, TimedPauser
 from waku.messaging.transport.serialization import IEnvelopeSerializer
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+    from uuid import UUID
+
     from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
     from dishka import AsyncContainer
 
@@ -30,6 +37,7 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome
     from waku.messaging.partition import PartitionKeyExtractor
+    from waku.messaging.pauser import PauseToken
     from waku.messaging.router import HandlerSubscriptions
 
 logger = logging.getLogger(__name__)
@@ -38,27 +46,21 @@ __all__ = [
     'DurableLocalQueueEndpoint',
 ]
 
-# Work item enqueued onto the memory stream: the envelope plus the subset of subscribed handlers
-# whose inbox row was newly stored in dispatch(). Only these still need processing — duplicates
-# were filtered at persist time, so the worker never re-checks dedup.
+# Envelope + the subset of handlers whose inbox row was newly stored (dedup-skipped at persist time).
 _WorkItem: TypeAlias = 'tuple[MessageEnvelope[Any], frozenset[HandlerType]]'
 
 
 class DurableLocalQueueEndpoint(Endpoint):
-    """Inbox-backed local queue with per-handler dedup.
+    """Inbox-backed local queue with per-handler dedup and persist-before-enqueue durability.
 
-    dispatch() persists one inbox row per subscribed handler (keyed by the handler FQN destination)
-    and commits BEFORE enqueueing — preserving the persist-before-enqueue durability guarantee for
-    the whole fan-out. It then enqueues only the handlers whose row was newly stored (the per-handler
-    dedup-skip), so each handler dedups independently. The worker loop drains the stream, executes
-    those handlers via EndpointExecutor, and marks each ``(message_id, destination)`` row handled (or
-    deletes it on DLQ/discard). Crash recovery is supplied by InboxRecoveryWorker.
+    dispatch() writes one ``(message_id, handler_FQN)`` inbox row per subscribed handler and commits
+    BEFORE enqueueing, so a crash after commit leaves INCOMING rows for InboxRecoveryWorker to reclaim.
+    Only freshly-stored handlers are enqueued (per-handler dedup-skip); each handler dedups independently.
+    The worker drains the stream via EndpointExecutor and finalizes each row (mark_handled / delete).
 
-    Unlike ``LocalQueueEndpoint`` (which composes ``MemoryStreamWorker``), this owns a single
-    sequential worker loop over a ``_WorkItem``-typed stream and does NOT yet support ``max_parallel``
-    (bounded-pool parallelism is a future addition). ``pause()``/``resume()`` gate the worker loop
-    (the circuit breaker uses them); the inbox claim model (FOR UPDATE SKIP LOCKED, per-handler rows)
-    is the cross-pod concurrency mechanism here.
+    Unlike ``LocalQueueEndpoint``, owns a single sequential worker loop; ``max_parallel`` is not yet
+    supported. ``pause()``/``resume()`` gate the loop (used by the circuit breaker); cross-pod
+    concurrency is via FOR UPDATE SKIP LOCKED on the per-handler inbox rows.
     """
 
     __slots__ = (
@@ -69,11 +71,14 @@ class DurableLocalQueueEndpoint(Endpoint):
         '_inbox_owner_id',
         '_keep_after_handled',
         '_max_buffer_size',
+        '_max_requeue_attempts',
         '_partition_by',
-        '_paused',
+        '_pauses',
         '_receive_stream',
+        '_requeue_counts',
         '_send_stream',
         '_stop_timeout',
+        '_timed_pauser',
         '_worker_task',
     )
 
@@ -89,6 +94,8 @@ class DurableLocalQueueEndpoint(Endpoint):
         stop_timeout: float,
         max_buffer_size: float,
         partition_by: PartitionKeyExtractor | None = None,
+        max_requeue_attempts: int = 5,
+        pause_sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
         circuit_breaker_config: CircuitBreakerConfig | None = None,
     ) -> None:
         super().__init__(uri=uri)
@@ -100,11 +107,14 @@ class DurableLocalQueueEndpoint(Endpoint):
         self._stop_timeout = stop_timeout
         self._max_buffer_size = max_buffer_size
         self._partition_by = partition_by
+        self._max_requeue_attempts = max_requeue_attempts
+        # Per-(message, handler) requeue counter; increment_attempts mirrors it to the durable row.
+        self._requeue_counts: dict[tuple[UUID, str], int] = {}
         self._send_stream: MemoryObjectSendStream[_WorkItem] | None = None
         self._receive_stream: MemoryObjectReceiveStream[_WorkItem] | None = None
         self._worker_task: asyncio.Task[None] | None = None
-        self._paused = asyncio.Event()
-        self._paused.set()  # not paused by default
+        self._pauses = PauseRegistry()
+        self._timed_pauser = TimedPauser(self._pauses, sleep=pause_sleep)
         self._circuit_breaker: CircuitBreaker | None = (
             CircuitBreaker(config=circuit_breaker_config, pause=self.pause, resume=self.resume)
             if circuit_breaker_config is not None
@@ -113,17 +123,11 @@ class DurableLocalQueueEndpoint(Endpoint):
 
     @override
     async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None:
-        """Persist one inbox row per subscribed handler in OWN scope, then enqueue.
+        """Persist one inbox row per subscribed handler in a dedicated scope, then enqueue.
 
-        Persist-before-enqueue across the whole fan-out: every subscribed handler's
-        ``(message_id, destination=handler_FQN)`` row is written and committed BEFORE anything reaches
-        the memory stream, so a crash after commit leaves durable INCOMING rows that InboxRecoveryWorker
-        reclaims. Only handlers whose row was newly stored are enqueued — the per-handler dedup-skip.
-
-        The ``scope`` parameter is part of the ``Endpoint`` ABC signature but is NOT used here on
-        purpose: committing the caller's UoW would prematurely commit a handler's business transaction
-        when this endpoint is used from a cascading send. A dedicated scope is opened for the inbox write,
-        matching ``OutboxRelay`` and ``DurableReceiver``.
+        ``scope`` (the ABC parameter) is intentionally unused: committing the caller's UoW would
+        prematurely commit a handler's business transaction in cascading-send scenarios. A dedicated
+        scope is opened instead, matching ``OutboxRelay`` and ``DurableReceiver``.
         """
         send_stream = self._send_stream
         if send_stream is None:
@@ -137,8 +141,7 @@ class DurableLocalQueueEndpoint(Endpoint):
         async with unit_of_work_scope(self._container) as write_scope:
             inbox = await write_scope.get(IInboxStore)
             serializer = await write_scope.get(IEnvelopeSerializer)
-            # Allocate ONCE per message: every per-handler row shares the message's position in the
-            # partition. Per-handler ordering is then by (group_id, destination) head-of-queue.
+            # Allocate ONCE per message: all per-handler rows share the same position in the partition.
             group_id, sequence_number = await resolve_and_allocate(envelope, self._partition_by, write_scope)
             payload = serializer.serialize(envelope)
             fresh: set[HandlerType] = set()
@@ -171,7 +174,8 @@ class DurableLocalQueueEndpoint(Endpoint):
 
     @override
     async def stop(self) -> None:
-        self._paused.set()  # unblock a paused worker so it can observe the closed stream
+        await self._timed_pauser.aclose()  # cancel parked auto-resume before force-resume
+        self._pauses.force_resume()  # bypass refcount so a leaked token can't strand shutdown
         send_stream, self._send_stream = self._send_stream, None
         if send_stream is not None:
             send_stream.close()
@@ -185,12 +189,13 @@ class DurableLocalQueueEndpoint(Endpoint):
             await self._circuit_breaker.aclose()
 
     @override
-    async def pause(self) -> None:
-        self._paused.clear()
+    async def pause(self) -> PauseToken:
+        return self._pauses.pause()
 
     @override
-    async def resume(self) -> None:
-        self._paused.set()
+    async def resume(self, token: PauseToken | None = None) -> None:
+        if token is not None:
+            self._pauses.resume(token)
 
     async def _drain_worker(self, task: asyncio.Task[None]) -> None:
         try:
@@ -208,7 +213,7 @@ class DurableLocalQueueEndpoint(Endpoint):
 
     async def _worker_loop(self, receive_stream: MemoryObjectReceiveStream[_WorkItem]) -> None:
         async for envelope, handler_types in receive_stream:
-            await self._paused.wait()
+            await self._pauses.wait()
             try:
                 await self._process_envelope(envelope, handler_types)
             except Exception:
@@ -218,12 +223,63 @@ class DurableLocalQueueEndpoint(Endpoint):
                 )
 
     async def _process_envelope(self, envelope: MessageEnvelope[Any], handler_types: frozenset[HandlerType]) -> None:
-        # Process only the handlers whose row was newly stored in dispatch(). Dedup was already
-        # resolved at persist time, so no re-check here.
         on_result = self._circuit_breaker.record if self._circuit_breaker is not None else None
         for handler_type in handler_types:
-            outcome = await self._executor.execute(envelope, handler_type, on_result=on_result)
-            await self._finalize(envelope, handler_destination(handler_type), outcome)
+            destination = handler_destination(handler_type)
+            result = await self._executor.execute(envelope, handler_type, on_result=on_result)
+            if result.outcome in DEFERRED_TERMINAL_OUTCOMES:
+                await self._enact_redelivery(envelope, destination, frozenset({handler_type}), result.pause_duration)
+            else:
+                self._requeue_counts.pop((envelope.message_id, destination), None)
+                await self._finalize(envelope, destination, result.outcome)
+
+    async def _enact_redelivery(
+        self,
+        envelope: MessageEnvelope[Any],
+        destination: str,
+        handler_types: frozenset[HandlerType],
+        pause_duration: timedelta | None,
+    ) -> None:
+        key = (envelope.message_id, destination)
+        count = self._requeue_counts.get(key, 0) + 1
+        await self._record_requeue_attempt(envelope, destination)
+        if count >= self._max_requeue_attempts:
+            self._requeue_counts.pop(key, None)
+            await self._dead_letter_poison(envelope, destination, count)
+            return  # shared budget exhausted -> DLQ; PAUSE shares this bound, so no re-pause
+        send_stream = self._send_stream
+        if send_stream is None:
+            self._requeue_counts.pop(key, None)  # stopped: INCOMING row survives for crash recovery
+            return
+        try:
+            send_stream.send_nowait((envelope, handler_types))
+        except (anyio.WouldBlock, anyio.ClosedResourceError, anyio.BrokenResourceError):
+            self._requeue_counts.pop(key, None)
+            await self._dead_letter_poison(envelope, destination, count)  # full buffer -> DLQ, never block
+            return
+        self._requeue_counts[key] = count
+        if pause_duration is not None:  # re-enqueued; now halt the listener for the PAUSE duration
+            await self._timed_pauser.pause(pause_duration)
+
+    async def _record_requeue_attempt(self, envelope: MessageEnvelope[Any], destination: str) -> None:
+        async with unit_of_work_scope(self._container) as scope:
+            inbox = await scope.get(IInboxStore)
+            await inbox.increment_attempts(envelope.message_id, destination)
+
+    async def _dead_letter_poison(self, envelope: MessageEnvelope[Any], destination: str, attempts: int) -> None:
+        async with unit_of_work_scope(self._container) as scope:
+            inbox = await scope.get(IInboxStore)
+            serializer = await scope.get(IEnvelopeSerializer)
+            dead_letter = DeadLetterEntry.from_failure(
+                message_type=envelope.message_type,
+                payload=serializer.serialize(envelope),
+                destination=destination,
+                correlation_id=envelope.correlation_id,
+                causation_id=envelope.causation_id,
+                exc=RequeueBudgetExceededError(envelope.message_id, attempts),
+                attempt=attempts,
+            )
+            await inbox.move_to_dead_letter(envelope.message_id, destination, dead_letter)
 
     async def _finalize(self, envelope: MessageEnvelope[Any], destination: str, outcome: ExecutionOutcome) -> None:
         await apply_inbox_outcome(

@@ -26,7 +26,7 @@ from waku.messaging import (
 from waku.messaging.circuit_breaker import CircuitBreakerConfig
 from waku.messaging.contracts.event import IEvent as _IEvent
 from waku.messaging.endpoints.base import local_queue
-from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome
+from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.messaging.router import route
@@ -212,7 +212,6 @@ class _CbHandler(EventHandler[_CbEvent]):
 
 class _AlwaysFailStubExecutor(EndpointExecutor):
     def __init__(self) -> None:
-        # Bypass parent __init__: this stub does not exercise real dispatch.
         self.calls = 0
 
     @override
@@ -222,11 +221,11 @@ class _AlwaysFailStubExecutor(EndpointExecutor):
         handler_type: HandlerType,
         *,
         on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
-    ) -> ExecutionOutcome:
+    ) -> ExecutionResult:
         self.calls += 1
         if on_result is not None:
             await on_result(ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
-        return ExecutionOutcome.FAILED_NO_POLICY
+        return ExecutionResult(ExecutionOutcome.FAILED_NO_POLICY)
 
 
 class TestLocalQueueCircuitBreaker:
@@ -250,10 +249,9 @@ class TestLocalQueueCircuitBreaker:
             scope = mocker.Mock(spec_set=AsyncContainer)
             for _ in range(4):
                 await endpoint.dispatch(make_envelope(_CbEvent()), scope)
-            # After minimum_throughput=2 failures the breaker trips → it calls pause() → the worker halts.
+            # After 2 failures the breaker trips → worker halts.
             await wait_until(lambda: executor.calls >= 2)
-            # Plateau: the remaining messages stay enqueued, UNprocessed, because the worker is paused.
-            # (If the CB were not wired, all 4 would process and calls would reach 4.)
+            # Remaining messages stay enqueued (if CB were absent, all 4 would run).
             for _ in range(10):
                 await anyio.lowlevel.checkpoint()
             assert executor.calls == 2

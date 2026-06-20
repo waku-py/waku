@@ -1,21 +1,32 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING, ClassVar
 from uuid import UUID
 
+from anyio.lowlevel import checkpoint
 from typing_extensions import override
 
 from waku.messaging import EventHandler, IEvent, MessagingExtension, MessagingModule
 from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
+from waku.messaging.errors.executor import ErrorPolicyEvaluator
+from waku.messaging.errors.policy import ErrorPolicy
+from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.testing import create_test_app
 
+from tests._wait import ControllableSleep, wait_until
 from tests.messaging.helpers import NOOP_EVALUATOR, make_envelope
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    import pytest
+
     from waku.application import WakuApplication
 
 
@@ -47,6 +58,16 @@ class _FailingThenRecordingHandler(EventHandler[_OrderPlaced]):
         self.received.append(event)
 
 
+class _AlwaysFailingHandler(EventHandler[_OrderPlaced]):
+    call_count: ClassVar[int] = 0
+
+    @override
+    async def handle(self, event: _OrderPlaced, /) -> None:
+        type(self).call_count += 1
+        msg = 'always fails'
+        raise RuntimeError(msg)
+
+
 async def _make_endpoint(
     app: WakuApplication,
     handler: type[EventHandler[_OrderPlaced]],
@@ -64,6 +85,59 @@ async def _make_endpoint(
         executor=executor,
         stop_timeout=0.5,
         max_buffer_size=100,
+    )
+
+
+def _evaluator_for(policy: ErrorPolicy) -> ErrorPolicyEvaluator:
+    return ErrorPolicyEvaluator(ErrorPolicyRegistry(handler_policies={}, default_policies=(policy,)))
+
+
+async def _make_endpoint_with_requeue(
+    app: WakuApplication,
+    handler: type[EventHandler[_OrderPlaced]],
+    *,
+    max_requeue_attempts: int,
+    max_buffer_size: float = 100,
+) -> LocalQueueEndpoint:
+    invoker = await app.container.get(HandlerPipelineInvoker)
+    executor = EndpointExecutor(
+        container=app.container,
+        evaluator=_evaluator_for(ErrorPolicy.on_any_exception().requeue()),
+        endpoint_uri='local://test',
+        invoker=invoker,
+    )
+    return LocalQueueEndpoint(
+        uri='local://test',
+        handler_subscriptions={_OrderPlaced: frozenset({handler})},
+        executor=executor,
+        stop_timeout=0.5,
+        max_buffer_size=max_buffer_size,
+        max_requeue_attempts=max_requeue_attempts,
+    )
+
+
+async def _make_endpoint_with_pause(
+    app: WakuApplication,
+    handler: type[EventHandler[_OrderPlaced]],
+    *,
+    sleep: Callable[[float], Awaitable[None]],
+    max_requeue_attempts: int,
+) -> LocalQueueEndpoint:
+    invoker = await app.container.get(HandlerPipelineInvoker)
+    executor = EndpointExecutor(
+        container=app.container,
+        evaluator=_evaluator_for(ErrorPolicy.on_any_exception().pause_processing(timedelta(minutes=10))),
+        endpoint_uri='local://test',
+        invoker=invoker,
+    )
+    return LocalQueueEndpoint(
+        uri='local://test',
+        handler_subscriptions={_OrderPlaced: frozenset({handler})},
+        executor=executor,
+        stop_timeout=0.5,
+        max_buffer_size=100,
+        max_requeue_attempts=max_requeue_attempts,
+        pause_sleep=sleep,
     )
 
 
@@ -128,3 +202,90 @@ class TestLocalQueueEndpoint:
         assert _FailingThenRecordingHandler.call_count == 2
         assert len(_FailingThenRecordingHandler.received) == 1
         assert _FailingThenRecordingHandler.received[0].order_id == 'will-succeed'
+
+
+class TestLocalQueueRequeue:
+    @staticmethod
+    async def test_requeue_reprocesses_then_succeeds() -> None:
+        _FailingThenRecordingHandler.received.clear()
+        _FailingThenRecordingHandler.call_count = 0
+
+        async with create_test_app(
+            imports=[MessagingModule.register()],
+            extensions=[MessagingExtension().bind(_FailingThenRecordingHandler)],
+        ) as app:
+            endpoint = await _make_endpoint_with_requeue(app, _FailingThenRecordingHandler, max_requeue_attempts=5)
+            await endpoint.start()
+            await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='rq-1')), app.container)
+            await wait_until(lambda: [e.order_id for e in _FailingThenRecordingHandler.received] == ['rq-1'])
+            await endpoint.stop()
+
+        assert _FailingThenRecordingHandler.call_count == 2  # failed once -> requeued -> handled
+
+    @staticmethod
+    async def test_requeue_budget_drops_at_bound(caplog: pytest.LogCaptureFixture) -> None:
+        _AlwaysFailingHandler.call_count = 0
+
+        async with create_test_app(
+            imports=[MessagingModule.register()],
+            extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
+        ) as app:
+            endpoint = await _make_endpoint_with_requeue(app, _AlwaysFailingHandler, max_requeue_attempts=2)
+            await endpoint.start()
+            with caplog.at_level(logging.WARNING, logger='waku.messaging.endpoints.local_queue'):
+                await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='poison')), app.container)
+                await wait_until(lambda: _AlwaysFailingHandler.call_count == 2)
+                for _ in range(10):
+                    await checkpoint()
+            await endpoint.stop()
+
+        # original + 1 requeue, then dropped at the budget bound — no infinite redelivery.
+        assert _AlwaysFailingHandler.call_count == 2
+        assert 'budget exhausted' in caplog.text.lower()
+
+
+class TestLocalQueuePause:
+    @staticmethod
+    async def test_pause_policy_halts_then_auto_resumes_and_reprocesses() -> None:
+        _FailingThenRecordingHandler.received.clear()
+        _FailingThenRecordingHandler.call_count = 0
+        sleep = ControllableSleep()
+
+        async with create_test_app(
+            imports=[MessagingModule.register()],
+            extensions=[MessagingExtension().bind(_FailingThenRecordingHandler)],
+        ) as app:
+            endpoint = await _make_endpoint_with_pause(
+                app, _FailingThenRecordingHandler, sleep=sleep, max_requeue_attempts=5
+            )
+            await endpoint.start()
+            await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='p-1')), app.container)
+            await wait_until(lambda: sleep.requested == [600.0])  # paused 10min after the first failure
+            for _ in range(10):
+                await checkpoint()
+            assert _FailingThenRecordingHandler.received == []  # still paused -> the re-enqueued message is gated
+            sleep.released.set()  # auto-resume
+            await wait_until(lambda: [e.order_id for e in _FailingThenRecordingHandler.received] == ['p-1'])
+            await endpoint.stop()
+
+    @staticmethod
+    async def test_pause_shares_requeue_budget_and_stops_at_bound() -> None:
+        _AlwaysFailingHandler.call_count = 0
+        sleep = ControllableSleep()
+
+        async with create_test_app(
+            imports=[MessagingModule.register()],
+            extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
+        ) as app:
+            endpoint = await _make_endpoint_with_pause(app, _AlwaysFailingHandler, sleep=sleep, max_requeue_attempts=2)
+            await endpoint.start()
+            await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='p-bound')), app.container)
+            await wait_until(lambda: sleep.requested == [600.0])  # paused once after the first failure
+            sleep.released.set()  # auto-resume -> second delivery fails -> budget exhausted -> drop, no re-pause
+            await wait_until(lambda: _AlwaysFailingHandler.call_count == 2)
+            for _ in range(20):
+                await checkpoint()
+            await endpoint.stop()
+
+        assert _AlwaysFailingHandler.call_count == 2  # original + 1 redelivery, then dropped
+        assert len(sleep.requested) == 1  # the budget-exhausted failure does NOT pause again (no livelock)

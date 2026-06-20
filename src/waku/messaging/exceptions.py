@@ -20,6 +20,7 @@ __all__ = [
     'MessagingError',
     'MultipleHandlersRegistered',
     'NoRouteError',
+    'RequeueBudgetExceededError',
 ]
 
 
@@ -47,6 +48,15 @@ class HandlerTimeoutError(MessagingError):
 
     def __str__(self) -> str:
         return f'Handler timed out for message_id={self.message_id} after deadline={self.deadline}'
+
+
+class RequeueBudgetExceededError(MessagingError):
+    def __init__(self, message_id: UUID, attempts: int) -> None:
+        self.message_id = message_id
+        self.attempts = attempts
+
+    def __str__(self) -> str:
+        return f'Requeue budget exceeded for message_id={self.message_id} after {self.attempts} delivery attempt(s)'
 
 
 class NoRouteError(MessagingError):

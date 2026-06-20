@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.message import IMessage
+    from waku.messaging.pauser import PauseToken
     from waku.messaging.sending.policy import SendingFailurePolicy
 
 __all__ = [
@@ -46,6 +47,7 @@ class LocalQueueEntry:
     max_buffer_size: float = math.inf
     partition_by: Callable[[IMessage], str | None] | None = None
     circuit_breaker: CircuitBreakerConfig | MISSING | None = MISSING  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+    max_requeue_attempts: int | MISSING = MISSING  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -58,7 +60,7 @@ class ExternalEntry:
 EndpointEntry: TypeAlias = LocalQueueEntry | ExternalEntry
 
 
-def local_queue(
+def local_queue(  # noqa: PLR0913 -- one keyword per LocalQueueEntry field
     uri: str,
     *,
     mode: EndpointMode | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
@@ -67,6 +69,7 @@ def local_queue(
     max_buffer_size: float = math.inf,
     partition_by: Callable[[IMessage], str | None] | None = None,
     circuit_breaker: CircuitBreakerConfig | MISSING | None = MISSING,  # type: ignore[valid-type]
+    max_requeue_attempts: int | MISSING = MISSING,  # type: ignore[valid-type]
 ) -> LocalQueueEntry:
     return LocalQueueEntry(
         uri=uri,
@@ -76,6 +79,7 @@ def local_queue(
         max_buffer_size=max_buffer_size,
         partition_by=partition_by,
         circuit_breaker=circuit_breaker,
+        max_requeue_attempts=max_requeue_attempts,
     )
 
 
@@ -106,14 +110,9 @@ class Endpoint(ABC):
     async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None:
         """Dispatch an envelope to this endpoint.
 
-        Args:
-            envelope: the message envelope to dispatch.
-            scope: the caller's active DI scope. Endpoints whose write must enlist in the caller's
-                transaction use it directly — ``ExternalEndpoint`` writes its outbox row in this scope
-                so the row commits atomically with the caller. Endpoints that hand off to a background
-                worker or open their own scope ignore it: ``LocalQueueEndpoint`` enqueues to its worker,
-                ``DurableLocalQueueEndpoint`` opens its own scope for the persist-before-enqueue inbox
-                write, and ``InlineEndpoint`` lets ``EndpointExecutor`` open a fresh scope per attempt.
+        ``scope`` is the caller's active DI scope. ``ExternalEndpoint`` writes its outbox row in this
+        scope so it commits atomically with the caller. ``LocalQueueEndpoint`` enqueues to its worker
+        and ignores it; ``DurableLocalQueueEndpoint`` opens a dedicated scope for the inbox write.
 
         Implementations may silently drop messages if the endpoint is stopped.
         """
@@ -125,8 +124,8 @@ class Endpoint(ABC):
     @abstractmethod
     async def stop(self) -> None: ...
 
-    async def pause(self) -> None:  # noqa: B027
+    async def pause(self) -> PauseToken | None:  # noqa: B027
         """Pause processing. Default no-op; buffered/durable endpoints may override."""
 
-    async def resume(self) -> None:  # noqa: B027
+    async def resume(self, token: PauseToken | None = None) -> None:  # noqa: B027
         """Resume processing. Default no-op; buffered/durable endpoints may override."""

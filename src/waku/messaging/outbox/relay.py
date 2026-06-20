@@ -60,11 +60,10 @@ class OutboxRelayConfig:
 
 
 def build_relay_default_policy(config: OutboxRelayConfig) -> SendingFailurePolicy:
-    """Express the relay's built-in retry tuning AS a catch-all sending policy.
+    """Build a catch-all sending policy from the relay's retry config.
 
-    Appended (lowest specificity) to the sending registry defaults so the relay has ONE retry
-    authority. Reproduces the legacy fixed loop: retries attempts 1..N-1 with backoff, dead-letters
-    at attempt N (behavior-equivalent to the old ``max_attempts``/backoff arithmetic).
+    Appended at lowest specificity so the relay has ONE retry authority. Retries 1..N-1 with backoff;
+    dead-letters at attempt N.
     """
     return (
         SendingFailurePolicy
@@ -180,9 +179,7 @@ class OutboxRelay(PollingAgent):
         )
         outcome: PolicyOutcome | None = self._sending_evaluator.evaluate(ctx)
         if outcome is None:
-            # No policy matched — the evaluator has no synthesized catch-all; a missing outcome means a
-            # misconfigured (empty) evaluator. Safe default for a durable queue: dead-letter, never
-            # silently drop or infinite-retry.
+            # Evaluator has no catch-all (misconfigured/empty). Safe default: dead-letter.
             await self._handle_exhausted(store, uow, message, exc)
             return
         await self._apply_outcome(store, uow, message, exc, outcome)
@@ -208,6 +205,9 @@ class OutboxRelay(PollingAgent):
                 logger.info('Discarded outbox message %s after %d attempt(s)', message.id, message.retry_count + 1)
             case RetryAction.DEAD_LETTER:
                 await self._handle_exhausted(store, uow, message, exc)
+            case RetryAction.REQUEUE | RetryAction.PAUSE:  # pragma: no cover -- sending policies can't seed these
+                msg = f'sending relay received handler-only action {outcome.action.value}'
+                raise RuntimeError(msg)
             case _ as unreachable:  # pragma: no cover
                 assert_never(unreachable)
 

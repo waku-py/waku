@@ -7,7 +7,7 @@ from uuid import UUID
 from waku._internal.transaction import unit_of_work_scope
 from waku.di import is_registered
 from waku.messaging.config import MessagingConfig
-from waku.messaging.endpoints.executor import EndpointExecutor
+from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES, EndpointExecutor
 from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.inbox._destination import handler_destination
@@ -38,15 +38,13 @@ class InboxPoisonError(Exception):
 
 
 class InboxDrainer:
-    """Pull-and-execute consumer for abandoned durable-inbox rows (crash recovery).
+    """Crash-recovery consumer for abandoned durable-inbox rows.
 
-    Claims ``owner_id IS NULL`` INCOMING rows via ``fetch_pending_partitioned`` (head-of-queue,
-    FOR UPDATE SKIP LOCKED), deserializes each, resolves the handler from the row's ``destination``
-    (handler FQN), executes via an EndpointExecutor keyed to the row's ``source_uri``, and finalizes
-    (mark_handled / delete). Never wraps handler execution in the claim tx — the executor opens its
-    own scopes, like DurableReceiver. Pre-handler poison (unknown FQN / undeserializable) is bounded
-    by ``max_attempts``: under the cap the row is left claimed (recover_stale retries); at the cap it
-    is dead-lettered (if a store is configured) and deleted.
+    Claims ``owner_id IS NULL`` INCOMING rows (FOR UPDATE SKIP LOCKED), deserializes each, resolves
+    the handler from ``destination`` (FQN), executes via EndpointExecutor keyed to ``source_uri``,
+    and finalizes. Executor opens its own scopes (never shares the claim tx). Pre-handler poison
+    (unknown FQN / undeserializable) is bounded by ``max_attempts``: under the cap the row is left
+    claimed; at the cap it is dead-lettered (if configured) and deleted.
     """
 
     __slots__ = (
@@ -105,12 +103,17 @@ class InboxDrainer:
             await self._handle_poison(entry, f'payload deserialize failed: {exc}')
             return False
         executor = self._executor_factory(entry.source_uri)
-        outcome = await executor.execute(envelope, handler_type)
+        result = await executor.execute(envelope, handler_type)
+        if result.outcome in DEFERRED_TERMINAL_OUTCOMES:
+            # No live listener on the recovery path — bound like poison to prevent
+            # infinite oscillation (drain → stale → drain → …).
+            await self._handle_poison(entry, f'{result.outcome.value} is not enactable on the recovery path')
+            return False
         await apply_inbox_outcome(
             self._container,
             entry_id=entry.id,
             destination=entry.destination,
-            outcome=outcome,
+            outcome=result.outcome,
             keep_after_handled=self._keep_after_handled,
         )
         return True
@@ -158,8 +161,7 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
     def executor_factory(source_uri: str) -> EndpointExecutor:
         executor = executors.get(source_uri)
         if executor is None:
-            # Recovered durable handlers get the same default deadline as the live path (#16).
-            executor = EndpointExecutor(
+            executor = EndpointExecutor(  # same default deadline as the live path (#16)
                 container=container,
                 evaluator=evaluator,
                 endpoint_uri=source_uri,
@@ -182,8 +184,8 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
 
 
 def _poison_dead_letter(entry: InboxEntry, reason: str, attempt: int) -> DeadLetterEntry:
-    # correlation/causation are top-level keys in the stored serialized envelope even when the inner
-    # payload won't deserialize; fall back to the message id when absent or corrupt.
+    # correlation/causation are top-level keys in the serialized payload even when the inner payload
+    # won't deserialize; fall back to message_id when absent or corrupt.
     return DeadLetterEntry.from_failure(
         message_type=entry.message_type,
         payload=entry.payload,

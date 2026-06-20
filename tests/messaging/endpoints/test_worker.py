@@ -173,15 +173,75 @@ class TestMemoryStreamWorkerPauseResume:
 
         worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=1.0)
         await worker.start(handler)
-        await worker.pause()
+        token = await worker.pause()
         await worker.send(make_envelope(_Ping(tag='a')))
         # Give the worker real scheduling turns; while paused it must not dispatch.
         for _ in range(5):
             await checkpoint()
         assert received == []
-        await worker.resume()
+        await worker.resume(token)
         with anyio.fail_after(5):
             await processed.wait()
         await worker.stop()
 
         assert received == ['a']
+
+
+class TestMemoryStreamWorkerPauseTokens:
+    @staticmethod
+    async def test_two_pause_tokens_block_until_both_resumed() -> None:
+        received: list[str] = []
+        processed = asyncio.Event()
+
+        async def handler(envelope: MessageEnvelope[Any]) -> None:  # noqa: RUF029
+            received.append(envelope.payload.tag)
+            processed.set()
+
+        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=1.0)
+        await worker.start(handler)
+        token_a = await worker.pause()
+        token_b = await worker.pause()
+        await worker.send(make_envelope(_Ping(tag='a')))
+        await worker.resume(token_a)  # one hold released; the other still pauses
+        for _ in range(10):
+            await checkpoint()
+        assert received == []
+        await worker.resume(token_b)
+        with anyio.fail_after(5):
+            await processed.wait()
+        await worker.stop()
+        assert received == ['a']
+
+    @staticmethod
+    async def test_stop_force_resumes_with_token_still_held() -> None:
+        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=1.0)
+        await worker.start(_noop)
+        await worker.pause()  # token intentionally leaked
+        await worker.stop()  # must not hang waiting on a paused consumer
+
+
+class TestMemoryStreamWorkerTrySend:
+    @staticmethod
+    async def test_try_send_returns_false_before_start() -> None:
+        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=0.5)
+
+        assert worker.try_send(make_envelope(_Ping(tag='a'))) is False
+
+    @staticmethod
+    async def test_try_send_rejects_full_buffer_without_blocking() -> None:
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def blocking_handler(envelope: MessageEnvelope[Any]) -> None:  # noqa: ARG001
+            started.set()
+            await release.wait()
+
+        worker = MemoryStreamWorker(max_buffer_size=1, stop_timeout=1.0, max_parallel=1)
+        await worker.start(blocking_handler)
+        assert await worker.send(make_envelope(_Ping(tag='held'))) is True
+        with anyio.fail_after(5):
+            await started.wait()  # the worker pulled 'held' and is parked in the handler -> buffer empty
+        assert worker.try_send(make_envelope(_Ping(tag='buffered'))) is True  # fills the single slot
+        assert worker.try_send(make_envelope(_Ping(tag='overflow'))) is False  # full -> WouldBlock -> False
+        release.set()
+        await worker.stop()

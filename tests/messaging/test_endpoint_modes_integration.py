@@ -57,7 +57,6 @@ class TestInlineModeEndToEnd:
         ):
             bus = await container.get(IMessageBus)
             await bus.publish(_OrderPlaced(order_id='sync-1'))
-            # No awaits or sleeps — handler must have already run in caller's scope.
             assert _SyncHandler.observed_from_publish == ['sync-1']
 
 
@@ -151,10 +150,7 @@ class TestCircuitBreakerEndToEnd:
             bus = await container.get(IMessageBus)
             for i in range(4):
                 await bus.publish(_Boom(n=i))
-            # Each handler raises → FAILED_NO_POLICY → the breaker records a failure. After
-            # minimum_throughput=2 failures it trips → pause() halts the BUFFERED worker; the remaining
-            # 2 messages stay buffered, unprocessed. (If _create_endpoint did NOT thread the CB, all 4
-            # would process and len(handled) would reach 4.)
+            # After minimum_throughput=2 failures the breaker trips → pause() halts the worker; 2 stay buffered.
             await wait_until(lambda: len(handled) >= 2)
             for _ in range(10):
                 await anyio.lowlevel.checkpoint()
@@ -195,8 +191,7 @@ class TestCircuitBreakerEndToEnd:
             bus = await container.get(IMessageBus)
             for i in range(4):
                 await bus.publish(_Bang(n=i))
-            # The endpoint declares no circuit_breaker, so the fallback default_circuit_breaker must apply.
-            # After 2 failures it trips → pause() halts the worker; the remaining 2 stay buffered.
+            # No per-endpoint CB → fallback default_circuit_breaker applies; trips after 2 failures.
             await wait_until(lambda: len(handled) >= 2)
             for _ in range(10):
                 await anyio.lowlevel.checkpoint()
@@ -237,8 +232,6 @@ class TestCircuitBreakerEndToEnd:
             bus = await container.get(IMessageBus)
             for i in range(4):
                 await bus.publish(_Pop(n=i))
-            # Explicit circuit_breaker=None opts OUT of default_circuit_breaker: no breaker here, so all
-            # four messages process despite every handler failing. A wrongly-inherited default would trip
-            # after 2 failures and leave the remaining 2 buffered (handled would stall at 2).
+            # circuit_breaker=None opts out — all 4 process. Wrong inheritance would stall at 2.
             await wait_until(lambda: len(handled) == 4)
             assert len(handled) == 4

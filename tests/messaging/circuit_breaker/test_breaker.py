@@ -6,8 +6,9 @@ import anyio.lowlevel
 
 from waku.messaging.circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitState
 from waku.messaging.endpoints.executor import ExecutionOutcome
+from waku.messaging.pauser import PauseRegistry, PauseToken
 
-from tests._wait import wait_until
+from tests._wait import ControllableSleep, wait_until
 
 
 class _Clock:
@@ -18,29 +19,19 @@ class _Clock:
         return self.t
 
 
-class _ControllableSleep:
-    # Records requested sleeps; the test releases them explicitly (no real time elapses).
-    def __init__(self) -> None:
-        self.released = anyio.Event()
-        self.requested: list[float] = []
-
-    async def __call__(self, seconds: float) -> None:
-        self.requested.append(seconds)
-        await self.released.wait()
-
-
 def _make_breaker(
     config: CircuitBreakerConfig,
     *,
     clock: _Clock,
-    sleep: _ControllableSleep,
+    sleep: ControllableSleep,
 ) -> tuple[CircuitBreaker, list[str]]:
     calls: list[str] = []
 
-    async def pause() -> None:  # noqa: RUF029 -- must be async to satisfy Callable[[], Awaitable[None]]
+    async def pause() -> PauseToken:  # noqa: RUF029 -- async to satisfy Callable[[], Awaitable[PauseToken]]
         calls.append('pause')
+        return PauseToken()
 
-    async def resume() -> None:  # noqa: RUF029 -- must be async to satisfy Callable[[], Awaitable[None]]
+    async def resume(token: PauseToken) -> None:  # noqa: ARG001, RUF029 -- async resume callback; token unused
         calls.append('resume')
 
     breaker = CircuitBreaker(config=config, pause=pause, resume=resume, now=clock, sleep=sleep)
@@ -56,7 +47,7 @@ def _assert_state(breaker: CircuitBreaker, expected: CircuitState) -> None:
 
 
 async def test_does_not_trip_below_minimum_throughput() -> None:
-    clock, sleep = _Clock(), _ControllableSleep()
+    clock, sleep = _Clock(), ControllableSleep()
     breaker, calls = _make_breaker(
         CircuitBreakerConfig(failure_rate_threshold=0.2, minimum_throughput=10),
         clock=clock,
@@ -74,7 +65,7 @@ async def test_does_not_trip_below_minimum_throughput() -> None:
 
 
 async def test_trips_and_pauses_when_rate_exceeds_threshold() -> None:
-    clock, sleep = _Clock(), _ControllableSleep()
+    clock, sleep = _Clock(), ControllableSleep()
     breaker, calls = _make_breaker(
         CircuitBreakerConfig(failure_rate_threshold=0.5, minimum_throughput=4),
         clock=clock,
@@ -93,7 +84,7 @@ async def test_trips_and_pauses_when_rate_exceeds_threshold() -> None:
 
 
 async def test_resumes_and_resets_after_pause_time() -> None:
-    clock, sleep = _Clock(), _ControllableSleep()
+    clock, sleep = _Clock(), ControllableSleep()
     breaker, calls = _make_breaker(
         CircuitBreakerConfig(failure_rate_threshold=0.5, minimum_throughput=2, pause_time=timedelta(seconds=30)),
         clock=clock,
@@ -102,8 +93,7 @@ async def test_resumes_and_resets_after_pause_time() -> None:
     await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
     await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
     _assert_state(breaker, CircuitState.OPEN)
-    # The resume task is spawned via asyncio.create_task inside record() — it runs on the next loop
-    # turn, so wait_until() (not a bare assert) is needed to observe it reach the controllable sleep.
+    # create_task runs on the next loop turn — wait_until() needed to observe the sleep.
     await wait_until(lambda: sleep.requested == [30.0])
     sleep.released.set()  # release the resume task
     await breaker.wait_for_resume()
@@ -115,7 +105,7 @@ async def test_resumes_and_resets_after_pause_time() -> None:
 
 
 async def test_discarded_outcome_is_not_recorded() -> None:
-    clock, sleep = _Clock(), _ControllableSleep()
+    clock, sleep = _Clock(), ControllableSleep()
     breaker, calls = _make_breaker(
         CircuitBreakerConfig(failure_rate_threshold=0.2, minimum_throughput=1),
         clock=clock,
@@ -131,7 +121,7 @@ async def test_discarded_does_not_occupy_a_window_slot() -> None:
     # DISCARDED must not even enter the window (early-return). If it did — counted as a non-failure —
     # the window would hold 2 entries (1/2 = 0.5 > 0.4) and trip; with the early-return it holds only
     # the failure (total 1 < minimum 2) and stays CLOSED. Pins the window-slot effect, not just the rate.
-    clock, sleep = _Clock(), _ControllableSleep()
+    clock, sleep = _Clock(), ControllableSleep()
     breaker, calls = _make_breaker(
         CircuitBreakerConfig(failure_rate_threshold=0.4, minimum_throughput=2),
         clock=clock,
@@ -144,7 +134,7 @@ async def test_discarded_does_not_occupy_a_window_slot() -> None:
 
 
 async def test_only_tracked_exceptions_count_as_failures() -> None:
-    clock, sleep = _Clock(), _ControllableSleep()
+    clock, sleep = _Clock(), ControllableSleep()
     breaker, calls = _make_breaker(
         CircuitBreakerConfig(failure_rate_threshold=0.5, minimum_throughput=2, track_exceptions=(TimeoutError,)),
         clock=clock,
@@ -164,7 +154,7 @@ async def test_only_tracked_exceptions_count_as_failures() -> None:
 
 
 async def test_ignored_exceptions_never_count_as_failures() -> None:
-    clock, sleep = _Clock(), _ControllableSleep()
+    clock, sleep = _Clock(), ControllableSleep()
     breaker, calls = _make_breaker(
         CircuitBreakerConfig(failure_rate_threshold=0.2, minimum_throughput=2, ignore_exceptions=(ConnectionError,)),
         clock=clock,
@@ -177,7 +167,7 @@ async def test_ignored_exceptions_never_count_as_failures() -> None:
 
 
 async def test_old_entries_evicted_from_window() -> None:
-    clock, sleep = _Clock(), _ControllableSleep()
+    clock, sleep = _Clock(), ControllableSleep()
     breaker, calls = _make_breaker(
         CircuitBreakerConfig(failure_rate_threshold=0.5, minimum_throughput=3, tracking_period=timedelta(seconds=10)),
         clock=clock,
@@ -195,7 +185,7 @@ async def test_old_entries_evicted_from_window() -> None:
 
 
 async def test_retrips_after_resume() -> None:
-    clock, sleep = _Clock(), _ControllableSleep()
+    clock, sleep = _Clock(), ControllableSleep()
     breaker, calls = _make_breaker(
         CircuitBreakerConfig(failure_rate_threshold=0.5, minimum_throughput=2, pause_time=timedelta(seconds=30)),
         clock=clock,
@@ -219,7 +209,7 @@ async def test_retrips_after_resume() -> None:
 
 
 async def test_aclose_cancels_pending_resume_so_resume_never_fires() -> None:
-    clock, sleep = _Clock(), _ControllableSleep()
+    clock, sleep = _Clock(), ControllableSleep()
     breaker, calls = _make_breaker(
         CircuitBreakerConfig(failure_rate_threshold=0.5, minimum_throughput=2, pause_time=timedelta(seconds=30)),
         clock=clock,
@@ -239,7 +229,7 @@ async def test_aclose_cancels_pending_resume_so_resume_never_fires() -> None:
 async def test_dead_letter_failed_counts_as_failure() -> None:
     # ERR-2: a failed durable DLQ write is a processing failure — it must trip the breaker like
     # DEAD_LETTERED, not be treated as a success.
-    clock, sleep = _Clock(), _ControllableSleep()
+    clock, sleep = _Clock(), ControllableSleep()
     breaker, calls = _make_breaker(
         CircuitBreakerConfig(failure_rate_threshold=0.5, minimum_throughput=2),
         clock=clock,
@@ -249,4 +239,38 @@ async def test_dead_letter_failed_counts_as_failure() -> None:
     await _record(breaker, ExecutionOutcome.DEAD_LETTER_FAILED, RuntimeError())  # 2/2 = 1.0 > 0.5 → trips
     _assert_state(breaker, CircuitState.OPEN)
     assert calls == ['pause']
+    await breaker.aclose()
+
+
+async def test_circuit_breaker_resume_does_not_open_gate_held_by_another_pauser() -> None:
+    clock, sleep = _Clock(), ControllableSleep()
+    registry = PauseRegistry()
+    other = registry.pause()  # an independent hold (stands in for a fatal PAUSE)
+
+    async def pause() -> PauseToken:  # noqa: RUF029 -- async to satisfy the pause callback
+        return registry.pause()
+
+    async def resume(token: PauseToken) -> None:  # noqa: RUF029 -- async to satisfy the resume callback
+        registry.resume(token)
+
+    breaker = CircuitBreaker(
+        config=CircuitBreakerConfig(failure_rate_threshold=0.5, minimum_throughput=2, pause_time=timedelta(seconds=30)),
+        pause=pause,
+        resume=resume,
+        now=clock,
+        sleep=sleep,
+    )
+    await breaker.record(ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
+    await breaker.record(ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
+    tripped = registry.paused
+    assert tripped is True
+    await wait_until(lambda: sleep.requested == [30.0])
+    sleep.released.set()
+    await breaker.wait_for_resume()
+    # The CB released its OWN token, but `other` still holds the gate closed.
+    still_held = registry.paused
+    assert still_held is True
+    registry.resume(other)
+    opened = registry.paused
+    assert opened is False
     await breaker.aclose()

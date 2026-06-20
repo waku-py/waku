@@ -6,13 +6,13 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import anyio.lowlevel
-from dishka import Provider, Scope, make_async_container, provide
+from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
 from waku.messaging.circuit_breaker import CircuitBreakerConfig
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.durable_local_queue import DurableLocalQueueEndpoint
-from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome
+from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.interfaces import IInboxStore
@@ -21,7 +21,7 @@ from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.transport.serialization import IEnvelopeSerializer
 from waku.uow import IUnitOfWork
 
-from tests._wait import wait_until
+from tests._wait import ControllableSleep, wait_until
 from tests.messaging.helpers import (
     FakeUoW,
     RecordingAllocator,
@@ -67,10 +67,17 @@ class _SecondHandler(EventHandler[_DomainEvent]):
 
 
 class _StubExecutor(EndpointExecutor):
-    def __init__(self, *, return_value: ExecutionOutcome, exc: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        return_value: ExecutionOutcome,
+        exc: Exception | None = None,
+        pause_duration: timedelta | None = None,
+    ) -> None:
         # Bypass parent __init__: tests don't exercise real dispatch.
         self.return_value = return_value
         self.exc = exc
+        self._pause_duration = pause_duration
         self.calls = 0
         self.handled: list[HandlerType] = []
 
@@ -81,12 +88,56 @@ class _StubExecutor(EndpointExecutor):
         handler_type: HandlerType,
         *,
         on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
-    ) -> ExecutionOutcome:
+    ) -> ExecutionResult:
         self.calls += 1
         self.handled.append(handler_type)
         if on_result is not None:
             await on_result(self.return_value, self.exc)
-        return self.return_value
+        return ExecutionResult(self.return_value, self._pause_duration)
+
+
+class _PauseOnceExecutor(EndpointExecutor):
+    def __init__(self, *, pause_duration: timedelta) -> None:
+        # PAUSED (with duration) on the first delivery, SUCCESS on the redelivery.
+        self.calls = 0
+        self._pause_duration = pause_duration
+
+    @override
+    async def execute(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        *,
+        on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
+    ) -> ExecutionResult:
+        self.calls += 1
+        if self.calls == 1:
+            result = ExecutionResult(ExecutionOutcome.PAUSED, self._pause_duration)
+        else:
+            result = ExecutionResult(ExecutionOutcome.SUCCESS)
+        if on_result is not None:
+            await on_result(result.outcome, None)
+        return result
+
+
+class _RequeueOnceExecutor(EndpointExecutor):
+    def __init__(self) -> None:
+        # Bypass parent __init__: returns REQUEUED on the first delivery, SUCCESS on the redelivery.
+        self.calls = 0
+
+    @override
+    async def execute(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        *,
+        on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
+    ) -> ExecutionResult:
+        self.calls += 1
+        outcome = ExecutionOutcome.REQUEUED if self.calls == 1 else ExecutionOutcome.SUCCESS
+        if on_result is not None:
+            await on_result(outcome, None)
+        return ExecutionResult(outcome)
 
 
 class _EndpointDepsProvider(Provider):
@@ -126,13 +177,15 @@ class _EndpointDepsProvider(Provider):
         return self._allocator
 
 
-def _endpoint(
-    container: Any,
-    executor: _StubExecutor,
+def _endpoint(  # noqa: PLR0913 -- test helper mirroring DurableLocalQueueEndpoint's config surface
+    container: AsyncContainer,
+    executor: EndpointExecutor,
     handlers: frozenset[type[EventHandler[_DomainEvent]]],
     *,
     partition_by: PartitionKeyExtractor | None = None,
     inbox_owner_id: str = 'node-a:1',
+    max_requeue_attempts: int = 5,
+    pause_sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     circuit_breaker_config: CircuitBreakerConfig | None = None,
 ) -> DurableLocalQueueEndpoint:
     return DurableLocalQueueEndpoint(
@@ -145,6 +198,8 @@ def _endpoint(
         max_buffer_size=math.inf,
         partition_by=partition_by,
         inbox_owner_id=inbox_owner_id,
+        max_requeue_attempts=max_requeue_attempts,
+        pause_sleep=pause_sleep,
         circuit_breaker_config=circuit_breaker_config,
     )
 
@@ -196,8 +251,7 @@ class TestDurableLocalQueueEndpoint:
 
     @staticmethod
     async def test_fan_out_persists_and_handles_each_handler_independently() -> None:
-        # One message, two handlers on one durable endpoint: two inbox rows (one per handler FQN),
-        # both handlers run, both rows become HANDLED.
+        # One message, two handlers → two inbox rows (per-handler FQN), both HANDLED.
         _NoopHandler.invocations = []
         _SecondHandler.invocations = []
         inbox = FakeInboxStore()
@@ -219,8 +273,7 @@ class TestDurableLocalQueueEndpoint:
 
     @staticmethod
     async def test_fan_out_redelivery_dedups_both_then_window_expiry_reruns() -> None:
-        # Redelivery dedups every handler; after the HANDLED rows are purged (D4 retention window),
-        # a fresh delivery re-runs both handlers.
+        # Redelivery dedups; after HANDLED rows are purged (retention window), a fresh delivery re-runs both.
         inbox = FakeInboxStore()
 
         def handled_count() -> int:
@@ -235,16 +288,15 @@ class TestDurableLocalQueueEndpoint:
                 await endpoint.dispatch(envelope, scope)
                 await wait_until(lambda: handled_count() == 2)
 
-                # Redelivery (same message_id): every (id, destination) row already exists ->
-                # both handlers deduped synchronously in dispatch(), no extra execute.
+                # Redelivery: both rows already exist -> deduped in dispatch().
                 await endpoint.dispatch(envelope, scope)
                 assert executor.calls == 2
 
-                # D4: retention window elapses, cleanup purges the HANDLED rows.
+                # Retention window elapses, purging HANDLED rows.
                 purged = await inbox.cleanup_handled(datetime.now(tz=UTC) + timedelta(minutes=10))
                 assert purged == 2
 
-                # A later delivery of the same message_id finds no conflict and re-runs both handlers.
+                # Same message_id, no conflict -> re-runs both.
                 await endpoint.dispatch(envelope, scope)
                 await wait_until(lambda: executor.calls == 4)
             await endpoint.stop()
@@ -257,14 +309,12 @@ class TestDurableLocalQueueEndpoint:
         inbox = FakeInboxStore()
         async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
-            # NON-default owner id: a regression that drops the claim yields owner_id=None, not this value.
             endpoint = _endpoint(container, executor, frozenset([_NoopHandler]), inbox_owner_id='owner-claim-test')
             await endpoint.start()
             async with container() as scope:
                 await endpoint.dispatch(make_envelope(_DomainEvent(kind='OrderPlaced')), scope)
             await endpoint.stop()  # drains the worker deterministically
 
-        # owner_id is set ONLY at dispatch in this flow (mark_as_handled preserves it in FakeInboxStore).
         stored = next(iter(inbox.entries.values()))
         assert stored.owner_id == 'owner-claim-test'
 
@@ -276,17 +326,16 @@ class TestDurableLocalQueueEndpoint:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(container, executor, frozenset([_NoopHandler]))
             await endpoint.start()
-            await endpoint.pause()
+            token = await endpoint.pause()
             async with container() as scope:
                 await endpoint.dispatch(make_envelope(_DomainEvent(kind='OrderPlaced')), scope)
-            # Pausing BEFORE dispatch eliminates the dequeue race: the item enters the stream already
-            # gated, so the worker blocks on _paused.wait() before _process_envelope. Give it ample loop
-            # turns to (wrongly) advance — it must NOT, because it is paused.
+            # Pause BEFORE dispatch: item enters the stream already gated, worker blocks before
+            # _process_envelope. Give it loop turns to (wrongly) advance — it must not.
             for _ in range(10):
                 await anyio.lowlevel.checkpoint()
             assert executor.calls == 0
-            assert len(inbox.entries) == 1  # dispatch ran; only processing is gated
-            await endpoint.resume()
+            assert len(inbox.entries) == 1  # dispatch persisted; only processing is gated
+            await endpoint.resume(token)
             await wait_until(lambda: executor.calls == 1)
             await endpoint.stop()
 
@@ -315,8 +364,7 @@ class TestDurableLocalQueuePartitioning:
 
     @staticmethod
     async def test_fan_out_handlers_share_one_allocated_sequence() -> None:
-        # Allocate ONCE per message: both per-handler rows carry the SAME sequence, and the allocator
-        # is called exactly once — not once per handler. Envelope group_id wins over partition_by.
+        # Both per-handler rows carry the same sequence; allocator called once, not per handler.
         inbox = FakeInboxStore()
         allocator = RecordingAllocator()
         async with make_async_container(
@@ -357,12 +405,114 @@ class TestDurableLocalQueueCircuitBreaker:
                 async with container() as scope:
                     for _ in range(4):
                         await endpoint.dispatch(make_envelope(_DomainEvent(kind='OrderFailed')), scope)
-                # After minimum_throughput=2 failing handler-executions the breaker trips → pause() → worker halts.
+                # After 2 failures the breaker trips → worker halts.
                 await wait_until(lambda: executor.calls >= 2)
-                # Plateau: remaining messages stay enqueued, UNprocessed, because the worker is paused.
-                # (If the CB were not wired, all 4 would process and calls would reach 4.)
+                # Remaining messages stay enqueued (if CB were absent, all 4 would run).
                 for _ in range(10):
                     await anyio.lowlevel.checkpoint()
                 assert executor.calls == 2
             finally:
                 await endpoint.stop()  # aclose()s the CB, cancelling the parked resume (no real time elapsed)
+
+
+class TestDurableLocalQueueRequeue:
+    @staticmethod
+    async def test_requeue_increments_attempts_and_reprocesses() -> None:
+        inbox = FakeInboxStore()
+        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            executor = _RequeueOnceExecutor()
+            endpoint = _endpoint(container, executor, frozenset([_NoopHandler]), max_requeue_attempts=5)
+            await endpoint.start()
+            async with container() as scope:
+                await endpoint.dispatch(make_envelope(_DomainEvent(kind='OrderPlaced')), scope)
+            await wait_until(lambda: executor.calls >= 2)
+            await endpoint.stop()
+
+        entry = next(iter(inbox.entries.values()))
+        assert entry.attempts == 1  # incremented once on the single requeue
+        assert entry.status is InboxStatus.HANDLED  # redelivery succeeded
+
+    @staticmethod
+    async def test_requeue_dead_letters_at_bound() -> None:
+        inbox = FakeInboxStore()
+        dlq = RecordingDeadLetterStore()
+        async with make_async_container(_EndpointDepsProvider(inbox, dlq)) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.REQUEUED)
+            endpoint = _endpoint(container, executor, frozenset([_NoopHandler]), max_requeue_attempts=2)
+            await endpoint.start()
+            async with container() as scope:
+                await endpoint.dispatch(make_envelope(_DomainEvent(kind='Poison')), scope)
+            await wait_until(lambda: len(inbox.dead_lettered) == 1)
+            await endpoint.stop()
+
+        assert inbox.entries == {}  # the row was moved to the dead-letter table
+        assert len(inbox.dead_lettered) == 1
+
+
+class TestDurableLocalQueuePause:
+    @staticmethod
+    async def test_pause_policy_pauses_then_resumes_and_reprocesses() -> None:
+        inbox = FakeInboxStore()
+        sleep = ControllableSleep()
+        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            executor = _PauseOnceExecutor(pause_duration=timedelta(minutes=10))
+            endpoint = _endpoint(
+                container, executor, frozenset([_NoopHandler]), max_requeue_attempts=5, pause_sleep=sleep
+            )
+            await endpoint.start()
+            async with container() as scope:
+                await endpoint.dispatch(make_envelope(_DomainEvent(kind='OrderPlaced')), scope)
+            await wait_until(lambda: sleep.requested == [600.0])  # paused 10min after the first failure
+            for _ in range(10):
+                await anyio.lowlevel.checkpoint()
+            assert executor.calls == 1  # the re-enqueued delivery is gated while paused
+            sleep.released.set()  # auto-resume
+            await wait_until(lambda: executor.calls == 2)
+            await endpoint.stop()
+
+        entry = next(iter(inbox.entries.values()))
+        assert entry.status is InboxStatus.HANDLED
+
+    @staticmethod
+    async def test_pause_dead_letters_at_shared_budget() -> None:
+        inbox = FakeInboxStore()
+        sleep = ControllableSleep()
+        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.PAUSED, pause_duration=timedelta(minutes=10))
+            endpoint = _endpoint(
+                container, executor, frozenset([_NoopHandler]), max_requeue_attempts=2, pause_sleep=sleep
+            )
+            await endpoint.start()
+            async with container() as scope:
+                await endpoint.dispatch(make_envelope(_DomainEvent(kind='Poison')), scope)
+            await wait_until(lambda: sleep.requested == [600.0])  # paused once after the first PAUSED
+            sleep.released.set()  # resume -> the second PAUSED hits the shared budget -> DLQ, not a third pause
+            await wait_until(lambda: len(inbox.dead_lettered) == 1)
+            await endpoint.stop()
+
+        assert len(sleep.requested) == 1  # the budget-exhausted delivery dead-letters instead of pausing again
+        assert inbox.entries == {}
+
+    @staticmethod
+    async def test_pause_action_and_breaker_hold_coexist_without_premature_resume() -> None:
+        # PAUSE action's hold and CB hold share one refcounted gate; the PAUSE timer firing must NOT
+        # resume the listener while the CB hold is still down.
+        inbox = FakeInboxStore()
+        sleep = ControllableSleep()
+        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            executor = _PauseOnceExecutor(pause_duration=timedelta(minutes=10))
+            endpoint = _endpoint(
+                container, executor, frozenset([_NoopHandler]), max_requeue_attempts=5, pause_sleep=sleep
+            )
+            await endpoint.start()
+            async with container() as scope:
+                await endpoint.dispatch(make_envelope(_DomainEvent(kind='OrderPlaced')), scope)
+            await wait_until(lambda: sleep.requested == [600.0])  # handler PAUSEd -> a TimedPauser token is held
+            breaker_token = await endpoint.pause()  # a second hold via the breaker's exact callback
+            sleep.released.set()  # the PAUSE timer fires and releases ITS token...
+            for _ in range(10):
+                await anyio.lowlevel.checkpoint()
+            assert executor.calls == 1  # ...but the breaker-style hold keeps the listener paused -> no redelivery
+            await endpoint.resume(breaker_token)  # release the remaining hold
+            await wait_until(lambda: executor.calls == 2)  # only now does the redelivery run
+            await endpoint.stop()

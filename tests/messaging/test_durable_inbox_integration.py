@@ -105,7 +105,6 @@ class TestDurableInboxIntegration:
         ):
             bus = await container.get(IMessageBus)
             await bus.publish(_OrderPlaced(order_id='o-1'))
-            # endpoint.stop() (app shutdown) drains the worker deterministically.
 
         entries = list(inbox.entries.values())
         assert len(entries) == 1
@@ -114,8 +113,7 @@ class TestDurableInboxIntegration:
 
     @staticmethod
     async def test_distinct_publishes_each_persist_and_handle() -> None:
-        # Two publishes => two distinct envelopes (distinct message_ids) => two inbox rows,
-        # handler invoked twice. The same-message_id dedup path is proven in test_receiver.py.
+        # Two distinct envelopes → two inbox rows. Same-message_id dedup is proven in test_receiver.py.
         _RecordingHandler.observed = []
         inbox = FakeInboxStore()
         async with (
@@ -135,9 +133,6 @@ class TestDurableInboxIntegration:
 
     @staticmethod
     async def test_fan_out_two_handlers_one_durable_endpoint() -> None:
-        # One message routed to a durable endpoint with two subscribed handlers: persist-before-enqueue
-        # writes two `(id, destination)` rows, both handlers run, both rows end HANDLED. After the
-        # retention window purges the rows, a fresh delivery would re-run both (windowed dedup).
         _RecordingHandler.observed = []
         _SecondRecordingHandler.observed = []
         inbox = FakeInboxStore()
@@ -163,7 +158,6 @@ class TestDurableInboxIntegration:
             assert _RecordingHandler.observed == ['fan-1']
             assert _SecondRecordingHandler.observed == ['fan-1']
 
-            # Retention window purges the HANDLED rows -> dedup window closes.
             purged = await inbox.cleanup_handled(datetime.now(tz=UTC) + timedelta(minutes=10))
             assert purged == 2
 
@@ -182,7 +176,6 @@ class TestDurableInboxIntegration:
         ):
             bus = await container.get(IMessageBus)
             await bus.publish(_OrderPlaced(order_id='o-dlq-fail'))
-            # app shutdown drains the worker deterministically (see test_message_is_persisted_and_handled).
 
         entries = list(inbox.entries.values())
         assert len(entries) == 1  # row KEPT, not deleted
@@ -209,10 +202,8 @@ class TestDurableInboxIntegration:
         ):
             bus = await container.get(IMessageBus)
             await bus.publish(_OrderPlaced(order_id='g-1'))
-            # app shutdown drains the durable worker deterministically.
 
-        # The unset endpoint went durable: a persisted-then-handled inbox row proves it (a BUFFERED
-        # endpoint would never touch the inbox).
+        # Inbox row proves the endpoint went durable (BUFFERED never writes inbox).
         entries = list(inbox.entries.values())
         assert len(entries) == 1
         assert entries[0].status is InboxStatus.HANDLED
@@ -241,8 +232,7 @@ class TestDurableInboxIntegration:
             await bus.publish(_OrderPlaced(order_id='b-1'))
             await wait_until(lambda: _RecordingHandler.observed == ['b-1'])
 
-        # The explicit per-endpoint mode wins over the durable global default: the handler ran via the
-        # buffered worker and the (wired) inbox was never written.
+        # Explicit per-endpoint mode wins over the global default; inbox untouched (BUFFERED).
         assert inbox.entries == {}
 
     @staticmethod
@@ -256,12 +246,49 @@ class TestDurableInboxIntegration:
             MessagingModule.register(config)
 
     @staticmethod
+    def test_inline_endpoint_with_requeue_policy_is_rejected() -> None:
+        config = MessagingConfig(
+            endpoints=[local_queue('orders', mode=EndpointMode.INLINE)],
+            routing=[route(_OrderPlaced).to('orders')],
+            default_error_policies=(ErrorPolicy.on_any_exception().requeue(),),
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='INLINE'):
+            MessagingModule.register(config)
+
+    @staticmethod
+    def test_inline_endpoint_with_pause_policy_is_rejected() -> None:
+        config = MessagingConfig(
+            endpoints=[local_queue('orders', mode=EndpointMode.INLINE)],
+            routing=[route(_OrderPlaced).to('orders')],
+            default_error_policies=(ErrorPolicy.on_any_exception().pause_processing(timedelta(minutes=5)),),
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='INLINE'):
+            MessagingModule.register(config)
+
+    @staticmethod
+    async def test_inline_endpoint_with_per_handler_requeue_policy_is_rejected() -> None:
+        # Default-policy guard can't see per-handler policies; post-merge _finalize must catch this.
+        class _RequeueHandler(EventHandler[_OrderPlaced]):
+            error_policies: ClassVar = (ErrorPolicy.on_any_exception().requeue(),)
+
+            @override
+            async def handle(self, event: _OrderPlaced, /) -> None: ...  # pragma: no cover - rejected at build
+
+        config = MessagingConfig(
+            endpoints=[local_queue('orders', mode=EndpointMode.INLINE)],
+            routing=[route(_OrderPlaced).to('orders')],
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='INLINE'):
+            async with create_test_app(
+                imports=[MessagingModule.register(config)],
+                extensions=[MessagingExtension().bind(_RequeueHandler)],
+            ):
+                pass
+
+    @staticmethod
     async def test_recovery_drain_applies_execution_timeout_to_durable_handler() -> None:
-        # An abandoned inbox row recovered by the background drainer must be subject to
-        # default_execution_timeout exactly like the live path: a blocking handler is timed out and
-        # dead-lettered. If build_inbox_drainer fails to thread the config timeout into its executor,
-        # the recovery executor has no deadline, the drain blocks forever, and the DLQ row never appears
-        # (wait_until trips). The DLQ entry is the unambiguous "the timeout fired" signal.
+        # Recovery executor must honour default_execution_timeout like the live path. If it doesn't,
+        # the drain blocks forever and the DLQ row never appears (wait_until trips).
         inbox = FakeInboxStore()
         dlq = RecordingDeadLetterStore()
         config = MessagingConfig(

@@ -8,6 +8,7 @@ from waku._internal.adaptive_interval import calculate_backoff_with_jitter
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+    from datetime import timedelta
 
 __all__ = [
     'EscalationChain',
@@ -25,27 +26,30 @@ class RetryAction(enum.Enum):
     RETRY_WITH_BACKOFF = 'RETRY_WITH_BACKOFF'
     DISCARD = 'DISCARD'
     DEAD_LETTER = 'DEAD_LETTER'
-    # REQUEUE reserved for a future milestone (needs inbox re-enqueue machinery) — not implemented
-    # PAUSE_SENDING reserved for the Circuit Breaker slice (sending domain only) — not implemented
+    REQUEUE = 'REQUEUE'
+    PAUSE = 'PAUSE'
 
 
 _TERMINAL_ACTIONS = frozenset({RetryAction.DISCARD, RetryAction.DEAD_LETTER})
 _RETRY_ACTIONS = frozenset({RetryAction.RETRY, RetryAction.RETRY_WITH_BACKOFF})
+# Deferred-terminal: message survives — endpoint re-delivers (and PAUSE also halts the listener);
+# not retried inline, not dropped. Chain ends but `exhausted=False`.
+DEFERRED_TERMINAL_ACTIONS = frozenset({RetryAction.REQUEUE, RetryAction.PAUSE})
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RetryStage:
     """One stage in an escalation chain.
 
-    For DISCARD / DEAD_LETTER (terminal) stages `max_attempts` is ignored — they fire once and stop
-    the chain. For RETRY / RETRY_WITH_BACKOFF the stage owns `max_attempts` attempts; each stage's
-    backoff curve restarts from its own `base_delay`.
+    Terminal stages (DISCARD/DEAD_LETTER) ignore `max_attempts` — they fire once. Retry stages own
+    `max_attempts` attempts; each stage's backoff curve restarts from its own `base_delay`.
     """
 
     action: RetryAction
     max_attempts: int = 1
     base_delay: float = 1.0
     max_delay: float = 60.0
+    pause_duration: timedelta | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +57,7 @@ class PolicyOutcome:
     action: RetryAction
     retry_delay: float | None = None
     exhausted: bool = False
+    pause_duration: timedelta | None = None
 
 
 class Matchable(Protocol):
@@ -69,12 +74,11 @@ _P = TypeVar('_P', bound=Matchable)
 
 
 def walk_stages(stages: Sequence[RetryStage], attempt: int) -> PolicyOutcome:
-    """Resolve the active stage for `attempt` and its outcome.
+    """Resolve the active stage and outcome for `attempt`.
 
-    A retry stage with `max_attempts=N` owns stage-local attempts 1..N: it retries for 1..N-1, and at
-    attempt N it is exhausted — that attempt hands off to the next stage as ITS first attempt, so a
-    retry stage consumes only `N-1` slots. Stage-local attempt = `attempt - cumulative`, so each
-    stage's backoff curve restarts from its own `base_delay`.
+    A RETRY stage with `max_attempts=N` owns stage-local attempts 1..N: it retries for 1..N-1;
+    at attempt N the stage is exhausted and hands off to the next stage. Each stage's backoff
+    curve restarts from its own `base_delay`.
     """
     cumulative = 0
     for stage in stages:
@@ -84,6 +88,9 @@ def walk_stages(stages: Sequence[RetryStage], attempt: int) -> PolicyOutcome:
                 return _retry_outcome(stage, stage_local_attempt)
             cumulative += stage.max_attempts - 1
             continue
+        if stage.action in DEFERRED_TERMINAL_ACTIONS:
+            # Disposition handed to the endpoint (re-deliver / pause); message NOT dropped.
+            return PolicyOutcome(action=stage.action, exhausted=False, pause_duration=stage.pause_duration)
         # Terminal stage (DISCARD / DEAD_LETTER) — fires once, ends the chain.
         return PolicyOutcome(action=stage.action, exhausted=True)
     # Budget exhausted with no explicit terminal stage: implicit DISCARD.
@@ -98,7 +105,7 @@ def _retry_outcome(stage: RetryStage, stage_local_attempt: int) -> PolicyOutcome
 
 
 def best_match(policies: Sequence[_P], exc: Exception) -> _P | None:
-    # Most specific match wins (predicate > type-only > any); first-match on ties.
+    # Specificity: predicate > type-only > any; first match wins on ties.
     best: _P | None = None
     best_score = -1
     for policy in policies:
@@ -126,16 +133,15 @@ def validate_max_attempts(max_attempts: int) -> None:
 
 def validate_terminal_is_last(stages: tuple[RetryStage, ...]) -> None:
     for stage in stages[:-1]:
-        if stage.action in _TERMINAL_ACTIONS:
+        if stage.action in _TERMINAL_ACTIONS or stage.action in DEFERRED_TERMINAL_ACTIONS:
             msg = f'a terminal stage ({stage.action.value}) must be the last stage in the chain'
             raise ValueError(msg)
 
 
 def validate_ends_with_terminal(stages: tuple[RetryStage, ...]) -> None:
-    # Used by SendingFailurePolicyRegistry (durable domain): a chain that ends in a retry stage would
-    # fall through walk_stages' implicit-DISCARD on exhaustion and silently drop a persisted message.
-    # Enforced at registry build (not policy construction) so the fluent builder's intermediate
-    # retry-only states stay valid.
+    # SendingFailurePolicyRegistry (durable domain): a chain ending in a retry stage falls through
+    # walk_stages' implicit-DISCARD, silently dropping a persisted message. Enforced at registry
+    # build (not construction) so fluent builder intermediate states stay valid.
     if not stages or stages[-1].action not in _TERMINAL_ACTIONS:
         msg = 'the escalation chain must end in a terminal stage (discard or move_to_dead_letter)'
         raise ValueError(msg)
@@ -146,13 +152,11 @@ _PolicyT = TypeVar('_PolicyT', bound='EscalationChain[Any]')
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EscalationChain(Matchable, Generic[_PolicyT]):
-    """Generic ordered escalation chain and its fluent builder entry point.
+    """Internal base for `ErrorPolicy` / `SendingFailurePolicy`.
 
-    Carries an optional exception type / predicate match and an ordered tuple of `RetryStage`s. This is
-    an internal base extended by the concrete `ErrorPolicy` / `SendingFailurePolicy` subclasses (which
-    bind `Self` to their own type so the fluent `then_*`/seeders return the precise public type), not
-    constructed directly. The terminal-is-last invariant is enforced at construction; the durable
-    explicit-terminal invariant lives in the sending registry, not here.
+    Carries an optional exception-type / predicate match and an ordered `stages` tuple. Subclasses
+    bind `Self` so fluent `then_*`/seeders return the precise public type. Not constructed directly.
+    Terminal-is-last is enforced at construction; durable explicit-terminal lives in the sending registry.
     """
 
     exception_type: type[Exception] | None
@@ -168,16 +172,16 @@ class EscalationChain(Matchable, Generic[_PolicyT]):
         exception_type: type[Exception],
         *,
         when: Callable[[Exception], bool] | None = None,
-    ) -> _ActionBuilder[Self]:
-        return _ActionBuilder(cls, exception_type, when)
+    ) -> ActionBuilder[Self]:
+        return ActionBuilder(cls, exception_type, when)
 
     @classmethod
     def on_any_exception(
         cls,
         *,
         when: Callable[[Exception], bool] | None = None,
-    ) -> _ActionBuilder[Self]:
-        return _ActionBuilder(cls, None, when)
+    ) -> ActionBuilder[Self]:
+        return ActionBuilder(cls, None, when)
 
     def then_retry(self, max_attempts: int = 3) -> Self:
         validate_max_attempts(max_attempts)
@@ -209,8 +213,8 @@ class EscalationChain(Matchable, Generic[_PolicyT]):
         return replace(self, stages=(*self.stages, stage))
 
 
-class _ActionBuilder(Generic[_PolicyT]):
-    """Private intermediate of the fluent chain; each terminal seeds a one-stage policy of `_PolicyT`."""
+class ActionBuilder(Generic[_PolicyT]):
+    """Fluent intermediate; each terminal method seeds a one-stage `_PolicyT`."""
 
     __slots__ = ('_exception_type', '_policy_cls', '_predicate')
 

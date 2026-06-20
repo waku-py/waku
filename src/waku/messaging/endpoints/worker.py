@@ -9,11 +9,14 @@ import anyio
 from anyio import create_memory_object_stream
 
 from waku.messaging.contracts.envelope import MessageEnvelope
+from waku.messaging.pauser import PauseRegistry, TimedPauser
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+
+    from waku.messaging.pauser import PauseToken
 
 __all__ = [
     'MemoryStreamWorker',
@@ -26,22 +29,17 @@ _Handler: TypeAlias = 'Callable[[MessageEnvelope[Any]], Awaitable[None]]'
 
 
 class MemoryStreamWorker:
-    """Owns the anyio memory stream + background task lifecycle for an endpoint.
+    """Memory-stream + background-task lifecycle for an endpoint (GRASP Pure Fabrication).
 
-    GRASP Pure Fabrication: does not know about handler subscriptions, executor, inbox,
-    or routing. Consumers pass an async envelope handler into ``start()`` and ``MemoryStreamWorker``
-    runs it with bounded concurrency controlled by ``max_parallel``.
-
-    Concurrency is a bounded pool of ``max_parallel`` consumers sharing one stream. A consumer
-    pulls an envelope *before* checking the pause gate, so a paused worker may hold up to
-    ``max_parallel`` envelopes in flight (dequeued, not yet dispatched). Uses asyncio primitives
-    directly — asyncio backend only.
+    ``start(handler)`` runs a bounded pool of ``max_parallel`` consumers. A consumer dequeues
+    *before* checking the pause gate, so up to ``max_parallel`` envelopes may be in flight while
+    paused. asyncio backend only.
     """
 
     __slots__ = (
         '_max_buffer_size',
         '_max_parallel',
-        '_paused',
+        '_pauses',
         '_receive_stream',
         '_send_stream',
         '_stop_timeout',
@@ -61,8 +59,7 @@ class MemoryStreamWorker:
         self._send_stream: MemoryObjectSendStream[MessageEnvelope[Any]] | None = None
         self._receive_stream: MemoryObjectReceiveStream[MessageEnvelope[Any]] | None = None
         self._worker_task: asyncio.Task[None] | None = None
-        self._paused = asyncio.Event()
-        self._paused.set()  # not paused by default
+        self._pauses = PauseRegistry()
 
     async def start(self, handler: _Handler) -> None:
         if self._send_stream is not None:
@@ -85,14 +82,30 @@ class MemoryStreamWorker:
             return False
         return True
 
-    async def pause(self) -> None:
-        self._paused.clear()
+    def try_send(self, envelope: MessageEnvelope[Any]) -> bool:
+        # Non-blocking re-enqueue for REQUEUE/PAUSE: blocking here would deadlock when max_parallel=1
+        # because the only consumer IS the one trying to re-enqueue.
+        send_stream = self._send_stream
+        if send_stream is None:
+            return False
+        try:
+            send_stream.send_nowait(envelope)
+        except (anyio.WouldBlock, anyio.ClosedResourceError, anyio.BrokenResourceError):
+            return False
+        return True
 
-    async def resume(self) -> None:
-        self._paused.set()
+    async def pause(self) -> PauseToken:
+        return self._pauses.pause()
+
+    async def resume(self, token: PauseToken) -> None:
+        self._pauses.resume(token)
+
+    def make_timed_pauser(self, *, sleep: Callable[[float], Awaitable[None]] = anyio.sleep) -> TimedPauser:
+        # Bound to this worker's gate — timed PAUSE and CB pauses compose by refcount.
+        return TimedPauser(self._pauses, sleep=sleep)
 
     async def stop(self) -> None:
-        self._paused.set()  # unblock any paused processors so they can observe shutdown
+        self._pauses.force_resume()  # bypass refcount so a leaked token can't strand shutdown
         send_stream, self._send_stream = self._send_stream, None
         if send_stream is not None:
             send_stream.close()
@@ -104,10 +117,8 @@ class MemoryStreamWorker:
             self._receive_stream = None
 
     async def _drain_worker(self, task: asyncio.Task[None]) -> None:
-        # asyncio.wait does NOT propagate cancellation into the awaited task, so we can
-        # distinguish a graceful drain from a timeout. Awaiting the task directly under
-        # anyio.fail_after would cancel the task group inside _run on the deadline, masking
-        # the timeout as a clean completion.
+        # asyncio.wait does NOT propagate cancellation — lets us distinguish a graceful drain from a
+        # timeout. anyio.fail_after would cancel the task group inside _run on the deadline.
         done, _pending = await asyncio.wait({task}, timeout=self._stop_timeout)
         if task not in done:
             logger.warning(
@@ -127,10 +138,8 @@ class MemoryStreamWorker:
         receive_stream: MemoryObjectReceiveStream[MessageEnvelope[Any]],
         handler: _Handler,
     ) -> None:
-        # Bounded worker pool: max_parallel persistent consumers share one receive stream
-        # (anyio hands each item to a single waiting receiver). The pool size bounds both
-        # concurrency AND live-task count; backpressure is natural — idle consumers pull as
-        # they finish while the backlog stays in the stream buffer. No limiter/semaphore needed.
+        # max_parallel persistent consumers share one stream; each item goes to one waiting receiver.
+        # Pool size bounds concurrency and live-task count; backpressure is natural via the buffer.
         async with anyio.create_task_group() as tg:
             for _ in range(self._max_parallel):
                 tg.start_soon(self._consume, receive_stream, handler)
@@ -141,7 +150,7 @@ class MemoryStreamWorker:
         handler: _Handler,
     ) -> None:
         async for envelope in receive_stream:
-            await self._paused.wait()
+            await self._pauses.wait()
             try:
                 await handler(envelope)
             except Exception:

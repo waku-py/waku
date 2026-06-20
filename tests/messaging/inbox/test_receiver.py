@@ -7,7 +7,7 @@ from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
 from waku.messaging.contracts.event import IEvent
-from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome
+from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.config import InboxConfig
@@ -106,11 +106,11 @@ class _StubExecutor(EndpointExecutor):
         handler_type: HandlerType,
         *,
         on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
-    ) -> ExecutionOutcome:
+    ) -> ExecutionResult:
         self.invocations += 1
         if on_result is not None:
             await on_result(self.return_value, None)
-        return self.return_value
+        return ExecutionResult(self.return_value)
 
 
 def _receiver(
@@ -162,7 +162,6 @@ class TestDurableReceiver:
             receiver = _receiver(container, _StubExecutor(return_value=ExecutionOutcome.DEAD_LETTERED))
             await receiver.receive(make_envelope(_OrderPlaced(order_id='o-3')), _FailingHandler)
 
-        # Composite-key: the handler's row was deleted, leaving the inbox empty.
         assert inbox.entries == {}
 
     @staticmethod
@@ -172,7 +171,6 @@ class TestDurableReceiver:
             receiver = _receiver(container, _StubExecutor(return_value=ExecutionOutcome.DISCARDED))
             await receiver.receive(make_envelope(_OrderPlaced(order_id='o-4')), _FailingHandler)
 
-        # Composite-key: the handler's row was deleted, leaving the inbox empty.
         assert inbox.entries == {}
 
 
