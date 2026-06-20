@@ -201,3 +201,44 @@ class TestCircuitBreakerEndToEnd:
             for _ in range(10):
                 await anyio.lowlevel.checkpoint()
             assert len(handled) == 2
+
+    @staticmethod
+    async def test_explicit_none_circuit_breaker_opts_out_of_default() -> None:
+        handled: list[int] = []
+
+        @dataclass(frozen=True)
+        class _Pop(IEvent):
+            n: int
+
+        class _FailingHandler(EventHandler[_Pop]):
+            @override
+            async def handle(self, event: _Pop, /) -> None:
+                handled.append(event.n)
+                msg = 'pop'
+                raise RuntimeError(msg)
+
+        config = MessagingConfig(
+            default_circuit_breaker=CircuitBreakerConfig(
+                minimum_throughput=2,
+                failure_rate_threshold=0.5,
+                pause_time=timedelta(minutes=5),
+            ),
+            endpoints=[local_queue('cb-optout-q', mode=EndpointMode.BUFFERED, circuit_breaker=None)],
+            routing=[route(_Pop).to('cb-optout-q')],
+        )
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(config)],
+                extensions=[MessagingExtension().bind(_FailingHandler)],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            for i in range(4):
+                await bus.publish(_Pop(n=i))
+            # Explicit circuit_breaker=None opts OUT of default_circuit_breaker: no breaker here, so all
+            # four messages process despite every handler failing. A wrongly-inherited default would trip
+            # after 2 failures and leave the remaining 2 buffered (handled would stall at 2).
+            await wait_until(lambda: len(handled) == 4)
+            assert len(handled) == 4

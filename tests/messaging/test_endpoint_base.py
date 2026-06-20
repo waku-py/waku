@@ -4,6 +4,7 @@ import math
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from waku._internal.sentinel import MISSING  # noqa: PLC2701
 from waku.messaging.circuit_breaker import CircuitBreakerConfig
 from waku.messaging.endpoints.base import (
     EndpointMode,
@@ -46,9 +47,9 @@ class TestEndpointEntryFactories:
 
 class TestLocalQueueNewFields:
     @staticmethod
-    def test_defaults_to_buffered_mode() -> None:
+    def test_defaults_to_inherit_mode() -> None:
         entry = local_queue('q://x')
-        assert entry.mode == EndpointMode.BUFFERED
+        assert entry.mode is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support
 
     @staticmethod
     def test_default_max_parallel_is_one() -> None:
@@ -92,8 +93,8 @@ class TestLocalQueueCircuitBreaker:
         assert entry.circuit_breaker is cb
 
     @staticmethod
-    def test_local_queue_circuit_breaker_defaults_none() -> None:
-        assert local_queue('q').circuit_breaker is None
+    def test_local_queue_circuit_breaker_defaults_to_inherit() -> None:
+        assert local_queue('q').circuit_breaker is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support
 
 
 class TestExternalEntryPartitionBy:

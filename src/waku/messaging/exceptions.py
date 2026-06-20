@@ -5,12 +5,16 @@ from typing import TYPE_CHECKING
 from waku.exceptions import ImproperlyConfiguredError, WakuError
 
 if TYPE_CHECKING:
+    from datetime import timedelta
+    from uuid import UUID
+
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.contracts.message import IMessage
 
 __all__ = [
     'HandlerAlreadyRegistered',
     'HandlerNotFound',
+    'HandlerTimeoutError',
     'ImproperlyConfiguredError',
     'MapFrozenError',
     'MessagingError',
@@ -34,6 +38,15 @@ class HandlerNotFound(MessagingError):  # noqa: N818
 
     def __str__(self) -> str:
         return f'No handler registered for {self.message_type.__name__}'
+
+
+class HandlerTimeoutError(MessagingError):
+    def __init__(self, message_id: UUID, deadline: timedelta | None) -> None:
+        self.message_id = message_id
+        self.deadline = deadline
+
+    def __str__(self) -> str:
+        return f'Handler timed out for message_id={self.message_id} after deadline={self.deadline}'
 
 
 class NoRouteError(MessagingError):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import anyio
@@ -20,6 +21,7 @@ from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.registry import ErrorPolicyRegistry
+from waku.messaging.exceptions import HandlerTimeoutError
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
@@ -336,3 +338,101 @@ async def test_on_result_fired_once_across_retries() -> None:
     assert len(calls) == 2  # one failure + one success — two handler attempts
     assert recorded == [(ExecutionOutcome.SUCCESS, None)]  # observer fired once with the terminal outcome only
     assert result is ExecutionOutcome.SUCCESS
+
+
+class TestHandlerExecutionTimeout:
+    @staticmethod
+    async def test_handler_execution_timeout_overrun_dead_letters() -> None:
+        dl_store = RecordingDeadLetterStore()
+        blocked = anyio.Event()  # never set: the handler stalls until the deadline cancels it
+
+        class _BlockingHandler(RequestHandler[_FailingCommand, None]):
+            execution_timeout = timedelta(seconds=0.01)
+
+            @override
+            async def handle(self, request: _FailingCommand, /) -> None:
+                await blocked.wait()
+
+        config = MessagingConfig(
+            default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
+            dead_letter=DeadLetterConfig(store=lambda: dl_store),
+        )
+        observer, recorded = _make_observer()
+
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_BlockingHandler)],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+        ) as app:
+            evaluator = await app.container.get(ErrorPolicyEvaluator)
+            executor = await _make_executor(app, evaluator)
+            envelope = make_envelope(_FailingCommand(value='slow'))
+            outcome = await executor.execute(envelope, _BlockingHandler, on_result=observer)
+
+        # The overrun surfaces as a typed HandlerTimeoutError that flows through error_policies like any
+        # exception, so the move_to_dead_letter policy lands it in the DLQ.
+        assert outcome is ExecutionOutcome.DEAD_LETTERED
+        recorded_outcome, exc = recorded[0]
+        assert recorded_outcome is ExecutionOutcome.DEAD_LETTERED
+        assert isinstance(exc, HandlerTimeoutError)
+        assert len(dl_store.entries) == 1
+
+    @staticmethod
+    async def test_default_execution_timeout_applies_when_handler_unset() -> None:
+        blocked = anyio.Event()  # never set
+
+        class _BlockingHandler(RequestHandler[_FailingCommand, None]):
+            @override
+            async def handle(self, request: _FailingCommand, /) -> None:
+                await blocked.wait()
+
+        observer, recorded = _make_observer()
+
+        async with create_test_app(
+            imports=[MessagingModule.register()],
+            extensions=[MessagingExtension().bind(_BlockingHandler)],
+        ) as app:
+            invoker = await app.container.get(HandlerPipelineInvoker)
+            # Handler leaves execution_timeout unset (inherits MISSING) -> the executor-level default fires.
+            executor = EndpointExecutor(
+                container=app.container,
+                evaluator=NOOP_EVALUATOR,
+                endpoint_uri='test://q',
+                invoker=invoker,
+                default_execution_timeout=timedelta(seconds=0.01),
+            )
+            envelope = make_envelope(_FailingCommand(value='slow'))
+            outcome = await executor.execute(envelope, _BlockingHandler, on_result=observer)
+
+        assert outcome is ExecutionOutcome.FAILED_NO_POLICY
+        recorded_outcome, exc = recorded[0]
+        assert recorded_outcome is ExecutionOutcome.FAILED_NO_POLICY
+        assert isinstance(exc, HandlerTimeoutError)
+
+    @staticmethod
+    async def test_execution_timeout_none_opts_out_of_default() -> None:
+        class _SlowHandler(RequestHandler[_FailingCommand, None]):
+            execution_timeout = None
+
+            @override
+            async def handle(self, request: _FailingCommand, /) -> None:
+                # 50ms comfortably exceeds the 10ms default: were None wrongly treated as "inherit",
+                # the default deadline would cancel this and the outcome would not be SUCCESS.
+                await anyio.sleep(0.05)
+
+        async with create_test_app(
+            imports=[MessagingModule.register()],
+            extensions=[MessagingExtension().bind(_SlowHandler)],
+        ) as app:
+            invoker = await app.container.get(HandlerPipelineInvoker)
+            executor = EndpointExecutor(
+                container=app.container,
+                evaluator=NOOP_EVALUATOR,
+                endpoint_uri='test://q',
+                invoker=invoker,
+                default_execution_timeout=timedelta(seconds=0.01),
+            )
+            envelope = make_envelope(_FailingCommand(value='slow-but-allowed'))
+            outcome = await executor.execute(envelope, _SlowHandler)
+
+        assert outcome is ExecutionOutcome.SUCCESS

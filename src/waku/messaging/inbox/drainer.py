@@ -6,6 +6,7 @@ from uuid import UUID
 
 from waku._internal.transaction import unit_of_work_scope
 from waku.di import is_registered
+from waku.messaging.config import MessagingConfig
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
@@ -149,6 +150,7 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
     evaluator = await container.get(ErrorPolicyEvaluator)
     invoker = await container.get(HandlerPipelineInvoker)
     serializer = await container.get(IEnvelopeSerializer)
+    messaging_config = await container.get(MessagingConfig)
 
     handler_by_fqn = {handler_destination(ht): ht for ht in registry.handler_map.handler_types()}
     executors: dict[str, EndpointExecutor] = {}
@@ -156,11 +158,13 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
     def executor_factory(source_uri: str) -> EndpointExecutor:
         executor = executors.get(source_uri)
         if executor is None:
+            # Recovered durable handlers get the same default deadline as the live path (#16).
             executor = EndpointExecutor(
                 container=container,
                 evaluator=evaluator,
                 endpoint_uri=source_uri,
                 invoker=invoker,
+                default_execution_timeout=messaging_config.default_execution_timeout,
             )
             executors[source_uri] = executor
         return executor

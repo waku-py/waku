@@ -6,15 +6,18 @@ from typing import TYPE_CHECKING, Any, TypeAlias, assert_never
 
 import anyio
 
+from waku._internal.sentinel import MISSING
 from waku.messaging.context import message_context_scope
 from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.errors.executor import FailureContext
 from waku.messaging.errors.policy import RetryAction
+from waku.messaging.exceptions import HandlerTimeoutError
 from waku.messaging.transport.serialization import IEnvelopeSerializer
 from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from datetime import timedelta
 
     from dishka import AsyncContainer
 
@@ -50,7 +53,7 @@ class EndpointExecutor:
     Endpoints delegate to this class; they do not manage scopes, retries, or error handling directly.
     """
 
-    __slots__ = ('_container', '_endpoint_uri', '_evaluator', '_invoker', '_sleep')
+    __slots__ = ('_container', '_default_execution_timeout', '_endpoint_uri', '_evaluator', '_invoker', '_sleep')
 
     def __init__(
         self,
@@ -59,12 +62,14 @@ class EndpointExecutor:
         evaluator: ErrorPolicyEvaluator,
         endpoint_uri: str,
         invoker: HandlerPipelineInvoker,
+        default_execution_timeout: timedelta | None = None,
         sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     ) -> None:
         self._container = container
         self._evaluator = evaluator
         self._endpoint_uri = endpoint_uri
         self._invoker = invoker
+        self._default_execution_timeout = default_execution_timeout
         self._sleep = sleep
 
     async def execute(
@@ -103,10 +108,21 @@ class EndpointExecutor:
             else:
                 return ExecutionOutcome.SUCCESS, None
 
+    def _resolve_timeout(self, handler_type: HandlerType) -> timedelta | None:
+        value = handler_type.execution_timeout
+        return self._default_execution_timeout if value is MISSING else value  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+
     async def _dispatch_in_scope(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> None:
-        async with self._container() as scope:
-            with message_context_scope(envelope):
-                await self._invoker.invoke(scope, envelope.payload, handler_type)
+        # Per-attempt non-raising deadline: an overrun cancels the scope (cancelled_caught) and re-raises
+        # as a typed HandlerTimeoutError that flows through error_policies like any exception — so a
+        # handler's OWN TimeoutError is never mistaken for a deadline breach.
+        timeout = self._resolve_timeout(handler_type)
+        with anyio.move_on_after(timeout.total_seconds() if timeout is not None else None) as cancel_scope:
+            async with self._container() as scope:
+                with message_context_scope(envelope):
+                    await self._invoker.invoke(scope, envelope.payload, handler_type)
+        if cancel_scope.cancelled_caught:
+            raise HandlerTimeoutError(envelope.message_id, timeout)
 
     def _evaluate(
         self,

@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Self, TypeAlias, assert_never, cast, get_
 from typing_extensions import override
 
 from waku._internal.retort import default_retort
+from waku._internal.sentinel import MISSING
 from waku.di import (
     AnyOf,
     AsyncContainer,
@@ -80,6 +81,7 @@ from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from waku.application import WakuApplication
+    from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.handler import HandlerType
     from waku.modules import ModuleMetadata, ModuleType
 
@@ -156,7 +158,7 @@ class MessagingModule:
             raise ImproperlyConfiguredError(msg)
         # DLQ validation lives in MessageRegistryAggregator (M2a.2) — handler ClassVar policies are
         # only known after module merge. Do NOT add it here.
-        if _has_durable_local_queue(config.endpoints) and config.inbox is None:
+        if _has_durable_local_queue(config) and config.inbox is None:
             msg = 'EndpointMode.DURABLE on a local_queue entry requires inbox in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
 
@@ -247,19 +249,34 @@ def _requires_dead_letter_store(registry: MessageRegistry, config: MessagingConf
     return any(policies_need_dead_letter(ht.error_policies) for ht in registry.handler_map.handler_types())
 
 
-def _has_durable_local_queue(entries: Sequence[EndpointEntry]) -> bool:
-    return any(isinstance(entry, LocalQueueEntry) and entry.mode == EndpointMode.DURABLE for entry in entries)
+def _effective_mode(entry: LocalQueueEntry, config: MessagingConfig) -> EndpointMode:
+    # The sole place `mode` is resolved: an unset (MISSING) entry inherits `default_endpoint_mode`. Every
+    # mode reader routes through this, so MISSING never reaches a `== DURABLE` check or `_create_endpoint`'s
+    # `assert_never`.
+    return config.default_endpoint_mode if entry.mode is MISSING else entry.mode  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
 
 
-def _requires_sequence_allocator(entries: Sequence[EndpointEntry]) -> bool:
+def _resolve_circuit_breaker(entry: LocalQueueEntry, config: MessagingConfig) -> 'CircuitBreakerConfig | None':
+    # Unset (MISSING) inherits `default_circuit_breaker`; an explicit None opts out of any breaker.
+    return entry.circuit_breaker if entry.circuit_breaker is not MISSING else config.default_circuit_breaker  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+
+
+def _has_durable_local_queue(config: MessagingConfig) -> bool:
+    return any(
+        isinstance(entry, LocalQueueEntry) and _effective_mode(entry, config) == EndpointMode.DURABLE
+        for entry in config.endpoints
+    )
+
+
+def _requires_sequence_allocator(config: MessagingConfig) -> bool:
     # Only endpoints that actually consult ISequenceAllocator count: ExternalEndpoint (outbox) and a
     # DURABLE local queue (inbox). partition_by on a BUFFERED/INLINE local queue is inert.
-    for entry in entries:
+    for entry in config.endpoints:
         if entry.partition_by is None:
             continue
         if isinstance(entry, ExternalEntry):
             return True
-        if isinstance(entry, LocalQueueEntry) and entry.mode == EndpointMode.DURABLE:
+        if isinstance(entry, LocalQueueEntry) and _effective_mode(entry, config) == EndpointMode.DURABLE:
             return True
     return False
 
@@ -331,9 +348,12 @@ def _create_endpoint(
         evaluator=evaluator,
         endpoint_uri=entry.uri,
         invoker=invoker,
+        default_execution_timeout=config.default_execution_timeout,
     )
     subscriptions = routing_table.endpoint_subscriptions.get(entry.uri, {})
-    match entry.mode:
+    # Resolve MISSING before the match so an unset mode never reaches assert_never.
+    effective_mode = _effective_mode(entry, config)
+    match effective_mode:
         case EndpointMode.INLINE:
             return InlineEndpoint(
                 uri=entry.uri,
@@ -348,7 +368,7 @@ def _create_endpoint(
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,
                 max_parallel=entry.max_parallel,
-                circuit_breaker_config=entry.circuit_breaker or config.default_circuit_breaker,
+                circuit_breaker_config=_resolve_circuit_breaker(entry, config),
             )
         case EndpointMode.DURABLE:
             if config.inbox is None:
@@ -364,10 +384,10 @@ def _create_endpoint(
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,
                 partition_by=entry.partition_by,
-                circuit_breaker_config=entry.circuit_breaker or config.default_circuit_breaker,
+                circuit_breaker_config=_resolve_circuit_breaker(entry, config),
             )
         case _:
-            assert_never(entry.mode)
+            assert_never(effective_mode)
 
 
 class MessageRegistryAggregator(RegistryAggregator['MessagingExtension', MessageRegistry]):
@@ -570,7 +590,7 @@ class _SequenceAllocatorValidationExtension(OnContainerBuilt):
 
     @override
     async def on_container_built(self, app: 'WakuApplication') -> None:
-        if not _requires_sequence_allocator(self._config.endpoints):
+        if not _requires_sequence_allocator(self._config):
             return
         # Check inside a request scope: the allocator is typically scoped and is not registered at app
         # scope. is_registered is a pure presence check (no construction).

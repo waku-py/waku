@@ -5,6 +5,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from waku._internal.polling import PollingConfig
+from waku.messaging.endpoints.base import EndpointMode
 from waku.messaging.outbox.relay import OutboxRelayConfig
 
 if TYPE_CHECKING:
@@ -76,5 +77,9 @@ class MessagingConfig:
     inbox: InboxConfig | None = None
     default_circuit_breaker: CircuitBreakerConfig | None = None
     """Fallback per-endpoint circuit-breaker config; an endpoint's own breaker shadows this."""
+    default_execution_timeout: timedelta | None = timedelta(seconds=60)
+    """Fallback per-handler execution deadline (DEFAULT-ON 60s); a handler's own `execution_timeout` shadows this; None = off."""
+    default_endpoint_mode: EndpointMode = EndpointMode.BUFFERED
+    """Fallback mode for `local_queue` entries that leave `mode` unset; DURABLE makes all local queues durable."""
     message_identities: Mapping[type[IMessage], str | MessageIdentity] = field(default_factory=dict)
     """Third-party override for types you can't annotate; the default path is the ClassVar."""

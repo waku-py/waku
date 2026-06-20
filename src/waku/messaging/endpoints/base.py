@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, TypeAlias
 
+from waku._internal.sentinel import MISSING
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
@@ -38,12 +40,12 @@ class EndpointMode(enum.StrEnum):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class LocalQueueEntry:
     uri: str
-    mode: EndpointMode = EndpointMode.BUFFERED
+    mode: EndpointMode | MISSING = MISSING  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
     max_parallel: int = 1
     stop_timeout: float = 5.0
     max_buffer_size: float = math.inf
     partition_by: Callable[[IMessage], str | None] | None = None
-    circuit_breaker: CircuitBreakerConfig | None = None
+    circuit_breaker: CircuitBreakerConfig | MISSING | None = MISSING  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -59,12 +61,12 @@ EndpointEntry: TypeAlias = LocalQueueEntry | ExternalEntry
 def local_queue(
     uri: str,
     *,
-    mode: EndpointMode = EndpointMode.BUFFERED,
+    mode: EndpointMode | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
     max_parallel: int = 1,
     stop_timeout: float = 5.0,
     max_buffer_size: float = math.inf,
     partition_by: Callable[[IMessage], str | None] | None = None,
-    circuit_breaker: CircuitBreakerConfig | None = None,
+    circuit_breaker: CircuitBreakerConfig | MISSING | None = MISSING,  # type: ignore[valid-type]
 ) -> LocalQueueEntry:
     return LocalQueueEntry(
         uri=uri,
