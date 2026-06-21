@@ -11,8 +11,7 @@ from waku.messages import MessageIdentity
 from waku.messaging.contracts.envelope import MessageEnvelope
 
 if TYPE_CHECKING:
-    # Constructed only via the _create_envelope_serializer factory — dishka introspects that
-    # factory's signature, never this __init__ — so these deps stay TYPE_CHECKING-only.
+    # dishka introspects the factory's signature, not this __init__, so these stay TYPE_CHECKING-only.
     from waku.messaging.identity import MessageTypeRegistry
     from waku.serialization.codec import PayloadCodec
 
@@ -48,6 +47,8 @@ class JsonEnvelopeSerializer(IEnvelopeSerializer):
             'timestamp': envelope.timestamp.isoformat(),
             'headers': dict(envelope.headers),
             'group_id': envelope.group_id,
+            'scheduled_time': envelope.scheduled_time.isoformat() if envelope.scheduled_time is not None else None,
+            'expires_at': envelope.expires_at.isoformat() if envelope.expires_at is not None else None,
             'payload': self._codec.encode(envelope.payload, type(envelope.payload)),
         }
 
@@ -58,6 +59,8 @@ class JsonEnvelopeSerializer(IEnvelopeSerializer):
         payload_type = self._type_registry.resolve_type(message_type_name)
         identity = MessageIdentity(name=message_type_name, version=message_version)
         payload: Any = self._codec.decode(data['payload'], payload_type, identity)
+        scheduled_raw = data.get('scheduled_time')
+        expires_raw = data.get('expires_at')
         return MessageEnvelope(
             message_id=UUID(data['message_id']),
             correlation_id=UUID(data['correlation_id']),
@@ -68,4 +71,6 @@ class JsonEnvelopeSerializer(IEnvelopeSerializer):
             payload=payload,
             headers=data.get('headers', {}),
             group_id=data.get('group_id'),
+            scheduled_time=datetime.fromisoformat(scheduled_raw).astimezone(UTC) if scheduled_raw is not None else None,
+            expires_at=datetime.fromisoformat(expires_raw).astimezone(UTC) if expires_raw is not None else None,
         )

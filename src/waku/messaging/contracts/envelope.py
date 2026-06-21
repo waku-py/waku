@@ -24,3 +24,5 @@ class MessageEnvelope(Generic[_MessageT]):
     message_version: int = 1
     headers: Mapping[str, str] = field(default_factory=dict)
     group_id: str | None = None
+    scheduled_time: datetime | None = None
+    expires_at: datetime | None = None

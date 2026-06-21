@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import enum
 import logging
+import random
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar, Protocol, runtime_checkable
 
@@ -34,10 +35,7 @@ class IPaceStrategy(Protocol):
 
 
 class AdaptivePace(IPaceStrategy):
-    """Work-adaptive pacing: collapses to the min interval after a productive tick.
-
-    Grows toward max while idle. Wraps `AdaptiveInterval` built from a `PollingConfig`.
-    """
+    """Collapses to min interval after a productive tick; grows toward max while idle."""
 
     __slots__ = ('_interval',)
 
@@ -62,12 +60,17 @@ class AdaptivePace(IPaceStrategy):
 
 
 class FixedPace(IPaceStrategy):
-    """Constant-interval pacing (the recovery worker's fixed `recovery_interval`); ignores work count."""
+    """Constant-interval pacing; ignores work count.
 
-    __slots__ = ('_seconds',)
+    ``jitter_factor`` adds per-node randomness (used by scheduled-promotion poll to avoid multi-pod
+    SKIP-LOCKED contention); default 0.0 is exact.
+    """
 
-    def __init__(self, seconds: float) -> None:
+    __slots__ = ('_jitter_factor', '_seconds')
+
+    def __init__(self, seconds: float, jitter_factor: float = 0.0) -> None:
         self._seconds = seconds
+        self._jitter_factor = jitter_factor
 
     @override
     def record(self, processed: int) -> None:
@@ -75,28 +78,23 @@ class FixedPace(IPaceStrategy):
 
     @override
     def next_delay(self) -> float:
-        return self._seconds
+        if not self._jitter_factor:
+            return self._seconds
+        return self._seconds * random.uniform(1 - self._jitter_factor, 1 + self._jitter_factor)  # noqa: S311
 
 
 class Placement(enum.Enum):
-    """Deployment-topology marker for a polling agent.
-
-    Documentation/wiring hook ONLY — the runtime never branches on it (INVARIANT 5: 1-per-DC topology
-    is enforced by deployment, not by code).
-    """
+    """Deployment-topology marker. Documentation/wiring hook only — runtime never branches on it."""
 
     SINGLETON_PER_DC = 'SINGLETON_PER_DC'
     PER_POD = 'PER_POD'
 
 
 class PollingAgent(ABC):
-    """Internal base for poll-loop durability agents (outbox relay, inbox recovery, dead-letter worker).
+    """Base for durability poll-loop agents (outbox relay, inbox recovery, dead-letter worker).
 
-    Owns the background-task lifecycle: `start` spawns `_run_loop`, `stop` signals + joins + cancels.
-    `_run_loop` is a template — each cycle runs `_tick`, paces from the subclass strategy, and waits
-    interruptibly on the shutdown event. A `_tick` exception logs-and-continues (never breaks the loop).
-    Subclasses provide `_tick`, `_make_pace`, and a `placement` marker; their own `__init__` resolves
-    domain collaborators before calling `super().__init__(stop_timeout=...)`.
+    ``start`` spawns ``_run_loop``; ``stop`` signals + joins + cancels. Each cycle calls ``_tick``,
+    paces via the subclass strategy, and waits interruptibly. ``_tick`` exceptions log-and-continue.
     """
 
     __slots__ = ('_pace', '_shutdown_event', '_stop_timeout', '_worker_task')
@@ -108,6 +106,10 @@ class PollingAgent(ABC):
         self._pace = self._make_pace()
         self._shutdown_event = anyio.Event()
         self._worker_task: asyncio.Task[None] | None = None
+
+    @property
+    def is_stopped(self) -> bool:
+        return self._worker_task is None
 
     @abstractmethod
     def _make_pace(self) -> IPaceStrategy: ...

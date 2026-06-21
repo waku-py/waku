@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any, Self, TypeAlias, assert_never, cast, get_
 
 from typing_extensions import override
 
+from waku._internal.clock import Now, utc_now
 from waku._internal.retort import default_retort
 from waku._internal.sentinel import MISSING
 from waku.di import (
@@ -52,6 +53,7 @@ from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.drainer import build_inbox_drainer
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.recovery import InboxRecoveryWorker
+from waku.messaging.inbox.scheduled import ScheduledPromotionWorker
 from waku.messaging.interfaces import IMessageBus
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig, build_relay_default_policy
@@ -93,8 +95,7 @@ __all__ = [
 
 _HandlerProviders: TypeAlias = tuple[Provider, ...]
 
-# Ordered framework policies; declaration order is the tie-break within a Position tier.
-# ES forwarding is contributed by the ES module, not listed here.
+# Declaration order is the tie-break within a Position tier; ES forwarding contributed by the ES module.
 _FRAMEWORK_POLICIES: tuple[IBehaviorPolicy, ...] = (
     CascadingPolicy(),
     DeferredCascadingPolicy(),
@@ -115,10 +116,9 @@ class MessagingModule:
         providers: list[Provider] = [
             scoped(WithParents[IMessageBus], MessageBus),  # ty:ignore[not-subscriptable]
             scoped(AnyOf[IOutgoingMessages, IOutgoingMessagesFrames], OutgoingMessages),  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
-            # Always registered: shared by TransactionalBehavior + the dispatcher's invoke(event) frame.
-            # Gating on config would miss per-handler TransactionalBehavior.
-            scoped(_TransactionDepth),
+            scoped(_TransactionDepth),  # always registered: gating on config misses per-handler TransactionalBehavior
             object_(config_, provided_type=MessagingConfig),
+            object_(utc_now, provided_type=Now),
             singleton(MessageTypeRegistry, _build_message_type_registry),
             singleton(PayloadCodec, _create_envelope_codec),
             singleton(EnvelopeFactory),
@@ -156,8 +156,7 @@ class MessagingModule:
         if has_external and config.outbox is None:
             msg = 'external_endpoint requires outbox in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
-        # DLQ validation lives in MessageRegistryAggregator — handler ClassVar policies are only known
-        # after module merge.
+        # DLQ validation deferred to MessageRegistryAggregator (handler ClassVar policies only known post-merge).
         if _has_durable_local_queue(config) and config.inbox is None:
             msg = 'EndpointMode.DURABLE on a local_queue entry requires inbox in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
@@ -165,8 +164,7 @@ class MessagingModule:
 
     @staticmethod
     def _serializer_provider(config: MessagingConfig) -> Provider | None:
-        # inbox also needs a serializer: DurableLocalQueueEndpoint serializes the envelope before the
-        # inbox write, and the drainer deserializes it on recovery.
+        # inbox also needs a serializer (DurableLocalQueueEndpoint serializes; drainer deserializes on recovery).
         if config.outbox is None and config.dead_letter is None and config.inbox is None:
             return None
         if config.outbox is not None and config.outbox.envelope_serializer is not None:
@@ -251,13 +249,11 @@ def _requires_dead_letter_store(registry: MessageRegistry, config: MessagingConf
 
 
 def _effective_mode(entry: LocalQueueEntry, config: MessagingConfig) -> EndpointMode:
-    # Single resolution point — MISSING never reaches a `== DURABLE` check or `assert_never`.
     return config.default_endpoint_mode if entry.mode is MISSING else entry.mode  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
 
 
 def _resolve_circuit_breaker(entry: LocalQueueEntry, config: MessagingConfig) -> 'CircuitBreakerConfig | None':
-    # MISSING inherits default; explicit None opts out.
-    return entry.circuit_breaker if entry.circuit_breaker is not MISSING else config.default_circuit_breaker  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+    return entry.circuit_breaker if entry.circuit_breaker is not MISSING else config.default_circuit_breaker  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows  # MISSING inherits default; None opts out
 
 
 def _resolve_max_requeue_attempts(entry: LocalQueueEntry, config: MessagingConfig) -> int:
@@ -265,7 +261,7 @@ def _resolve_max_requeue_attempts(entry: LocalQueueEntry, config: MessagingConfi
 
 
 def _reject_inline_deferred_terminal(config: MessagingConfig) -> None:
-    # INLINE has no listener queue; per-handler policies are checked post-merge in _finalize.
+    # Per-handler policies checked post-merge in _finalize; this catches global defaults early.
     if not policies_have_deferred_terminal(config.default_error_policies):
         return
     for entry in config.endpoints:
@@ -275,7 +271,7 @@ def _reject_inline_deferred_terminal(config: MessagingConfig) -> None:
 
 
 def _reject_inline_per_handler_deferred_terminal(config: MessagingConfig, routing_table: RoutingTable) -> None:
-    # Post-merge: routing table now maps INLINE endpoints to their handlers, enabling per-handler checks.
+    # Post-merge: routing table maps INLINE endpoints to handlers, enabling per-handler checks.
     for entry in config.endpoints:
         if not (isinstance(entry, LocalQueueEntry) and _effective_mode(entry, config) is EndpointMode.INLINE):
             continue
@@ -297,8 +293,7 @@ def _has_durable_local_queue(config: MessagingConfig) -> bool:
 
 
 def _requires_sequence_allocator(config: MessagingConfig) -> bool:
-    # Only ExternalEndpoint (outbox) and DURABLE local queue (inbox) consult ISequenceAllocator;
-    # partition_by on BUFFERED/INLINE is inert.
+    # Only ExternalEndpoint (outbox) and DURABLE local queue use ISequenceAllocator; BUFFERED/INLINE ignore partition_by.
     for entry in config.endpoints:
         if entry.partition_by is None:
             continue
@@ -346,9 +341,10 @@ def _build_router(
     evaluator: ErrorPolicyEvaluator,
     invoker: HandlerPipelineInvoker,
     config: MessagingConfig,
+    now: Now,
 ) -> MessageRouter:
     endpoints_by_uri = {
-        entry.uri: _create_endpoint(entry, routing_table, container, evaluator, invoker, config)
+        entry.uri: _create_endpoint(entry, routing_table, container, evaluator, invoker, config, now)
         for entry in routing_table.entries
     }
     return MessageRouter(
@@ -367,6 +363,7 @@ def _create_endpoint(
     evaluator: ErrorPolicyEvaluator,
     invoker: HandlerPipelineInvoker,
     config: MessagingConfig,
+    now: Now,
 ) -> Endpoint:
     if isinstance(entry, ExternalEntry):
         return ExternalEndpoint(uri=entry.uri, partition_by=entry.partition_by)
@@ -377,6 +374,7 @@ def _create_endpoint(
         endpoint_uri=entry.uri,
         invoker=invoker,
         default_execution_timeout=config.default_execution_timeout,
+        now=now,
     )
     subscriptions = routing_table.endpoint_subscriptions.get(entry.uri, {})
     effective_mode = _effective_mode(entry, config)  # resolve MISSING before the match
@@ -414,6 +412,7 @@ def _create_endpoint(
                 partition_by=entry.partition_by,
                 max_requeue_attempts=_resolve_max_requeue_attempts(entry, config),
                 circuit_breaker_config=_resolve_circuit_breaker(entry, config),
+                now=now,
             )
         case _:
             assert_never(effective_mode)
@@ -507,10 +506,8 @@ class MessageRegistryAggregator(RegistryAggregator['MessagingExtension', Message
         owning_module: 'ModuleType',
         aggregated: MessageRegistry,
     ) -> None:
-        # Resolve each handler's chain once at registration; behavior TYPES are resolved per-scope by
-        # the invoker. Per-handler behaviors register in their binding module so module-local deps stay
-        # accessible; framework behaviors register in the owning (global) module. Extra policies
-        # (e.g. ES forwarding) are contributed via BehaviorPolicyExtension.
+        # Chains resolved once at registration; behavior TYPES instantiated per-scope by the invoker.
+        # Extra policies (e.g. ES forwarding) contributed via BehaviorPolicyExtension.
         contributed = tuple(ext.policy for _module, ext in registry.find_extensions(BehaviorPolicyExtension))
         plan = build_behavior_plan(
             tuple(aggregated.handler_map.handler_types()),
@@ -532,9 +529,7 @@ class MessageRegistryAggregator(RegistryAggregator['MessagingExtension', Message
         seen_handlers: 'set[HandlerType]',
         seen_behaviors: set[type[IPipelineBehavior[Any, Any]]],
     ) -> Iterator[Provider]:
-        # Each handler/behavior registers once (first binding module). `seen_*` span all modules:
-        # a handler bound to >1 type or a behavior shared across modules would otherwise emit
-        # duplicate scoped providers — dishka rejects those under strict validation.
+        # Each handler/behavior registers once across all modules; duplicates would be rejected by dishka.
         for handler_type in reg.handler_map.handler_types():
             if handler_type in seen_handlers:
                 continue
@@ -572,8 +567,9 @@ class _UnitOfWorkValidationExtension(OnContainerBuilt):
     async def on_container_built(self, app: 'WakuApplication') -> None:
         if not await self._uow_required(app):
             return
-        # IUnitOfWork is scoped, not at app scope; is_registered is a pure presence check.
-        async with app.container() as scope:
+        async with (
+            app.container() as scope
+        ):  # is_registered is a pure presence check; IUnitOfWork is scoped, not app-scope
             has_uow = await is_registered(scope, IUnitOfWork)
         if not has_uow:
             msg = (
@@ -583,8 +579,7 @@ class _UnitOfWorkValidationExtension(OnContainerBuilt):
             raise ImproperlyConfiguredError(msg)
 
     async def _uow_required(self, app: 'WakuApplication') -> bool:
-        # Durable infra / global TransactionalBehavior needs a UoW even with no local handlers.
-        # Otherwise the BehaviorPlan is the source of truth.
+        # Durable infra or global TransactionalBehavior needs a UoW even without local handlers.
         if _config_requires_uow(self._config):
             return True
         plan = await app.container.get(BehaviorPlan)
@@ -596,12 +591,10 @@ class _UnitOfWorkValidationExtension(OnContainerBuilt):
 
 
 class _SequenceAllocatorValidationExtension(OnContainerBuilt):
-    """Fail fast when partition_by is declared but ISequenceAllocator is absent.
+    """Fail fast when ``partition_by`` is declared without ``ISequenceAllocator``.
 
-    Auto-registering the SQLAlchemy allocator would couple every outbox/inbox config to AsyncSession;
-    instead, this turns the deferred 'no allocator' failure into a clear startup error. Note: only
-    detects declared ``partition_by`` — a cascade-propagated ``envelope.group_id`` cannot be detected
-    statically.
+    Auto-registration would couple every config to ``AsyncSession``; startup error is cleaner.
+    Only detects declared ``partition_by`` — cascade-propagated ``envelope.group_id`` is undetectable statically.
     """
 
     __slots__ = ('_config',)
@@ -613,8 +606,7 @@ class _SequenceAllocatorValidationExtension(OnContainerBuilt):
     async def on_container_built(self, app: 'WakuApplication') -> None:
         if not _requires_sequence_allocator(self._config):
             return
-        # Allocator is scoped, not at app scope; is_registered is a pure presence check.
-        async with app.container() as scope:
+        async with app.container() as scope:  # is_registered: pure presence check; allocator is scoped
             has_allocator = await is_registered(scope, ISequenceAllocator)
         if not has_allocator:
             msg = (
@@ -649,20 +641,32 @@ class OutboxRelayLifecycleExtension(AfterApplicationInit, OnApplicationShutdown)
 
 
 class InboxRecoveryLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
-    __slots__ = ('_config', '_worker')
+    __slots__ = ('_config', '_promotion', '_worker')
 
     def __init__(self, config: InboxConfig) -> None:
         self._config = config
         self._worker: InboxRecoveryWorker | None = None
+        self._promotion: ScheduledPromotionWorker | None = None
 
     @override
     async def after_app_init(self, app: 'WakuApplication') -> None:
         drainer = await build_inbox_drainer(app.container, self._config)
-        self._worker = InboxRecoveryWorker(container=app.container, config=self._config, drainer=drainer)
+        now = await app.container.get(Now)
+        self._worker = InboxRecoveryWorker(
+            container=app.container,
+            config=self._config,
+            drainer=drainer,
+            now=now,
+        )
+        # Sibling worker: started/stopped here so both inbox-recovery timers travel together (M4+ leader election).
+        self._promotion = ScheduledPromotionWorker(container=app.container, config=self._config, now=now)
         await self._worker.start()
+        await self._promotion.start()
 
     @override
     async def on_app_shutdown(self, app: 'WakuApplication') -> None:
+        if self._promotion is not None:
+            await self._promotion.stop()
         if self._worker is not None:
             await self._worker.stop()
 

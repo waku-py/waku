@@ -5,8 +5,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import delete, func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
 
-# Runtime import: dishka introspects __init__ type hints at container-build time
-# (get_type_hints), so this DI-injected type must resolve at runtime — not under TYPE_CHECKING.
+# Runtime import: dishka introspects __init__ via get_type_hints at container-build time.
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 from typing_extensions import override
 
@@ -21,6 +20,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from waku.messaging.errors.dead_letter import DeadLetterEntry
+    from waku.messaging.partition import ISequenceAllocator
 
 __all__ = ['SqlAlchemyInboxStore']
 
@@ -55,9 +55,7 @@ class SqlAlchemyInboxStore(IInboxStore):
             .returning(_t.c.id)
         )
         result = await self._session.execute(stmt)
-        # RETURNING + rowcount is the cheapest dedup detection: rowcount=1 on a successful
-        # insert, 0 when ON CONFLICT DO NOTHING swallowed the composite-PK violation.
-        return result.rowcount > 0  # type: ignore[attr-defined,no-any-return]
+        return result.rowcount > 0  # type: ignore[attr-defined,no-any-return]  # rowcount=0 when ON CONFLICT DO NOTHING fired
 
     @override
     async def mark_as_handled(self, entry_id: UUID, destination: str, keep_until: datetime) -> None:
@@ -81,8 +79,7 @@ class SqlAlchemyInboxStore(IInboxStore):
 
     @override
     async def move_to_dead_letter(self, entry_id: UUID, destination: str, dead_letter: DeadLetterEntry) -> None:
-        # Delete only the failing handler's row — sibling fan-out rows for the same message_id
-        # keep processing. `dead_letter.destination` carries the same handler FQN.
+        # Delete only this handler's row; sibling fan-out rows for the same message_id continue processing.
         await self._session.execute(delete(_t).where(_t.c.id == entry_id).where(_t.c.destination == destination))
         await self._session.execute(
             insert(dead_letter_table).values(
@@ -104,14 +101,9 @@ class SqlAlchemyInboxStore(IInboxStore):
 
     @override
     async def fetch_pending(self, batch_size: int, owner_id: str) -> Sequence[InboxEntry]:
-        # Concurrency defense: `SKIP LOCKED` inside the CTE excludes rows being claimed by another
-        # in-flight fetch_pending transaction; `owner_id IS NULL` excludes rows already claimed by a
-        # committed previous fetch. The UPDATE's RETURNING commits the claim; the `owner_id` set here
-        # keeps other fetchers out until mark_as_handled clears it or recover_stale releases it.
-        # Select the FULL composite key `(id, destination)`: the PK is composite, so a fan-out
-        # message has N rows sharing one `id`. Filtering the UPDATE on `id` alone would claim every
-        # sibling row even though SKIP LOCKED only locked the one(s) the CTE selected (double-claim +
-        # batch-size violation). The `tuple_(...)` IN confines the UPDATE to exactly the locked rows.
+        # SKIP LOCKED excludes in-flight claims; owner_id IS NULL excludes already-claimed rows.
+        # UPDATE filters on composite (id, destination) — filtering on id alone would claim every
+        # fan-out sibling sharing that id (double-claim + batch-size violation).
         pending_cte = (
             select(_t.c.id, _t.c.destination)
             .where(_t.c.status == InboxStatus.INCOMING.value)
@@ -135,12 +127,9 @@ class SqlAlchemyInboxStore(IInboxStore):
         incoming = _t.c.status == InboxStatus.INCOMING.value
         unclaimed = _t.c.owner_id.is_(None)
 
-        # Head of each partition is keyed on (group_id, DESTINATION), not group_id alone: a fan-out
-        # message writes one row per handler FQN, all sharing the same group_id and sequence_number.
-        # DISTINCT ON (group_id) would collapse those sibling rows to one and starve every handler but
-        # one. Per (group_id, destination) each handler advances its group independently. DISTINCT ON
-        # carries no locking clause (PostgreSQL forbids FOR UPDATE with DISTINCT). No xmin/commit-order
-        # filter is needed — see the outbox fetch_head_of_queue comment.
+        # DISTINCT ON (group_id, destination) not (group_id) alone: DISTINCT ON (group_id) would
+        # collapse fan-out sibling rows to one, starving all but one handler. DISTINCT ON carries no
+        # FOR UPDATE (PostgreSQL forbids it); locking happens on the base table in to_claim.
         partitioned_heads = (
             select(_t.c.id, _t.c.destination)
             .distinct(_t.c.group_id, _t.c.destination)
@@ -151,12 +140,9 @@ class SqlAlchemyInboxStore(IInboxStore):
             .cte('partitioned_heads')
         )
 
-        # Claim against the BASE TABLE so FOR UPDATE SKIP LOCKED is valid (it is NOT allowed over a
-        # UNION/DISTINCT subquery). The composite key (id, destination) confines the claim to exactly
-        # the locked rows — filtering on id alone would claim every fan-out sibling sharing that id
-        # (the M2b.1 fetch_pending bug). `OF inbox_entries` scopes the lock to base rows, never the
-        # read-only heads CTE. If a (group, destination) head is locked by another worker, SKIP LOCKED
-        # drops it this cycle without falling through to a higher sequence — per-handler FIFO holds.
+        # Claim against the base table (FOR UPDATE SKIP LOCKED is invalid on UNION/DISTINCT).
+        # (id, destination) confines the claim to exactly the locked rows — id alone claims every sibling.
+        # `OF inbox_entries` scopes the lock; SKIP LOCKED drops a locked head without skipping FIFO.
         to_claim = (
             select(_t.c.id, _t.c.destination)
             .where(incoming)
@@ -186,16 +172,12 @@ class SqlAlchemyInboxStore(IInboxStore):
 
     @override
     async def recover_stale(self, threshold: timedelta) -> int:
-        # Explicitly refresh updated_at so the reclaimed row does not immediately re-match the stale
-        # filter on the next recovery tick (relying on onupdate=func.now() would tie recovery
-        # correctness to a table-level default).
+        # Refresh updated_at explicitly so a reclaimed row doesn't immediately re-match next tick.
         cutoff = func.now() - threshold
         stmt = (
             update(_t)
             .where(_t.c.status == InboxStatus.INCOMING.value)
-            # Only reclaim genuinely in-flight (claimed) rows whose worker went silent. Never-claimed
-            # rows (owner_id IS NULL) are already fetchable; touching them is spurious churn and resets
-            # their stale clock. Matches FakeInboxStore.recover_stale.
+            # Never-claimed rows (owner_id IS NULL) are already fetchable; resetting their clock is churn.
             .where(_t.c.owner_id.isnot(None))
             .where(_t.c.updated_at < cutoff)
             .values(owner_id=None, updated_at=func.now())
@@ -205,8 +187,6 @@ class SqlAlchemyInboxStore(IInboxStore):
 
     @override
     async def cleanup_handled(self, now: datetime) -> int:
-        # WHERE filters on status + keep_until only — never the composite key. Retention purges whole
-        # `(id, destination)` rows; the composite PK does not change this predicate.
         stmt = (
             delete(_t)
             .where(_t.c.status == InboxStatus.HANDLED.value)
@@ -215,6 +195,34 @@ class SqlAlchemyInboxStore(IInboxStore):
         )
         result = await self._session.execute(stmt)
         return result.rowcount  # type: ignore[attr-defined,no-any-return]
+
+    @override
+    async def promote_due_scheduled(self, now: datetime, allocator: ISequenceAllocator, batch_size: int) -> int:
+        # FOR UPDATE SKIP LOCKED: no double-promotion, caps the locked set. Allocate ONCE per message_id
+        # (fan-out rows share a position). Read-then-update so per-group sequence is always allocated.
+        claim = (
+            select(_t.c.id, _t.c.destination, _t.c.group_id)
+            .where(_t.c.status == InboxStatus.SCHEDULED.value)
+            .where(_t.c.execution_time <= now)
+            .order_by(_t.c.execution_time.asc())
+            .limit(batch_size)
+            .with_for_update(skip_locked=True)
+        )
+        rows = (await self._session.execute(claim)).fetchall()
+        if not rows:
+            return 0
+        sequence_by_id: dict[UUID, int | None] = {}
+        for row in rows:
+            if row.id not in sequence_by_id:
+                sequence_by_id[row.id] = await allocator.allocate(row.group_id) if row.group_id is not None else None
+        for row in rows:
+            await self._session.execute(
+                update(_t)
+                .where(_t.c.id == row.id)
+                .where(_t.c.destination == row.destination)
+                .values(status=InboxStatus.INCOMING.value, sequence_number=sequence_by_id[row.id]),
+            )
+        return len(rows)
 
 
 def _row_to_entry(row: Any) -> InboxEntry:

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from waku.messaging.errors.dead_letter import DeadLetterEntry
+    from waku.messaging.partition import ISequenceAllocator
 
 
 @dataclass
@@ -46,43 +47,13 @@ class FakeInboxStore(IInboxStore):
         current = self.entries.get(key)
         if current is None:
             return  # mirror the real UPDATE: matching zero rows is a harmless no-op
-        self.entries[key] = InboxEntry(
-            id=current.id,
-            payload=current.payload,
-            message_type=current.message_type,
-            source_uri=current.source_uri,
-            destination=current.destination,
-            status=InboxStatus.HANDLED,
-            owner_id=current.owner_id,
-            execution_time=current.execution_time,
-            attempts=current.attempts,
-            keep_until=keep_until,
-            group_id=current.group_id,
-            sequence_number=current.sequence_number,
-            created_at=current.created_at,
-            updated_at=current.updated_at,
-        )
+        # owner_id=None mirrors the SQL UPDATE: a handled row is no longer owned by a worker.
+        self.entries[key] = replace(current, status=InboxStatus.HANDLED, keep_until=keep_until, owner_id=None)
 
     @override
     async def increment_attempts(self, entry_id: UUID, destination: str) -> None:
         key = (entry_id, destination)
-        current = self.entries[key]
-        self.entries[key] = InboxEntry(
-            id=current.id,
-            payload=current.payload,
-            message_type=current.message_type,
-            source_uri=current.source_uri,
-            destination=current.destination,
-            status=current.status,
-            owner_id=current.owner_id,
-            execution_time=current.execution_time,
-            attempts=current.attempts + 1,
-            keep_until=current.keep_until,
-            group_id=current.group_id,
-            sequence_number=current.sequence_number,
-            created_at=current.created_at,
-            updated_at=current.updated_at,
-        )
+        self.entries[key] = replace(self.entries[key], attempts=self.entries[key].attempts + 1)
 
     @override
     async def move_to_dead_letter(self, entry_id: UUID, destination: str, dead_letter: DeadLetterEntry) -> None:
@@ -103,22 +74,7 @@ class FakeInboxStore(IInboxStore):
                 break
             if entry.status is not InboxStatus.INCOMING or entry.owner_id is not None:
                 continue
-            updated = InboxEntry(
-                id=entry.id,
-                payload=entry.payload,
-                message_type=entry.message_type,
-                source_uri=entry.source_uri,
-                destination=entry.destination,
-                status=entry.status,
-                owner_id=owner_id,
-                execution_time=entry.execution_time,
-                attempts=entry.attempts,
-                keep_until=entry.keep_until,
-                group_id=entry.group_id,
-                sequence_number=entry.sequence_number,
-                created_at=entry.created_at,
-                updated_at=entry.updated_at,
-            )
+            updated = replace(entry, owner_id=owner_id)
             self.entries[key] = updated
             claimed.append(updated)
         return claimed
@@ -165,22 +121,7 @@ class FakeInboxStore(IInboxStore):
                 continue
             if (entry.updated_at or now) >= cutoff:
                 continue
-            self.entries[key] = InboxEntry(
-                id=entry.id,
-                payload=entry.payload,
-                message_type=entry.message_type,
-                source_uri=entry.source_uri,
-                destination=entry.destination,
-                status=InboxStatus.INCOMING,
-                owner_id=None,
-                execution_time=entry.execution_time,
-                attempts=entry.attempts,
-                keep_until=entry.keep_until,
-                group_id=entry.group_id,
-                sequence_number=entry.sequence_number,
-                created_at=entry.created_at,
-                updated_at=now,
-            )
+            self.entries[key] = replace(entry, owner_id=None, updated_at=now)
             recovered += 1
         return recovered
 
@@ -194,3 +135,27 @@ class FakeInboxStore(IInboxStore):
                 del self.entries[key]
                 removed += 1
         return removed
+
+    @override
+    async def promote_due_scheduled(self, now: datetime, allocator: ISequenceAllocator, batch_size: int) -> int:
+        due = sorted(
+            (
+                (key, entry)
+                for key, entry in self.entries.items()
+                if entry.status is InboxStatus.SCHEDULED
+                and entry.execution_time is not None
+                and entry.execution_time <= now
+            ),
+            # Mirror the SQL ORDER BY execution_time + LIMIT batch_size (bounds a due-at-once burst).
+            key=lambda item: item[1].execution_time or now,
+        )[:batch_size]
+        # Allocate ONCE per message (all fan-out rows share a position), mirroring immediate dispatch.
+        sequence_by_id: dict[UUID, int | None] = {}
+        for _key, entry in due:
+            if entry.id not in sequence_by_id:
+                sequence_by_id[entry.id] = (
+                    await allocator.allocate(entry.group_id) if entry.group_id is not None else None
+                )
+        for key, entry in due:
+            self.entries[key] = replace(entry, status=InboxStatus.INCOMING, sequence_number=sequence_by_id[entry.id])
+        return len(due)

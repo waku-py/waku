@@ -239,3 +239,45 @@ class TestJsonEnvelopeSerializerGroupIdRoundTrip:
         restored = serializer.deserialize(serializer.serialize(envelope))
 
         assert restored.group_id is None
+
+
+class TestJsonEnvelopeSerializerDeliveryMetadataRoundTrip:
+    @staticmethod
+    def test_scheduled_time_and_expires_at_survive_round_trip_when_set() -> None:
+        serializer = make_serializer(OrderPlaced)
+        scheduled = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
+        expires = datetime(2026, 6, 21, 13, 0, tzinfo=UTC)
+        envelope = MessageEnvelope(
+            message_id=uuid4(),
+            correlation_id=uuid4(),
+            causation_id=uuid4(),
+            message_type=f'{OrderPlaced.__module__}.{OrderPlaced.__qualname__}',
+            timestamp=datetime.now(tz=UTC),
+            payload=OrderPlaced(order_id='xyz', total=1.0),
+            headers={},
+            scheduled_time=scheduled,
+            expires_at=expires,
+        )
+
+        restored = serializer.deserialize(serializer.serialize(envelope))
+
+        assert restored.scheduled_time == scheduled
+        assert restored.expires_at == expires
+
+    @staticmethod
+    def test_scheduled_time_and_expires_at_round_trip_as_none_when_absent() -> None:
+        serializer = make_serializer(OrderPlaced)
+        envelope = MessageEnvelope(
+            message_id=uuid4(),
+            correlation_id=uuid4(),
+            causation_id=uuid4(),
+            message_type=f'{OrderPlaced.__module__}.{OrderPlaced.__qualname__}',
+            timestamp=datetime.now(tz=UTC),
+            payload=OrderPlaced(order_id='xyz', total=1.0),
+            headers={},
+        )
+
+        restored = serializer.deserialize(serializer.serialize(envelope))
+
+        assert restored.scheduled_time is None
+        assert restored.expires_at is None

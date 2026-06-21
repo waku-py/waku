@@ -15,6 +15,7 @@ from waku.messaging import (
     IMessageBus,
     InboxConfig,
     InboxStatus,
+    ISequenceAllocator,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
@@ -34,7 +35,13 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FailingDeadLetterStore, FakeUoW, RecordingDeadLetterStore, make_envelope
+from tests.messaging.helpers import (
+    FailingDeadLetterStore,
+    FakeUoW,
+    RecordingAllocator,
+    RecordingDeadLetterStore,
+    make_envelope,
+)
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -328,3 +335,126 @@ class TestDurableInboxIntegration:
             await wait_until(lambda: len(dlq.entries) == 1)
 
         assert len(dlq.entries) == 1
+
+    @staticmethod
+    async def test_recovery_drain_discards_expired_durable_message() -> None:
+        # Receive-time expiry on the recovery path: an expired INCOMING row is discarded (row deleted),
+        # the handler never runs, and it is NOT dead-lettered (expiry is intended, not a failure).
+        _RecordingHandler.observed = []
+        inbox = FakeInboxStore()
+        dlq = RecordingDeadLetterStore()
+        config = MessagingConfig(
+            endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0)],
+            routing=[route(_OrderPlaced).to('orders')],
+            inbox=InboxConfig(store=lambda: inbox, owner_id='node-a:1', recovery_interval=timedelta(seconds=0.01)),
+            dead_letter=DeadLetterConfig(store=lambda: dlq),
+            global_pipeline_behaviors=[TransactionalBehavior],
+        )
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_RecordingHandler)],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+        ) as app:
+            serializer = await app.container.get(IEnvelopeSerializer)
+            envelope = make_envelope(
+                _OrderPlaced(order_id='exp-1'),
+                expires_at=datetime.now(tz=UTC) - timedelta(hours=1),
+            )
+            entry = InboxEntry(
+                id=envelope.message_id,
+                payload=serializer.serialize(envelope),
+                message_type=envelope.message_type,
+                source_uri=EndpointUri('orders'),
+                destination=handler_destination(_RecordingHandler),
+                owner_id=None,
+                status=InboxStatus.INCOMING,
+                attempts=0,
+            )
+            inbox.entries[entry.id, entry.destination] = entry
+            await wait_until(lambda: (entry.id, entry.destination) not in inbox.entries)
+
+        assert (entry.id, entry.destination) not in inbox.entries  # DISCARDED → delete, no leaked row
+        assert _RecordingHandler.observed == []  # handler never ran
+        assert dlq.entries == []  # expiry is not a failure → never dead-lettered
+
+    @staticmethod
+    async def test_scheduled_poll_promotes_due_row_then_drain_runs_the_handler() -> None:
+        # End-to-end wiring of the dedicated scheduled poll: a due SCHEDULED row is promoted to INCOMING
+        # and the recovery drain then runs the handler. (Promotion ordering vs immediate siblings is
+        # pinned deterministically by the promote_due_scheduled contract suite.)
+        _RecordingHandler.observed = []
+        inbox = FakeInboxStore()
+        config = MessagingConfig(
+            endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0)],
+            routing=[route(_OrderPlaced).to('orders')],
+            inbox=InboxConfig(
+                store=lambda: inbox,
+                owner_id='node-a:1',
+                recovery_interval=timedelta(seconds=0.01),
+                scheduled_poll_interval=timedelta(seconds=0.01),
+            ),
+            global_pipeline_behaviors=[TransactionalBehavior],
+        )
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_RecordingHandler)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+            ],
+        ) as app:
+            serializer = await app.container.get(IEnvelopeSerializer)
+            envelope = make_envelope(_OrderPlaced(order_id='sched-1'))
+            entry = InboxEntry(
+                id=envelope.message_id,
+                payload=serializer.serialize(envelope),
+                message_type=envelope.message_type,
+                source_uri=EndpointUri('orders'),
+                destination=handler_destination(_RecordingHandler),
+                owner_id=None,
+                status=InboxStatus.SCHEDULED,
+                execution_time=datetime.now(tz=UTC) - timedelta(hours=1),  # already due
+            )
+            inbox.entries[entry.id, entry.destination] = entry
+            await wait_until(lambda: _RecordingHandler.observed == ['sched-1'])
+
+        assert _RecordingHandler.observed == ['sched-1']
+
+    @staticmethod
+    async def test_scheduled_poll_promotes_keyless_row_without_an_allocator() -> None:
+        # A durable endpoint with no partition_by registers no ISequenceAllocator. A keyless scheduled
+        # message must still promote and drain — the poll must not stall on a missing allocator.
+        _RecordingHandler.observed = []
+        inbox = FakeInboxStore()
+        config = MessagingConfig(
+            endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0)],
+            routing=[route(_OrderPlaced).to('orders')],
+            inbox=InboxConfig(
+                store=lambda: inbox,
+                owner_id='node-a:1',
+                recovery_interval=timedelta(seconds=0.01),
+                scheduled_poll_interval=timedelta(seconds=0.01),
+            ),
+            global_pipeline_behaviors=[TransactionalBehavior],
+        )
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_RecordingHandler)],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],  # deliberately no ISequenceAllocator
+        ) as app:
+            serializer = await app.container.get(IEnvelopeSerializer)
+            envelope = make_envelope(_OrderPlaced(order_id='keyless-sched'))
+            entry = InboxEntry(
+                id=envelope.message_id,
+                payload=serializer.serialize(envelope),
+                message_type=envelope.message_type,
+                source_uri=EndpointUri('orders'),
+                destination=handler_destination(_RecordingHandler),
+                owner_id=None,
+                status=InboxStatus.SCHEDULED,
+                execution_time=datetime.now(tz=UTC) - timedelta(hours=1),  # already due, keyless (group_id=None)
+            )
+            inbox.entries[entry.id, entry.destination] = entry
+            await wait_until(lambda: _RecordingHandler.observed == ['keyless-sched'])
+
+        assert _RecordingHandler.observed == ['keyless-sched']

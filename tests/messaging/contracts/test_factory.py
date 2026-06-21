@@ -66,6 +66,16 @@ class TestEnvelopeFactory:
         assert before <= envelope.timestamp <= after
 
     @staticmethod
+    def test_create_stamps_timestamp_from_injected_clock() -> None:
+        fixed = datetime(2026, 6, 21, tzinfo=UTC)
+        registry = MessageTypeRegistry(identities={}, known_types=[SampleMessage])
+        factory = EnvelopeFactory(registry=registry, now=lambda: fixed)
+
+        envelope = factory.create(SampleMessage())
+
+        assert envelope.timestamp == fixed
+
+    @staticmethod
     def test_create_stores_message_as_payload() -> None:
         message = SampleMessage()
 

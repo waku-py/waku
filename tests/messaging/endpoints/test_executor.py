@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, replace
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import anyio
 from typing_extensions import override
 
+from waku._internal.clock import utc_now  # noqa: PLC2701
 from waku.di import object_
 from waku.messaging import (
     IRequest,
@@ -98,6 +99,7 @@ async def _make_executor(
     *,
     uri: str = 'test://q',
     sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
+    now: Callable[[], datetime] = utc_now,
 ) -> EndpointExecutor:
     invoker = await app.container.get(HandlerPipelineInvoker)
     return EndpointExecutor(
@@ -106,6 +108,7 @@ async def _make_executor(
         endpoint_uri=uri,
         invoker=invoker,
         sleep=sleep,
+        now=now,
     )
 
 
@@ -208,6 +211,44 @@ async def test_executor_requeue_policy_surfaces_requeued_outcome() -> None:
     assert len(calls) == 1  # REQUEUE fires once, no inline retry
     assert result.outcome is ExecutionOutcome.REQUEUED
     assert result.pause_duration is None
+
+
+class TestEndpointExecutorExpiry:
+    _NOW = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
+
+    @staticmethod
+    async def test_execute_discards_expired_envelope_without_running_handler() -> None:
+        handler, calls = _make_always_fail_handler()
+        async with create_test_app(
+            imports=[MessagingModule.register()],
+            extensions=[MessagingExtension().bind(handler)],
+        ) as app:
+            executor = await _make_executor(app, NOOP_EVALUATOR, now=lambda: TestEndpointExecutorExpiry._NOW)
+            expired = make_envelope(
+                _FailingCommand(value='expired'),
+                expires_at=TestEndpointExecutorExpiry._NOW - timedelta(seconds=1),
+            )
+            result = await executor.execute(expired, handler)
+
+        assert result.outcome is ExecutionOutcome.DISCARDED  # not FAILED_NO_POLICY: handler never ran
+        assert calls == []
+
+    @staticmethod
+    async def test_execute_runs_handler_when_not_expired() -> None:
+        handler, calls = _make_fail_n_times_handler(fail_count=0)
+        async with create_test_app(
+            imports=[MessagingModule.register()],
+            extensions=[MessagingExtension().bind(handler)],
+        ) as app:
+            executor = await _make_executor(app, NOOP_EVALUATOR, now=lambda: TestEndpointExecutorExpiry._NOW)
+            live = make_envelope(
+                _FailingCommand(value='live'),
+                expires_at=TestEndpointExecutorExpiry._NOW + timedelta(seconds=60),
+            )
+            result = await executor.execute(live, handler)
+
+        assert result.outcome is ExecutionOutcome.SUCCESS
+        assert calls == [1]
 
 
 class TestEndpointExecutorDeadLetter:

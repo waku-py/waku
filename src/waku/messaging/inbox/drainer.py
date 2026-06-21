@@ -4,6 +4,7 @@ import logging
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from waku._internal.clock import Now  # runtime: passed to container.get(Now)
 from waku._internal.transaction import unit_of_work_scope
 from waku.di import is_registered
 from waku.messaging.config import MessagingConfig
@@ -154,6 +155,7 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
     invoker = await container.get(HandlerPipelineInvoker)
     serializer = await container.get(IEnvelopeSerializer)
     messaging_config = await container.get(MessagingConfig)
+    now = await container.get(Now)
 
     handler_by_fqn = {handler_destination(ht): ht for ht in registry.handler_map.handler_types()}
     executors: dict[str, EndpointExecutor] = {}
@@ -161,12 +163,13 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
     def executor_factory(source_uri: str) -> EndpointExecutor:
         executor = executors.get(source_uri)
         if executor is None:
-            executor = EndpointExecutor(  # same default deadline as the live path (#16)
+            executor = EndpointExecutor(  # same default deadline + clock as the live path (#16, #18)
                 container=container,
                 evaluator=evaluator,
                 endpoint_uri=source_uri,
                 invoker=invoker,
                 default_execution_timeout=messaging_config.default_execution_timeout,
+                now=now,
             )
             executors[source_uri] = executor
         return executor

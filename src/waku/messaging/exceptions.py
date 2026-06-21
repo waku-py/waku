@@ -70,6 +70,31 @@ class NoRouteError(MessagingError):
         )
 
 
+class ConflictingDeliveryOptionsError(MessagingError):
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+
+    def __str__(self) -> str:
+        return f'Conflicting delivery options: {self.reason}'
+
+
+class DeliveryOptionNotApplicableError(MessagingError):
+    def __init__(self, option: str, verb: str) -> None:
+        self.option = option
+        self.verb = verb
+
+    def __str__(self) -> str:
+        return f'Delivery option {self.option!r} is not applicable to {self.verb}()'
+
+
+class SchedulingNotSupportedError(MessagingError):
+    def __init__(self, uri: str) -> None:
+        self.uri = uri
+
+    def __str__(self) -> str:
+        return f"endpoint '{self.uri}' does not support scheduled delivery"
+
+
 class HandlerAlreadyRegistered(ImproperlyConfiguredError):  # noqa: N818
     def __init__(self, message_type: type[IMessage], handler_type: HandlerType) -> None:
         self.message_type = message_type

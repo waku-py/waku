@@ -106,15 +106,20 @@ class Endpoint(ABC):
     def uri(self) -> str:
         return self._uri
 
+    @property
+    def supports_scheduling(self) -> bool:
+        """Whether this endpoint persists future-dated messages until due.
+
+        Only the durable-local endpoint overrides to ``True``; routing elsewhere raises (fail-loud).
+        """
+        return False
+
     @abstractmethod
     async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None:
         """Dispatch an envelope to this endpoint.
 
-        ``scope`` is the caller's active DI scope. ``ExternalEndpoint`` writes its outbox row in this
-        scope so it commits atomically with the caller. ``LocalQueueEndpoint`` enqueues to its worker
-        and ignores it; ``DurableLocalQueueEndpoint`` opens a dedicated scope for the inbox write.
-
-        Implementations may silently drop messages if the endpoint is stopped.
+        ``ExternalEndpoint`` uses ``scope`` for an atomic outbox write; durable local opens its own
+        scope; buffered/inline enqueue and ignore it. May silently drop if stopped.
         """
         ...
 

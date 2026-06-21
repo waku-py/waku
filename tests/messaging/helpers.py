@@ -43,6 +43,8 @@ def make_envelope(
     *,
     headers: dict[str, str] | None = None,
     group_id: str | None = None,
+    scheduled_time: datetime | None = None,
+    expires_at: datetime | None = None,
 ) -> MessageEnvelope[Any]:
     payload_type = type(payload)
     return MessageEnvelope(
@@ -54,6 +56,8 @@ def make_envelope(
         payload=payload,
         headers=headers or {},
         group_id=group_id,
+        scheduled_time=scheduled_time,
+        expires_at=expires_at,
     )
 
 

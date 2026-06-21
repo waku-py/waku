@@ -8,6 +8,7 @@ from waku.messaging.contracts.identity import MessageIdentity
 from waku.messaging.contracts.message import IMessage, MessageT, ResponseT
 from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
 from waku.messaging.contracts.request import IRequest, RequestT
+from waku.messaging.delivery import DeliveryOptions
 from waku.messaging.endpoints.base import EndpointMode, external_endpoint, local_queue
 from waku.messaging.endpoints.executor import ExecutionOutcome
 from waku.messaging.errors import ErrorPolicy, IDeadLetterStore, RetryAction, RetryStage
@@ -30,6 +31,7 @@ __all__ = [
     'CallNext',
     'CircuitBreakerConfig',
     'DeadLetterConfig',
+    'DeliveryOptions',
     'EndpointMode',
     'ErrorPolicy',
     'EventHandler',

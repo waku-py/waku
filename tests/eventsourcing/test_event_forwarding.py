@@ -20,6 +20,7 @@ from waku.messaging.router import MessageRouter
 
 if TYPE_CHECKING:
     from waku.messaging.contracts.message import IMessage
+    from waku.messaging.delivery import DeliveryOptions
     from waku.messaging.endpoints.base import Endpoint
 
 
@@ -57,12 +58,12 @@ class _RecordingSender(ISender):
         self.invoked: list[IMessage] = []
 
     @override
-    async def invoke(self, message: Any, /) -> Any:
+    async def invoke(self, message: Any, /, options: DeliveryOptions | None = None) -> Any:
         self.invoked.append(message)
         return None
 
     @override
-    async def send(self, message: IMessage, /) -> None:  # pragma: no cover
+    async def send(self, message: IMessage, /, options: DeliveryOptions | None = None) -> None:  # pragma: no cover
         msg = 'forwarding must not send'
         raise AssertionError(msg)
 

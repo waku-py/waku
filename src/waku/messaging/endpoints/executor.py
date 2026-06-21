@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, TypeAlias, assert_never
 
 import anyio
 
+from waku._internal.clock import utc_now
 from waku._internal.sentinel import MISSING
 from waku.messaging.context import message_context_scope
 from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
 
     from dishka import AsyncContainer
 
+    from waku._internal.clock import Now
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.errors.executor import ErrorPolicyEvaluator, PolicyOutcome
@@ -40,23 +42,20 @@ logger = logging.getLogger(__name__)
 class ExecutionOutcome(enum.Enum):
     SUCCESS = 'SUCCESS'
     DEAD_LETTERED = 'DEAD_LETTERED'
-    DEAD_LETTER_FAILED = 'DEAD_LETTER_FAILED'  # DLQ write did not persist; keep a durable row for recovery
+    DEAD_LETTER_FAILED = 'DEAD_LETTER_FAILED'  # DLQ write failed; durable row survives for recovery
     DISCARDED = 'DISCARDED'
     FAILED_NO_POLICY = 'FAILED_NO_POLICY'
-    REQUEUED = 'REQUEUED'  # deferred-terminal: the endpoint re-delivers for another full attempt
-    PAUSED = 'PAUSED'  # deferred-terminal: re-deliver AND pause the listener for the policy's pause_duration
+    REQUEUED = 'REQUEUED'  # deferred-terminal: endpoint re-delivers
+    PAUSED = 'PAUSED'  # deferred-terminal: re-deliver + pause listener for policy's pause_duration
 
 
-# Outcomes the endpoint re-delivers instead of finalizing (PAUSED also pauses the listener).
+# Outcomes the endpoint re-delivers instead of finalizing.
 DEFERRED_TERMINAL_OUTCOMES = frozenset({ExecutionOutcome.REQUEUED, ExecutionOutcome.PAUSED})
 
 
 @dataclass(frozen=True, slots=True)
 class ExecutionResult:
-    """Terminal outcome plus deferred disposition (e.g. pause window for PAUSED).
-
-    Mirrors ``PolicyOutcome`` one layer out so the endpoint reads named fields.
-    """
+    """Terminal outcome plus optional pause window (for PAUSED); named fields over PolicyOutcome."""
 
     outcome: ExecutionOutcome
     pause_duration: timedelta | None = None
@@ -66,12 +65,17 @@ _ResultObserver: TypeAlias = 'Callable[[ExecutionOutcome, Exception | None], Awa
 
 
 class EndpointExecutor:
-    """Scope-per-attempt handler execution with retry, dead-letter, and timeout support.
+    """Scope-per-attempt execution with retry, dead-letter, and timeout. Endpoints delegate entirely."""
 
-    Endpoints delegate entirely — they do not manage scopes, retries, or error handling.
-    """
-
-    __slots__ = ('_container', '_default_execution_timeout', '_endpoint_uri', '_evaluator', '_invoker', '_sleep')
+    __slots__ = (
+        '_container',
+        '_default_execution_timeout',
+        '_endpoint_uri',
+        '_evaluator',
+        '_invoker',
+        '_now',
+        '_sleep',
+    )
 
     def __init__(
         self,
@@ -82,6 +86,7 @@ class EndpointExecutor:
         invoker: HandlerPipelineInvoker,
         default_execution_timeout: timedelta | None = None,
         sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
+        now: Now = utc_now,
     ) -> None:
         self._container = container
         self._evaluator = evaluator
@@ -89,6 +94,7 @@ class EndpointExecutor:
         self._invoker = invoker
         self._default_execution_timeout = default_execution_timeout
         self._sleep = sleep
+        self._now = now
 
     async def execute(
         self,
@@ -97,10 +103,20 @@ class EndpointExecutor:
         *,
         on_result: _ResultObserver | None = None,
     ) -> ExecutionResult:
+        if self._is_expired(envelope):
+            # Intentional expiry → DISCARD (never DLQ); deletes the row on both live and recovery paths.
+            logger.info('Discarding expired message_id=%s (expires_at=%s)', envelope.message_id, envelope.expires_at)
+            result = ExecutionResult(ExecutionOutcome.DISCARDED)
+            if on_result is not None:
+                await on_result(result.outcome, None)
+            return result
         result, exc = await self._run_attempts(envelope, handler_type)
         if on_result is not None:
             await on_result(result.outcome, exc)
         return result
+
+    def _is_expired(self, envelope: MessageEnvelope[Any]) -> bool:
+        return envelope.expires_at is not None and envelope.expires_at <= self._now()
 
     async def _run_attempts(
         self,
@@ -129,7 +145,7 @@ class EndpointExecutor:
         return self._default_execution_timeout if value is MISSING else value  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
 
     async def _dispatch_in_scope(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> None:
-        # Overrun re-raises as HandlerTimeoutError (not the handler's own TimeoutError) so error_policies can match it.
+        # Overrun raises HandlerTimeoutError (not the handler's own TimeoutError) so error_policies can match it.
         timeout = self._resolve_timeout(handler_type)
         with anyio.move_on_after(timeout.total_seconds() if timeout is not None else None) as cancel_scope:
             async with self._container() as scope:
@@ -163,8 +179,7 @@ class EndpointExecutor:
     ) -> ExecutionResult | None:
         """Apply a failure policy; returns None to retry, or the terminal ExecutionResult.
 
-        Failed DLQ write → DEAD_LETTER_FAILED so the inbox row survives for recovery (ERR-2).
-        REQUEUE/PAUSE disposition is named here; the endpoint enacts re-delivery and listener pause.
+        Failed DLQ write → DEAD_LETTER_FAILED (inbox row survives for recovery, ERR-2).
         """
         match outcome.action:
             case RetryAction.DEAD_LETTER:

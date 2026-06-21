@@ -9,6 +9,7 @@ import anyio.lowlevel
 from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku._internal.clock import utc_now  # noqa: PLC2701
 from waku.messaging.circuit_breaker import CircuitBreakerConfig
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.durable_local_queue import DurableLocalQueueEndpoint
@@ -187,6 +188,7 @@ def _endpoint(  # noqa: PLR0913 -- test helper mirroring DurableLocalQueueEndpoi
     max_requeue_attempts: int = 5,
     pause_sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     circuit_breaker_config: CircuitBreakerConfig | None = None,
+    now: Callable[[], datetime] = utc_now,
 ) -> DurableLocalQueueEndpoint:
     return DurableLocalQueueEndpoint(
         uri='local://orders',
@@ -201,6 +203,7 @@ def _endpoint(  # noqa: PLR0913 -- test helper mirroring DurableLocalQueueEndpoi
         max_requeue_attempts=max_requeue_attempts,
         pause_sleep=pause_sleep,
         circuit_breaker_config=circuit_breaker_config,
+        now=now,
     )
 
 
@@ -311,12 +314,16 @@ class TestDurableLocalQueueEndpoint:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(container, executor, frozenset([_NoopHandler]), inbox_owner_id='owner-claim-test')
             await endpoint.start()
+            token = await endpoint.pause()  # gate processing so the claim is observed before mark_as_handled clears it
             async with container() as scope:
                 await endpoint.dispatch(make_envelope(_DomainEvent(kind='OrderPlaced')), scope)
-            await endpoint.stop()  # drains the worker deterministically
 
-        stored = next(iter(inbox.entries.values()))
-        assert stored.owner_id == 'owner-claim-test'
+            stored = next(iter(inbox.entries.values()))
+            assert stored.status is InboxStatus.INCOMING
+            assert stored.owner_id == 'owner-claim-test'  # dispatch claimed the row
+
+            await endpoint.resume(token)
+            await endpoint.stop()
 
     @staticmethod
     async def test_pause_blocks_processing_until_resume() -> None:
@@ -381,6 +388,84 @@ class TestDurableLocalQueuePartitioning:
         assert {e.group_id for e in inbox.entries.values()} == {'order-1'}
         assert {e.sequence_number for e in inbox.entries.values()} == {1}
         assert allocator.calls == ['order-1']
+
+
+class TestDurableLocalQueueScheduled:
+    _NOW = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
+
+    @staticmethod
+    async def test_future_scheduled_message_persists_scheduled_row_without_enqueueing() -> None:
+        inbox = FakeInboxStore()
+        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+            endpoint = _endpoint(
+                container,
+                executor,
+                frozenset([_NoopHandler]),
+                now=lambda: TestDurableLocalQueueScheduled._NOW,
+            )
+            await endpoint.start()
+            scheduled = TestDurableLocalQueueScheduled._NOW + timedelta(hours=1)
+            async with container() as scope:
+                await endpoint.dispatch(make_envelope(_DomainEvent(kind='later'), scheduled_time=scheduled), scope)
+            for _ in range(10):
+                await anyio.lowlevel.checkpoint()  # give a (wrongly) enqueued item turns to run — it must not
+            await endpoint.stop()
+
+        assert len(inbox.entries) == 1
+        entry = next(iter(inbox.entries.values()))
+        assert entry.status is InboxStatus.SCHEDULED
+        assert entry.execution_time == scheduled
+        assert entry.sequence_number is None
+        assert executor.calls == 0  # SCHEDULED rows are NOT enqueued
+
+    @staticmethod
+    async def test_keyed_future_scheduled_message_resolves_group_without_allocating() -> None:
+        inbox = FakeInboxStore()
+        allocator = RecordingAllocator()
+        async with make_async_container(
+            _EndpointDepsProvider(inbox, RecordingDeadLetterStore(), allocator)
+        ) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+            endpoint = _endpoint(
+                container,
+                executor,
+                frozenset([_NoopHandler]),
+                partition_by=_kind_partition,
+                now=lambda: TestDurableLocalQueueScheduled._NOW,
+            )
+            await endpoint.start()
+            scheduled = TestDurableLocalQueueScheduled._NOW + timedelta(hours=1)
+            async with container() as scope:
+                await endpoint.dispatch(make_envelope(_DomainEvent(kind='shipments'), scheduled_time=scheduled), scope)
+            await endpoint.stop()
+
+        entry = next(iter(inbox.entries.values()))
+        assert entry.group_id == 'shipments'  # partition resolved at dispatch
+        assert entry.sequence_number is None  # but allocation deferred to promotion (BLOCKER 1)
+        assert allocator.calls == []
+
+    @staticmethod
+    async def test_past_scheduled_time_dispatches_immediately() -> None:
+        _NoopHandler.invocations = []
+        inbox = FakeInboxStore()
+        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+            endpoint = _endpoint(
+                container,
+                executor,
+                frozenset([_NoopHandler]),
+                now=lambda: TestDurableLocalQueueScheduled._NOW,
+            )
+            await endpoint.start()
+            past = TestDurableLocalQueueScheduled._NOW - timedelta(hours=1)
+            async with container() as scope:
+                await endpoint.dispatch(make_envelope(_DomainEvent(kind='due'), scheduled_time=past), scope)
+            await wait_until(lambda: executor.calls == 1)
+            await endpoint.stop()
+
+        entry = next(iter(inbox.entries.values()))
+        assert entry.status is InboxStatus.HANDLED  # already due → immediate INCOMING path, not SCHEDULED
 
 
 class TestDurableLocalQueueCircuitBreaker:

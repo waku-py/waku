@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
     from waku.messaging.errors.dead_letter import DeadLetterEntry
     from waku.messaging.inbox.models import InboxEntry
+    from waku.messaging.partition import ISequenceAllocator
 
 __all__ = [
     'IInboxStore',
@@ -19,14 +20,10 @@ __all__ = [
 class IInboxStore(abc.ABC):
     @abc.abstractmethod
     async def store_incoming(self, entry: InboxEntry) -> bool:
-        """Persist an incoming message; return True if stored, False on duplicate.
+        """Persist an incoming message; return True if stored, False on duplicate ``(id, destination)``.
 
-        Dedup is on the composite primary key ``(id, destination)``: the same ``message_id``
-        may be stored once per handler FQN, so a fan-out message writes one row per subscribed
-        handler and each handler gets its own idempotency window. Implementations MUST treat a
-        composite-key conflict as idempotent (return False, do not raise). PostgreSQL typically
-        uses ``INSERT ... ON CONFLICT (id, destination) DO NOTHING RETURNING id`` and detects a
-        duplicate by empty result; other backends may catch the native integrity error.
+        Each handler FQN gets its own row, so fan-out deduplicates per handler independently.
+        Composite-key conflicts MUST be treated as idempotent (return False, never raise).
         """
         ...
 
@@ -47,57 +44,51 @@ class IInboxStore(abc.ABC):
 
     @abc.abstractmethod
     async def delete(self, entry_id: UUID, destination: str) -> None:
-        """Delete the ``(entry_id, destination)`` inbox row immediately.
+        """Delete a single ``(entry_id, destination)`` row immediately.
 
-        Used by inbox finalization (``apply_inbox_outcome``) when the handler outcome is
-        ``DISCARDED`` or ``FAILED_NO_POLICY`` — the entry never became HANDLED (no dedup window
-        needed) and should not pollute observability as a HANDLED row. Targets a single handler's
-        row, never the whole message fan-out.
+        Used for DISCARDED/FAILED_NO_POLICY outcomes — the row never became HANDLED so no dedup window is needed.
         """
         ...
 
     @abc.abstractmethod
     async def fetch_pending(self, batch_size: int, owner_id: str) -> Sequence[InboxEntry]:
-        """Claim unowned INCOMING entries and assign them to the given owner.
+        """Claim unowned INCOMING entries (``owner_id IS NULL``) and assign ``owner_id``.
 
-        Implementations use ``FOR UPDATE SKIP LOCKED`` on the CTE selecting candidate rows,
-        together with a ``WHERE owner_id IS NULL`` filter. Concurrent callers are excluded by two
-        mechanisms working together:
-
-        - ``SKIP LOCKED`` skips rows currently being claimed by another in-flight
-          ``fetch_pending`` transaction.
-        - ``owner_id IS NULL`` excludes rows already claimed by a previous successful
-          ``fetch_pending`` call (whose transaction has committed).
-
-        The lock is held only until the ``fetch_pending`` transaction commits. After that, the
-        row is protected from re-claim by ``owner_id`` until either ``mark_as_handled`` clears it
-        or ``recover_stale`` releases stale claims.
+        ``FOR UPDATE SKIP LOCKED`` excludes rows being claimed concurrently; ``owner_id IS NULL``
+        excludes already-claimed rows. Lock held until commit; ``mark_as_handled`` or ``recover_stale``
+        releases ownership afterward.
         """
         ...
 
     @abc.abstractmethod
     async def fetch_pending_partitioned(self, batch_size: int, owner_id: str) -> Sequence[InboxEntry]:
-        """Head-of-queue fetch: one INCOMING entry per ``group_id`` plus non-grouped FIFO entries.
+        """Head-of-queue per ``(group_id, destination)`` plus unpartitioned FIFO entries.
 
-        Picks the lowest ``sequence_number`` per group. Populated in M2b.2 by the sequence
-        allocator; returns empty in M2b.1 workloads that do not set ``group_id``.
+        Picks the lowest ``sequence_number`` per group; returns empty for keyless workloads.
         """
         ...
 
     @abc.abstractmethod
     async def recover_stale(self, threshold: timedelta) -> int:
-        """Release owned, stale INCOMING entries back into circulation, returning the count.
+        """Release OWNED INCOMING rows silent >threshold back to ``owner_id=NULL``; return count.
 
-        Releases (sets ``owner_id=NULL``) only OWNED (``owner_id IS NOT NULL``) INCOMING rows whose
-        ``updated_at`` is older than ``now - threshold``. MUST NOT touch never-claimed
-        (``owner_id IS NULL``) rows: they are already fetchable, so reclaiming them is spurious churn that
-        resets their stale clock — and the crash-recovery drain relies on ``owner_id IS NULL`` meaning
-        "abandoned, ready to claim". Implementations refresh ``updated_at`` on release so a reclaimed row
-        does not immediately re-match on the next tick.
+        MUST NOT touch never-claimed (``owner_id IS NULL``) rows — they are already fetchable, and
+        resetting their clock is spurious churn. Refresh ``updated_at`` on release to avoid
+        immediate re-match next tick.
         """
         ...
 
     @abc.abstractmethod
     async def cleanup_handled(self, now: datetime) -> int:
         """Delete HANDLED entries whose ``keep_until < now``. Returns row count."""
+        ...
+
+    @abc.abstractmethod
+    async def promote_due_scheduled(self, now: datetime, allocator: ISequenceAllocator, batch_size: int) -> int:
+        """Promote up to ``batch_size`` due SCHEDULED rows (``execution_time <= now``) to INCOMING.
+
+        Uses ``FOR UPDATE SKIP LOCKED`` — no double-promotion under concurrent pods. Allocates sequence
+        AT promotion, not dispatch, so delayed messages sort after already-queued siblings (FIFO preserved).
+        Idempotent across ticks; ``batch_size`` caps the locked set. One transaction.
+        """
         ...
