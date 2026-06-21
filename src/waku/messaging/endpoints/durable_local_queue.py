@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 import anyio
-from anyio import create_memory_object_stream
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
@@ -16,6 +13,7 @@ from waku.messaging._identifiers import EndpointUri
 from waku.messaging.circuit_breaker.breaker import CircuitBreaker
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES
+from waku.messaging.endpoints.worker import MemoryStreamWorker
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.exceptions import RequeueBudgetExceededError
 from waku.messaging.inbox._destination import handler_destination
@@ -23,7 +21,6 @@ from waku.messaging.inbox.finalize import apply_inbox_outcome
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 from waku.messaging.partition import resolve_and_allocate, resolve_group_id
-from waku.messaging.pauser import PauseRegistry, TimedPauser
 from waku.messaging.transport.serialization import IEnvelopeSerializer
 
 if TYPE_CHECKING:
@@ -31,7 +28,6 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
-    from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
     from dishka import AsyncContainer
 
     from waku._internal.clock import Now
@@ -58,7 +54,8 @@ class DurableLocalQueueEndpoint(Endpoint):
 
     Commits inbox rows BEFORE enqueueing — a crash after commit leaves INCOMING rows for recovery.
     Only freshly-stored handlers are enqueued; the worker finalizes each via ``EndpointExecutor``.
-    Cross-pod concurrency is via FOR UPDATE SKIP LOCKED on inbox rows.
+    Cross-pod concurrency is via FOR UPDATE SKIP LOCKED on inbox rows. Stream/task/pause lifecycle is
+    delegated to a single-consumer ``MemoryStreamWorker`` (composition, as ``LocalQueueEndpoint``).
     """
 
     __slots__ = (
@@ -68,17 +65,12 @@ class DurableLocalQueueEndpoint(Endpoint):
         '_handler_subscriptions',
         '_inbox_owner_id',
         '_keep_after_handled',
-        '_max_buffer_size',
         '_max_requeue_attempts',
         '_now',
         '_partition_by',
-        '_pauses',
-        '_receive_stream',
         '_requeue_counts',
-        '_send_stream',
-        '_stop_timeout',
         '_timed_pauser',
-        '_worker_task',
+        '_worker',
     )
 
     def __init__(  # noqa: PLR0913 -- DI/config values, all required; bundling is a construction-site refactor
@@ -105,18 +97,17 @@ class DurableLocalQueueEndpoint(Endpoint):
         self._now = now
         self._inbox_owner_id = inbox_owner_id
         self._keep_after_handled = timedelta(seconds=inbox_config_keep_after_handled_seconds)
-        self._stop_timeout = stop_timeout
-        self._max_buffer_size = max_buffer_size
         self._partition_by = partition_by
         self._max_requeue_attempts = max_requeue_attempts
-        self._requeue_counts: dict[
-            tuple[UUID, str], int
-        ] = {}  # per-(message, handler); mirrored to DB by increment_attempts
-        self._send_stream: MemoryObjectSendStream[_WorkItem] | None = None
-        self._receive_stream: MemoryObjectReceiveStream[_WorkItem] | None = None
-        self._worker_task: asyncio.Task[None] | None = None
-        self._pauses = PauseRegistry()
-        self._timed_pauser = TimedPauser(self._pauses, sleep=pause_sleep)
+        # per-(message, handler) requeue counter; mirrored to the durable row by increment_attempts.
+        self._requeue_counts: dict[tuple[UUID, str], int] = {}
+        # Single sequential consumer (max_parallel=1); durable ordering relies on it.
+        self._worker: MemoryStreamWorker[_WorkItem] = MemoryStreamWorker(
+            max_buffer_size=max_buffer_size,
+            stop_timeout=stop_timeout,
+            max_parallel=1,
+        )
+        self._timed_pauser = self._worker.make_timed_pauser(sleep=pause_sleep)
         self._circuit_breaker: CircuitBreaker | None = (
             CircuitBreaker(config=circuit_breaker_config, pause=self.pause, resume=self.resume)
             if circuit_breaker_config is not None
@@ -134,8 +125,7 @@ class DurableLocalQueueEndpoint(Endpoint):
 
         Caller's ``scope`` is unused: reusing it would commit a business transaction prematurely in cascading-send.
         """
-        send_stream = self._send_stream
-        if send_stream is None:
+        if not self._worker.is_running:
             logger.warning('Message dropped: endpoint %s is stopped (message_id=%s)', self._uri, envelope.message_id)
             return
 
@@ -175,7 +165,7 @@ class DurableLocalQueueEndpoint(Endpoint):
             logger.debug('Duplicate message discarded for all handlers: message_id=%s', envelope.message_id)
             return
 
-        await send_stream.send((envelope, frozenset(fresh)))
+        await self._worker.send((envelope, frozenset(fresh)))
 
     async def _store_scheduled(
         self,
@@ -207,62 +197,26 @@ class DurableLocalQueueEndpoint(Endpoint):
 
     @override
     async def start(self) -> None:
-        send, receive = create_memory_object_stream[_WorkItem](max_buffer_size=self._max_buffer_size)
-        self._send_stream = send
-        self._receive_stream = receive
-        self._worker_task = asyncio.create_task(self._worker_loop(receive))
+        await self._worker.start(self._process_work_item)
 
     @override
     async def stop(self) -> None:
-        await self._timed_pauser.aclose()  # cancel parked auto-resume before force-resume
-        self._pauses.force_resume()  # bypass refcount so a leaked token can't strand shutdown
-        send_stream, self._send_stream = self._send_stream, None
-        if send_stream is not None:
-            send_stream.close()
-        if self._worker_task is not None:
-            await self._drain_worker(self._worker_task)
-            self._worker_task = None
-        if self._receive_stream is not None:
-            self._receive_stream.close()
-            self._receive_stream = None
+        await self._timed_pauser.aclose()  # cancel parked auto-resume before the worker force-resumes
+        await self._worker.stop()
         if self._circuit_breaker is not None:
             await self._circuit_breaker.aclose()
 
     @override
     async def pause(self) -> PauseToken:
-        return self._pauses.pause()
+        return await self._worker.pause()
 
     @override
     async def resume(self, token: PauseToken | None = None) -> None:
         if token is not None:
-            self._pauses.resume(token)
+            await self._worker.resume(token)
 
-    async def _drain_worker(self, task: asyncio.Task[None]) -> None:
-        try:
-            with anyio.fail_after(self._stop_timeout):
-                await task
-        except TimeoutError:
-            logger.warning(
-                'Worker task for %s did not terminate within %.1fs, cancelling',
-                self._uri,
-                self._stop_timeout,
-            )
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-
-    async def _worker_loop(self, receive_stream: MemoryObjectReceiveStream[_WorkItem]) -> None:
-        async for envelope, handler_types in receive_stream:
-            await self._pauses.wait()
-            try:
-                await self._process_envelope(envelope, handler_types)
-            except Exception:
-                logger.exception(
-                    'Unhandled error processing message_id=%s, continuing worker loop',
-                    envelope.message_id,
-                )
-
-    async def _process_envelope(self, envelope: MessageEnvelope[Any], handler_types: frozenset[HandlerType]) -> None:
+    async def _process_work_item(self, work_item: _WorkItem) -> None:
+        envelope, handler_types = work_item
         on_result = self._circuit_breaker.record if self._circuit_breaker is not None else None
         for handler_type in handler_types:
             destination = handler_destination(handler_type)
@@ -287,13 +241,10 @@ class DurableLocalQueueEndpoint(Endpoint):
             self._requeue_counts.pop(key, None)
             await self._dead_letter_poison(envelope, destination, count)
             return  # budget exhausted → DLQ
-        send_stream = self._send_stream
-        if send_stream is None:
+        if not self._worker.is_running:
             self._requeue_counts.pop(key, None)  # stopped; INCOMING row survives for recovery
             return
-        try:
-            send_stream.send_nowait((envelope, handler_types))
-        except (anyio.WouldBlock, anyio.ClosedResourceError, anyio.BrokenResourceError):
+        if not self._worker.try_send((envelope, handler_types)):
             self._requeue_counts.pop(key, None)
             await self._dead_letter_poison(envelope, destination, count)  # full buffer → DLQ, never block
             return

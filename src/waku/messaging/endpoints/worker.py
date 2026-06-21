@@ -3,12 +3,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any, Generic
 
 import anyio
 from anyio import create_memory_object_stream
+from typing_extensions import TypeVar
 
-from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.pauser import PauseRegistry, TimedPauser
 
 if TYPE_CHECKING:
@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
     from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
+    from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.pauser import PauseToken
 
 __all__ = [
@@ -25,15 +26,18 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-_Handler: TypeAlias = 'Callable[[MessageEnvelope[Any]], Awaitable[None]]'
+# Default to MessageEnvelope so buffered queues stay untyped at the construction site; durable queues
+# parametrize with their per-handler work item (e.g. tuple[envelope, handlers]).
+_ItemT = TypeVar('_ItemT', default='MessageEnvelope[Any]')
 
 
-class MemoryStreamWorker:
+class MemoryStreamWorker(Generic[_ItemT]):
     """Memory-stream + background-task lifecycle for an endpoint (GRASP Pure Fabrication).
 
-    ``start(handler)`` runs a bounded pool of ``max_parallel`` consumers. A consumer dequeues
-    *before* checking the pause gate, so up to ``max_parallel`` envelopes may be in flight while
-    paused. asyncio backend only.
+    ``start(handler)`` runs a bounded pool of ``max_parallel`` consumers over items of type
+    ``_ItemT``. A consumer dequeues *before* checking the pause gate, so up to ``max_parallel`` items
+    may be in flight while paused. The per-item ``handler`` owns its own error context; the consumer
+    only guarantees one failure never kills the pool. asyncio backend only.
     """
 
     __slots__ = (
@@ -56,40 +60,44 @@ class MemoryStreamWorker:
         self._max_buffer_size = max_buffer_size
         self._stop_timeout = stop_timeout
         self._max_parallel = max_parallel
-        self._send_stream: MemoryObjectSendStream[MessageEnvelope[Any]] | None = None
-        self._receive_stream: MemoryObjectReceiveStream[MessageEnvelope[Any]] | None = None
+        self._send_stream: MemoryObjectSendStream[_ItemT] | None = None
+        self._receive_stream: MemoryObjectReceiveStream[_ItemT] | None = None
         self._worker_task: asyncio.Task[None] | None = None
         self._pauses = PauseRegistry()
 
-    async def start(self, handler: _Handler) -> None:
+    @property
+    def is_running(self) -> bool:
+        return self._send_stream is not None
+
+    async def start(self, handler: Callable[[_ItemT], Awaitable[None]]) -> None:
         if self._send_stream is not None:
             msg = 'MemoryStreamWorker is already started'
             raise RuntimeError(msg)
-        send, receive = create_memory_object_stream[MessageEnvelope[Any]](
+        send, receive = create_memory_object_stream[_ItemT](
             max_buffer_size=self._max_buffer_size,
         )
         self._send_stream = send
         self._receive_stream = receive
         self._worker_task = asyncio.create_task(self._run(receive, handler))
 
-    async def send(self, envelope: MessageEnvelope[Any]) -> bool:
+    async def send(self, item: _ItemT) -> bool:
         send_stream = self._send_stream
         if send_stream is None:
             return False
         try:
-            await send_stream.send(envelope)
+            await send_stream.send(item)
         except (anyio.ClosedResourceError, anyio.BrokenResourceError):
             return False
         return True
 
-    def try_send(self, envelope: MessageEnvelope[Any]) -> bool:
+    def try_send(self, item: _ItemT) -> bool:
         # Non-blocking re-enqueue for REQUEUE/PAUSE: blocking here would deadlock when max_parallel=1
         # because the only consumer IS the one trying to re-enqueue.
         send_stream = self._send_stream
         if send_stream is None:
             return False
         try:
-            send_stream.send_nowait(envelope)
+            send_stream.send_nowait(item)
         except (anyio.WouldBlock, anyio.ClosedResourceError, anyio.BrokenResourceError):
             return False
         return True
@@ -135,8 +143,8 @@ class MemoryStreamWorker:
 
     async def _run(
         self,
-        receive_stream: MemoryObjectReceiveStream[MessageEnvelope[Any]],
-        handler: _Handler,
+        receive_stream: MemoryObjectReceiveStream[_ItemT],
+        handler: Callable[[_ItemT], Awaitable[None]],
     ) -> None:
         # max_parallel persistent consumers share one stream; each item goes to one waiting receiver.
         # Pool size bounds concurrency and live-task count; backpressure is natural via the buffer.
@@ -146,15 +154,13 @@ class MemoryStreamWorker:
 
     async def _consume(
         self,
-        receive_stream: MemoryObjectReceiveStream[MessageEnvelope[Any]],
-        handler: _Handler,
+        receive_stream: MemoryObjectReceiveStream[_ItemT],
+        handler: Callable[[_ItemT], Awaitable[None]],
     ) -> None:
-        async for envelope in receive_stream:
+        async for item in receive_stream:
             await self._pauses.wait()
             try:
-                await handler(envelope)
+                await handler(item)
             except Exception:
-                logger.exception(
-                    'Unhandled error processing message_id=%s, worker continues',
-                    envelope.message_id,
-                )
+                # Safety net only — items are opaque here, so the handler owns message-level logging.
+                logger.exception('Unhandled error in worker consumer, continuing')
