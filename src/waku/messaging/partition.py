@@ -50,7 +50,7 @@ async def resolve_and_allocate(
     B: keyless = parallel, order NOT guaranteed). The bypass is logged at debug so a misconfigured
     ``partition_by`` returning ``None`` for everything is observable rather than silent.
 
-    Shared by ``ExternalEndpoint``, ``DurableLocalQueueEndpoint`` and ``DurableReceiver`` so the
+    Shared by ``ExternalEndpoint`` and ``DurableLocalQueueEndpoint`` so the
     precedence and the allocate-only-when-keyed rule live in exactly one place.
     """
     raw_group_id = envelope.group_id

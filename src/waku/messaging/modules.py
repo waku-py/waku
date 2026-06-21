@@ -165,8 +165,8 @@ class MessagingModule:
 
     @staticmethod
     def _serializer_provider(config: MessagingConfig) -> Provider | None:
-        # inbox also needs a serializer: DurableLocalQueueEndpoint and DurableReceiver serialize the
-        # envelope before the inbox write.
+        # inbox also needs a serializer: DurableLocalQueueEndpoint serializes the envelope before the
+        # inbox write, and the drainer deserializes it on recovery.
         if config.outbox is None and config.dead_letter is None and config.inbox is None:
             return None
         if config.outbox is not None and config.outbox.envelope_serializer is not None:

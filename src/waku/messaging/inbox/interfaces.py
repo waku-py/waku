@@ -49,7 +49,7 @@ class IInboxStore(abc.ABC):
     async def delete(self, entry_id: UUID, destination: str) -> None:
         """Delete the ``(entry_id, destination)`` inbox row immediately.
 
-        Used by ``DurableReceiver`` / ``DurableLocalQueueEndpoint`` when the handler outcome is
+        Used by inbox finalization (``apply_inbox_outcome``) when the handler outcome is
         ``DISCARDED`` or ``FAILED_NO_POLICY`` — the entry never became HANDLED (no dedup window
         needed) and should not pollute observability as a HANDLED row. Targets a single handler's
         row, never the whole message fan-out.

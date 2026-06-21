@@ -27,7 +27,11 @@ async def apply_inbox_outcome(
     """Finalize an inbox row in its own committed scope.
 
     SUCCESS → mark_as_handled. DEAD_LETTERED/DISCARDED/FAILED_NO_POLICY → delete. DEAD_LETTER_FAILED →
-    leave INCOMING so recovery re-runs it (ERR-2). Shared by the receiver, drainer, and durable endpoint.
+    leave INCOMING so recovery re-runs it (ERR-2). Shared by the drainer and durable endpoint.
+
+    Raises:
+        RuntimeError: if a deferred-terminal outcome (REQUEUED/PAUSED) reaches finalization — the
+            durable endpoint and drainer must intercept those before calling this.
     """
     async with container() as scope:
         inbox = await scope.get(IInboxStore)
@@ -42,10 +46,11 @@ async def apply_inbox_outcome(
                 # DLQ write failed: leave INCOMING for the recovery drain — deleting loses the message
                 # from both stores (ERR-2).
                 pass
-            case ExecutionOutcome.REQUEUED | ExecutionOutcome.PAUSED:
-                # External-receiver path: no local listener to re-deliver through; leave INCOMING for
-                # the transport. (Drainer bounds these via _handle_poison instead.)
-                pass
+            case ExecutionOutcome.REQUEUED | ExecutionOutcome.PAUSED:  # pragma: no cover
+                # Deferred-terminal: the durable endpoint and drainer intercept these before finalize,
+                # so they never reach here. Guard the invariant loudly rather than leak an INCOMING row.
+                msg = f'{outcome.value} must be intercepted before inbox finalization'
+                raise RuntimeError(msg)
             case _ as unreachable:  # pragma: no cover
                 assert_never(unreachable)
         await uow.commit()

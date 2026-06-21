@@ -13,7 +13,7 @@ __all__ = ['handler_destination']
 def handler_destination(handler_type: HandlerType) -> HandlerDestination:
     """Per-handler inbox dedup discriminator: the handler FQN ``{module}.{qualname}``.
 
-    Single source for the composite-key ``destination`` so ``DurableReceiver`` and
-    ``DurableLocalQueueEndpoint`` cannot drift (a mismatch would silently break dedup).
+    Single source for the composite-key ``destination`` so ``DurableLocalQueueEndpoint`` and
+    the inbox drainer cannot drift (a mismatch would silently break dedup).
     """
     return HandlerDestination(f'{handler_type.__module__}.{handler_type.__qualname__}')

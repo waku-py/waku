@@ -127,7 +127,7 @@ class DurableLocalQueueEndpoint(Endpoint):
 
         ``scope`` (the ABC parameter) is intentionally unused: committing the caller's UoW would
         prematurely commit a handler's business transaction in cascading-send scenarios. A dedicated
-        scope is opened instead, matching ``OutboxRelay`` and ``DurableReceiver``.
+        scope is opened instead, matching ``OutboxRelay``.
         """
         send_stream = self._send_stream
         if send_stream is None:
