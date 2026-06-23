@@ -56,7 +56,7 @@ class TestSqlAlchemyOutboxStore:
         await store.save_batch([msg])
         await pg_session.flush()
 
-        fetched = await store.fetch_and_mark_processing(batch_size=10)
+        fetched = await store.fetch_head_of_queue(batch_size=10)
         await store.mark_discarded(fetched[0].id, 'transport gave up')
         await pg_session.flush()
 

@@ -53,26 +53,6 @@ class SqlAlchemyOutboxStore(IOutboxStore):
         stmt = insert(_t).values(values).on_conflict_do_nothing(constraint=OUTBOX_IDEMPOTENCY_CONSTRAINT)
         await self._session.execute(stmt)
 
-    async def fetch_and_mark_processing(self, batch_size: int) -> Sequence[OutboxMessage]:
-        now = func.now()
-        pending_cte = (
-            select(_t.c.id)
-            .where(_t.c.status == OutboxStatus.PENDING.value)
-            .where(func.coalesce(_t.c.next_retry_at, now) <= now)
-            .order_by(_t.c.created_at.asc())
-            .limit(batch_size)
-            .with_for_update(skip_locked=True)
-            .cte('pending')
-        )
-        stmt = (
-            update(_t)
-            .where(_t.c.id.in_(select(pending_cte.c.id)))
-            .values(status=OutboxStatus.PROCESSING.value, processing_started_at=now)
-            .returning(*_t.c)
-        )
-        result = await self._session.execute(stmt)
-        return [_row_to_model(row) for row in result.fetchall()]
-
     async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
         now = func.now()
         pending = _t.c.status == OutboxStatus.PENDING.value

@@ -50,16 +50,6 @@ class InMemoryOutboxStore(IOutboxStore):
             self.messages.append(msg)
 
     @override
-    async def fetch_and_mark_processing(self, batch_size: int) -> Sequence[OutboxMessage]:
-        now = datetime.now(tz=UTC)
-        ready = [
-            msg
-            for msg in self.messages
-            if msg.status is OutboxStatus.PENDING and (msg.next_retry_at is None or msg.next_retry_at <= now)
-        ]
-        return self._claim(ready[:batch_size], now)
-
-    @override
     async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
         now = datetime.now(tz=UTC)
         pending = [msg for msg in self.messages if msg.status is OutboxStatus.PENDING]

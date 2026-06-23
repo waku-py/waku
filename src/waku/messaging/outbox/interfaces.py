@@ -21,9 +21,6 @@ class IOutboxStore(abc.ABC):
     async def save_batch(self, messages: Sequence[OutboxMessage]) -> None: ...
 
     @abc.abstractmethod
-    async def fetch_and_mark_processing(self, batch_size: int) -> Sequence[OutboxMessage]: ...
-
-    @abc.abstractmethod
     async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
         """Claim at most ``batch_size`` pending messages honoring partition order.
 

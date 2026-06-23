@@ -24,10 +24,6 @@ class FakeOutboxStore(IOutboxStore):
         self.saved.extend(messages)
 
     @override
-    async def fetch_and_mark_processing(self, batch_size: int) -> Sequence[OutboxMessage]:  # pragma: no cover
-        return []
-
-    @override
     async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:  # pragma: no cover
         return []
 

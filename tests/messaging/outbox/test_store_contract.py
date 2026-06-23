@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from waku.messaging.errors.dead_letter import DeadLetterEntry
-from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
+from waku.messaging.outbox.models import OutboxMessage
 
 if TYPE_CHECKING:
     from waku.messaging.outbox.interfaces import IOutboxStore
@@ -40,21 +40,12 @@ def _dead_letter_for(message: OutboxMessage) -> DeadLetterEntry:
     )
 
 
-async def test_save_then_fetch_marks_processing(outbox_store: IOutboxStore) -> None:
-    message = _make_message()
-    await outbox_store.save_batch([message])
-
-    fetched = await outbox_store.fetch_and_mark_processing(batch_size=10)
-    assert [m.id for m in fetched] == [message.id]
-    assert fetched[0].status is OutboxStatus.PROCESSING
-
-
 async def test_save_batch_is_idempotent_on_idempotency_key(outbox_store: IOutboxStore) -> None:
     message = _make_message()
     await outbox_store.save_batch([message])
     await outbox_store.save_batch([message])
 
-    fetched = await outbox_store.fetch_and_mark_processing(batch_size=10)
+    fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
     assert len(fetched) == 1
 
 
@@ -63,20 +54,20 @@ async def test_idempotency_key_is_freed_after_row_deleted(outbox_store: IOutboxS
     # to be reused by a new message.
     first = _make_message()
     await outbox_store.save_batch([first])
-    fetched = await outbox_store.fetch_and_mark_processing(batch_size=10)
+    fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
     await outbox_store.mark_dispatched(fetched[0].id)
     await outbox_store.cleanup_dispatched(older_than=timedelta(seconds=-1))
 
     reused = _make_message(idempotency_key=first.idempotency_key)
     await outbox_store.save_batch([reused])
-    refetched = await outbox_store.fetch_and_mark_processing(batch_size=10)
+    refetched = await outbox_store.fetch_head_of_queue(batch_size=10)
     assert [m.id for m in refetched] == [reused.id]
 
 
 async def test_save_batch_preserves_group_id_and_sequence(outbox_store: IOutboxStore) -> None:
     await outbox_store.save_batch([_make_message(group_id='order-9', sequence_number=4)])
 
-    fetched = await outbox_store.fetch_and_mark_processing(batch_size=10)
+    fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
     assert fetched[0].group_id == 'order-9'
     assert fetched[0].sequence_number == 4
 
@@ -84,21 +75,21 @@ async def test_save_batch_preserves_group_id_and_sequence(outbox_store: IOutboxS
 async def test_mark_dispatched_is_terminal(outbox_store: IOutboxStore) -> None:
     message = _make_message()
     await outbox_store.save_batch([message])
-    fetched = await outbox_store.fetch_and_mark_processing(batch_size=10)
+    fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
 
     await outbox_store.mark_dispatched(fetched[0].id)
-    assert list(await outbox_store.fetch_and_mark_processing(batch_size=10)) == []
+    assert list(await outbox_store.fetch_head_of_queue(batch_size=10)) == []
 
 
 async def test_mark_failed_with_future_retry_increments_and_refetches(outbox_store: IOutboxStore) -> None:
     message = _make_message()
     await outbox_store.save_batch([message])
-    fetched = await outbox_store.fetch_and_mark_processing(batch_size=10)
+    fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
 
     past = datetime.now(tz=UTC) - timedelta(seconds=1)
     await outbox_store.mark_failed(fetched[0].id, 'transient', next_retry_at=past)
 
-    refetched = await outbox_store.fetch_and_mark_processing(batch_size=10)
+    refetched = await outbox_store.fetch_head_of_queue(batch_size=10)
     assert len(refetched) == 1
     assert refetched[0].retry_count == 1
 
@@ -106,16 +97,16 @@ async def test_mark_failed_with_future_retry_increments_and_refetches(outbox_sto
 async def test_mark_failed_without_retry_is_terminal(outbox_store: IOutboxStore) -> None:
     message = _make_message()
     await outbox_store.save_batch([message])
-    fetched = await outbox_store.fetch_and_mark_processing(batch_size=10)
+    fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
 
     await outbox_store.mark_failed(fetched[0].id, 'permanent', next_retry_at=None)
-    assert list(await outbox_store.fetch_and_mark_processing(batch_size=10)) == []
+    assert list(await outbox_store.fetch_head_of_queue(batch_size=10)) == []
 
 
 async def test_mark_discarded_is_terminal(outbox_store: IOutboxStore) -> None:
     message = _make_message()
     await outbox_store.save_batch([message])
-    fetched = await outbox_store.fetch_and_mark_processing(batch_size=10)
+    fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
 
     await outbox_store.mark_discarded(fetched[0].id, 'transport gave up')
     assert list(await outbox_store.fetch_head_of_queue(batch_size=10)) == []
@@ -124,10 +115,10 @@ async def test_mark_discarded_is_terminal(outbox_store: IOutboxStore) -> None:
 async def test_move_to_dead_letter_is_terminal(outbox_store: IOutboxStore) -> None:
     message = _make_message()
     await outbox_store.save_batch([message])
-    fetched = await outbox_store.fetch_and_mark_processing(batch_size=10)
+    fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
 
     await outbox_store.move_to_dead_letter(fetched[0].id, _dead_letter_for(message))
-    assert list(await outbox_store.fetch_and_mark_processing(batch_size=10)) == []
+    assert list(await outbox_store.fetch_head_of_queue(batch_size=10)) == []
 
 
 async def test_fetch_head_of_queue_returns_one_head_per_group(outbox_store: IOutboxStore) -> None:
@@ -175,14 +166,14 @@ async def test_mutations_on_unknown_id_are_harmless_no_ops(outbox_store: IOutbox
     await outbox_store.mark_failed(unknown, 'nope', next_retry_at=None)
     await outbox_store.mark_discarded(unknown, 'nope')
 
-    fetched = await outbox_store.fetch_and_mark_processing(batch_size=10)
+    fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
     assert [m.id for m in fetched] == [message.id]
 
 
 async def test_cleanup_dispatched_removes_old_dispatched(outbox_store: IOutboxStore) -> None:
     message = _make_message()
     await outbox_store.save_batch([message])
-    fetched = await outbox_store.fetch_and_mark_processing(batch_size=10)
+    fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
     await outbox_store.mark_dispatched(fetched[0].id)
 
     cleaned = await outbox_store.cleanup_dispatched(older_than=timedelta(seconds=-1))
@@ -192,8 +183,8 @@ async def test_cleanup_dispatched_removes_old_dispatched(outbox_store: IOutboxSt
 async def test_recover_stuck_resets_stale_processing(outbox_store: IOutboxStore) -> None:
     message = _make_message()
     await outbox_store.save_batch([message])
-    await outbox_store.fetch_and_mark_processing(batch_size=10)  # -> PROCESSING with processing_started_at
+    await outbox_store.fetch_head_of_queue(batch_size=10)  # -> PROCESSING with processing_started_at
 
     recovered = await outbox_store.recover_stuck(threshold=timedelta(seconds=-1))
     assert recovered == 1
-    assert len(await outbox_store.fetch_and_mark_processing(batch_size=10)) == 1
+    assert len(await outbox_store.fetch_head_of_queue(batch_size=10)) == 1

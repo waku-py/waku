@@ -42,7 +42,7 @@ sequenceDiagram
     Note over EP,DB: Same DB transaction as handler
 
     loop Poll loop
-        Relay->>DB: fetch_and_mark_processing(batch_size)
+        Relay->>DB: fetch_head_of_queue(batch_size)
         Relay->>Transport: send(envelope, destination)
         Transport->>Broker: deliver
         Relay->>DB: mark_dispatched(message_id)
@@ -133,7 +133,7 @@ The relay is enabled by default with sensible settings (see [Relay Configuration
 | Method                                    | Description                                              |
 |-------------------------------------------|----------------------------------------------------------|
 | `save_batch(messages)`                    | Persist new outbox messages (called by `ExternalEndpoint`) |
-| `fetch_and_mark_processing(batch_size)`   | Fetch pending messages and mark them as `PROCESSING`     |
+| `fetch_head_of_queue(batch_size)`         | Claim pending messages in partition order (one head per `group_id`) and mark them `PROCESSING` |
 | `mark_dispatched(message_id)`             | Mark a message as successfully dispatched                |
 | `mark_failed(message_id, error, next_retry_at)` | Mark a message as failed, schedule next retry      |
 | `move_to_dead_letter(message_id, entry)`  | Move an exhausted message to the dead letter store       |
@@ -145,10 +145,10 @@ The relay is enabled by default with sensible settings (see [Relay Configuration
 ```mermaid
 stateDiagram-v2
     [*] --> PENDING: save_batch()
-    PENDING --> PROCESSING: fetch_and_mark_processing()
+    PENDING --> PROCESSING: fetch_head_of_queue()
     PROCESSING --> DISPATCHED: mark_dispatched()
     PROCESSING --> FAILED: mark_failed()
-    FAILED --> PROCESSING: fetch_and_mark_processing()
+    FAILED --> PROCESSING: fetch_head_of_queue()
     PROCESSING --> DEAD_LETTERED: move_to_dead_letter()
     PROCESSING --> PROCESSING: recover_stuck()
 ```

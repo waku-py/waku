@@ -80,17 +80,12 @@ class _TrackingOutboxStore(IOutboxStore):
         self.pending.extend(messages)
 
     @override
-    async def fetch_and_mark_processing(self, batch_size: int) -> Sequence[OutboxMessage]:
+    async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
+        # Relay tests stage non-partitioned messages, so head-of-queue is plain FIFO slicing.
         self.poll_calls += 1
         batch = self.pending[:batch_size]
         self.pending = self.pending[batch_size:]
         return batch
-
-    @override
-    async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
-        # Existing relay tests stage non-partitioned messages, so head-of-queue degrades to FIFO —
-        # delegate to keep the in-flight slicing semantics identical.
-        return await self.fetch_and_mark_processing(batch_size)
 
     @override
     async def mark_dispatched(self, message_id: UUID) -> None:
@@ -358,7 +353,7 @@ class TestOutboxRelay:
 
         class _BlockingOutboxStore(_TrackingOutboxStore):
             @override
-            async def fetch_and_mark_processing(self, batch_size: int) -> Sequence[OutboxMessage]:
+            async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
                 await anyio.sleep_forever()
                 return []  # pragma: no cover
 
