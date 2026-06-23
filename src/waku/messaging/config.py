@@ -15,18 +15,20 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.identity import MessageIdentity
     from waku.messaging.contracts.message import IMessage
     from waku.messaging.contracts.pipeline import IPipelineBehavior
-    from waku.messaging.endpoints.base import EndpointEntry
+    from waku.messaging.endpoints.base import EndpointEntry, InboundEntry
     from waku.messaging.errors.dead_letter import IDeadLetterStore
     from waku.messaging.errors.policy import ErrorPolicy
     from waku.messaging.inbox.config import InboxConfig
     from waku.messaging.outbox.interfaces import IOutboxStore
     from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor
     from waku.messaging.sending.policy import SendingFailurePolicy
+    from waku.messaging.transport.inbound import IInboundTransport
     from waku.messaging.transport.interfaces import ITransport
     from waku.messaging.transport.serialization import IEnvelopeSerializer
 
 __all__ = [
     'DeadLetterConfig',
+    'InboundConfig',
     'MessagingConfig',
     'OutboxConfig',
 ]
@@ -38,6 +40,12 @@ class OutboxConfig:
     transport: type[ITransport] | Callable[..., ITransport]
     envelope_serializer: type[IEnvelopeSerializer] | Callable[..., IEnvelopeSerializer] | None = None
     relay: OutboxRelayConfig = OutboxRelayConfig()  # noqa: RUF009
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class InboundConfig:
+    transport: type[IInboundTransport] | Callable[..., IInboundTransport]
+    listeners: Sequence[InboundEntry] = ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -75,6 +83,7 @@ class MessagingConfig:
     dead_letter: DeadLetterConfig | None = None
     outbox: OutboxConfig | None = None
     inbox: InboxConfig | None = None
+    inbound: InboundConfig | None = None
     default_circuit_breaker: CircuitBreakerConfig | None = None
     """Fallback per-endpoint circuit-breaker config; an endpoint's own breaker shadows this."""
     default_execution_timeout: timedelta | None = timedelta(seconds=60)

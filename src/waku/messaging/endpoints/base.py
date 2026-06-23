@@ -24,8 +24,10 @@ __all__ = [
     'EndpointEntry',
     'EndpointMode',
     'ExternalEntry',
+    'InboundEntry',
     'LocalQueueEntry',
     'external_endpoint',
+    'listen',
     'local_queue',
 ]
 
@@ -57,7 +59,27 @@ class ExternalEntry:
     sending_failure_policies: Sequence[SendingFailurePolicy] = ()
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class InboundEntry:
+    uri: str
+    partition_by: Callable[[IMessage], str | None] | None = None
+    max_requeue_attempts: int | MISSING = MISSING  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+
+
 EndpointEntry: TypeAlias = LocalQueueEntry | ExternalEntry
+
+
+def listen(
+    uri: str,
+    *,
+    partition_by: Callable[[IMessage], str | None] | None = None,
+    max_requeue_attempts: int | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+) -> InboundEntry:
+    return InboundEntry(
+        uri=uri,
+        partition_by=partition_by,
+        max_requeue_attempts=max_requeue_attempts,
+    )
 
 
 def local_queue(  # noqa: PLR0913 -- one keyword per LocalQueueEntry field

@@ -33,7 +33,14 @@ from waku.messaging.contracts.message import IMessage
 from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.dispatcher import MessageDispatcher
-from waku.messaging.endpoints.base import Endpoint, EndpointEntry, EndpointMode, ExternalEntry, LocalQueueEntry
+from waku.messaging.endpoints.base import (
+    Endpoint,
+    EndpointEntry,
+    EndpointMode,
+    ExternalEntry,
+    LocalQueueEntry,
+)
+from waku.messaging.endpoints.durable_inbox_receiver import DurableInboxReceiver, build_durable_inbox_receiver
 from waku.messaging.endpoints.durable_local_queue import DurableLocalQueueEndpoint
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.external import ExternalEndpoint
@@ -52,6 +59,7 @@ from waku.messaging.impl import MessageBus
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.drainer import build_inbox_drainer
 from waku.messaging.inbox.interfaces import IInboxStore
+from waku.messaging.inbox.listener import InboundListener
 from waku.messaging.inbox.recovery import InboxRecoveryWorker
 from waku.messaging.inbox.scheduled import ScheduledPromotionWorker
 from waku.messaging.interfaces import IMessageBus
@@ -74,6 +82,7 @@ from waku.messaging.registry import MessageRegistry
 from waku.messaging.router import MessageRouter, RoutingTable
 from waku.messaging.routing_builder import RoutingTableBuilder
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicyRegistry
+from waku.messaging.transport.inbound import IInboundTransport
 from waku.messaging.transport.interfaces import ITransport
 from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
 from waku.modules import DynamicModule, ModuleMetadataRegistry, module
@@ -139,6 +148,8 @@ class MessagingModule:
             extensions.append(OutboxRelayLifecycleExtension(config_.outbox.relay))
         if config_.inbox is not None:
             extensions.append(InboxRecoveryLifecycleExtension(config_.inbox))
+        if config_.inbound is not None:
+            extensions.append(InboundListenerLifecycleExtension(config_))
         if config_.dead_letter is not None and (
             config_.dead_letter.auto_replay_enabled or config_.dead_letter.retention is not None
         ):
@@ -159,6 +170,12 @@ class MessagingModule:
         # DLQ validation deferred to MessageRegistryAggregator (handler ClassVar policies only known post-merge).
         if _has_durable_local_queue(config) and config.inbox is None:
             msg = 'EndpointMode.DURABLE on a local_queue entry requires inbox in MessagingConfig'
+            raise ImproperlyConfiguredError(msg)
+        if config.inbound is not None and not config.inbound.listeners:
+            msg = 'inbound config requires at least one listener'
+            raise ImproperlyConfiguredError(msg)
+        if config.inbound is not None and config.inbox is None:
+            msg = 'inbound listeners require inbox in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
         _reject_inline_deferred_terminal(config)
 
@@ -186,6 +203,8 @@ class MessagingModule:
                 scoped(IInboxStore, config.inbox.store),
                 object_(config.inbox, provided_type=InboxConfig),
             ))
+        if config.inbound is not None:
+            providers.append(singleton(IInboundTransport, config.inbound.transport))
         return tuple(providers)
 
 
@@ -301,7 +320,7 @@ def _requires_sequence_allocator(config: MessagingConfig) -> bool:
             return True
         if isinstance(entry, LocalQueueEntry) and _effective_mode(entry, config) == EndpointMode.DURABLE:
             return True
-    return False
+    return config.inbound is not None and any(e.partition_by is not None for e in config.inbound.listeners)
 
 
 def _build_sending_failure_registry(config: MessagingConfig) -> SendingFailurePolicyRegistry:
@@ -593,8 +612,8 @@ class _UnitOfWorkValidationExtension(OnContainerBuilt):
 class _SequenceAllocatorValidationExtension(OnContainerBuilt):
     """Fail fast when ``partition_by`` is declared without ``ISequenceAllocator``.
 
-    Auto-registration would couple every config to ``AsyncSession``; startup error is cleaner.
-    Only detects declared ``partition_by`` — cascade-propagated ``envelope.group_id`` is undetectable statically.
+    Auto-registration would couple every config to ``AsyncSession``; a startup error is cleaner.
+    Note: cascade-propagated ``envelope.group_id`` is undetectable statically.
     """
 
     __slots__ = ('_config',)
@@ -687,3 +706,65 @@ class DeadLetterLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
     async def on_app_shutdown(self, app: 'WakuApplication') -> None:
         if self._worker is not None:
             await self._worker.stop()
+
+
+class InboundListenerLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
+    __slots__ = ('_config', '_receivers', '_transport')
+
+    def __init__(self, config: MessagingConfig) -> None:
+        self._config = config
+        self._receivers: list[DurableInboxReceiver] = []
+        self._transport: IInboundTransport | None = None
+
+    @override
+    async def after_app_init(self, app: 'WakuApplication') -> None:
+        if self._config.inbound is None:
+            return
+        inbox = self._config.inbox
+        if inbox is None:
+            return
+        transport = await app.container.get(IInboundTransport)
+        serializer = await app.container.get(IEnvelopeSerializer)
+        registry = await app.container.get(MessageRegistry)
+        evaluator = await app.container.get(ErrorPolicyEvaluator)
+        invoker = await app.container.get(HandlerPipelineInvoker)
+        messaging_config = await app.container.get(MessagingConfig)
+        now = await app.container.get(Now)
+        for entry in self._config.inbound.listeners:
+            uri = f'inbound://{entry.uri}'
+            executor = EndpointExecutor(
+                container=app.container,
+                evaluator=evaluator,
+                endpoint_uri=uri,
+                invoker=invoker,
+                default_execution_timeout=messaging_config.default_execution_timeout,
+                now=now,
+            )
+            max_requeue = (
+                self._config.default_max_requeue_attempts
+                if entry.max_requeue_attempts is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+                else entry.max_requeue_attempts
+            )
+            receiver = build_durable_inbox_receiver(
+                uri=uri,
+                container=app.container,
+                executor=executor,
+                inbox_owner_id=inbox.resolve_owner_id(),
+                keep_after_handled=inbox.keep_after_handled,
+                partition_by=entry.partition_by,
+                max_requeue_attempts=max_requeue,
+                circuit_breaker_config=None,
+            )
+            listener = InboundListener(serializer=serializer, registry=registry, receiver=receiver)
+            await receiver.start()
+            self._receivers.append(receiver)
+            transport.subscribe(entry.uri, listener.consume)
+        await transport.start()
+        self._transport = transport
+
+    @override
+    async def on_app_shutdown(self, app: 'WakuApplication') -> None:
+        if self._transport is not None:
+            await self._transport.stop()
+        for receiver in self._receivers:
+            await receiver.stop()

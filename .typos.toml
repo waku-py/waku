@@ -8,3 +8,4 @@ extend-exclude = [
 AggregateT = "AggregateT"
 brin = "brin"
 mis = "mis"
+requeueing = "requeueing"
