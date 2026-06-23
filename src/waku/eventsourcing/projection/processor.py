@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 import anyio
 
+from waku._internal.adaptive_interval import calculate_backoff_with_jitter
 from waku.eventsourcing.exceptions import ProjectionStoppedError
-from waku.eventsourcing.projection.adaptive_interval import calculate_backoff_with_jitter
 from waku.eventsourcing.projection.checkpoint import Checkpoint
 from waku.eventsourcing.projection.gap_detection import GapTracker
 from waku.eventsourcing.projection.interfaces import ProjectionErrorPolicy

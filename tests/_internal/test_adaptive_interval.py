@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from waku.eventsourcing.projection.adaptive_interval import AdaptiveInterval, calculate_backoff_with_jitter
+from waku._internal.adaptive_interval import AdaptiveInterval, calculate_backoff_with_jitter  # noqa: PLC2701
 
 
 def test_initial_value_is_min() -> None:

@@ -27,6 +27,7 @@ from waku.eventsourcing.exceptions import (
     StreamTooLargeError,
     UnknownEventTypeError,
 )
+from waku.eventsourcing.forwarding import ForwardDescriptor, forward
 from waku.eventsourcing.modules import (
     EventSourcingConfig,
     EventSourcingExtension,
@@ -72,6 +73,7 @@ __all__ = [
     'EventTypeSpec',
     'Exact',
     'ExpectedVersion',
+    'ForwardDescriptor',
     'ICatchUpProjection',
     'ICheckpointStore',
     'IDecider',
@@ -95,4 +97,5 @@ __all__ = [
     'StreamPosition',
     'StreamTooLargeError',
     'UnknownEventTypeError',
+    'forward',
 ]

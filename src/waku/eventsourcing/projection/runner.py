@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Final
 
 import anyio
 
+from waku._internal.adaptive_interval import AdaptiveInterval
 from waku.eventsourcing.exceptions import ProjectionError
-from waku.eventsourcing.projection.adaptive_interval import AdaptiveInterval
 from waku.eventsourcing.projection.config import PollingConfig
 from waku.eventsourcing.projection.interfaces import ICheckpointStore
 from waku.eventsourcing.projection.processor import ProjectionProcessor

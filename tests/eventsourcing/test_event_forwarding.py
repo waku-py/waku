@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from typing_extensions import override
 
+from waku.eventsourcing import forward
 from waku.eventsourcing.forwarding import (
     AppendedEventsCollector,
     ForwardingRegistry,
-    forward,
 )
 from waku.integrations.eventsourcing_messaging.forwarding import EventForwardingBehavior
 from waku.messaging.contracts.event import IEvent

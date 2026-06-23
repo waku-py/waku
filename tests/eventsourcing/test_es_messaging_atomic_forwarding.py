@@ -14,8 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import override
 
 from waku.di import scoped
+from waku.eventsourcing import ForwardDescriptor, forward
 from waku.eventsourcing.contracts.stream import StreamId
-from waku.eventsourcing.forwarding import ForwardDescriptor, forward
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
