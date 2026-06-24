@@ -169,6 +169,7 @@ class OutboxRelay(PollingAgent):
             correlation_id=str(message.correlation_id),
             causation_id=str(message.causation_id),
             message_type=message.message_type,
+            group_id=message.group_id,
         )
         await sender.send(message.payload, destination=queue, metadata=metadata)
         await store.mark_dispatched(message.id)

@@ -46,7 +46,7 @@ Issues = "https://github.com/waku-py/waku/issues"
 
 [dependency-groups]
 dev = [
-  "pysentry-rs>=0.4.6",
+  "pysentry-rs>=0.4.7",
 ]
 docs = [
   "mkdocstrings[python]>=1.0.4",
@@ -55,12 +55,12 @@ docs = [
 lint = [
   "deptry>=0.25.1",
   "gitlint>=0.19.1",
-  "import-linter>=2.11",
+  "import-linter>=2.12",
   "prek>=0.4.5",
-  "ruff>=0.15.18",
+  "ruff>=0.15.19",
 ]
 test = [
-  "coverage>=7.14.2",
+  "coverage>=7.14.3",
   "psycopg[binary]>=3.3.4",
   "pytest>=9.1.1",
   "pytest-clarity>=1.0.1",
@@ -69,7 +69,7 @@ test = [
   "pytest-mock>=3.15.1",
   "pytest-randomly>=4.1.0",
   "pytest-timeout>=2.4.0",
-  "faststream[rabbit]>=0.7.1",
+  "faststream[kafka, rabbit]>=0.7.1",
   "sqlalchemy[asyncio]>=2.0.51",
   "testcontainers[postgres]>=4.14.2",
   "uvloop>=0.22.1; sys_platform != 'win32' and python_version < '3.14'",
@@ -77,8 +77,8 @@ test = [
 typecheck = [
   "mypy[faster-cache]>=2.1.0",
   "pyrefly>=1.1.1",
-  "ty>=0.0.51",
-  "zuban>=0.8.2"
+  "ty>=0.0.53",
+  "zuban>=0.9.0"
 ]
 
 # ----- UV settings -----
@@ -295,6 +295,10 @@ warn_no_return = true
 
 [[tool.mypy.overrides]]
 module = "gitlint.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "aiokafka.*"
 ignore_missing_imports = true
 
 

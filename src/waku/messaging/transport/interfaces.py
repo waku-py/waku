@@ -20,12 +20,17 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class WireMetadata:
-    """Correlation metadata written as broker headers verbatim — keeps the header concern out of the serializer."""
+    """Message-derived attributes the transport stamps onto the wire when publishing.
+
+    The correlation fields become broker headers (``as_headers``); ``group_id`` becomes the
+    partition-routing key (e.g. the Kafka message key). Keeps both concerns off the serializer.
+    """
 
     message_id: str
     correlation_id: str
     causation_id: str
     message_type: str
+    group_id: str | None = None
 
     def as_headers(self) -> dict[str, str]:
         return {

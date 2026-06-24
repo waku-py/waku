@@ -136,7 +136,7 @@ class _TrackingOutboxStore(IOutboxStore):
         return self.cleanup_count
 
 
-def _make_outbox_message(envelope: MessageEnvelope[Any]) -> OutboxMessage:
+def _make_outbox_message(envelope: MessageEnvelope[Any], *, group_id: str | None = None) -> OutboxMessage:
     serializer = make_serializer(_TestEvent)
     return OutboxMessage(
         id=uuid4(),
@@ -146,13 +146,14 @@ def _make_outbox_message(envelope: MessageEnvelope[Any]) -> OutboxMessage:
         destination='test://dest',
         correlation_id=envelope.correlation_id,
         causation_id=envelope.causation_id,
+        group_id=group_id,
     )
 
 
-def _make_pending_store() -> tuple[_TrackingOutboxStore, OutboxMessage]:
+def _make_pending_store(*, group_id: str | None = None) -> tuple[_TrackingOutboxStore, OutboxMessage]:
     store = _TrackingOutboxStore()
     envelope = make_envelope(_TestEvent(value='test'))
-    msg = _make_outbox_message(envelope)
+    msg = _make_outbox_message(envelope, group_id=group_id)
     store.pending.append(msg)
     return store, msg
 
@@ -250,6 +251,21 @@ class TestOutboxRelay:
         assert metadata.correlation_id == str(msg.correlation_id)
         assert metadata.causation_id == str(msg.causation_id)
         assert metadata.message_type == msg.message_type
+
+    @staticmethod
+    async def test_passes_group_id_to_transport_as_wire_metadata() -> None:
+        # The relay sources the partition-routing key off the OutboxMessage column — the transport (Kafka)
+        # reads it as the message key; nothing parses the wire body for it.
+        store, msg = _make_pending_store(group_id='order-1')
+        transport = RecordingTransport()
+        serializer = make_serializer(_TestEvent)
+
+        async with _run_relay(RelayDepsProvider(store, transport, serializer)):
+            await wait_until(lambda: msg.id in store.dispatched_ids)
+
+        assert transport.sent
+        _body, _destination, metadata = transport.sent[0]
+        assert metadata.group_id == 'order-1'
 
     @staticmethod
     async def test_marks_failed_on_transport_error() -> None:

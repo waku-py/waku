@@ -8,7 +8,11 @@ from unittest.mock import AsyncMock, patch
 from faststream.rabbit import RabbitBroker, TestRabbitBroker
 from faststream.rabbit.message import RabbitMessage
 
-from waku.messaging.transport.faststream.rabbitmq import FastStreamRabbitTransport, rabbit_transport
+from waku.messaging.transport.faststream.rabbitmq import (
+    FastStreamRabbitTransport,
+    dispatch_inbound,
+    rabbit_transport,
+)
 from waku.messaging.transport.inbound import ConsumeDisposition
 from waku.messaging.transport.interfaces import WireMetadata
 
@@ -45,54 +49,92 @@ class TestFastStreamRabbitTransportRoundTrip:
             mock_ack.assert_awaited_once()
 
 
-class TestFastStreamRabbitTransportDispositionMapping:
+class _FakeInboundMessage:
+    def __init__(self, *, decode_error: Exception | None = None) -> None:
+        self._decode_error = decode_error
+        self.acked = 0
+        self.rejected = 0
+        self.nack_requeues: list[bool] = []
+
+    async def decode(self) -> dict[str, object]:
+        if self._decode_error is not None:
+            raise self._decode_error
+        return {'k': 'v'}
+
+    async def ack(self) -> None:
+        self.acked += 1
+
+    async def nack(self, *, requeue: bool) -> None:
+        self.nack_requeues.append(requeue)
+
+    async def reject(self) -> None:
+        self.rejected += 1
+
+
+class TestDispatchInbound:
     @staticmethod
-    async def test_nack_requeue_disposition_calls_nack_with_requeue() -> None:
-        t = FastStreamRabbitTransport(url='amqp://x')
+    async def test_ack_disposition_acks() -> None:
+        msg = _FakeInboundMessage()
+        seen: list[dict[str, object]] = []
+
+        async def on_message(body: dict[str, object]) -> ConsumeDisposition:  # noqa: RUF029
+            seen.append(body)
+            return ConsumeDisposition.ACK
+
+        await dispatch_inbound(msg, on_message)
+
+        assert seen == [{'k': 'v'}]
+        assert (msg.acked, msg.nack_requeues, msg.rejected) == (1, [], 0)
+
+    @staticmethod
+    async def test_nack_requeue_disposition_requeues() -> None:
+        msg = _FakeInboundMessage()
 
         async def on_message(_body: dict[str, object]) -> ConsumeDisposition:  # noqa: RUF029
             return ConsumeDisposition.NACK_REQUEUE
 
-        t.subscribe('q', on_message)
+        await dispatch_inbound(msg, on_message)
 
-        with patch.object(RabbitMessage, 'nack', new_callable=AsyncMock) as mock_nack:
-            async with TestRabbitBroker(t._listen_broker):
-                # The subscribe body lives on _listen_broker; publishing directly to it
-                # makes a single-broker TestRabbitBroker context sufficient for disposition coverage.
-                await t._listen_broker.publish({'k': 'v'}, 'q')
-
-            mock_nack.assert_awaited_once_with(requeue=True)
+        assert (msg.acked, msg.nack_requeues, msg.rejected) == (0, [True], 0)
 
     @staticmethod
-    async def test_reject_disposition_calls_reject() -> None:
-        t = FastStreamRabbitTransport(url='amqp://x')
+    async def test_reject_disposition_rejects() -> None:
+        msg = _FakeInboundMessage()
 
         async def on_message(_body: dict[str, object]) -> ConsumeDisposition:  # noqa: RUF029
             return ConsumeDisposition.REJECT
 
-        t.subscribe('q', on_message)
+        await dispatch_inbound(msg, on_message)
 
-        with patch.object(RabbitMessage, 'reject', new_callable=AsyncMock) as mock_reject:
-            async with TestRabbitBroker(t._listen_broker):
-                await t._listen_broker.publish({'k': 'v'}, 'q')
-
-            mock_reject.assert_awaited_once()
+        assert (msg.acked, msg.nack_requeues, msg.rejected) == (0, [], 1)
 
     @staticmethod
-    async def test_raised_handler_nacks_requeue() -> None:
-        t = FastStreamRabbitTransport(url='amqp://x')
+    async def test_raised_handler_requeues() -> None:
+        msg = _FakeInboundMessage()
 
         async def on_message(_body: dict[str, object]) -> ConsumeDisposition:  # noqa: RUF029
-            msg = 'handler boom'
-            raise RuntimeError(msg)
+            error = 'handler boom'
+            raise RuntimeError(error)
 
-        t.subscribe('q', on_message)
+        await dispatch_inbound(msg, on_message)
 
-        with patch.object(RabbitMessage, 'nack', new_callable=AsyncMock) as mock_nack:
-            async with TestRabbitBroker(t._listen_broker):
-                await t._listen_broker.publish({'k': 'v'}, 'q')
+        assert (msg.acked, msg.nack_requeues, msg.rejected) == (0, [True], 0)
 
-            mock_nack.assert_awaited_once_with(requeue=True)
+    @staticmethod
+    async def test_undecodable_payload_is_rejected_without_requeue() -> None:
+        # Poison (foreign/corrupt wire format): reject without requeue (-> DLX/drop), never requeue (poison loop)
+        # and never leave unacked (redelivery on reconnect).
+        msg = _FakeInboundMessage(decode_error=ValueError('bad payload'))
+        seen: list[dict[str, object]] = []
+
+        async def on_message(body: dict[str, object]) -> ConsumeDisposition:  # noqa: RUF029
+            seen.append(body)
+            return ConsumeDisposition.ACK
+
+        await dispatch_inbound(msg, on_message)
+
+        assert (msg.acked, msg.nack_requeues, msg.rejected) == (0, [], 1)
+        assert seen == []
 
 
 class TestFastStreamRabbitTransportSubscription:

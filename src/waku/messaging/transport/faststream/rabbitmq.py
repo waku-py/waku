@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import functools
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from faststream import AckPolicy
 from faststream.rabbit import Channel, RabbitBroker
@@ -34,6 +34,43 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+
+class _InboundMessage(Protocol):
+    """The broker-message surface the inbound dispatch needs: decode + the disposition acks."""
+
+    async def decode(self) -> Any: ...
+    async def ack(self) -> None: ...
+    async def nack(self, *, requeue: bool) -> None: ...
+    async def reject(self) -> None: ...
+
+
+async def dispatch_inbound(msg: _InboundMessage, on_message: ConsumeCallback) -> None:
+    """Decode an inbound RabbitMQ message and apply the handler's disposition.
+
+    Importable (not exported) so the decode/disposition logic is unit-testable without a live broker.
+    """
+    try:
+        body: dict[str, Any] = await msg.decode()
+    except Exception:
+        # An undecodable payload is poison (foreign/corrupt wire format): reject WITHOUT requeue (-> DLX/drop).
+        # Requeueing would seek-back into an infinite poison loop; leaving it unacked redelivers on reconnect.
+        logger.exception('Undecodable RabbitMQ payload rejected (no requeue) — not requeued')
+        await msg.reject()
+        return
+    try:
+        disposition = await on_message(body)
+    except Exception:
+        # MANUAL ack: a raised handler would leave the message unacked — requeue for redelivery.
+        logger.exception('Inbound message handling failed; requeueing message')
+        await msg.nack(requeue=True)
+        return
+    if disposition is ConsumeDisposition.ACK:
+        await msg.ack()
+    elif disposition is ConsumeDisposition.NACK_REQUEUE:
+        await msg.nack(requeue=True)
+    else:
+        await msg.reject()
 
 
 class _FastStreamSubscription(Subscription):
@@ -95,22 +132,7 @@ class FastStreamRabbitTransport(ITransport):
         )
 
         async def _handler(msg: RabbitMessage) -> None:
-            # decode() runs before the try below: a malformed payload is poison (a foreign wire format — Waku
-            # is both producer and consumer here) and must not be requeued into a poison loop.
-            body: dict[str, Any] = await msg.decode()  # type: ignore[assignment]
-            try:
-                disposition = await on_message(body)
-            except Exception:
-                # MANUAL ack: a raised handler would leave the message unacked — requeue for redelivery.
-                logger.exception('Inbound message handling failed; requeueing message')
-                await msg.nack(requeue=True)
-                return
-            if disposition is ConsumeDisposition.ACK:
-                await msg.ack()
-            elif disposition is ConsumeDisposition.NACK_REQUEUE:
-                await msg.nack(requeue=True)
-            else:
-                await msg.reject()
+            await dispatch_inbound(msg, on_message)
 
         subscriber(_handler)  # register the handler on the captured subscriber (RabbitSubscriber.__call__)
         return _FastStreamSubscription(subscriber)
