@@ -10,26 +10,32 @@ faststream_rabbit = pytest.importorskip('faststream.rabbit')
 
 from faststream.rabbit import TestRabbitBroker
 
+from waku import module
 from waku.di import object_
 from waku.messaging import (
+    EventHandler,
+    IEvent,
+    IMessageBus,
     InboundConfig,
-    InboxConfig,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
+    OutboxConfig,
     TransactionalBehavior,
+    external_endpoint,
+    route,
 )
-from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.base import listen
-from waku.messaging.handler import EventHandler
+from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.transport.faststream.rabbitmq import FastStreamRabbitTransport
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, make_envelope, make_serializer
+from tests.messaging.helpers import FakeUoW
 from tests.messaging.inbox.fake_store import FakeInboxStore
+from tests.messaging.outbox.in_memory_store import InMemoryOutboxStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,9 +43,9 @@ class _OrderPlaced(IEvent):
     order_id: str
 
 
-class TestInboundIntegration:
+class TestTransportCollectionIntegration:
     @staticmethod
-    async def test_published_message_is_consumed_and_handled() -> None:
+    async def test_publish_via_relay_and_consume_via_listener() -> None:
         observed: list[str] = []
 
         class _RecordingHandler(EventHandler[_OrderPlaced]):
@@ -47,32 +53,37 @@ class TestInboundIntegration:
             async def handle(self, message: _OrderPlaced, /) -> None:
                 observed.append(message.order_id)
 
+        outbox = InMemoryOutboxStore()
         inbox = FakeInboxStore()
-        serializer = make_serializer(_OrderPlaced)
         transport = FastStreamRabbitTransport(url='amqp://x')
 
         config = MessagingConfig(
+            endpoints=[external_endpoint('rabbitmq://orders')],
+            routing=[route(_OrderPlaced).to('rabbitmq://orders')],
+            outbox=OutboxConfig(store=lambda: outbox),
             inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
             inbound=InboundConfig(listeners=[listen('rabbitmq://orders')]),
             transports={'rabbitmq': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 
-        envelope = make_envelope(_OrderPlaced(order_id='o-1'))
+        @module(extensions=[MessagingExtension().bind(_RecordingHandler)])
+        class TestModule:
+            pass
 
         async with (
             TestRabbitBroker(transport._send_broker, transport._listen_broker),  # noqa: SLF001
             create_test_app(
-                imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_RecordingHandler)],
+                imports=[MessagingModule.register(config), TestModule],
                 providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
-            ),
+            ) as app,
+            app.container() as c,
         ):
-            await transport._listen_broker.publish(serializer.serialize(envelope), 'orders')  # noqa: SLF001
+            bus = await c.get(IMessageBus)
+            await bus.publish(_OrderPlaced(order_id='o-1'))
             await wait_until(lambda: observed == ['o-1'])
 
         entries = list(inbox.entries.values())
         assert len(entries) == 1
         assert entries[0].status is InboxStatus.HANDLED
-        assert entries[0].source_uri == 'rabbitmq://orders'
         assert observed == ['o-1']

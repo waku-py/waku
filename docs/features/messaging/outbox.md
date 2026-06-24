@@ -33,7 +33,7 @@ sequenceDiagram
     participant EP as ExternalEndpoint
     participant DB as Outbox Store
     participant Relay as OutboxRelay
-    participant Transport as ITransport
+    participant Transport as ITransport (wire adapter)
     participant Broker as External System
 
     Handler->>Bus: send(msg) / publish(msg)
@@ -43,8 +43,9 @@ sequenceDiagram
 
     loop Poll loop
         Relay->>DB: fetch_head_of_queue(batch_size)
-        Relay->>Transport: send(envelope, destination)
-        Transport->>Broker: deliver
+        Note over Relay,DB: Returns stored wire body + metadata
+        Relay->>Transport: send(body, destination, metadata)
+        Transport->>Broker: deliver (no re-serialization)
         Relay->>DB: mark_dispatched(message_id)
     end
 ```
@@ -73,8 +74,9 @@ The outbox pattern in waku follows three stages:
    within the same DI scope (and therefore the same database transaction) as the handler.
 
 2. **Relay dispatch.** The `OutboxRelay` runs as a background task. It polls the outbox store
-   for pending messages, deserializes them, and sends each to the configured `ITransport`.
-   Successful dispatches are marked as `DISPATCHED`.
+   for pending messages and dispatches each stored wire body — together with its correlation
+   metadata — to the transport resolved for the destination scheme. No re-serialization occurs:
+   the body was encoded once at persist time. Successful dispatches are marked as `DISPATCHED`.
 
 3. **Failure handling.** If the transport rejects a message, the relay retries with exponential
    backoff. After `max_attempts`, the message is moved to the dead letter store (or marked as
@@ -84,7 +86,8 @@ The outbox pattern in waku follows three stages:
 
 ## Setup
 
-All outbox concerns are grouped in a single `OutboxConfig`:
+Transport factories are registered on `MessagingConfig.transports`, keyed by URI scheme.
+Outbox persistence concerns (`store`, `relay`) live in `OutboxConfig`:
 
 ```python linenums="1"
 from waku.messaging import (
@@ -94,35 +97,40 @@ from waku.messaging import (
     external_endpoint,
     route,
 )
+from waku.messaging.outbox.sqla.store import SqlAlchemyOutboxStore
+from waku.messaging.transport.faststream import rabbit_transport
 
 MessagingModule.register(
     MessagingConfig(
-        endpoints=[external_endpoint('notifications')],     # (1)!
-        routing=[route(OrderPlaced).to('notifications')],   # (2)!
+        transports={'rabbitmq': rabbit_transport(url='amqp://guest:guest@localhost/')},  # (1)!
+        endpoints=[external_endpoint('rabbitmq://notifications')],                        # (2)!
+        routing=[route(OrderPlaced).to('rabbitmq://notifications')],                     # (3)!
         outbox=OutboxConfig(
-            store=SqlAlchemyOutboxStore,                     # (3)!
-            transport=FastStreamTransport,                   # (4)!
+            store=SqlAlchemyOutboxStore,                                                  # (4)!
         ),
     ),
 )
 ```
 
-1. Declare an external endpoint with a logical URI.
-2. Route a message type to that endpoint.
-3. Outbox store implementation — persists messages to the database.
-4. Transport implementation — delivers messages to the external system.
+1. Register a transport factory keyed by scheme. The framework calls `rabbit_transport(...)` once
+   during startup to build the `FastStreamRabbitTransport`.
+2. Declare an external endpoint. The scheme (`rabbitmq`) must match a key in `transports`.
+3. Route a message type to that endpoint URI.
+4. Outbox store implementation — persists the serialized wire body to the database.
 
-`OutboxConfig` requires both `store` and `transport` — they are always used together.
-The relay is enabled by default with sensible settings (see [Relay Configuration](#relay-configuration)).
+`OutboxConfig` requires `store`. The relay is enabled by default with sensible settings
+(see [Relay Configuration](#relay-configuration)).
 
 !!! warning "Validation"
-    waku validates at startup that `external_endpoint` in `endpoints` has a corresponding
-    `outbox` in `MessagingConfig`. Missing it raises `ImproperlyConfiguredError`.
+    waku validates at startup that every `external_endpoint` in `endpoints` has a corresponding
+    `outbox` in `MessagingConfig`. Missing it raises `ImproperlyConfiguredError`. Referencing a
+    scheme with no entry in `transports` also raises `ImproperlyConfiguredError`.
 
-!!! tip "Why a single config object?"
-    `store`, `transport`, and `relay` are never useful independently — a store without a relay
-    fills up forever, a relay without a transport can't dispatch. Grouping them makes
-    misconfiguration structurally impossible.
+!!! tip "Why separate configs?"
+    `OutboxConfig` groups `store` and `relay` — the persistence layer — because a store without
+    a relay fills up forever. Transports are registered separately on `MessagingConfig.transports`
+    because they are independent of the outbox: inbound listeners use the same transport
+    collection, and you can register multiple schemes for different endpoint destinations.
 
 ---
 
@@ -183,38 +191,33 @@ outbox_tables = bind_outbox_tables(metadata)  # (1)!
 
 ## Transport
 
-`ITransport` is the interface for delivering messages to external systems. It receives a
-deserialized `MessageEnvelope` and a destination string:
+`ITransport` (`ISender + IListener`) is the wire-adapter interface. It receives an already-encoded
+body (`dict[str, Any]`) and a `WireMetadata` struct carrying correlation headers — no serialization
+logic belongs here. The transport's only job is to put the bytes on the wire and activate consumers.
 
-Implement this for your message broker or external service:
+The shipped adapter for RabbitMQ is `FastStreamRabbitTransport`, configured via the
+`rabbit_transport` factory:
 
 ```python linenums="1"
-from typing import Any
+from waku.messaging.transport.faststream import rabbit_transport
 
-from typing_extensions import override
-
-from waku.messaging.contracts.envelope import MessageEnvelope
-from waku.messaging.transport import ITransport
-
-
-class FastStreamTransport(ITransport):
-    def __init__(self, broker: KafkaBroker) -> None:
-        self._broker = broker
-
-    @override
-    async def send(self, envelope: MessageEnvelope[Any], *, destination: str) -> None:
-        await self._broker.publish(
-            message=envelope.payload,
-            topic=destination,
-            headers={
-                'message-id': str(envelope.message_id),
-                'correlation-id': str(envelope.correlation_id),
-            },
-        )
+transports = {
+    'rabbitmq': rabbit_transport(
+        url='amqp://guest:guest@localhost/',
+        prefetch_count=250,  # optional, default 250
+    ),
+}
 ```
 
-The `destination` parameter is the endpoint URI from the route declaration — use it to map to
-topics, queues, or routing keys in your broker.
+`rabbit_transport(url, *, prefetch_count=250)` returns a deferred `TransportFactory` — a
+zero-argument callable. The framework invokes it once during DI bootstrap to construct the
+`FastStreamRabbitTransport`, which opens two RabbitMQ connections: one for publishing (outbox
+relay) and one for consuming (inbound listener).
+
+Support for additional brokers (Kafka, NATS, etc.) is on the roadmap. To integrate a broker not
+yet shipped, implement `ITransport` from `waku.messaging.transport.interfaces` — the port
+accepts a pre-encoded `body: dict[str, Any]` and a `WireMetadata` instance and must not perform
+any envelope deserialization.
 
 ---
 
@@ -240,7 +243,6 @@ Provide a custom serializer class or factory for special requirements (e.g., Pro
 ```python linenums="1"
 OutboxConfig(
     store=SqlAlchemyOutboxStore,
-    transport=FastStreamTransport,
     envelope_serializer=MyProtobufSerializer,
 )
 ```
@@ -272,7 +274,6 @@ from waku.messaging.outbox.relay import OutboxRelayConfig
 
 OutboxConfig(
     store=SqlAlchemyOutboxStore,
-    transport=FastStreamTransport,
     relay=OutboxRelayConfig(
         batch_size=50,
         max_attempts=10,
@@ -327,11 +328,11 @@ When transport dispatch fails:
 
 ## Complete Example
 
-An end-to-end setup with an external endpoint, SQLAlchemy outbox, and a custom transport:
+An end-to-end setup with an external endpoint, SQLAlchemy outbox, and the RabbitMQ transport:
 
 ```python linenums="1"
 from waku import module
-from waku.di import scoped, singleton
+from waku.di import scoped
 from waku.uow import IUnitOfWork
 from waku.messaging import (
     MessagingConfig,
@@ -344,6 +345,7 @@ from waku.messaging import (
 from waku.messaging.outbox.relay import OutboxRelayConfig
 from waku.messaging.outbox.sqla.store import SqlAlchemyOutboxStore
 from waku.messaging.sqla.uow import SqlAlchemyUnitOfWork
+from waku.messaging.transport.faststream import rabbit_transport
 
 
 @module(
@@ -358,7 +360,6 @@ class NotificationsModule:
 @module(
     providers=[
         scoped(IUnitOfWork, SqlAlchemyUnitOfWork),
-        singleton(KafkaBroker, create_broker),
     ],
 )
 class InfraModule:
@@ -369,11 +370,11 @@ class InfraModule:
     imports=[
         MessagingModule.register(
             MessagingConfig(
-                endpoints=[external_endpoint('notifications')],
-                routing=[route(OrderPlaced).to('notifications')],
+                transports={'rabbitmq': rabbit_transport(url='amqp://guest:guest@localhost/')},
+                endpoints=[external_endpoint('rabbitmq://notifications')],
+                routing=[route(OrderPlaced).to('rabbitmq://notifications')],
                 outbox=OutboxConfig(
                     store=SqlAlchemyOutboxStore,
-                    transport=FastStreamTransport,
                     relay=OutboxRelayConfig(
                         batch_size=50,
                         max_attempts=3,
@@ -391,11 +392,11 @@ class AppModule:
 
 With this setup:
 
-1. When `bus.publish(OrderPlaced(...))` is called, the message is serialized and written to the
-   `outbox_messages` table within the handler's database transaction.
-2. The outbox relay polls the table, picks up the message, and calls
-   `FastStreamTransport.send()` to publish it to Kafka.
-3. If Kafka is unavailable, the relay retries with backoff up to 3 times, then dead-letters.
+1. When `bus.publish(OrderPlaced(...))` is called, the `ExternalEndpoint` serializes the envelope
+   and writes it to the `outbox_messages` table within the handler's database transaction.
+2. The outbox relay polls the table, picks up the stored wire body, and dispatches it through the
+   `FastStreamRabbitTransport` to the `notifications` queue on RabbitMQ.
+3. If RabbitMQ is unavailable, the relay retries with backoff up to 3 times, then dead-letters.
 
 ---
 

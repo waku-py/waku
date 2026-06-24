@@ -22,8 +22,7 @@ if TYPE_CHECKING:
     from waku.messaging.outbox.interfaces import IOutboxStore
     from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor
     from waku.messaging.sending.policy import SendingFailurePolicy
-    from waku.messaging.transport.inbound import IInboundTransport
-    from waku.messaging.transport.interfaces import ITransport
+    from waku.messaging.transport.interfaces import TransportFactory
     from waku.messaging.transport.serialization import IEnvelopeSerializer
 
 __all__ = [
@@ -37,14 +36,12 @@ __all__ = [
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OutboxConfig:
     store: type[IOutboxStore] | Callable[..., IOutboxStore]
-    transport: type[ITransport] | Callable[..., ITransport]
     envelope_serializer: type[IEnvelopeSerializer] | Callable[..., IEnvelopeSerializer] | None = None
     relay: OutboxRelayConfig = OutboxRelayConfig()  # noqa: RUF009
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class InboundConfig:
-    transport: type[IInboundTransport] | Callable[..., IInboundTransport]
     listeners: Sequence[InboundEntry] = ()
 
 
@@ -94,3 +91,6 @@ class MessagingConfig:
     """Fallback requeue/pause budget for `local_queue` entries that leave `max_requeue_attempts` unset."""
     message_identities: Mapping[type[IMessage], str | MessageIdentity] = field(default_factory=dict)
     """Third-party override for types you can't annotate; the default path is the ClassVar."""
+    transports: Mapping[str, TransportFactory] = field(default_factory=dict)
+    """Transport factories keyed by scheme (e.g. ``{'rabbitmq': rabbit_transport(url=...)}``); each factory is
+    invoked once during DI bootstrap to build the :class:`TransportRegistry`."""

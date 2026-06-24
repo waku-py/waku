@@ -1,0 +1,91 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from waku.exceptions import ImproperlyConfiguredError
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
+
+    from waku.messaging.transport.interfaces import IListener, ISender, ITransport
+
+__all__ = [
+    'TransportRegistry',
+    'split_destination',
+]
+
+
+def split_destination(uri: str, *, default_scheme: str | None) -> tuple[str, str]:
+    """Parse ``uri`` into ``(scheme, queue)``.
+
+    ``'rabbitmq://orders'`` → ``('rabbitmq', 'orders')``.
+    Bare ``'orders'`` → ``(default_scheme, 'orders')`` when a default is provided.
+
+    Raises:
+        ImproperlyConfiguredError: Bare URI with no ``default_scheme`` given, or a URI
+            missing a scheme or a queue (e.g. ``'rabbitmq://'``).
+    """
+    if '://' in uri:
+        scheme, queue = uri.split('://', 1)
+    elif default_scheme is None:
+        msg = (
+            f"Cannot resolve bare destination '{uri}': no default scheme is set. "
+            'Register exactly one transport or pass default_scheme explicitly.'
+        )
+        raise ImproperlyConfiguredError(msg)
+    else:
+        scheme, queue = default_scheme, uri
+    if not scheme or not queue:
+        msg = f"Transport destination '{uri}' needs both a scheme and a queue (e.g. 'rabbitmq://orders')."
+        raise ImproperlyConfiguredError(msg)
+    return scheme, queue
+
+
+class TransportRegistry:
+    """Named transports with scheme-based dispatch.
+
+    When ``default_scheme`` is omitted and exactly one transport is registered, that sole scheme is the implicit
+    default for bare URIs.
+    """
+
+    __slots__ = ('_default_scheme', '_transports')
+
+    def __init__(
+        self,
+        transports: Mapping[str, ITransport],
+        *,
+        default_scheme: str | None = None,
+    ) -> None:
+        self._transports: dict[str, ITransport] = dict(transports)
+
+        # Effective default: explicit > sole-transport implicit > None
+        if default_scheme is not None:
+            self._default_scheme: str | None = default_scheme
+        elif len(self._transports) == 1:
+            self._default_scheme = next(iter(self._transports))
+        else:
+            self._default_scheme = None
+
+    def sender_for(self, uri: str) -> ISender:
+        """Raises ``ImproperlyConfiguredError`` for unknown or unresolvable schemes."""
+        return self._resolve(uri)
+
+    def listener_for(self, uri: str) -> IListener:
+        """Raises ``ImproperlyConfiguredError`` for unknown or unresolvable schemes."""
+        return self._resolve(uri)
+
+    def transports(self) -> Iterable[ITransport]:
+        return self._transports.values()
+
+    @property
+    def default_scheme(self) -> str | None:
+        """Effective default: explicit > sole-transport implicit > None."""
+        return self._default_scheme
+
+    def _resolve(self, uri: str) -> ITransport:
+        scheme, _ = split_destination(uri, default_scheme=self._default_scheme)
+        transport = self._transports.get(scheme)
+        if transport is None:
+            msg = f"No transport registered for scheme '{scheme}' (uri='{uri}')."
+            raise ImproperlyConfiguredError(msg)
+        return transport

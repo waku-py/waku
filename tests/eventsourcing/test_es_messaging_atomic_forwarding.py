@@ -157,7 +157,8 @@ async def _forwarding_app(
     msg_config = MessagingConfig(
         endpoints=[external_endpoint('test://notes')],
         routing=routing,
-        outbox=OutboxConfig(store=FakeOutboxStore, transport=RecordingTransport),
+        outbox=OutboxConfig(store=FakeOutboxStore),
+        transports={'test': RecordingTransport},
         global_pipeline_behaviors=[TransactionalBehavior],
     )
 

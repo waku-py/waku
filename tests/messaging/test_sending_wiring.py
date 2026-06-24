@@ -6,11 +6,10 @@ from waku.messaging.errors import RetryAction
 from waku.messaging.modules import _build_sending_failure_registry  # noqa: PLC2701
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.sending.policy import SendingFailurePolicy
-from waku.messaging.transport.interfaces import ITransport
 
 
 def _outbox_config() -> OutboxConfig:
-    return OutboxConfig(store=IOutboxStore, transport=ITransport)
+    return OutboxConfig(store=IOutboxStore)
 
 
 def test_per_endpoint_policy_is_registered_by_destination() -> None:

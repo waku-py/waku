@@ -98,7 +98,8 @@ class TestEndToEndOutboxFlow:
         config = MessagingConfig(
             endpoints=[external_endpoint('test://notifications')],
             routing=[route(_OrderPlaced).to('test://notifications')],
-            outbox=OutboxConfig(store=InMemoryOutboxStore, transport=RecordingTransport),
+            outbox=OutboxConfig(store=InMemoryOutboxStore),
+            transports={'test': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 
@@ -138,10 +139,9 @@ class TestEndToEndOutboxFlow:
             await relay.stop()
 
         assert len(transport.sent) == 1
-        envelope, destination = transport.sent[0]
-        assert destination == 'test://notifications'
-        assert isinstance(envelope.payload, _OrderPlaced)
-        assert envelope.payload.order_id == 'order-1'
+        body, destination, _metadata = transport.sent[0]
+        assert destination == 'notifications'
+        assert body['payload'] == {'order_id': 'order-1'}
         assert outbox.messages[0].status == OutboxStatus.DISPATCHED
 
 
@@ -184,11 +184,11 @@ class TestOutboxRelayLifecycleIntegration:
             routing=[route(_OrderPlaced).to('test://notifications')],
             outbox=OutboxConfig(
                 store=lambda: outbox,
-                transport=lambda: transport,
                 relay=OutboxRelayConfig(
                     polling=PollingConfig(poll_interval_min_seconds=0.01), recovery_interval=timedelta(hours=1)
                 ),
             ),
+            transports={'test': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 
@@ -208,10 +208,9 @@ class TestOutboxRelayLifecycleIntegration:
             await anyio.sleep(0.1)
 
         assert len(transport.sent) == 1
-        envelope, destination = transport.sent[0]
-        assert destination == 'test://notifications'
-        assert isinstance(envelope.payload, _OrderPlaced)
-        assert envelope.payload.order_id == 'lifecycle-1'
+        body, destination, _metadata = transport.sent[0]
+        assert destination == 'notifications'
+        assert body['payload'] == {'order_id': 'lifecycle-1'}
 
 
 class TestCustomEnvelopeSerializer:
@@ -238,9 +237,9 @@ class TestCustomEnvelopeSerializer:
             routing=[route(_OrderPlaced).to('test://custom')],
             outbox=OutboxConfig(
                 store=lambda: outbox,
-                transport=RecordingTransport,
                 envelope_serializer=CustomSerializer,
             ),
+            transports={'test': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 
@@ -273,7 +272,8 @@ class TestMessageIdentityPropagation:
         config = MessagingConfig(
             endpoints=[external_endpoint('test://orders')],
             routing=[route(_OrderPlaced).to('test://orders')],
-            outbox=OutboxConfig(store=lambda: store, transport=lambda: transport),
+            outbox=OutboxConfig(store=lambda: store),
+            transports={'test': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
             message_identities={_OrderPlaced: 'order-placed'},
         )
@@ -300,7 +300,8 @@ class TestMessageIdentityPropagation:
         config = MessagingConfig(
             endpoints=[external_endpoint('test://orders')],
             routing=[route(_OrderPlaced).to('test://orders')],
-            outbox=OutboxConfig(store=lambda: store, transport=lambda: transport),
+            outbox=OutboxConfig(store=lambda: store),
+            transports={'test': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 
@@ -368,7 +369,7 @@ class TestRelayPartitionOrdering:
             await wait_until(lambda: sum(1 for m in store.messages if m.status == OutboxStatus.DISPATCHED) == 3)
             await relay.stop()
 
-        dispatched_order = [envelope.payload.order_id for envelope, _ in transport.sent]
+        dispatched_order = [body['payload']['order_id'] for body, _destination, _metadata in transport.sent]
         assert dispatched_order == ['A-1', 'A-2', 'A-3']
 
 
@@ -509,7 +510,8 @@ class TestGroupIdPropagation:
         config = MessagingConfig(
             endpoints=[external_endpoint('test://shipped')],
             routing=[route(_OrderShipped).to('test://shipped')],
-            outbox=OutboxConfig(store=lambda: outbox, transport=RecordingTransport),
+            outbox=OutboxConfig(store=lambda: outbox),
+            transports={'test': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 
@@ -551,11 +553,11 @@ class TestPartitionOrderingEndToEnd:
             routing=[route(_OrderPlaced).to('test://orders')],
             outbox=OutboxConfig(
                 store=lambda: outbox,
-                transport=lambda: transport,
                 relay=OutboxRelayConfig(
                     polling=PollingConfig(poll_interval_min_seconds=0.01), recovery_interval=timedelta(hours=1)
                 ),
             ),
+            transports={'test': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 
@@ -581,8 +583,8 @@ class TestPartitionOrderingEndToEnd:
 
         by_idempotency_key = {m.idempotency_key: m for m in outbox.messages}
         per_group: dict[str, list[int]] = {}
-        for envelope, _ in transport.sent:
-            row = by_idempotency_key[str(envelope.message_id)]
+        for _body, _destination, metadata in transport.sent:
+            row = by_idempotency_key[metadata.message_id]
             assert row.group_id is not None
             assert row.sequence_number is not None
             per_group.setdefault(row.group_id, []).append(row.sequence_number)

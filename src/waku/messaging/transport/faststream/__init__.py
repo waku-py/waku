@@ -1,5 +1,6 @@
-from waku.messaging.transport.faststream.transport import FastStreamTransport
+from waku.messaging.transport.faststream.rabbitmq import FastStreamRabbitTransport, rabbit_transport
 
 __all__ = [
-    'FastStreamTransport',
+    'FastStreamRabbitTransport',
+    'rabbit_transport',
 ]

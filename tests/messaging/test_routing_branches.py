@@ -46,7 +46,8 @@ class TestRoutingBranches:
         config = MessagingConfig(
             endpoints=[local_queue('local-q'), external_endpoint('ext://bus')],
             routing=[route(_Notif).to('ext://bus')],
-            outbox=OutboxConfig(store=FakeOutboxStore, transport=RecordingTransport),
+            outbox=OutboxConfig(store=FakeOutboxStore),
+            transports={'ext': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 

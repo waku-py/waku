@@ -46,7 +46,8 @@ class TestBusOutboxIntegration:
         config = MessagingConfig(
             endpoints=[external_endpoint('test://events')],
             routing=[route(_OrderPlaced).to('test://events')],
-            outbox=OutboxConfig(store=FakeOutboxStore, transport=RecordingTransport),
+            outbox=OutboxConfig(store=FakeOutboxStore),
+            transports={'test': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 
@@ -74,7 +75,8 @@ class TestBusOutboxIntegration:
         config = MessagingConfig(
             endpoints=[external_endpoint('test://events')],
             routing=[route(_OrderPlaced).to('test://events')],
-            outbox=OutboxConfig(store=FakeOutboxStore, transport=RecordingTransport),
+            outbox=OutboxConfig(store=FakeOutboxStore),
+            transports={'test': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 

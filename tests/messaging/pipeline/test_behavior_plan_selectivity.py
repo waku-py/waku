@@ -14,7 +14,7 @@ from waku.messaging.modules import _FRAMEWORK_POLICIES  # noqa: PLC2701
 from waku.messaging.pipeline.policy import build_behavior_plan
 from waku.messaging.registry import MessageRegistry
 
-from tests.messaging.helpers import RecordingDeadLetterStore, RecordingTransport
+from tests.messaging.helpers import RecordingDeadLetterStore
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import FakeOutboxStore
 
@@ -60,7 +60,7 @@ def _plan_for(handler: type[RequestHandler[_Cmd, None]], config: MessagingConfig
 def test_outbox_handler_keeps_transactional() -> None:
     config = MessagingConfig(
         global_pipeline_behaviors=(TransactionalBehavior,),
-        outbox=OutboxConfig(store=FakeOutboxStore, transport=RecordingTransport),
+        outbox=OutboxConfig(store=FakeOutboxStore),
     )
     assert TransactionalBehavior in _plan_for(_PlainHandler, config)
 
@@ -76,7 +76,7 @@ def test_inbox_config_attaches_transactional_to_all_handlers() -> None:
 
 
 def test_local_transactional_under_durable_config_attaches_exactly_once() -> None:
-    config = MessagingConfig(outbox=OutboxConfig(store=FakeOutboxStore, transport=RecordingTransport))
+    config = MessagingConfig(outbox=OutboxConfig(store=FakeOutboxStore))
     assert _plan_for(_HandlerWithTransactionalLocal, config).count(TransactionalBehavior) == 1
 
 

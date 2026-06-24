@@ -70,7 +70,8 @@ def _config(outbox_store: FakeOutboxStore) -> MessagingConfig:
     return MessagingConfig(
         endpoints=[external_endpoint('ext://shipped'), local_queue('local://logged')],
         routing=[route(_OrderShipped).to('ext://shipped'), route(_OrderLogged).to('local://logged')],
-        outbox=OutboxConfig(store=lambda: outbox_store, transport=RecordingTransport),
+        outbox=OutboxConfig(store=lambda: outbox_store),
+        transports={'ext': RecordingTransport},
         global_pipeline_behaviors=[TransactionalBehavior],
     )
 

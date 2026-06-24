@@ -1,12 +1,60 @@
 from __future__ import annotations
 
 import abc
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from waku.messaging.contracts.envelope import MessageEnvelope
+    from waku.messaging.transport.inbound import ConsumeCallback
+
+__all__ = [
+    'IListener',
+    'ISender',
+    'ITransport',
+    'TransportFactory',
+    'WireMetadata',
+]
 
 
-class ITransport(abc.ABC):
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WireMetadata:
+    """Correlation metadata written as broker headers verbatim — keeps the header concern out of the serializer."""
+
+    message_id: str
+    correlation_id: str
+    causation_id: str
+    message_type: str
+
+    def as_headers(self) -> dict[str, str]:
+        return {
+            'message_id': self.message_id,
+            'correlation_id': self.correlation_id,
+            'causation_id': self.causation_id,
+            'message_type': self.message_type,
+        }
+
+
+class ISender(abc.ABC):
     @abc.abstractmethod
-    async def send(self, envelope: MessageEnvelope[Any], *, destination: str) -> None: ...
+    async def send(self, body: dict[str, Any], *, destination: str, metadata: WireMetadata) -> None: ...
+
+
+class IListener(abc.ABC):
+    @abc.abstractmethod
+    def subscribe(self, queue: str, on_message: ConsumeCallback) -> None:
+        """Register a consumer — no broker I/O, purely a registration step."""
+
+    @abc.abstractmethod
+    async def start(self) -> None:
+        """Open broker connection and activate registered consumers.  Idempotent."""
+
+    @abc.abstractmethod
+    async def stop(self) -> None:
+        """Drain in-flight messages and close the broker connection."""
+
+
+class ITransport(ISender, IListener, abc.ABC): ...
+
+
+TransportFactory = Callable[[], ITransport]

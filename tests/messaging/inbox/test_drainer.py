@@ -280,3 +280,37 @@ async def test_drain_poison_at_cap_falls_back_to_message_id_for_bad_or_absent_id
     assert len(dlq.entries) == 1
     assert dlq.entries[0].correlation_id == entry.id
     assert dlq.entries[0].causation_id == entry.id
+
+
+async def test_drain_crash_recovery_keyed_on_scheme_qualified_source_uri() -> None:
+    # An inbox row persisted by the inbound listener carries a real scheme'd source_uri
+    # (e.g. 'rabbitmq://orders').  The drainer must pass that exact value to executor_factory
+    # so the crash-recovery executor is correctly keyed; the handler must still be resolved
+    # from destination (FQN), not from the URI.
+    inbox = FakeInboxStore()
+    entry = _abandoned_entry(inbox, source_uri='rabbitmq://orders')
+
+    executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+    factory_calls: list[str] = []
+
+    def capturing_factory(source_uri: str) -> EndpointExecutor:
+        factory_calls.append(source_uri)
+        return executor
+
+    async with make_async_container(_Deps(inbox, FakeUoW())) as container:
+        drainer = InboxDrainer(
+            container=container,
+            serializer=make_serializer(_OrderPlaced),
+            handler_by_fqn={_DESTINATION: _RecordingHandler},
+            executor_factory=capturing_factory,
+            owner_id='node-a:1',
+            keep_after_handled=timedelta(minutes=5),
+            batch_size=100,
+            max_attempts=5,
+        )
+        processed = await drainer.drain_once()
+
+    assert processed == 1
+    assert factory_calls == ['rabbitmq://orders']
+    assert executor.calls == [(entry.message_type, _RecordingHandler)]
+    assert inbox.entries[entry.id, entry.destination].status is InboxStatus.HANDLED

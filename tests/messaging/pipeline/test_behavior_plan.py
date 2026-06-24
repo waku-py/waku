@@ -14,7 +14,6 @@ from waku.messaging.modules import _FRAMEWORK_POLICIES  # noqa: PLC2701
 from waku.messaging.pipeline.policy import build_behavior_plan
 from waku.messaging.registry import MessageRegistry
 
-from tests.messaging.helpers import RecordingTransport
 from tests.messaging.outbox.fake_store import FakeOutboxStore
 
 
@@ -59,7 +58,7 @@ def test_plan_for_no_outbox_handler_matches_legacy_global_then_local() -> None:
 def test_plan_for_outbox_handler_matches_legacy_chain() -> None:
     config = MessagingConfig(
         global_pipeline_behaviors=(TransactionalBehavior,),
-        outbox=OutboxConfig(store=FakeOutboxStore, transport=RecordingTransport),
+        outbox=OutboxConfig(store=FakeOutboxStore),
     )
     plan = build_behavior_plan([_Handler], _FRAMEWORK_POLICIES, MessageRegistry(), config)
     assert plan.for_handler(_Handler) == (

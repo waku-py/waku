@@ -18,7 +18,8 @@ from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.relay import OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicyRegistry
-from waku.messaging.transport.interfaces import ITransport
+from waku.messaging.transport.interfaces import ITransport, WireMetadata
+from waku.messaging.transport.registry import TransportRegistry
 from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
 from waku.serialization.codec import PayloadCodec
 from waku.serialization.upcasting import UpcasterChain
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
 
     from waku.messaging.contracts.message import IMessage
     from waku.messaging.sending import SendingFailurePolicy
+    from waku.messaging.transport.inbound import ConsumeCallback
 
 
 def make_serializer(*types: type[IMessage]) -> JsonEnvelopeSerializer:
@@ -192,13 +194,22 @@ class FailingDeadLetterStore(IDeadLetterStore):
 
 class RecordingTransport(ITransport):
     def __init__(self) -> None:
-        self.sent: list[tuple[MessageEnvelope[Any], str]] = []
+        self.sent: list[tuple[dict[str, Any], str, WireMetadata]] = []
         self.sent_event = anyio.Event()
 
     @override
-    async def send(self, envelope: MessageEnvelope[Any], *, destination: str) -> None:
-        self.sent.append((envelope, destination))
+    async def send(self, body: dict[str, Any], *, destination: str, metadata: WireMetadata) -> None:
+        self.sent.append((body, destination, metadata))
         self.sent_event.set()
+
+    @override
+    def subscribe(self, queue: str, on_message: ConsumeCallback) -> None: ...
+
+    @override
+    async def start(self) -> None: ...
+
+    @override
+    async def stop(self) -> None: ...
 
 
 class RecordingAllocator(ISequenceAllocator):
@@ -232,7 +243,7 @@ class RelayDepsProvider(Provider):
     ) -> None:
         super().__init__()
         self._store = store
-        self._transport = transport
+        self._registry = TransportRegistry({'test': transport})
         self._serializer = serializer
         self._uow: IUnitOfWork = FakeUoW()
 
@@ -241,8 +252,8 @@ class RelayDepsProvider(Provider):
         return self._store
 
     @provide(scope=Scope.APP)
-    def transport(self) -> ITransport:
-        return self._transport
+    def transport_registry(self) -> TransportRegistry:
+        return self._registry
 
     @provide
     def serializer(self) -> IEnvelopeSerializer:

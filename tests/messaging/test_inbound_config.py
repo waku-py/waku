@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from typing_extensions import override
 
@@ -9,7 +11,8 @@ from waku.messaging.endpoints.base import listen
 from waku.messaging.exceptions import ImproperlyConfiguredError
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.modules import MessagingModule
-from waku.messaging.transport.inbound import ConsumeCallback, IInboundTransport
+from waku.messaging.transport.inbound import ConsumeCallback
+from waku.messaging.transport.interfaces import ITransport, WireMetadata
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
@@ -17,7 +20,10 @@ from tests.messaging.helpers import FakeUoW
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
-class _StubInboundTransport(IInboundTransport):
+class _StubTransport(ITransport):
+    @override
+    async def send(self, body: dict[str, Any], *, destination: str, metadata: WireMetadata) -> None: ...
+
     @override
     def subscribe(self, queue: str, on_message: ConsumeCallback) -> None: ...
 
@@ -46,10 +52,8 @@ def test_listen_builds_entry_with_explicit_requeue() -> None:
 
 def test_inbound_without_inbox_raises() -> None:
     config = MessagingConfig(
-        inbound=InboundConfig(
-            transport=_StubInboundTransport,
-            listeners=[listen('q')],
-        ),
+        inbound=InboundConfig(listeners=[listen('q')]),
+        transports={'rabbitmq': _StubTransport},
     )
     with pytest.raises(ImproperlyConfiguredError, match='inbound listeners require inbox'):
         MessagingModule.register(config)
@@ -57,7 +61,8 @@ def test_inbound_without_inbox_raises() -> None:
 
 def test_inbound_with_no_listeners_raises() -> None:
     config = MessagingConfig(
-        inbound=InboundConfig(transport=_StubInboundTransport, listeners=[]),
+        inbound=InboundConfig(listeners=[]),
+        transports={'rabbitmq': _StubTransport},
     )
     with pytest.raises(ImproperlyConfiguredError, match='at least one listener'):
         MessagingModule.register(config)
@@ -67,10 +72,8 @@ async def test_inbound_partition_by_without_allocator_raises_at_startup() -> Non
     inbox = FakeInboxStore()
     config = MessagingConfig(
         inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
-        inbound=InboundConfig(
-            transport=_StubInboundTransport,
-            listeners=[listen('orders', partition_by=_partition_key)],
-        ),
+        inbound=InboundConfig(listeners=[listen('orders', partition_by=_partition_key)]),
+        transports={'rabbitmq': _StubTransport},
     )
     with pytest.raises(ImproperlyConfiguredError, match='ISequenceAllocator'):
         async with create_test_app(

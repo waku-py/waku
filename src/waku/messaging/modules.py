@@ -82,8 +82,7 @@ from waku.messaging.registry import MessageRegistry
 from waku.messaging.router import MessageRouter, RoutingTable
 from waku.messaging.routing_builder import RoutingTableBuilder
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicyRegistry
-from waku.messaging.transport.inbound import IInboundTransport
-from waku.messaging.transport.interfaces import ITransport
+from waku.messaging.transport.registry import TransportRegistry, split_destination
 from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
 from waku.modules import DynamicModule, ModuleMetadataRegistry, module
 from waku.serialization.codec import PayloadCodec
@@ -146,10 +145,11 @@ class MessagingModule:
         ]
         if config_.outbox is not None:
             extensions.append(OutboxRelayLifecycleExtension(config_.outbox.relay))
+        # After the relay: relay stops before transport closes on shutdown; brokers boot before relay's first publish.
+        if config_.transports:
+            extensions.append(TransportLifecycleExtension(config_))
         if config_.inbox is not None:
             extensions.append(InboxRecoveryLifecycleExtension(config_.inbox))
-        if config_.inbound is not None:
-            extensions.append(InboundListenerLifecycleExtension(config_))
         if config_.dead_letter is not None and (
             config_.dead_letter.auto_replay_enabled or config_.dead_letter.retention is not None
         ):
@@ -177,6 +177,7 @@ class MessagingModule:
         if config.inbound is not None and config.inbox is None:
             msg = 'inbound listeners require inbox in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
+        _validate_transport_schemes(config)
         _reject_inline_deferred_terminal(config)
 
     @staticmethod
@@ -191,11 +192,10 @@ class MessagingModule:
     @staticmethod
     def _infrastructure_providers(config: MessagingConfig) -> _HandlerProviders:
         providers: list[Provider] = []
+        if config.transports:
+            providers.append(singleton(TransportRegistry, _build_transport_registry))
         if config.outbox is not None:
-            providers.extend((
-                scoped(IOutboxStore, config.outbox.store),
-                singleton(ITransport, config.outbox.transport),
-            ))
+            providers.append(scoped(IOutboxStore, config.outbox.store))
         if config.dead_letter is not None:
             providers.extend((scoped(IDeadLetterStore, config.dead_letter.store), scoped(ReplayExecutor)))
         if config.inbox is not None:
@@ -203,8 +203,6 @@ class MessagingModule:
                 scoped(IInboxStore, config.inbox.store),
                 object_(config.inbox, provided_type=InboxConfig),
             ))
-        if config.inbound is not None:
-            providers.append(singleton(IInboundTransport, config.inbound.transport))
         return tuple(providers)
 
 
@@ -304,6 +302,19 @@ def _reject_inline_per_handler_deferred_terminal(config: MessagingConfig, routin
             raise ImproperlyConfiguredError(msg)
 
 
+def _validate_transport_schemes(config: MessagingConfig) -> None:
+    # config.transports holds builders at this point — check keys directly; instances are built later.
+    default_scheme = next(iter(config.transports)) if len(config.transports) == 1 else None
+    referenced = [entry.uri for entry in config.endpoints if isinstance(entry, ExternalEntry)]
+    if config.inbound is not None:
+        referenced.extend(listener.uri for listener in config.inbound.listeners)
+    for uri in referenced:
+        scheme, _ = split_destination(uri, default_scheme=default_scheme)
+        if scheme not in config.transports:
+            msg = f"No transport registered for scheme '{scheme}' (uri='{uri}')."
+            raise ImproperlyConfiguredError(msg)
+
+
 def _has_durable_local_queue(config: MessagingConfig) -> bool:
     return any(
         isinstance(entry, LocalQueueEntry) and _effective_mode(entry, config) == EndpointMode.DURABLE
@@ -334,6 +345,12 @@ def _build_sending_failure_registry(config: MessagingConfig) -> SendingFailurePo
         destination_policies=destination_policies,
         default_policies=(*config.default_sending_failure_policies, *synthesized),
     )
+
+
+def _build_transport_registry(config: MessagingConfig) -> TransportRegistry:
+    # Factory function so dishka introspects the signature (not TransportRegistry's ForwardRef __init__).
+    transports = {scheme: build() for scheme, build in config.transports.items()}
+    return TransportRegistry(transports)
 
 
 def _build_message_type_registry(
@@ -708,30 +725,37 @@ class DeadLetterLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
             await self._worker.stop()
 
 
-class InboundListenerLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
-    __slots__ = ('_config', '_receivers', '_transport')
+class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
+    """Starts registered transports and wires inbound listeners.  Registered after the relay — see extension ordering."""
+
+    __slots__ = ('_config', '_receivers', '_registry')
 
     def __init__(self, config: MessagingConfig) -> None:
         self._config = config
         self._receivers: list[DurableInboxReceiver] = []
-        self._transport: IInboundTransport | None = None
+        self._registry: TransportRegistry | None = None
 
     @override
     async def after_app_init(self, app: 'WakuApplication') -> None:
-        if self._config.inbound is None:
-            return
+        registry = await app.container.get(TransportRegistry)
+        self._registry = registry
+        # Subscribers must be registered before the broker starts (FastStream activates consumers at start()).
+        await self._wire_listeners(app, registry)
+        for transport in registry.transports():
+            await transport.start()
+
+    async def _wire_listeners(self, app: 'WakuApplication', registry: TransportRegistry) -> None:
         inbox = self._config.inbox
-        if inbox is None:
+        if self._config.inbound is None or inbox is None:
             return
-        transport = await app.container.get(IInboundTransport)
         serializer = await app.container.get(IEnvelopeSerializer)
-        registry = await app.container.get(MessageRegistry)
+        message_registry = await app.container.get(MessageRegistry)
         evaluator = await app.container.get(ErrorPolicyEvaluator)
         invoker = await app.container.get(HandlerPipelineInvoker)
         messaging_config = await app.container.get(MessagingConfig)
         now = await app.container.get(Now)
         for entry in self._config.inbound.listeners:
-            uri = f'inbound://{entry.uri}'
+            uri = entry.uri
             executor = EndpointExecutor(
                 container=app.container,
                 evaluator=evaluator,
@@ -755,16 +779,16 @@ class InboundListenerLifecycleExtension(AfterApplicationInit, OnApplicationShutd
                 max_requeue_attempts=max_requeue,
                 circuit_breaker_config=None,
             )
-            listener = InboundListener(serializer=serializer, registry=registry, receiver=receiver)
+            listener = InboundListener(serializer=serializer, registry=message_registry, receiver=receiver)
             await receiver.start()
             self._receivers.append(receiver)
-            transport.subscribe(entry.uri, listener.consume)
-        await transport.start()
-        self._transport = transport
+            queue = split_destination(uri, default_scheme=registry.default_scheme)[1]
+            registry.listener_for(uri).subscribe(queue, listener.consume)
 
     @override
     async def on_app_shutdown(self, app: 'WakuApplication') -> None:
-        if self._transport is not None:
-            await self._transport.stop()
         for receiver in self._receivers:
             await receiver.stop()
+        if self._registry is not None:
+            for transport in self._registry.transports():
+                await transport.stop()

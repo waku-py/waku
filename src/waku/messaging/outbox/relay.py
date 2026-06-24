@@ -17,8 +17,8 @@ from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.sending.evaluator import SendingFailureContext, SendingFailureEvaluator
 from waku.messaging.sending.policy import SendingFailurePolicy
-from waku.messaging.transport.interfaces import ITransport
-from waku.messaging.transport.serialization import IEnvelopeSerializer
+from waku.messaging.transport.interfaces import WireMetadata
+from waku.messaging.transport.registry import TransportRegistry, split_destination
 from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
@@ -159,11 +159,18 @@ class OutboxRelay(PollingAgent):
     @staticmethod
     async def _dispatch_message(scope: AsyncContainer, message: OutboxMessage) -> None:
         store = await scope.get(IOutboxStore)
-        transport = await scope.get(ITransport)
-        serializer = await scope.get(IEnvelopeSerializer)
+        registry = await scope.get(TransportRegistry)
         uow = await scope.get(IUnitOfWork)
-        envelope = serializer.deserialize(message.payload)
-        await transport.send(envelope, destination=message.destination)
+        sender = registry.sender_for(message.destination)
+        queue = split_destination(message.destination, default_scheme=registry.default_scheme)[1]
+        # The row already holds the wire dict; correlation metadata is read off typed columns — no rehydration.
+        metadata = WireMetadata(
+            message_id=message.idempotency_key,
+            correlation_id=str(message.correlation_id),
+            causation_id=str(message.causation_id),
+            message_type=message.message_type,
+        )
+        await sender.send(message.payload, destination=queue, metadata=metadata)
         await store.mark_dispatched(message.id)
         await uow.commit()
 

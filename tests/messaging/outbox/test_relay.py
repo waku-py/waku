@@ -20,7 +20,7 @@ from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicy, SendingFailurePolicyRegistry
-from waku.messaging.transport.interfaces import ITransport
+from waku.messaging.transport.interfaces import ITransport, WireMetadata
 
 from tests._wait import wait_until
 from tests.messaging.helpers import (
@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     import pytest
 
     from waku.messaging.contracts.envelope import MessageEnvelope
+    from waku.messaging.transport.inbound import ConsumeCallback
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,9 +47,18 @@ class _TestEvent(IEvent):
 
 class _FailingTransport(ITransport):
     @override
-    async def send(self, envelope: MessageEnvelope[Any], *, destination: str) -> None:
+    async def send(self, body: dict[str, Any], *, destination: str, metadata: WireMetadata) -> None:
         msg = 'transport down'
         raise ConnectionError(msg)
+
+    @override
+    def subscribe(self, queue: str, on_message: ConsumeCallback) -> None: ...
+
+    @override
+    async def start(self) -> None: ...
+
+    @override
+    async def stop(self) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,7 +240,14 @@ class TestOutboxRelay:
 
         assert msg.id in store.dispatched_ids
         assert len(transport.sent) == 1
-        assert transport.sent[0][1] == 'test://dest'
+        body, destination, metadata = transport.sent[0]
+        assert destination == 'dest'
+        # The transport receives the stored wire dict verbatim — no deserialize/reserialize round-trip.
+        assert body is msg.payload
+        assert metadata.message_id == msg.idempotency_key
+        assert metadata.correlation_id == str(msg.correlation_id)
+        assert metadata.causation_id == str(msg.causation_id)
+        assert metadata.message_type == msg.message_type
 
     @staticmethod
     async def test_marks_failed_on_transport_error() -> None:

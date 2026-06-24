@@ -19,7 +19,6 @@ from waku.messaging.modules import _FRAMEWORK_POLICIES  # noqa: PLC2701
 from waku.messaging.pipeline.policy import build_behavior_plan
 from waku.messaging.registry import MessageRegistry
 
-from tests.messaging.helpers import RecordingTransport
 from tests.messaging.outbox.fake_store import FakeOutboxStore
 
 _POLICIES = (*_FRAMEWORK_POLICIES, ForwardingPolicy())
@@ -51,7 +50,7 @@ def _chain_for(handler: HandlerType, config: MessagingConfig) -> tuple[type[Any]
 def test_es_command_handler_gets_forwarding_innermost() -> None:
     config = MessagingConfig(
         global_pipeline_behaviors=(TransactionalBehavior,),
-        outbox=OutboxConfig(store=FakeOutboxStore, transport=RecordingTransport),
+        outbox=OutboxConfig(store=FakeOutboxStore),
     )
     chain = _chain_for(_ESHandler, config)
     assert chain[-1] is EventForwardingBehavior

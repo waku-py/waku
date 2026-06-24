@@ -414,7 +414,8 @@ class TestMessagingConfigValidation:
     @staticmethod
     async def test_durable_outbox_without_explicit_transactional_behavior_boots() -> None:
         config = MessagingConfig(
-            outbox=OutboxConfig(store=FakeOutboxStore, transport=RecordingTransport),
+            outbox=OutboxConfig(store=FakeOutboxStore),
+            transports={'test': RecordingTransport},
         )
         async with create_test_app(
             imports=[MessagingModule.register(config)],
@@ -451,7 +452,8 @@ class TestMessagingConfigValidation:
     async def test_partition_by_without_allocator_raises_at_startup() -> None:
         config = MessagingConfig(
             endpoints=[external_endpoint('ext://orders', partition_by=order_id_partition)],
-            outbox=OutboxConfig(store=FakeOutboxStore, transport=RecordingTransport),
+            outbox=OutboxConfig(store=FakeOutboxStore),
+            transports={'ext': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
         with pytest.raises(ImproperlyConfiguredError, match='ISequenceAllocator'):
