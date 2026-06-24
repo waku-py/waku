@@ -4,6 +4,9 @@ from __future__ import annotations
 from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, Self
 
+import anyio
+
+from waku._internal.shutdown import wait_for_shutdown
 from waku.extensions import (
     AfterApplicationInit,
     ExtensionRegistry,
@@ -33,6 +36,7 @@ class WakuApplication:
         '_initialized',
         '_lifespan',
         '_registry',
+        '_shutdown_event',
     )
 
     def __init__(
@@ -53,6 +57,7 @@ class WakuApplication:
 
         self._exit_stack = AsyncExitStack()
         self._initialized = False
+        self._shutdown_event = anyio.Event()
 
     async def initialize(self) -> None:
         if self._initialized:
@@ -67,6 +72,15 @@ class WakuApplication:
             return
         await self._call_on_shutdown_extensions()
         self._initialized = False
+
+    async def run(self) -> None:
+        async with self, anyio.create_task_group() as tg:
+            tg.start_soon(wait_for_shutdown, self._shutdown_event)
+            await self._shutdown_event.wait()
+            tg.cancel_scope.cancel()
+
+    def request_shutdown(self) -> None:
+        self._shutdown_event.set()
 
     @property
     def container(self) -> AsyncContainer:

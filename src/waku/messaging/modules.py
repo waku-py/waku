@@ -82,7 +82,7 @@ from waku.messaging.registry import MessageRegistry
 from waku.messaging.router import MessageRouter, RoutingTable
 from waku.messaging.routing_builder import RoutingTableBuilder
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicyRegistry
-from waku.messaging.transport.registry import TransportRegistry, split_destination
+from waku.messaging.transport.registry import TransportRegistry, resolve_default_scheme, split_destination
 from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
 from waku.modules import DynamicModule, ModuleMetadataRegistry, module
 from waku.serialization.codec import PayloadCodec
@@ -304,7 +304,7 @@ def _reject_inline_per_handler_deferred_terminal(config: MessagingConfig, routin
 
 def _validate_transport_schemes(config: MessagingConfig) -> None:
     # config.transports holds builders at this point — check keys directly; instances are built later.
-    default_scheme = next(iter(config.transports)) if len(config.transports) == 1 else None
+    default_scheme = resolve_default_scheme(config.transports)
     referenced = [entry.uri for entry in config.endpoints if isinstance(entry, ExternalEntry)]
     if config.inbound is not None:
         referenced.extend(listener.uri for listener in config.inbound.listeners)

@@ -5,12 +5,13 @@ from typing import TYPE_CHECKING
 from waku.exceptions import ImproperlyConfiguredError
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Collection, Iterable, Mapping
 
     from waku.messaging.transport.interfaces import IListener, ISender, ITransport
 
 __all__ = [
     'TransportRegistry',
+    'resolve_default_scheme',
     'split_destination',
 ]
 
@@ -41,6 +42,15 @@ def split_destination(uri: str, *, default_scheme: str | None) -> tuple[str, str
     return scheme, queue
 
 
+def resolve_default_scheme(schemes: Collection[str], *, explicit: str | None = None) -> str | None:
+    """Effective default scheme: explicit > sole-transport implicit > None."""
+    if explicit is not None:
+        return explicit
+    if len(schemes) == 1:
+        return next(iter(schemes))
+    return None
+
+
 class TransportRegistry:
     """Named transports with scheme-based dispatch.
 
@@ -57,14 +67,7 @@ class TransportRegistry:
         default_scheme: str | None = None,
     ) -> None:
         self._transports: dict[str, ITransport] = dict(transports)
-
-        # Effective default: explicit > sole-transport implicit > None
-        if default_scheme is not None:
-            self._default_scheme: str | None = default_scheme
-        elif len(self._transports) == 1:
-            self._default_scheme = next(iter(self._transports))
-        else:
-            self._default_scheme = None
+        self._default_scheme: str | None = resolve_default_scheme(self._transports, explicit=default_scheme)
 
     def sender_for(self, uri: str) -> ISender:
         """Raises ``ImproperlyConfiguredError`` for unknown or unresolvable schemes."""

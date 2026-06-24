@@ -7,7 +7,7 @@ from typing_extensions import override
 
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging.transport.interfaces import ITransport
-from waku.messaging.transport.registry import TransportRegistry, split_destination
+from waku.messaging.transport.registry import TransportRegistry, resolve_default_scheme, split_destination
 
 if TYPE_CHECKING:
     from waku.messaging.transport.inbound import ConsumeCallback
@@ -96,3 +96,21 @@ class TestTransportRegistry:
         t1, t2 = StubTransport(), StubTransport()
         reg = TransportRegistry({'rabbitmq': t1, 'kafka': t2})
         assert set(reg.transports()) == {t1, t2}
+
+
+class TestResolveDefaultScheme:
+    @staticmethod
+    def test_sole_transport_is_default() -> None:
+        assert resolve_default_scheme(['rabbitmq']) == 'rabbitmq'
+
+    @staticmethod
+    def test_multiple_is_none() -> None:
+        assert resolve_default_scheme(['rabbitmq', 'kafka']) is None
+
+    @staticmethod
+    def test_empty_is_none() -> None:
+        assert resolve_default_scheme([]) is None
+
+    @staticmethod
+    def test_explicit_overrides() -> None:
+        assert resolve_default_scheme(['rabbitmq', 'kafka'], explicit='kafka') == 'kafka'

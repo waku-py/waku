@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import logging
-import signal
 from typing import TYPE_CHECKING, Final
 
 import anyio
 
 from waku._internal.adaptive_interval import AdaptiveInterval
+from waku._internal.shutdown import wait_for_shutdown
 from waku.eventsourcing.exceptions import ProjectionError
 from waku.eventsourcing.projection.config import PollingConfig
 from waku.eventsourcing.projection.interfaces import ICheckpointStore
@@ -172,13 +172,5 @@ class CatchUpProjectionRunner:
             return processed
 
     async def _signal_listener(self, cancel_scope: anyio.CancelScope) -> None:  # pragma: no cover
-        try:
-            with anyio.open_signal_receiver(signal.SIGTERM, signal.SIGINT) as signals:
-                async for signum in signals:
-                    logger.info('Shutdown signal received: %s', signum.name)
-                    self._shutdown_event.set()
-                    cancel_scope.cancel()
-                    return
-        except NotImplementedError:
-            await self._shutdown_event.wait()
-            cancel_scope.cancel()
+        await wait_for_shutdown(self._shutdown_event)
+        cancel_scope.cancel()

@@ -44,6 +44,7 @@ nav = [
       { "Outbox & Transport" = "features/messaging/outbox.md" },
       { "Message Context" = "features/messaging/context.md" },
       { "Transactions" = "features/messaging/transactions.md" },
+      { "Dedicated Consumer" = "features/messaging/dedicated-consumer.md" },
     ] },
     { "Event Sourcing" = [
       "features/eventsourcing/index.md",
