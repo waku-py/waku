@@ -103,6 +103,15 @@ class DurableInboxReceiver:
     def is_running(self) -> bool:
         return self._worker.is_running
 
+    @property
+    def queue_depth(self) -> int:
+        # Broker-agnostic meter: the in-memory backlog the listener watermark observes.
+        return self._worker.queue_depth
+
+    def attach_circuit_breaker(self, circuit_breaker: CircuitBreaker) -> None:
+        # Set before start(): _process_work_item feeds its execute outcomes to the breaker; stop() aclose()s it once.
+        self._circuit_breaker = circuit_breaker
+
     async def persist(
         self,
         envelope: MessageEnvelope[Any],
@@ -137,8 +146,8 @@ class DurableInboxReceiver:
     async def enqueue(self, envelope: MessageEnvelope[Any], fresh: frozenset[HandlerType]) -> None:
         await self._worker.send((envelope, frozenset(fresh)))
 
-    async def start(self) -> None:
-        await self._worker.start(self._process_work_item)
+    async def start(self, *, on_drain: Callable[[int], Awaitable[None]] | None = None) -> None:
+        await self._worker.start(self._process_work_item, on_drain=on_drain)
 
     async def stop(self) -> None:
         await self._timed_pauser.aclose()  # cancel parked auto-resume before the worker force-resumes

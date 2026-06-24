@@ -95,6 +95,35 @@ class TestFastStreamRabbitTransportDispositionMapping:
             mock_nack.assert_awaited_once_with(requeue=True)
 
 
+class TestFastStreamRabbitTransportSubscription:
+    @staticmethod
+    async def test_subscribe_registers_handler_and_repeated_pause_resume_do_not_raise() -> None:
+        # Observable here: capturing `broker.subscriber(...)` then `subscriber(_handler)` registers the consumer (the
+        # published message reaches the handler). Whether pause() actually stops broker delivery is NOT observable
+        # under TestRabbitBroker — its FakeProducer routes by routing key and ignores a stopped subscriber — so that
+        # behaviour is covered end-to-end in test_listener_backpressure_integration.py. The double pause/resume here
+        # only pins that repeated calls do not raise.
+        t = FastStreamRabbitTransport(url='amqp://x')
+        received: list[dict[str, object]] = []
+
+        async def on_message(body: dict[str, object]) -> ConsumeDisposition:  # noqa: RUF029
+            received.append(body)
+            return ConsumeDisposition.ACK
+
+        subscription = t.subscribe('orders', on_message)
+
+        with patch.object(RabbitMessage, 'ack', new_callable=AsyncMock):
+            async with TestRabbitBroker(t._send_broker, t._listen_broker):
+                await t.start()
+                await t.send({'payload': {'value': 'x'}}, destination='orders', metadata=_METADATA)
+                await subscription.pause()
+                await subscription.pause()  # a second stop must not raise
+                await subscription.resume()
+                await subscription.resume()  # a second start must not raise
+
+        assert received == [{'payload': {'value': 'x'}}]
+
+
 class TestFastStreamRabbitTransportStartStop:
     @staticmethod
     async def test_start_sends_before_listen_and_both_awaited_once() -> None:

@@ -9,9 +9,11 @@ from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging.transport.interfaces import ITransport
 from waku.messaging.transport.registry import TransportRegistry, resolve_default_scheme, split_destination
 
+from tests.messaging.helpers import StubSubscription
+
 if TYPE_CHECKING:
     from waku.messaging.transport.inbound import ConsumeCallback
-    from waku.messaging.transport.interfaces import WireMetadata
+    from waku.messaging.transport.interfaces import Subscription, WireMetadata
 
 
 class StubTransport(ITransport):
@@ -22,8 +24,8 @@ class StubTransport(ITransport):
         pass  # pragma: no cover
 
     @override
-    def subscribe(self, queue: str, on_message: ConsumeCallback) -> None:
-        pass  # pragma: no cover
+    def subscribe(self, queue: str, on_message: ConsumeCallback) -> Subscription:
+        return StubSubscription()  # pragma: no cover
 
     @override
     async def start(self) -> None:

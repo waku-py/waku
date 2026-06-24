@@ -43,6 +43,7 @@ class MemoryStreamWorker(Generic[_ItemT]):
     __slots__ = (
         '_max_buffer_size',
         '_max_parallel',
+        '_on_drain',
         '_pauses',
         '_receive_stream',
         '_send_stream',
@@ -64,15 +65,29 @@ class MemoryStreamWorker(Generic[_ItemT]):
         self._receive_stream: MemoryObjectReceiveStream[_ItemT] | None = None
         self._worker_task: asyncio.Task[None] | None = None
         self._pauses = PauseRegistry()
+        self._on_drain: Callable[[int], Awaitable[None]] | None = None
 
     @property
     def is_running(self) -> bool:
         return self._send_stream is not None
 
-    async def start(self, handler: Callable[[_ItemT], Awaitable[None]]) -> None:
+    @property
+    def queue_depth(self) -> int:
+        # Buffered items only — the <= max_parallel items already dequeued and in-flight are excluded. That slack is
+        # fine for a soft watermark (the listener resumes at most max_parallel items early), and 0 before start().
+        receive = self._receive_stream
+        return receive.statistics().current_buffer_used if receive is not None else 0
+
+    async def start(
+        self,
+        handler: Callable[[_ItemT], Awaitable[None]],
+        *,
+        on_drain: Callable[[int], Awaitable[None]] | None = None,
+    ) -> None:
         if self._send_stream is not None:
             msg = 'MemoryStreamWorker is already started'
             raise RuntimeError(msg)
+        self._on_drain = on_drain
         send, receive = create_memory_object_stream[_ItemT](
             max_buffer_size=self._max_buffer_size,
         )
@@ -164,3 +179,7 @@ class MemoryStreamWorker(Generic[_ItemT]):
             except Exception:
                 # Safety net only — items are opaque here, so the handler owns message-level logging.
                 logger.exception('Unhandled error in worker consumer, continuing')
+            finally:
+                # Post-dequeue depth feeds the low-watermark check (resume the listener once drained).
+                if self._on_drain is not None:
+                    await self._on_drain(self.queue_depth)

@@ -136,6 +136,34 @@ class TestMemoryStreamWorkerConcurrency:
         await worker.stop()
 
 
+class TestMemoryStreamWorkerDepth:
+    @staticmethod
+    async def test_queue_depth_zero_before_start() -> None:
+        worker: MemoryStreamWorker[int] = MemoryStreamWorker()
+
+        assert worker.queue_depth == 0
+
+    @staticmethod
+    async def test_on_drain_fires_with_depth_after_dequeue() -> None:
+        seen: list[int] = []
+        processed = asyncio.Event()
+
+        async def on_drain(depth: int) -> None:  # noqa: RUF029
+            seen.append(depth)
+
+        async def handler(_item: int) -> None:  # noqa: RUF029
+            processed.set()
+
+        worker: MemoryStreamWorker[int] = MemoryStreamWorker(max_buffer_size=4, stop_timeout=1.0, max_parallel=1)
+        await worker.start(handler, on_drain=on_drain)
+        await worker.send(1)
+        with anyio.fail_after(5):
+            await processed.wait()
+        await worker.stop()
+
+        assert seen == [0]  # the single item is dequeued before the handler runs, so the buffer is empty on drain
+
+
 class TestMemoryStreamWorkerErrorIsolation:
     @staticmethod
     async def test_handler_exception_does_not_stop_worker(caplog: pytest.LogCaptureFixture) -> None:

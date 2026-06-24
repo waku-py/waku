@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from waku.messaging.endpoints.base import EndpointEntry, InboundEntry
     from waku.messaging.errors.dead_letter import IDeadLetterStore
     from waku.messaging.errors.policy import ErrorPolicy
+    from waku.messaging.inbox.backpressure import BufferingLimits
     from waku.messaging.inbox.config import InboxConfig
     from waku.messaging.outbox.interfaces import IOutboxStore
     from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor
@@ -83,6 +84,8 @@ class MessagingConfig:
     inbound: InboundConfig | None = None
     default_circuit_breaker: CircuitBreakerConfig | None = None
     """Fallback per-endpoint circuit-breaker config; an endpoint's own breaker shadows this."""
+    default_backpressure: BufferingLimits | None = None
+    """Fallback in-memory watermark for inbound listeners; a listener's own ``backpressure`` shadows this."""
     default_execution_timeout: timedelta | None = timedelta(seconds=60)
     """Default-on 60s deadline per handler; None disables it. Per-handler `execution_timeout` overrides."""
     default_endpoint_mode: EndpointMode = EndpointMode.BUFFERED

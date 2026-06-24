@@ -13,6 +13,7 @@ from waku.messaging.endpoints.base import EndpointMode, InboundEntry, external_e
 from waku.messaging.endpoints.executor import ExecutionOutcome
 from waku.messaging.errors import ErrorPolicy, IDeadLetterStore, RetryAction, RetryStage
 from waku.messaging.handler import EventHandler, MessageHandler, RequestHandler
+from waku.messaging.inbox.backpressure import BufferingLimits
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
@@ -28,6 +29,7 @@ from waku.messaging.transport import IEnvelopeSerializer, ITransport
 
 __all__ = [
     'BehaviorPolicyExtension',
+    'BufferingLimits',
     'CallNext',
     'CircuitBreakerConfig',
     'DeadLetterConfig',

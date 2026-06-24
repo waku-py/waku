@@ -22,7 +22,7 @@ from faststream.rabbit.annotations import RabbitMessage  # noqa: TC002  -- runti
 from typing_extensions import override
 
 from waku.messaging.transport.inbound import ConsumeDisposition
-from waku.messaging.transport.interfaces import ITransport
+from waku.messaging.transport.interfaces import ITransport, Subscription
 
 if TYPE_CHECKING:
     from waku.messaging.transport.inbound import ConsumeCallback
@@ -34,6 +34,33 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+
+class _FastStreamSubscription(Subscription):
+    """Wraps one ``RabbitSubscriber`` as a pausable handle.
+
+    ``pause()`` issues ``basic.cancel`` (draining in-flight via FastStream's ``MultiLock``); ``resume()`` re-issues
+    ``basic.consume`` on the live channel. FastStream has no double-start/stop guard, so a ``_running`` flag keeps both
+    idempotent.
+    """
+
+    __slots__ = ('_running', '_subscriber')
+
+    def __init__(self, subscriber: Any) -> None:
+        self._subscriber = subscriber
+        self._running = True  # FastStream activates the subscriber at broker.start()
+
+    @override
+    async def pause(self) -> None:
+        if self._running:
+            await self._subscriber.stop()
+            self._running = False
+
+    @override
+    async def resume(self) -> None:
+        if not self._running:
+            await self._subscriber.start()
+            self._running = True
 
 
 class FastStreamRabbitTransport(ITransport):
@@ -58,13 +85,15 @@ class FastStreamRabbitTransport(ITransport):
         )
 
     @override
-    def subscribe(self, queue: str, on_message: ConsumeCallback) -> None:
-        @self._listen_broker.subscriber(
+    def subscribe(self, queue: str, on_message: ConsumeCallback) -> Subscription:
+        # Capture the subscriber (instead of the decorator form) so it can be paused/resumed per-subscriber.
+        subscriber = self._listen_broker.subscriber(
             queue,
             ack_policy=AckPolicy.MANUAL,
             channel=Channel(prefetch_count=self._prefetch_count),
             no_reply=True,
         )
+
         async def _handler(msg: RabbitMessage) -> None:
             # decode() runs before the try below: a malformed payload is poison (a foreign wire format — Waku
             # is both producer and consumer here) and must not be requeued into a poison loop.
@@ -82,6 +111,9 @@ class FastStreamRabbitTransport(ITransport):
                 await msg.nack(requeue=True)
             else:
                 await msg.reject()
+
+        subscriber(_handler)  # register the handler on the captured subscriber (RabbitSubscriber.__call__)
+        return _FastStreamSubscription(subscriber)
 
     @override
     async def start(self) -> None:

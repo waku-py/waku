@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.message import IMessage
+    from waku.messaging.inbox.backpressure import BufferingLimits
     from waku.messaging.pauser import PauseToken
     from waku.messaging.sending.policy import SendingFailurePolicy
 
@@ -64,6 +65,8 @@ class InboundEntry:
     uri: str
     partition_by: Callable[[IMessage], str | None] | None = None
     max_requeue_attempts: int | MISSING = MISSING  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+    circuit_breaker: CircuitBreakerConfig | MISSING | None = MISSING  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+    backpressure: BufferingLimits | None = None
 
 
 EndpointEntry: TypeAlias = LocalQueueEntry | ExternalEntry
@@ -74,11 +77,15 @@ def listen(
     *,
     partition_by: Callable[[IMessage], str | None] | None = None,
     max_requeue_attempts: int | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+    circuit_breaker: CircuitBreakerConfig | MISSING | None = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+    backpressure: BufferingLimits | None = None,
 ) -> InboundEntry:
     return InboundEntry(
         uri=uri,
         partition_by=partition_by,
         max_requeue_attempts=max_requeue_attempts,
+        circuit_breaker=circuit_breaker,
+        backpressure=backpressure,
     )
 
 

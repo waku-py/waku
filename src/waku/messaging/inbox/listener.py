@@ -7,6 +7,7 @@ from waku.messaging.transport.inbound import ConsumeDisposition
 
 if TYPE_CHECKING:
     from waku.messaging.endpoints.durable_inbox_receiver import DurableInboxReceiver
+    from waku.messaging.inbox.backpressure import ListenerBackpressure
     from waku.messaging.registry import MessageRegistry
     from waku.messaging.transport.serialization import IEnvelopeSerializer
 
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class InboundListener:
-    __slots__ = ('_receiver', '_registry', '_serializer')
+    __slots__ = ('_backpressure', '_receiver', '_registry', '_serializer')
 
     def __init__(
         self,
@@ -30,6 +31,11 @@ class InboundListener:
         self._serializer = serializer
         self._registry = registry
         self._receiver = receiver
+        self._backpressure: ListenerBackpressure | None = None
+
+    def attach_backpressure(self, backpressure: ListenerBackpressure) -> None:
+        # Set by the wiring before the transport starts; consume() then reports the post-enqueue depth to it.
+        self._backpressure = backpressure
 
     async def consume(self, body: dict[str, Any]) -> ConsumeDisposition:
         try:
@@ -48,4 +54,7 @@ class InboundListener:
             return ConsumeDisposition.NACK_REQUEUE
         if fresh:
             await self._receiver.enqueue(envelope, fresh)
+            if self._backpressure is not None:
+                # High-watermark check at the enqueue site: stop the listener when the in-memory backlog grows.
+                await self._backpressure.observe_depth(self._receiver.queue_depth)
         return ConsumeDisposition.ACK

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
+import anyio
 from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku.messaging.circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitState
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.durable_inbox_receiver import DurableInboxReceiver
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
@@ -15,6 +18,7 @@ from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.partition import ISequenceAllocator
+from waku.messaging.pauser import PauseToken
 from waku.messaging.transport.serialization import IEnvelopeSerializer
 from waku.uow import IUnitOfWork
 
@@ -27,6 +31,9 @@ from tests.messaging.helpers import (
     make_serializer,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 
 @dataclass
@@ -212,3 +219,98 @@ class TestDurableInboxReceiverProcess:
             await receiver.stop()
 
         assert len(inbox.dead_lettered) == 1
+
+
+class _ObservingExecutor(EndpointExecutor):
+    """Feeds the supplied outcome to ``on_result`` (like the real executor) so an attached breaker records it."""
+
+    def __init__(self, *, outcome: ExecutionOutcome, exc: Exception | None) -> None:
+        self._outcome = outcome
+        self._exc = exc
+
+    @override
+    async def execute(
+        self,
+        envelope: object,
+        handler_type: object,
+        *,
+        on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
+    ) -> ExecutionResult:
+        if on_result is not None:
+            await on_result(self._outcome, self._exc)
+        return ExecutionResult(outcome=self._outcome, pause_duration=None)
+
+
+class _BlockingExecutor(EndpointExecutor):
+    """Parks in the handler until released, so buffered items stay queued and queue_depth is observable."""
+
+    def __init__(self, *, started: asyncio.Event, release: asyncio.Event) -> None:
+        self._started = started
+        self._release = release
+
+    @override
+    async def execute(
+        self,
+        envelope: object,
+        handler_type: object,
+        *,
+        on_result: object = None,
+    ) -> ExecutionResult:
+        self._started.set()
+        await self._release.wait()
+        return ExecutionResult(outcome=ExecutionOutcome.SUCCESS, pause_duration=None)
+
+
+class TestDurableInboxReceiverBackpressureSeams:
+    @staticmethod
+    async def test_attach_circuit_breaker_feeds_execution_outcomes() -> None:
+        inbox = FakeInboxStore()
+        pauses: list[str] = []
+
+        async def pause() -> PauseToken:  # noqa: RUF029
+            pauses.append('pause')
+            return PauseToken()
+
+        async def resume(token: PauseToken) -> None:  # noqa: ARG001, RUF029
+            pauses.append('resume')
+
+        async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            receiver = _receiver(
+                container,
+                _ObservingExecutor(outcome=ExecutionOutcome.FAILED_NO_POLICY, exc=RuntimeError()),
+            )
+            breaker = CircuitBreaker(
+                config=CircuitBreakerConfig(failure_rate_threshold=0.5, minimum_throughput=1),
+                pause=pause,
+                resume=resume,
+            )
+            receiver.attach_circuit_breaker(breaker)
+            envelope = make_envelope(_Event(kind='Boom'))
+
+            await receiver.start()
+            fresh = await receiver.persist(envelope, frozenset([_Handler]))
+            await receiver.enqueue(envelope, fresh)
+            await wait_until(lambda: breaker.state is CircuitState.OPEN)
+            await receiver.stop()  # aclose()s the attached breaker exactly once, cancelling its parked resume
+
+        assert pauses == ['pause']  # the attached breaker tripped → it drove its pause callback
+
+    @staticmethod
+    async def test_queue_depth_reflects_buffered_items() -> None:
+        inbox = FakeInboxStore()
+        started, release = asyncio.Event(), asyncio.Event()
+        async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            receiver = _receiver(container, _BlockingExecutor(started=started, release=release), max_buffer_size=10)
+
+            await receiver.start()
+            for kind in ('a', 'b'):
+                env = make_envelope(_Event(kind=kind))
+                fresh = await receiver.persist(env, frozenset([_Handler]))
+                await receiver.enqueue(env, fresh)
+            with anyio.fail_after(5):
+                await started.wait()  # first item pulled into the parked handler; the second stays buffered
+
+            assert receiver.queue_depth == 1
+
+            release.set()
+            await receiver.stop()

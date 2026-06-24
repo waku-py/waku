@@ -20,12 +20,13 @@ from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicy, SendingFailurePolicyRegistry
-from waku.messaging.transport.interfaces import ITransport, WireMetadata
+from waku.messaging.transport.interfaces import ITransport, Subscription, WireMetadata
 
 from tests._wait import wait_until
 from tests.messaging.helpers import (
     RecordingTransport,
     RelayDepsProvider,
+    StubSubscription,
     make_envelope,
     make_relay_evaluator,
     make_serializer,
@@ -52,7 +53,8 @@ class _FailingTransport(ITransport):
         raise ConnectionError(msg)
 
     @override
-    def subscribe(self, queue: str, on_message: ConsumeCallback) -> None: ...
+    def subscribe(self, queue: str, on_message: ConsumeCallback) -> Subscription:
+        return StubSubscription()
 
     @override
     async def start(self) -> None: ...
@@ -518,7 +520,7 @@ class TestOutboxRelay:
                     .on_any_exception()
                     .retry_with_backoff(max_attempts=3)
                     .then_move_to_dead_letter(),
-                )
+                ),
             },
         )
 
@@ -546,7 +548,7 @@ class TestOutboxRelay:
             destination_policies={
                 'test://dest': (
                     SendingFailurePolicy.on_any_exception().retry(max_attempts=2).then_move_to_dead_letter(),
-                )
+                ),
             },
         )
 

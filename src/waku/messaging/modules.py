@@ -26,6 +26,7 @@ from waku.extensions import (
     RegistryAggregator,
 )
 from waku.messaging.behaviors.transactional import TransactionalBehavior, _TransactionDepth
+from waku.messaging.circuit_breaker.breaker import CircuitBreaker
 from waku.messaging.config import DeadLetterConfig, MessagingConfig
 from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.contracts.factory import EnvelopeFactory
@@ -56,6 +57,7 @@ from waku.messaging.exceptions import HandlerAlreadyRegistered, ImproperlyConfig
 from waku.messaging.handler import MessageHandler
 from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.impl import MessageBus
+from waku.messaging.inbox.backpressure import ListenerBackpressure
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.drainer import build_inbox_drainer
 from waku.messaging.inbox.interfaces import IInboxStore
@@ -93,6 +95,8 @@ if TYPE_CHECKING:
     from waku.application import WakuApplication
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.handler import HandlerType
+    from waku.messaging.endpoints.base import InboundEntry
+    from waku.messaging.transport.interfaces import Subscription
     from waku.modules import ModuleMetadata, ModuleType
 
 __all__ = [
@@ -270,6 +274,10 @@ def _effective_mode(entry: LocalQueueEntry, config: MessagingConfig) -> Endpoint
 
 
 def _resolve_circuit_breaker(entry: LocalQueueEntry, config: MessagingConfig) -> 'CircuitBreakerConfig | None':
+    return entry.circuit_breaker if entry.circuit_breaker is not MISSING else config.default_circuit_breaker  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows  # MISSING inherits default; None opts out
+
+
+def _resolve_inbound_circuit_breaker(entry: 'InboundEntry', config: MessagingConfig) -> 'CircuitBreakerConfig | None':
     return entry.circuit_breaker if entry.circuit_breaker is not MISSING else config.default_circuit_breaker  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows  # MISSING inherits default; None opts out
 
 
@@ -780,10 +788,43 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
                 circuit_breaker_config=None,
             )
             listener = InboundListener(serializer=serializer, registry=message_registry, receiver=receiver)
-            await receiver.start()
-            self._receivers.append(receiver)
             queue = split_destination(uri, default_scheme=registry.default_scheme)[1]
-            registry.listener_for(uri).subscribe(queue, listener.consume)
+            subscription = registry.listener_for(uri).subscribe(queue, listener.consume)
+            backpressure = self._wire_listener_backpressure(entry, messaging_config, subscription, listener, receiver)
+            # start() last: the on_drain low-watermark hook needs the gate; nothing flows until transport.start().
+            await receiver.start(on_drain=backpressure.observe_depth if backpressure is not None else None)
+            self._receivers.append(receiver)
+
+    @staticmethod
+    def _wire_listener_backpressure(
+        entry: 'InboundEntry',
+        config: MessagingConfig,
+        subscription: 'Subscription',
+        listener: InboundListener,
+        receiver: DurableInboxReceiver,
+    ) -> ListenerBackpressure | None:
+        """Build the one listener gate when a watermark and/or inbound circuit breaker is configured.
+
+        CB-only, watermark-only, and both are all valid: the gate is the CB's pause target in every case, and
+        ``observe_depth`` no-ops when no watermark is set.
+        """
+        limits = entry.backpressure or config.default_backpressure
+        cb_config = _resolve_inbound_circuit_breaker(entry, config)
+        if limits is None and cb_config is None:
+            return None
+        backpressure = ListenerBackpressure(subscription=subscription, limits=limits)
+        listener.attach_backpressure(backpressure)
+        if cb_config is not None:
+            # The inbound CB drives the listener gate (not processing) and uses its own monotonic clock — never the
+            # app's datetime Now, which the breaker's failure-rate window cannot do arithmetic with.
+            receiver.attach_circuit_breaker(
+                CircuitBreaker(
+                    config=cb_config,
+                    pause=backpressure.pause_listener,
+                    resume=backpressure.resume_listener,
+                ),
+            )
+        return backpressure
 
     @override
     async def on_app_shutdown(self, app: 'WakuApplication') -> None:

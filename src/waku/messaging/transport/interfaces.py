@@ -12,6 +12,7 @@ __all__ = [
     'IListener',
     'ISender',
     'ITransport',
+    'Subscription',
     'TransportFactory',
     'WireMetadata',
 ]
@@ -35,6 +36,18 @@ class WireMetadata:
         }
 
 
+class Subscription(abc.ABC):
+    """Per-subscriber pause handle returned by ``IListener.subscribe`` — stop/resume one consumer's delivery."""
+
+    @abc.abstractmethod
+    async def pause(self) -> None:
+        """Stop broker delivery for this subscriber (other subscribers unaffected)."""
+
+    @abc.abstractmethod
+    async def resume(self) -> None:
+        """Resume broker delivery for this subscriber."""
+
+
 class ISender(abc.ABC):
     @abc.abstractmethod
     async def send(self, body: dict[str, Any], *, destination: str, metadata: WireMetadata) -> None: ...
@@ -42,8 +55,8 @@ class ISender(abc.ABC):
 
 class IListener(abc.ABC):
     @abc.abstractmethod
-    def subscribe(self, queue: str, on_message: ConsumeCallback) -> None:
-        """Register a consumer — no broker I/O, purely a registration step."""
+    def subscribe(self, queue: str, on_message: ConsumeCallback) -> Subscription:
+        """Register a consumer and return its pause handle — no broker I/O, purely a registration step."""
 
     @abc.abstractmethod
     async def start(self) -> None:

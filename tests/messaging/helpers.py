@@ -18,7 +18,7 @@ from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.relay import OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicyRegistry
-from waku.messaging.transport.interfaces import ITransport, WireMetadata
+from waku.messaging.transport.interfaces import ITransport, Subscription, WireMetadata
 from waku.messaging.transport.registry import TransportRegistry
 from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
 from waku.serialization.codec import PayloadCodec
@@ -130,7 +130,9 @@ class RecordingDeadLetterStore(IDeadLetterStore):
 
     @override
     async def claim_replayable(
-        self, batch_size: int, max_replay_count: int
+        self,
+        batch_size: int,
+        max_replay_count: int,
     ) -> Sequence[DeadLetterEntry]:  # pragma: no cover
         return []
 
@@ -171,7 +173,9 @@ class FailingDeadLetterStore(IDeadLetterStore):
 
     @override
     async def claim_replayable(
-        self, batch_size: int, max_replay_count: int
+        self,
+        batch_size: int,
+        max_replay_count: int,
     ) -> Sequence[DeadLetterEntry]:  # pragma: no cover
         return []
 
@@ -192,6 +196,16 @@ class FailingDeadLetterStore(IDeadLetterStore):
         return 0
 
 
+class StubSubscription(Subscription):
+    """No-op Subscription double for fake transports whose ``subscribe`` is never driven."""
+
+    @override
+    async def pause(self) -> None: ...
+
+    @override
+    async def resume(self) -> None: ...
+
+
 class RecordingTransport(ITransport):
     def __init__(self) -> None:
         self.sent: list[tuple[dict[str, Any], str, WireMetadata]] = []
@@ -203,7 +217,8 @@ class RecordingTransport(ITransport):
         self.sent_event.set()
 
     @override
-    def subscribe(self, queue: str, on_message: ConsumeCallback) -> None: ...
+    def subscribe(self, queue: str, on_message: ConsumeCallback) -> Subscription:
+        return StubSubscription()
 
     @override
     async def start(self) -> None: ...
