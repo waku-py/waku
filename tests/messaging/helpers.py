@@ -13,14 +13,12 @@ from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.registry import ErrorPolicyRegistry
-from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.relay import OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicyRegistry
-from waku.messaging.transport.interfaces import ITransport, Subscription, WireMetadata
+from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper, ITransport, Subscription
 from waku.messaging.transport.registry import TransportRegistry
-from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
 from waku.serialization.codec import PayloadCodec
 from waku.serialization.upcasting import UpcasterChain
 from waku.uow import IUnitOfWork
@@ -34,10 +32,8 @@ if TYPE_CHECKING:
     from waku.messaging.transport.inbound import ConsumeCallback
 
 
-def make_serializer(*types: type[IMessage]) -> JsonEnvelopeSerializer:
-    registry = MessageTypeRegistry(identities={}, known_types=list(types))
-    codec = PayloadCodec(default_retort, UpcasterChain({}))
-    return JsonEnvelopeSerializer(type_registry=registry, codec=codec)
+def make_codec() -> PayloadCodec:
+    return PayloadCodec(default_retort, UpcasterChain({}))
 
 
 def make_envelope(
@@ -208,16 +204,28 @@ class StubSubscription(Subscription):
 
 class RecordingTransport(ITransport):
     def __init__(self) -> None:
-        self.sent: list[tuple[dict[str, Any], str, WireMetadata]] = []
+        self.sent: list[tuple[dict[str, Any], str, EnvelopeMetadata, IEnvelopeMapper[Any, Any] | None]] = []
         self.sent_event = anyio.Event()
 
     @override
-    async def send(self, body: dict[str, Any], *, destination: str, metadata: WireMetadata) -> None:
-        self.sent.append((body, destination, metadata))
+    async def send(
+        self,
+        body: dict[str, Any],
+        *,
+        destination: str,
+        metadata: EnvelopeMetadata,
+        mapper: IEnvelopeMapper[Any, Any] | None = None,
+    ) -> None:
+        self.sent.append((body, destination, metadata, mapper))
         self.sent_event.set()
 
     @override
-    def subscribe(self, queue: str, on_message: ConsumeCallback) -> Subscription:
+    def subscribe(
+        self,
+        queue: str,
+        on_message: ConsumeCallback,
+        mapper: IEnvelopeMapper[Any, Any] | None = None,
+    ) -> Subscription:
         return StubSubscription()
 
     @override
@@ -254,12 +262,11 @@ class RelayDepsProvider(Provider):
         self,
         store: IOutboxStore,
         transport: ITransport,
-        serializer: IEnvelopeSerializer,
+        external_mappers: Mapping[str, IEnvelopeMapper[Any, Any]] | None = None,
     ) -> None:
         super().__init__()
         self._store = store
-        self._registry = TransportRegistry({'test': transport})
-        self._serializer = serializer
+        self._registry = TransportRegistry({'test': transport}, external_mappers=external_mappers)
         self._uow: IUnitOfWork = FakeUoW()
 
     @provide
@@ -269,10 +276,6 @@ class RelayDepsProvider(Provider):
     @provide(scope=Scope.APP)
     def transport_registry(self) -> TransportRegistry:
         return self._registry
-
-    @provide
-    def serializer(self) -> IEnvelopeSerializer:
-        return self._serializer
 
     @provide
     def uow(self) -> IUnitOfWork:

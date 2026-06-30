@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
@@ -10,9 +11,11 @@ from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.errors.replay import ReplayExecutor
+from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.router import MessageRouter
+from waku.messaging.transport.decomposition import encode_metadata, encode_payload
 
-from tests.messaging.helpers import RecordingDeadLetterStore, make_envelope, make_serializer
+from tests.messaging.helpers import RecordingDeadLetterStore, make_codec, make_envelope
 
 if TYPE_CHECKING:
     from waku.di import AsyncContainer
@@ -68,18 +71,25 @@ class _ReplayStore(RecordingDeadLetterStore):
 _DUMMY_CONTAINER: Any = object()  # endpoints under test ignore the scope arg
 
 
+def _make_type_registry() -> MessageTypeRegistry:
+    return MessageTypeRegistry(identities={}, known_types=[_DlqEvent])
+
+
 def _entry_for(envelope: MessageEnvelope[Any], destination: str) -> DeadLetterEntry:
-    serializer = make_serializer(_DlqEvent)
+    codec = make_codec()
     return DeadLetterEntry(
         id=uuid4(),
         message_type=envelope.message_type,
-        payload=serializer.serialize(envelope),
+        payload=encode_payload(envelope, codec),
         destination=destination,
         correlation_id=envelope.correlation_id,
         causation_id=envelope.causation_id,
         error_type='RuntimeError',
         error_message='boom',
         retry_count=3,
+        message_id=envelope.message_id,
+        metadata_=encode_metadata(envelope),
+        group_id=envelope.group_id,
     )
 
 
@@ -88,12 +98,13 @@ def _make_executor(store: _ReplayStore, endpoint: Endpoint | None) -> ReplayExec
     return ReplayExecutor(
         container=_DUMMY_CONTAINER,
         store=store,
-        serializer=make_serializer(_DlqEvent),
+        codec=make_codec(),
+        type_registry=_make_type_registry(),
         router=MessageRouter(routes={}, endpoints=endpoints),
     )
 
 
-async def test_replay_reinjects_to_destination_preserving_message_id() -> None:
+async def test_replay_reinjects_to_destination_preserving_original_message_id() -> None:
     envelope = make_envelope(_DlqEvent('hi'))
     entry = _entry_for(envelope, destination='local://dlq')
     endpoint = _RecordingEndpoint('local://dlq')
@@ -104,6 +115,7 @@ async def test_replay_reinjects_to_destination_preserving_message_id() -> None:
     assert store.replayed == [entry.id]
     assert store.failures == []
     assert len(endpoint.dispatched) == 1
+    # The original envelope message_id is preserved through the DLQ message_id column.
     assert endpoint.dispatched[0].message_id == envelope.message_id
 
 
@@ -142,3 +154,63 @@ async def test_replay_by_id_fetches_then_replays() -> None:
 
     assert await executor.replay_by_id(entry.id) is True
     assert store.replayed == [entry.id]
+
+
+async def test_replay_reconstruct_and_compare_all_metadata_fields() -> None:
+    scheduled = datetime(2026, 7, 1, 12, 0, 0, tzinfo=UTC)
+    expires = datetime(2026, 7, 2, 12, 0, 0, tzinfo=UTC)
+    envelope = make_envelope(
+        _DlqEvent('payload'),
+        headers={'x-trace': 'abc123', 'x-tenant': 'acme'},
+        group_id='order-99',
+        scheduled_time=scheduled,
+        expires_at=expires,
+    )
+    codec = make_codec()
+    type_registry = _make_type_registry()
+    entry = DeadLetterEntry(
+        id=uuid4(),
+        message_type=envelope.message_type,
+        payload=encode_payload(envelope, codec),
+        destination='local://dlq',
+        correlation_id=envelope.correlation_id,
+        causation_id=envelope.causation_id,
+        error_type='RuntimeError',
+        error_message='failed',
+        retry_count=5,
+        message_id=envelope.message_id,
+        metadata_=encode_metadata(envelope),
+        group_id=envelope.group_id,
+    )
+
+    endpoint = _RecordingEndpoint('local://dlq')
+    store = _ReplayStore()
+    executor = ReplayExecutor(
+        container=_DUMMY_CONTAINER,
+        store=store,
+        codec=codec,
+        type_registry=type_registry,
+        router=MessageRouter(routes={}, endpoints=[endpoint]),
+    )
+
+    assert await executor.replay(entry) is True
+    assert len(endpoint.dispatched) == 1
+    rebuilt = endpoint.dispatched[0]
+
+    # Non-vacuous: all metadata fields must round-trip correctly.
+    # message_id is preserved from the original envelope via the DLQ message_id column.
+    assert rebuilt.message_id == envelope.message_id
+    assert rebuilt.correlation_id == envelope.correlation_id
+    assert rebuilt.causation_id == envelope.causation_id
+    assert rebuilt.message_type == envelope.message_type
+    assert rebuilt.message_version == envelope.message_version
+    assert rebuilt.headers == envelope.headers
+    assert rebuilt.group_id == envelope.group_id
+    assert rebuilt.payload == envelope.payload
+    # Timestamps normalised to UTC — compare with tolerance for isoformat round-trip.
+    assert rebuilt.timestamp is not None
+    assert abs((rebuilt.timestamp - envelope.timestamp).total_seconds()) < 1
+    assert rebuilt.scheduled_time is not None
+    assert abs((rebuilt.scheduled_time - scheduled).total_seconds()) < 1
+    assert rebuilt.expires_at is not None
+    assert abs((rebuilt.expires_at - expires).total_seconds()) < 1

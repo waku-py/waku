@@ -14,7 +14,8 @@ from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.errors.executor import FailureContext
 from waku.messaging.errors.policy import RetryAction
 from waku.messaging.exceptions import HandlerTimeoutError
-from waku.messaging.transport.serialization import IEnvelopeSerializer
+from waku.messaging.transport.decomposition import encode_metadata, encode_payload
+from waku.serialization.codec import PayloadCodec
 from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
@@ -214,16 +215,19 @@ class EndpointExecutor:
     async def _write_dead_letter(self, envelope: MessageEnvelope[Any], exc: Exception, attempt: int) -> bool:
         async with self._container() as scope:
             store = await scope.get(IDeadLetterStore)
-            serializer = await scope.get(IEnvelopeSerializer)
+            codec = await scope.get(PayloadCodec)
             uow = await scope.get(IUnitOfWork)
             entry = DeadLetterEntry.from_failure(
                 message_type=envelope.message_type,
-                payload=serializer.serialize(envelope),
+                payload=encode_payload(envelope, codec),
                 destination=self._endpoint_uri,
                 correlation_id=envelope.correlation_id,
                 causation_id=envelope.causation_id,
                 exc=exc,
                 attempt=attempt,
+                message_id=envelope.message_id,
+                metadata=encode_metadata(envelope),
+                group_id=envelope.group_id,
             )
             try:
                 await store.save(entry)

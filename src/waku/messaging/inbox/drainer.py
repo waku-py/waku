@@ -2,21 +2,22 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
-from uuid import UUID
 
-from waku._internal.clock import Now  # runtime: passed to container.get(Now)
+from waku._internal.clock import Now
 from waku._internal.transaction import unit_of_work_scope
 from waku.di import is_registered
 from waku.messaging.config import MessagingConfig
 from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES, EndpointExecutor
 from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
+from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.inbox._destination import handler_destination
 from waku.messaging.inbox.finalize import apply_inbox_outcome
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.messaging.registry import MessageRegistry
-from waku.messaging.transport.serialization import IEnvelopeSerializer
+from waku.messaging.transport.decomposition import rebuild_envelope, wire_metadata_from_entry
+from waku.serialization.codec import PayloadCodec
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -50,20 +51,22 @@ class InboxDrainer:
 
     __slots__ = (
         '_batch_size',
+        '_codec',
         '_container',
         '_executor_factory',
         '_handler_by_fqn',
         '_keep_after_handled',
         '_max_attempts',
         '_owner_id',
-        '_serializer',
+        '_type_registry',
     )
 
     def __init__(  # noqa: PLR0913 -- DI/config values, all required; bundling is a construction-site refactor
         self,
         *,
         container: AsyncContainer,
-        serializer: IEnvelopeSerializer,
+        codec: PayloadCodec,
+        type_registry: MessageTypeRegistry,
         handler_by_fqn: Mapping[HandlerDestination, HandlerType],
         executor_factory: Callable[[str], EndpointExecutor],
         owner_id: str,
@@ -72,7 +75,8 @@ class InboxDrainer:
         max_attempts: int,
     ) -> None:
         self._container = container
-        self._serializer = serializer
+        self._codec = codec
+        self._type_registry = type_registry
         self._handler_by_fqn = handler_by_fqn
         self._executor_factory = executor_factory
         self._owner_id = owner_id
@@ -99,9 +103,14 @@ class InboxDrainer:
             await self._handle_poison(entry, f'no registered handler for destination {entry.destination!r}')
             return False
         try:
-            envelope = self._serializer.deserialize(entry.payload)
+            envelope = rebuild_envelope(
+                entry.payload,
+                wire_metadata_from_entry(entry),
+                self._codec,
+                self._type_registry,
+            )
         except Exception as exc:  # noqa: BLE001 -- a poison row must be quarantined, not abort the batch
-            await self._handle_poison(entry, f'payload deserialize failed: {exc}')
+            await self._handle_poison(entry, f'payload rebuild failed: {exc}')
             return False
         executor = self._executor_factory(entry.source_uri)
         result = await executor.execute(envelope, handler_type)
@@ -153,7 +162,8 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
     registry = await container.get(MessageRegistry)
     evaluator = await container.get(ErrorPolicyEvaluator)
     invoker = await container.get(HandlerPipelineInvoker)
-    serializer = await container.get(IEnvelopeSerializer)
+    codec = await container.get(PayloadCodec)
+    type_registry = await container.get(MessageTypeRegistry)
     messaging_config = await container.get(MessagingConfig)
     now = await container.get(Now)
 
@@ -176,7 +186,8 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
 
     return InboxDrainer(
         container=container,
-        serializer=serializer,
+        codec=codec,
+        type_registry=type_registry,
         handler_by_fqn=handler_by_fqn,
         executor_factory=executor_factory,
         owner_id=config.resolve_owner_id(),
@@ -187,23 +198,17 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
 
 
 def _poison_dead_letter(entry: InboxEntry, reason: str, attempt: int) -> DeadLetterEntry:
-    # correlation/causation are top-level keys in the serialized payload even when the inner payload
-    # won't deserialize; fall back to message_id when absent or corrupt.
+    # Read correlation/causation from the typed columns (populated by persist/store_scheduled).
+    # Fall back to message_id when the column is NULL (e.g. legacy rows written before decomposition).
     return DeadLetterEntry.from_failure(
         message_type=entry.message_type,
         payload=entry.payload,
         destination=entry.destination,
-        correlation_id=_uuid_or(entry.payload.get('correlation_id'), entry.id),
-        causation_id=_uuid_or(entry.payload.get('causation_id'), entry.id),
+        correlation_id=entry.correlation_id if entry.correlation_id is not None else entry.id,
+        causation_id=entry.causation_id if entry.causation_id is not None else entry.id,
         exc=InboxPoisonError(reason),
         attempt=attempt,
+        message_id=entry.message_id,
+        metadata=entry.metadata_,
+        group_id=entry.group_id,
     )
-
-
-def _uuid_or(value: object, fallback: UUID) -> UUID:
-    if isinstance(value, str):
-        try:
-            return UUID(value)
-        except ValueError:
-            return fallback
-    return fallback

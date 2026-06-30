@@ -41,6 +41,9 @@ class InboxEntry:
     destination: HandlerDestination
     status: InboxStatus = InboxStatus.INCOMING
     owner_id: str | None = None
+    correlation_id: UUID | None = None
+    causation_id: UUID | None = None
+    metadata_: dict[str, Any] | None = None
     # M3 scheduled-messages populate execution_time and gate dispatch on
     # NOW() >= execution_time (SCHEDULED -> INCOMING when due). M2b.1 never writes a
     # non-None value — the column exists so the schema is stable when M3 lands.
@@ -51,3 +54,8 @@ class InboxEntry:
     sequence_number: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    @property
+    def message_id(self) -> UUID:
+        """Original envelope message_id — ``id`` is set to ``envelope.message_id`` at persist time."""
+        return self.id

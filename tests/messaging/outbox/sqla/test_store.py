@@ -68,3 +68,32 @@ class TestSqlAlchemyOutboxStore:
         row = (await pg_session.execute(status_stmt)).one()
         assert row.status == OutboxStatus.DISCARDED.value
         assert row.last_error == 'transport gave up'
+
+    @staticmethod
+    async def test_metadata_column_round_trips(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyOutboxStore(pg_session)
+        meta_payload = {
+            'message_version': 2,
+            'timestamp': '2026-06-29T10:00:00+00:00',
+            'headers': {'tenant': 'acme'},
+            'scheduled_time': None,
+            'expires_at': None,
+        }
+        msg = _make_message(metadata_=meta_payload)
+        await store.save_batch([msg])
+        await pg_session.flush()
+
+        fetched = await store.fetch_head_of_queue(batch_size=10)
+
+        assert fetched[0].metadata_ == meta_payload
+
+    @staticmethod
+    async def test_metadata_column_defaults_to_none(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyOutboxStore(pg_session)
+        msg = _make_message()
+        await store.save_batch([msg])
+        await pg_session.flush()
+
+        fetched = await store.fetch_head_of_queue(batch_size=10)
+
+        assert fetched[0].metadata_ is None

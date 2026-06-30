@@ -22,7 +22,8 @@ from waku.messaging._identifiers import EndpointUri  # noqa: PLC2701
 from waku.messaging.inbox._destination import handler_destination  # noqa: PLC2701
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
-from waku.messaging.transport.serialization import IEnvelopeSerializer
+from waku.messaging.transport.decomposition import encode_metadata, encode_payload
+from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
@@ -61,18 +62,22 @@ async def test_abandoned_row_is_drained_and_handled() -> None:
         ) as app,
         app.container() as scope,
     ):
-        serializer = await scope.get(IEnvelopeSerializer)
+        codec = await scope.get(PayloadCodec)
         envelope = make_envelope(_OrderPlaced(order_id='abandoned-1'))
         destination = handler_destination(_RecordingHandler)
         # Stage an abandoned INCOMING row (owner NULL) as if a prior node crashed before processing it.
+        # Uses the decomposed row shape: encoded payload + metadata_ + typed correlation/causation columns.
         inbox.entries[envelope.message_id, destination] = InboxEntry(
             id=envelope.message_id,
-            payload=serializer.serialize(envelope),
+            payload=encode_payload(envelope, codec),
             message_type=envelope.message_type,
             source_uri=EndpointUri('local://orders'),
             destination=destination,
             owner_id=None,
             status=InboxStatus.INCOMING,
+            correlation_id=envelope.correlation_id,
+            causation_id=envelope.causation_id,
+            metadata_=encode_metadata(envelope),
         )
         # The app's InboxRecoveryWorker (its lifecycle-built drainer) claims + processes it within a few ticks.
         await wait_until(lambda: _RecordingHandler.invocations == ['abandoned-1'])

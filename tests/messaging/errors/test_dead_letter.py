@@ -43,6 +43,23 @@ class TestDeadLetterEntry:
         with pytest.raises(dataclasses.FrozenInstanceError):
             entry.status = DeadLetterStatus.REPLAYED  # type: ignore[misc]
 
+    @staticmethod
+    def test_from_failure_stores_group_id_and_message_id() -> None:
+        original_id = uuid4()
+        entry = DeadLetterEntry.from_failure(
+            message_type='test.FailedEvent',
+            payload={'key': 'value'},
+            destination='test://dead',
+            correlation_id=uuid4(),
+            causation_id=uuid4(),
+            exc=RuntimeError('boom'),
+            attempt=3,
+            group_id='partition-42',
+            message_id=original_id,
+        )
+        assert entry.group_id == 'partition-42'
+        assert entry.message_id == original_id
+
 
 class TestDeadLetterQuery:
     @staticmethod

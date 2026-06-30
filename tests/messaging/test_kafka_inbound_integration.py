@@ -9,6 +9,7 @@ pytest.importorskip('faststream.kafka')
 
 from faststream.kafka import KafkaBroker, TestKafkaBroker
 
+from waku._internal.retort import default_retort  # noqa: PLC2701
 from waku.di import object_
 from waku.messaging import (
     InboundConfig,
@@ -22,12 +23,16 @@ from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.base import listen
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.models import InboxStatus
-from waku.messaging.transport.faststream.kafka import FastStreamKafkaTransport
+from waku.messaging.partition import ISequenceAllocator
+from waku.messaging.transport.decomposition import encode_payload, envelope_metadata_of
+from waku.messaging.transport.faststream.kafka import DefaultKafkaEnvelopeMapper, FastStreamKafkaTransport
+from waku.serialization.codec import PayloadCodec
+from waku.serialization.upcasting import UpcasterChain
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, make_envelope, make_serializer
+from tests.messaging.helpers import FakeUoW, RecordingAllocator, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -47,7 +52,7 @@ class TestKafkaInboundIntegration:
                 observed.append(message.order_id)
 
         inbox = FakeInboxStore()
-        serializer = make_serializer(_OrderPlaced)
+        codec = PayloadCodec(default_retort, UpcasterChain({}))
         broker = KafkaBroker('localhost:9092')
         transport = FastStreamKafkaTransport(broker=broker, consumer_group='svc')
 
@@ -58,21 +63,28 @@ class TestKafkaInboundIntegration:
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 
-        envelope = make_envelope(_OrderPlaced(order_id='o-1'))
+        # A keyed message exercises Kafka's group_id -> message-key -> group_id round-trip (the transport's reason
+        # to exist). The recovered key drives inbox sequencing, so a real keyed deployment registers an allocator.
+        envelope = make_envelope(_OrderPlaced(order_id='o-1'), group_id='order-1')
+        out = DefaultKafkaEnvelopeMapper().map_outgoing(encode_payload(envelope, codec), envelope_metadata_of(envelope))
 
         async with (
             TestKafkaBroker(broker),
             create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[
+                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                ],
             ),
         ):
-            await broker.publish(serializer.serialize(envelope), 'orders')
+            await broker.publish(out.body, 'orders', key=out.key, headers=out.headers)
             await wait_until(lambda: observed == ['o-1'])
 
         entries = list(inbox.entries.values())
         assert len(entries) == 1
         assert entries[0].status is InboxStatus.HANDLED
         assert entries[0].source_uri == 'kafka://orders'
+        assert entries[0].group_id == 'order-1'
         assert observed == ['o-1']

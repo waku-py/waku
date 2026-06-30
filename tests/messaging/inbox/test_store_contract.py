@@ -141,3 +141,18 @@ async def test_move_to_dead_letter_deletes_entry(inbox_store: IInboxStore) -> No
     await inbox_store.move_to_dead_letter(entry.id, entry.destination, _dead_letter_for(entry))
     # the inbox row is deleted: the same (id, destination) is storable again (not a duplicate)
     assert await inbox_store.store_incoming(_make_entry(id=entry.id, destination=entry.destination)) is True
+
+
+async def test_p2_columns_correlation_causation_metadata_round_trip(inbox_store: IInboxStore) -> None:
+    # Contract: P2 decomposition columns survive the persist→fetch cycle for both fake and SQLAlchemy stores.
+    corr = uuid4()
+    caus = uuid4()
+    meta = {'message_version': 3, 'timestamp': '2026-06-29T10:00:00+00:00', 'headers': {'x-version': '3'}}
+    entry = _make_entry(correlation_id=corr, causation_id=caus, metadata_=meta)
+
+    await inbox_store.store_incoming(entry)
+    claimed = await inbox_store.fetch_pending(batch_size=10, owner_id='w-1')
+
+    assert claimed[0].correlation_id == corr
+    assert claimed[0].causation_id == caus
+    assert claimed[0].metadata_ == meta

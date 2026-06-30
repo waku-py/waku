@@ -15,12 +15,14 @@ from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.errors.worker import DeadLetterWorker
+from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.router import MessageRouter
-from waku.messaging.transport.serialization import IEnvelopeSerializer
+from waku.messaging.transport.decomposition import encode_metadata, encode_payload
+from waku.serialization.codec import PayloadCodec
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, RecordingDeadLetterStore, make_envelope, make_serializer
+from tests.messaging.helpers import FakeUoW, RecordingDeadLetterStore, make_codec, make_envelope
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -80,13 +82,15 @@ class _DlqDepsProvider(Provider):
     def __init__(
         self,
         store: RecordingDeadLetterStore,
-        serializer: IEnvelopeSerializer,
+        codec: PayloadCodec,
+        type_registry: MessageTypeRegistry,
         router: MessageRouter,
         uow: IUnitOfWork,
     ) -> None:
         super().__init__()
         self._store = store
-        self._serializer = serializer
+        self._codec = codec
+        self._type_registry = type_registry
         self._router = router
         self._uow = uow
 
@@ -99,8 +103,12 @@ class _DlqDepsProvider(Provider):
         return self._uow
 
     @provide(scope=Scope.APP)
-    def serializer(self) -> IEnvelopeSerializer:
-        return self._serializer
+    def codec(self) -> PayloadCodec:
+        return self._codec
+
+    @provide(scope=Scope.APP)
+    def type_registry(self) -> MessageTypeRegistry:
+        return self._type_registry
 
     @provide(scope=Scope.APP)
     def router(self) -> MessageRouter:
@@ -109,29 +117,37 @@ class _DlqDepsProvider(Provider):
     replay_executor = provide(ReplayExecutor, scope=Scope.REQUEST)
 
 
+def _make_registry() -> MessageTypeRegistry:
+    return MessageTypeRegistry(identities={}, known_types=[_DlqEvent])
+
+
 def _entry(destination: str) -> tuple[DeadLetterEntry, MessageEnvelope[Any]]:
-    serializer = make_serializer(_DlqEvent)
+    codec = make_codec()
     envelope = make_envelope(_DlqEvent('x'))
     entry = DeadLetterEntry(
         id=uuid4(),
         message_type=envelope.message_type,
-        payload=serializer.serialize(envelope),
+        payload=encode_payload(envelope, codec),
         destination=destination,
         correlation_id=envelope.correlation_id,
         causation_id=envelope.causation_id,
         error_type='RuntimeError',
         error_message='boom',
         retry_count=3,
+        metadata_=encode_metadata(envelope),
+        group_id=envelope.group_id,
     )
     return entry, envelope
 
 
 def _container(store: RecordingDeadLetterStore, router: MessageRouter, uow: IUnitOfWork) -> AsyncContainer:
-    return make_async_container(_DlqDepsProvider(store, make_serializer(_DlqEvent), router, uow))
+    return make_async_container(
+        _DlqDepsProvider(store, make_codec(), _make_registry(), router, uow),
+    )
 
 
 async def test_worker_replays_claimed_entries_and_commits() -> None:
-    entry, envelope = _entry('local://dlq')
+    entry, _ = _entry('local://dlq')
     endpoint = _RecordingEndpoint('local://dlq')
     store = _WorkerStore(claimable=[entry])
     uow = FakeUoW()
@@ -149,7 +165,8 @@ async def test_worker_replays_claimed_entries_and_commits() -> None:
     await worker.stop()
 
     assert store.replayed == [entry.id]
-    assert endpoint.dispatched[0].message_id == envelope.message_id
+    # The DLQ entry's own id becomes message_id in the rebuilt envelope.
+    assert endpoint.dispatched[0].message_id == entry.id
     assert uow.commit_count >= 1
 
 

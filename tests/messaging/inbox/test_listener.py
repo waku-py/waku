@@ -2,25 +2,29 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import ClassVar
 
 from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku._internal.retort import default_retort  # noqa: PLC2701
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.durable_inbox_receiver import DurableInboxReceiver
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.handler import EventHandler
+from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.inbox.backpressure import BufferingLimits, ListenerBackpressure
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.listener import InboundListener
 from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.registry import MessageRegistry
+from waku.messaging.transport.decomposition import encode_payload, envelope_metadata_of
 from waku.messaging.transport.inbound import ConsumeDisposition
-from waku.messaging.transport.interfaces import Subscription
-from waku.messaging.transport.serialization import IEnvelopeSerializer
+from waku.messaging.transport.interfaces import EnvelopeMetadata, Subscription
+from waku.serialization.codec import PayloadCodec
+from waku.serialization.upcasting import UpcasterChain
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
@@ -29,7 +33,6 @@ from tests.messaging.helpers import (
     RecordingAllocator,
     RecordingDeadLetterStore,
     make_envelope,
-    make_serializer,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
@@ -47,6 +50,14 @@ class _Handler(EventHandler[_Event]):
         self.invocations.append(message.kind)
 
 
+def _make_codec() -> PayloadCodec:
+    return PayloadCodec(default_retort, UpcasterChain({}))
+
+
+def _make_type_registry(*types: type[IEvent]) -> MessageTypeRegistry:
+    return MessageTypeRegistry(identities={}, known_types=list(types))
+
+
 class _DepsProvider(Provider):
     scope = Scope.REQUEST
 
@@ -54,9 +65,9 @@ class _DepsProvider(Provider):
         super().__init__()
         self._inbox = inbox
         self._dlq = dlq
-        self._serializer: IEnvelopeSerializer = make_serializer(_Event)
         self._uow: IUnitOfWork = FakeUoW()
         self._allocator: ISequenceAllocator = RecordingAllocator()
+        self._codec = _make_codec()
 
     @provide
     def inbox(self) -> IInboxStore:
@@ -66,9 +77,9 @@ class _DepsProvider(Provider):
     def dlq(self) -> IDeadLetterStore:
         return self._dlq
 
-    @provide
-    def serializer(self) -> IEnvelopeSerializer:
-        return self._serializer
+    @provide(scope=Scope.APP)
+    def codec(self) -> PayloadCodec:
+        return self._codec
 
     @provide
     def uow(self) -> IUnitOfWork:
@@ -110,13 +121,15 @@ def _receiver(container: AsyncContainer, executor: EndpointExecutor) -> DurableI
 
 
 def _listener(container: AsyncContainer) -> tuple[InboundListener, DurableInboxReceiver]:
-    serializer = make_serializer(_Event)
+    codec = _make_codec()
+    type_registry = _make_type_registry(_Event)
     registry = MessageRegistry()
     registry.handler_map.bind(_Event, _Handler)
     executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
     receiver = _receiver(container, executor)
     return InboundListener(
-        serializer=serializer,
+        codec=codec,
+        type_registry=type_registry,
         registry=registry,
         receiver=receiver,
     ), receiver
@@ -126,29 +139,36 @@ async def test_valid_message_persists_and_acks() -> None:
     inbox = FakeInboxStore()
     async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
         listener, receiver = _listener(container)
-        serializer = make_serializer(_Event)
+        codec = _make_codec()
         envelope = make_envelope(_Event(kind='OrderPlaced'))
-        body = serializer.serialize(envelope)
+        payload, metadata = encode_payload(envelope, codec), envelope_metadata_of(envelope)
 
         await receiver.start()
-        result = await listener.consume(body)
+        result = await listener.consume(payload, metadata)
         await receiver.stop()
 
     assert result is ConsumeDisposition.ACK
     assert len(inbox.entries) == 1
+    # P2 decomposition: listener must populate the typed columns from envelope metadata.
+    stored = next(iter(inbox.entries.values()))
+    assert stored.correlation_id == envelope.correlation_id
+    assert stored.causation_id == envelope.causation_id
+    assert stored.metadata_ is not None
+    assert stored.metadata_.get('message_version') == envelope.message_version
+    assert 'headers' in stored.metadata_
 
 
 async def test_redelivery_acks_without_double_process() -> None:
     inbox = FakeInboxStore()
     async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
         listener, receiver = _listener(container)
-        serializer = make_serializer(_Event)
+        codec = _make_codec()
         envelope = make_envelope(_Event(kind='Shipped'))
-        body = serializer.serialize(envelope)
+        payload, metadata = encode_payload(envelope, codec), envelope_metadata_of(envelope)
 
         await receiver.start()
-        first = await listener.consume(body)
-        second = await listener.consume(body)
+        first = await listener.consume(payload, metadata)
+        second = await listener.consume(payload, metadata)
         await receiver.stop()
 
     assert first is ConsumeDisposition.ACK
@@ -156,11 +176,20 @@ async def test_redelivery_acks_without_double_process() -> None:
     assert len(inbox.entries) == 1
 
 
-async def test_undeserializable_body_rejects() -> None:
+async def test_foreign_message_type_rejects() -> None:
+    # A foreign/unknown message_type in metadata (no registered type) → REJECT, no crash.
     inbox = FakeInboxStore()
     async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
         listener, _ = _listener(container)
-        result = await listener.consume({'garbage': 1})
+        # Use a real payload shape but a type name that is not in the type_registry.
+        foreign_metadata = EnvelopeMetadata(
+            message_id='11111111-1111-1111-1111-111111111111',
+            correlation_id='22222222-2222-2222-2222-222222222222',
+            causation_id='33333333-3333-3333-3333-333333333333',
+            message_type='some.unknown.ForeignEvent',
+            timestamp=datetime.now(tz=UTC),
+        )
+        result = await listener.consume({'kind': 'ping'}, foreign_metadata)
 
     assert result is ConsumeDisposition.REJECT
     assert len(inbox.entries) == 0
@@ -173,19 +202,22 @@ async def test_unknown_type_with_no_handler_acks() -> None:
 
     inbox = FakeInboxStore()
     async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
-        serializer_other = make_serializer(_Event, _OtherEvent)
+        codec = _make_codec()
+        # type_registry knows both types; handler registry only has _Event
+        type_registry = _make_type_registry(_Event, _OtherEvent)
         registry = MessageRegistry()
         registry.handler_map.bind(_Event, _Handler)
         executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
         listener = InboundListener(
-            serializer=serializer_other,
+            codec=codec,
+            type_registry=type_registry,
             registry=registry,
             receiver=_receiver(container, executor),
         )
 
         envelope = make_envelope(_OtherEvent(kind='Unknown'))
-        body = serializer_other.serialize(envelope)
-        result = await listener.consume(body)
+        payload, metadata = encode_payload(envelope, codec), envelope_metadata_of(envelope)
+        result = await listener.consume(payload, metadata)
 
     assert result is ConsumeDisposition.ACK
     assert len(inbox.entries) == 0
@@ -197,10 +229,10 @@ async def test_transient_persist_failure_nacks_requeue() -> None:
     inbox.store_incoming_error = RuntimeError('DB down')
     async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
         listener, _ = _listener(container)
-        serializer = make_serializer(_Event)
+        codec = _make_codec()
         envelope = make_envelope(_Event(kind='Failed'))
-        body = serializer.serialize(envelope)
-        result = await listener.consume(body)
+        payload, metadata = encode_payload(envelope, codec), envelope_metadata_of(envelope)
+        result = await listener.consume(payload, metadata)
 
     assert result is ConsumeDisposition.NACK_REQUEUE
     assert len(inbox.entries) == 0
@@ -233,7 +265,8 @@ async def test_consume_pauses_listener_when_buffer_crosses_high_watermark() -> N
     inbox = FakeInboxStore()
     release = asyncio.Event()
     async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
-        serializer = make_serializer(_Event)
+        codec = _make_codec()
+        type_registry = _make_type_registry(_Event)
         registry = MessageRegistry()
         registry.handler_map.bind(_Event, _Handler)
         receiver = DurableInboxReceiver(
@@ -245,14 +278,16 @@ async def test_consume_pauses_listener_when_buffer_crosses_high_watermark() -> N
             max_buffer_size=10,
             stop_timeout=1.0,
         )
-        listener = InboundListener(serializer=serializer, registry=registry, receiver=receiver)
+        listener = InboundListener(codec=codec, type_registry=type_registry, registry=registry, receiver=receiver)
         sub = _FakeSub()
         listener.attach_backpressure(ListenerBackpressure(subscription=sub, limits=BufferingLimits(high=1, low=0)))
 
         await receiver.start()
         # First item parks in the blocking handler; the second stays buffered → depth crosses high=1.
-        await listener.consume(serializer.serialize(make_envelope(_Event(kind='a'))))
-        await listener.consume(serializer.serialize(make_envelope(_Event(kind='b'))))
+        env_a = make_envelope(_Event(kind='a'))
+        env_b = make_envelope(_Event(kind='b'))
+        await listener.consume(encode_payload(env_a, codec), envelope_metadata_of(env_a))
+        await listener.consume(encode_payload(env_b, codec), envelope_metadata_of(env_b))
         await wait_until(lambda: sub.events == ['pause'])
 
         release.set()

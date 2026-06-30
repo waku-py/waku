@@ -17,7 +17,7 @@ from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.sending.evaluator import SendingFailureContext, SendingFailureEvaluator
 from waku.messaging.sending.policy import SendingFailurePolicy
-from waku.messaging.transport.interfaces import WireMetadata
+from waku.messaging.transport.decomposition import wire_metadata_from_entry
 from waku.messaging.transport.registry import TransportRegistry, split_destination
 from waku.uow import IUnitOfWork
 
@@ -163,15 +163,10 @@ class OutboxRelay(PollingAgent):
         uow = await scope.get(IUnitOfWork)
         sender = registry.sender_for(message.destination)
         queue = split_destination(message.destination, default_scheme=registry.default_scheme)[1]
-        # The row already holds the wire dict; correlation metadata is read off typed columns — no rehydration.
-        metadata = WireMetadata(
-            message_id=message.idempotency_key,
-            correlation_id=str(message.correlation_id),
-            causation_id=str(message.causation_id),
-            message_type=message.message_type,
-            group_id=message.group_id,
-        )
-        await sender.send(message.payload, destination=queue, metadata=metadata)
+        metadata = wire_metadata_from_entry(message)
+        # Resolve with the full URI (not the split queue) — the override map is keyed by the configured ExternalEntry.uri.
+        mapper = registry.mapper_for(message.destination)
+        await sender.send(message.payload, destination=queue, metadata=metadata, mapper=mapper)
         await store.mark_dispatched(message.id)
         await uow.commit()
 
@@ -246,6 +241,9 @@ class OutboxRelay(PollingAgent):
             causation_id=message.causation_id,
             exc=exc,
             attempt=message.retry_count + 1,
+            message_id=message.message_id,
+            metadata=message.metadata_,
+            group_id=message.group_id,
         )
         try:
             await store.move_to_dead_letter(message.id, entry)

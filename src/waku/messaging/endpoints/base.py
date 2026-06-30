@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from waku.messaging.inbox.backpressure import BufferingLimits
     from waku.messaging.pauser import PauseToken
     from waku.messaging.sending.policy import SendingFailurePolicy
+    from waku.messaging.transport.interfaces import IEnvelopeMapper
 
 __all__ = [
     'DEFAULT_ENDPOINT_URI',
@@ -58,6 +59,7 @@ class ExternalEntry:
     uri: str
     partition_by: Callable[[IMessage], str | None] | None = None
     sending_failure_policies: Sequence[SendingFailurePolicy] = ()
+    mapper: IEnvelopeMapper[Any, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -67,6 +69,7 @@ class InboundEntry:
     max_requeue_attempts: int | MISSING = MISSING  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
     circuit_breaker: CircuitBreakerConfig | MISSING | None = MISSING  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
     backpressure: BufferingLimits | None = None
+    mapper: IEnvelopeMapper[Any, Any] | None = None
 
 
 EndpointEntry: TypeAlias = LocalQueueEntry | ExternalEntry
@@ -79,6 +82,7 @@ def listen(
     max_requeue_attempts: int | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
     circuit_breaker: CircuitBreakerConfig | MISSING | None = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
     backpressure: BufferingLimits | None = None,
+    mapper: IEnvelopeMapper[Any, Any] | None = None,
 ) -> InboundEntry:
     return InboundEntry(
         uri=uri,
@@ -86,6 +90,7 @@ def listen(
         max_requeue_attempts=max_requeue_attempts,
         circuit_breaker=circuit_breaker,
         backpressure=backpressure,
+        mapper=mapper,
     )
 
 
@@ -117,11 +122,13 @@ def external_endpoint(
     *,
     partition_by: Callable[[IMessage], str | None] | None = None,
     sending_failure_policies: Sequence[SendingFailurePolicy] = (),
+    mapper: IEnvelopeMapper[Any, Any] | None = None,
 ) -> ExternalEntry:
     return ExternalEntry(
         uri=uri,
         partition_by=partition_by,
         sending_failure_policies=tuple(sending_failure_policies),
+        mapper=mapper,
     )
 
 

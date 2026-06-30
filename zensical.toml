@@ -42,6 +42,7 @@ nav = [
       { "Routing & Endpoints" = "features/messaging/routing.md" },
       { "Error Handling" = "features/messaging/error-handling.md" },
       { "Outbox & Transport" = "features/messaging/outbox.md" },
+      { "Envelope Mapper" = "features/messaging/envelope-mapper.md" },
       { "Message Context" = "features/messaging/context.md" },
       { "Transactions" = "features/messaging/transactions.md" },
       { "Dedicated Consumer" = "features/messaging/dedicated-consumer.md" },

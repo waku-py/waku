@@ -20,16 +20,17 @@ from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicy, SendingFailurePolicyRegistry
-from waku.messaging.transport.interfaces import ITransport, Subscription, WireMetadata
+from waku.messaging.transport.decomposition import encode_metadata, encode_payload, wire_metadata_from_entry
+from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper, ITransport, Subscription
 
 from tests._wait import wait_until
 from tests.messaging.helpers import (
     RecordingTransport,
     RelayDepsProvider,
     StubSubscription,
+    make_codec,
     make_envelope,
     make_relay_evaluator,
-    make_serializer,
 )
 
 if TYPE_CHECKING:
@@ -48,12 +49,24 @@ class _TestEvent(IEvent):
 
 class _FailingTransport(ITransport):
     @override
-    async def send(self, body: dict[str, Any], *, destination: str, metadata: WireMetadata) -> None:
+    async def send(
+        self,
+        body: dict[str, Any],
+        *,
+        destination: str,
+        metadata: EnvelopeMetadata,
+        mapper: IEnvelopeMapper[Any, Any] | None = None,
+    ) -> None:
         msg = 'transport down'
         raise ConnectionError(msg)
 
     @override
-    def subscribe(self, queue: str, on_message: ConsumeCallback) -> Subscription:
+    def subscribe(
+        self,
+        queue: str,
+        on_message: ConsumeCallback,
+        mapper: IEnvelopeMapper[Any, Any] | None = None,
+    ) -> Subscription:
         return StubSubscription()
 
     @override
@@ -137,12 +150,12 @@ class _TrackingOutboxStore(IOutboxStore):
 
 
 def _make_outbox_message(envelope: MessageEnvelope[Any], *, group_id: str | None = None) -> OutboxMessage:
-    serializer = make_serializer(_TestEvent)
     return OutboxMessage(
         id=uuid4(),
         idempotency_key=str(envelope.message_id),
         message_type=envelope.message_type,
-        payload=serializer.serialize(envelope),
+        payload=encode_payload(envelope, make_codec()),
+        metadata_=encode_metadata(envelope),
         destination='test://dest',
         correlation_id=envelope.correlation_id,
         causation_id=envelope.causation_id,
@@ -236,21 +249,16 @@ class TestOutboxRelay:
     async def test_processes_pending_messages() -> None:
         store, msg = _make_pending_store()
         transport = RecordingTransport()
-        serializer = make_serializer(_TestEvent)
-
-        async with _run_relay(RelayDepsProvider(store, transport, serializer)):
+        async with _run_relay(RelayDepsProvider(store, transport)):
             await wait_until(lambda: msg.id in store.dispatched_ids)
 
         assert msg.id in store.dispatched_ids
         assert len(transport.sent) == 1
-        body, destination, metadata = transport.sent[0]
+        body, destination, metadata, _mapper = transport.sent[0]
         assert destination == 'dest'
         # The transport receives the stored wire dict verbatim — no deserialize/reserialize round-trip.
         assert body is msg.payload
-        assert metadata.message_id == msg.idempotency_key
-        assert metadata.correlation_id == str(msg.correlation_id)
-        assert metadata.causation_id == str(msg.causation_id)
-        assert metadata.message_type == msg.message_type
+        assert metadata == wire_metadata_from_entry(msg)
 
     @staticmethod
     async def test_passes_group_id_to_transport_as_wire_metadata() -> None:
@@ -258,21 +266,17 @@ class TestOutboxRelay:
         # reads it as the message key; nothing parses the wire body for it.
         store, msg = _make_pending_store(group_id='order-1')
         transport = RecordingTransport()
-        serializer = make_serializer(_TestEvent)
-
-        async with _run_relay(RelayDepsProvider(store, transport, serializer)):
+        async with _run_relay(RelayDepsProvider(store, transport)):
             await wait_until(lambda: msg.id in store.dispatched_ids)
 
         assert transport.sent
-        _body, _destination, metadata = transport.sent[0]
+        _body, _destination, metadata, _mapper = transport.sent[0]
         assert metadata.group_id == 'order-1'
 
     @staticmethod
     async def test_marks_failed_on_transport_error() -> None:
         store, msg = _make_pending_store()
-        serializer = make_serializer(_TestEvent)
-
-        async with _run_relay(RelayDepsProvider(store, _FailingTransport(), serializer)):
+        async with _run_relay(RelayDepsProvider(store, _FailingTransport())):
             await wait_until(lambda: msg.id in store.failed_ids)
 
         assert msg.id in store.failed_ids
@@ -284,9 +288,7 @@ class TestOutboxRelay:
         store, msg = _make_pending_store()
         store.recover_stuck_error = ConnectionError('recovery backend down')
         transport = RecordingTransport()
-        serializer = make_serializer(_TestEvent)
-
-        async with _run_relay(RelayDepsProvider(store, transport, serializer)):
+        async with _run_relay(RelayDepsProvider(store, transport)):
             await wait_until(lambda: store.recovered >= 1 and msg.id in store.dispatched_ids)
 
         assert store.recovered >= 1
@@ -296,11 +298,10 @@ class TestOutboxRelay:
     async def test_no_messages_is_noop() -> None:
         store = _TrackingOutboxStore()
         transport = RecordingTransport()
-        serializer = make_serializer(_TestEvent)
 
         # Asserting an absence: wait for one full poll cycle (the relay actually ran), then confirm
         # nothing was sent. No positive effect exists to await, so the poll counter is the gate.
-        async with _run_relay(RelayDepsProvider(store, transport, serializer)):
+        async with _run_relay(RelayDepsProvider(store, transport)):
             await wait_until(lambda: store.poll_calls >= 1)
 
         assert len(transport.sent) == 0
@@ -310,14 +311,13 @@ class TestOutboxRelay:
     async def test_stop_cancels_sleep_immediately() -> None:
         store = _TrackingOutboxStore()
         transport = RecordingTransport()
-        serializer = make_serializer(_TestEvent)
 
         slow_config = OutboxRelayConfig(
             polling=PollingConfig(poll_interval_min_seconds=10.0),
             recovery_interval=timedelta(hours=1),
         )
 
-        async with make_async_container(RelayDepsProvider(store, transport, serializer)) as container:
+        async with make_async_container(RelayDepsProvider(store, transport)) as container:
             relay = OutboxRelay(
                 container=container,
                 config=slow_config,
@@ -330,10 +330,9 @@ class TestOutboxRelay:
     @staticmethod
     async def test_exhausted_message_moved_to_dead_letter() -> None:
         store, msg = _make_pending_store()
-        serializer = make_serializer(_TestEvent)
 
         async with _run_relay(
-            RelayDepsProvider(store, _FailingTransport(), serializer),
+            RelayDepsProvider(store, _FailingTransport()),
             _EXHAUST_ON_FIRST_FAILURE_CONFIG,
         ):
             await wait_until(lambda: msg.id in store.dead_lettered_ids)
@@ -347,13 +346,27 @@ class TestOutboxRelay:
         assert entry.retry_count == 1
 
     @staticmethod
+    async def test_exhausted_relay_dead_letter_entry_carries_metadata_and_group_id() -> None:
+        store, msg = _make_pending_store(group_id='order-77')
+
+        async with _run_relay(
+            RelayDepsProvider(store, _FailingTransport()),
+            _EXHAUST_ON_FIRST_FAILURE_CONFIG,
+        ):
+            await wait_until(lambda: msg.id in store.dead_lettered_ids)
+
+        assert len(store.dead_letter_entries) == 1
+        entry = store.dead_letter_entries[0]
+        assert entry.metadata_ == msg.metadata_
+        assert entry.group_id == msg.group_id
+
+    @staticmethod
     async def test_exhausted_message_falls_back_to_mark_failed_when_move_to_dead_letter_raises() -> None:
         store, msg = _make_pending_store()
         store.move_to_dead_letter_error = ConnectionError('DLQ store unavailable')
-        serializer = make_serializer(_TestEvent)
 
         async with _run_relay(
-            RelayDepsProvider(store, _FailingTransport(), serializer),
+            RelayDepsProvider(store, _FailingTransport()),
             _EXHAUST_ON_FIRST_FAILURE_CONFIG,
         ):
             await wait_until(lambda: msg.id in store.failed_ids)
@@ -370,11 +383,10 @@ class TestOutboxRelay:
         store, _msg = _make_pending_store()
         store.move_to_dead_letter_error = ConnectionError('DLQ store unavailable')
         store.mark_failed_error = ConnectionError('mark_failed broken too')
-        serializer = make_serializer(_TestEvent)
 
         with caplog.at_level(logging.ERROR, logger='waku.messaging.outbox.relay'):
             async with _run_relay(
-                RelayDepsProvider(store, _FailingTransport(), serializer),
+                RelayDepsProvider(store, _FailingTransport()),
                 _EXHAUST_ON_FIRST_FAILURE_CONFIG,
             ):
                 await wait_until(lambda: 'Failed to mark message' in caplog.text)
@@ -384,7 +396,6 @@ class TestOutboxRelay:
     @staticmethod
     async def test_stop_cancels_when_relay_does_not_terminate(caplog: pytest.LogCaptureFixture) -> None:
         transport = RecordingTransport()
-        serializer = make_serializer(_TestEvent)
 
         class _BlockingOutboxStore(_TrackingOutboxStore):
             @override
@@ -401,7 +412,7 @@ class TestOutboxRelay:
         )
 
         with caplog.at_level(logging.WARNING, logger='waku.messaging.outbox.relay'):
-            async with make_async_container(RelayDepsProvider(blocking_store, transport, serializer)) as container:
+            async with make_async_container(RelayDepsProvider(blocking_store, transport)) as container:
                 relay = OutboxRelay(
                     container=container,
                     config=config,
@@ -417,9 +428,8 @@ class TestOutboxRelay:
     async def test_stop_without_start_is_noop() -> None:
         store = _TrackingOutboxStore()
         transport = RecordingTransport()
-        serializer = make_serializer(_TestEvent)
 
-        async with make_async_container(RelayDepsProvider(store, transport, serializer)) as container:
+        async with make_async_container(RelayDepsProvider(store, transport)) as container:
             relay = OutboxRelay(
                 container=container,
                 config=_FAST_CONFIG,
@@ -431,7 +441,6 @@ class TestOutboxRelay:
     async def test_recovers_stuck_messages_when_interval_elapsed(caplog: pytest.LogCaptureFixture) -> None:
         store = _TrackingOutboxStore()
         transport = RecordingTransport()
-        serializer = make_serializer(_TestEvent)
 
         recovered_count = 5
 
@@ -446,7 +455,7 @@ class TestOutboxRelay:
         )
 
         with caplog.at_level(logging.INFO, logger='waku.messaging.outbox.relay'):
-            async with _run_relay(RelayDepsProvider(store, transport, serializer), config):
+            async with _run_relay(RelayDepsProvider(store, transport), config):
                 await wait_until(lambda: 'Recovered 5 stuck messages' in caplog.text)
 
         assert 'Recovered 5 stuck messages' in caplog.text
@@ -455,7 +464,6 @@ class TestOutboxRelay:
     async def test_purges_dispatched_messages_when_retention_elapsed(caplog: pytest.LogCaptureFixture) -> None:
         store = _TrackingOutboxStore(cleanup_count=3)
         transport = RecordingTransport()
-        serializer = make_serializer(_TestEvent)
 
         config = OutboxRelayConfig(
             polling=PollingConfig(poll_interval_min_seconds=0.01),
@@ -464,7 +472,7 @@ class TestOutboxRelay:
         )
 
         with caplog.at_level(logging.INFO, logger='waku.messaging.outbox.relay'):
-            async with _run_relay(RelayDepsProvider(store, transport, serializer), config):
+            async with _run_relay(RelayDepsProvider(store, transport), config):
                 await wait_until(lambda: 'Purged 3 dispatched outbox messages older than retention' in caplog.text)
 
         assert 'Purged 3 dispatched outbox messages older than retention' in caplog.text
@@ -473,11 +481,10 @@ class TestOutboxRelay:
     async def test_does_not_purge_dispatched_messages_when_retention_unset() -> None:
         store = _TrackingOutboxStore(cleanup_count=3)
         transport = RecordingTransport()
-        serializer = make_serializer(_TestEvent)
 
         config = OutboxRelayConfig(polling=PollingConfig(poll_interval_min_seconds=0.01))
 
-        async with _run_relay(RelayDepsProvider(store, transport, serializer), config):
+        async with _run_relay(RelayDepsProvider(store, transport), config):
             await wait_until(lambda: store.poll_calls >= 1)
 
         assert store.cleanup_calls == 0
@@ -485,14 +492,13 @@ class TestOutboxRelay:
     @staticmethod
     async def test_discard_policy_marks_discarded() -> None:
         store, msg = _make_pending_store()
-        serializer = make_serializer(_TestEvent)
         evaluator = make_relay_evaluator(
             _FAST_CONFIG,
             destination_policies={'test://dest': (SendingFailurePolicy.on_any_exception().discard(),)},
         )
 
         async with _run_relay(
-            RelayDepsProvider(store, _FailingTransport(), serializer),
+            RelayDepsProvider(store, _FailingTransport()),
             evaluator=evaluator,
         ):
             await wait_until(lambda: msg.id in store.discarded_ids)
@@ -504,14 +510,13 @@ class TestOutboxRelay:
     @staticmethod
     async def test_dead_letter_outcome_dead_letters_immediately() -> None:
         store, msg = _make_pending_store()
-        serializer = make_serializer(_TestEvent)
         evaluator = make_relay_evaluator(
             _FAST_CONFIG,
             destination_policies={'test://dest': (SendingFailurePolicy.on_any_exception().move_to_dead_letter(),)},
         )
 
         async with _run_relay(
-            RelayDepsProvider(store, _FailingTransport(), serializer),
+            RelayDepsProvider(store, _FailingTransport()),
             evaluator=evaluator,
         ):
             await wait_until(lambda: msg.id in store.dead_lettered_ids)
@@ -527,7 +532,6 @@ class TestOutboxRelay:
         monkeypatch.setattr('waku.messaging._escalation.calculate_backoff_with_jitter', lambda *_a, **_kw: 60.0)
         before = datetime.now(tz=UTC)
         store, msg = _make_pending_store()
-        serializer = make_serializer(_TestEvent)
         evaluator = make_relay_evaluator(
             _FAST_CONFIG,
             destination_policies={
@@ -541,7 +545,7 @@ class TestOutboxRelay:
         )
 
         async with _run_relay(
-            RelayDepsProvider(store, _FailingTransport(), serializer),
+            RelayDepsProvider(store, _FailingTransport()),
             evaluator=evaluator,
         ):
             await wait_until(lambda: msg.id in store.failed_ids)
@@ -558,7 +562,6 @@ class TestOutboxRelay:
         # (next_retry_at≈now), NOT a future backoff delay.
         before = datetime.now(tz=UTC)
         store, msg = _make_pending_store()
-        serializer = make_serializer(_TestEvent)
         evaluator = make_relay_evaluator(
             _FAST_CONFIG,
             destination_policies={
@@ -569,7 +572,7 @@ class TestOutboxRelay:
         )
 
         async with _run_relay(
-            RelayDepsProvider(store, _FailingTransport(), serializer),
+            RelayDepsProvider(store, _FailingTransport()),
             evaluator=evaluator,
         ):
             await wait_until(lambda: msg.id in store.failed_ids)
@@ -585,13 +588,12 @@ class TestOutboxRelay:
         # An empty evaluator (no synthesized default — only happens under misconfiguration) must
         # dead-letter rather than silently drop or infinite-retry a durable message.
         store, msg = _make_pending_store()
-        serializer = make_serializer(_TestEvent)
         empty_evaluator = SendingFailureEvaluator(
             registry=SendingFailurePolicyRegistry(destination_policies={}, default_policies=()),
         )
 
         async with _run_relay(
-            RelayDepsProvider(store, _FailingTransport(), serializer),
+            RelayDepsProvider(store, _FailingTransport()),
             evaluator=empty_evaluator,
         ):
             await wait_until(lambda: msg.id in store.dead_lettered_ids)
@@ -599,6 +601,54 @@ class TestOutboxRelay:
         assert msg.id in store.dead_lettered_ids
         assert msg.id not in store.failed_ids
         assert msg.id not in store.discarded_ids
+
+
+class TestDispatchMessageMetadata:
+    @staticmethod
+    async def test_relay_sends_full_envelope_metadata_from_decomposed_row() -> None:
+        # Round-trip contract: encode_metadata(envelope) stored → wire_metadata_from_entry(row) reconstructed.
+        # The relay must forward the full 5 non-column fields (message_version, timestamp, headers,
+        # scheduled_time, expires_at) alongside the typed columns — this was the ASYM-1 gap.
+        envelope = make_envelope(
+            _TestEvent(value='round-trip'),
+            headers={'x-tenant': 'acme'},
+            scheduled_time=datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC),
+            expires_at=datetime(2025, 1, 2, 0, 0, 0, tzinfo=UTC),
+        )
+        msg = OutboxMessage(
+            id=uuid4(),
+            idempotency_key=str(envelope.message_id),
+            message_type=envelope.message_type,
+            payload=encode_payload(envelope, make_codec()),
+            metadata_=encode_metadata(envelope),
+            destination='test://dest',
+            correlation_id=envelope.correlation_id,
+            causation_id=envelope.causation_id,
+        )
+        store = _TrackingOutboxStore()
+        store.pending.append(msg)
+        transport = RecordingTransport()
+        async with _run_relay(RelayDepsProvider(store, transport)):
+            await wait_until(lambda: msg.id in store.dispatched_ids)
+
+        assert len(transport.sent) == 1
+        body, destination, metadata, _mapper = transport.sent[0]
+        assert body is msg.payload
+        assert destination == 'dest'
+        assert metadata.message_version == envelope.message_version
+        assert metadata.timestamp is not None
+        assert metadata.timestamp.isoformat() == envelope.timestamp.isoformat()
+        assert metadata.headers == {'x-tenant': 'acme'}
+        assert metadata.scheduled_time is not None
+        assert metadata.scheduled_time.isoformat() == envelope.scheduled_time.isoformat()  # type: ignore[union-attr]
+        assert metadata.expires_at is not None
+        assert metadata.expires_at.isoformat() == envelope.expires_at.isoformat()  # type: ignore[union-attr]
+        # Typed columns — these live on the row, NOT in metadata_, and must reach the transport.
+        assert metadata.correlation_id == str(envelope.correlation_id)
+        assert metadata.causation_id == str(envelope.causation_id)
+        assert metadata.message_id == str(envelope.message_id)
+        assert metadata.message_type == envelope.message_type
+        assert metadata.group_id == envelope.group_id
 
 
 def test_build_relay_default_policy_is_catch_all_backoff_then_dead_letter() -> None:
@@ -610,3 +660,50 @@ def test_build_relay_default_policy_is_catch_all_backoff_then_dead_letter() -> N
     assert policy.stages[0].max_attempts == 5
     assert policy.stages[0].base_delay == 2.0
     assert policy.stages[0].max_delay == 30.0
+
+
+# Observable identity mapper — map_outgoing returns payload unchanged; used to assert the override reached send.
+class _MarkerMapper(IEnvelopeMapper[Any, Any]):
+    @override
+    def map_outgoing(self, payload: dict[str, Any], metadata: EnvelopeMetadata) -> Any:
+        return payload  # pragma: no cover -- only referenced; FastStreamKafkaTransport calls it, RecordingTransport does not
+
+    @override
+    async def map_incoming(self, msg: Any) -> tuple[dict[str, Any], EnvelopeMetadata]:
+        raise NotImplementedError  # pragma: no cover
+
+
+class TestRelayMapperOverrideWiring:
+    @staticmethod
+    async def test_per_route_mapper_override_reaches_sender_send() -> None:
+        # The critical end-to-end wiring proof:
+        # ExternalEntry.mapper → _build_transport_registry → TransportRegistry.mapper_for
+        # → OutboxRelay._dispatch_message → RecordingTransport.send(mapper=override).
+        # Observable via the 4th element of the recording tuple — not mock internals.
+        override_mapper = _MarkerMapper()
+        store, msg = _make_pending_store()
+        # Destination is 'test://dest' (set by _make_outbox_message); configure override for that full URI.
+        transport = RecordingTransport()
+        async with _run_relay(
+            RelayDepsProvider(store, transport, external_mappers={'test://dest': override_mapper}),
+        ):
+            await wait_until(lambda: msg.id in store.dispatched_ids)
+
+        assert len(transport.sent) == 1
+        _body, _destination, _metadata, mapper = transport.sent[0]
+        # The override mapper instance must be exactly the one configured — proves the override flowed through
+        # registry.mapper_for → relay → sender.send, not just a per-transport default.
+        assert mapper is override_mapper
+
+    @staticmethod
+    async def test_no_override_configured_sends_none_as_mapper() -> None:
+        # A route with NO ExternalEntry.mapper configured → registry.mapper_for returns None
+        # → sender.send(mapper=None) so the transport falls back to its default.
+        store, msg = _make_pending_store()
+        transport = RecordingTransport()
+        async with _run_relay(RelayDepsProvider(store, transport)):
+            await wait_until(lambda: msg.id in store.dispatched_ids)
+
+        assert len(transport.sent) == 1
+        _body, _destination, _metadata, mapper = transport.sent[0]
+        assert mapper is None

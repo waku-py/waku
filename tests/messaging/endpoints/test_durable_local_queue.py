@@ -19,7 +19,8 @@ from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.partition import ISequenceAllocator
-from waku.messaging.transport.serialization import IEnvelopeSerializer
+from waku.messaging.transport.decomposition import encode_payload
+from waku.serialization.codec import PayloadCodec
 from waku.uow import IUnitOfWork
 
 from tests._wait import ControllableSleep, wait_until
@@ -27,8 +28,8 @@ from tests.messaging.helpers import (
     FakeUoW,
     RecordingAllocator,
     RecordingDeadLetterStore,
+    make_codec,
     make_envelope,
-    make_serializer,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
@@ -153,7 +154,7 @@ class _EndpointDepsProvider(Provider):
         super().__init__()
         self._inbox = inbox
         self._dlq = dlq
-        self._serializer: IEnvelopeSerializer = make_serializer(_DomainEvent)
+        self._codec = make_codec()
         self._uow: IUnitOfWork = FakeUoW()
         self._allocator = allocator or RecordingAllocator()
 
@@ -165,9 +166,9 @@ class _EndpointDepsProvider(Provider):
     def dlq(self) -> IDeadLetterStore:
         return self._dlq
 
-    @provide
-    def serializer(self) -> IEnvelopeSerializer:
-        return self._serializer
+    @provide(scope=Scope.APP)
+    def codec(self) -> PayloadCodec:
+        return self._codec
 
     @provide
     def uow(self) -> IUnitOfWork:
@@ -347,6 +348,64 @@ class TestDurableLocalQueueEndpoint:
             await endpoint.stop()
 
         assert executor.calls == 1
+
+
+class TestDurableLocalQueueInboxDecomposition:
+    @staticmethod
+    async def test_persist_writes_decomposed_inbox_row() -> None:
+        # persist() must store encoded payload + metadata_ + typed correlation/causation columns.
+        inbox = FakeInboxStore()
+        codec = make_codec()
+        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+            endpoint = _endpoint(container, executor, frozenset([_NoopHandler]))
+            await endpoint.start()
+            envelope = make_envelope(_DomainEvent(kind='OrderPlaced'))
+            token = await endpoint.pause()
+            async with container() as scope:
+                await endpoint.dispatch(envelope, scope)
+            await endpoint.resume(token)
+            await endpoint.stop()
+
+        entry = next(iter(inbox.entries.values()))
+        assert entry.correlation_id == envelope.correlation_id
+        assert entry.causation_id == envelope.causation_id
+        assert entry.metadata_ is not None
+        assert 'timestamp' in entry.metadata_
+        assert 'correlation_id' not in entry.payload
+        assert 'causation_id' not in entry.payload
+        assert entry.payload == encode_payload(envelope, codec)
+
+    @staticmethod
+    async def test_store_scheduled_writes_decomposed_inbox_row() -> None:
+        # _store_scheduled() must store encoded payload + metadata_ + typed correlation/causation columns.
+        NOW = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
+        inbox = FakeInboxStore()
+        codec = make_codec()
+        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+            endpoint = _endpoint(
+                container,
+                executor,
+                frozenset([_NoopHandler]),
+                now=lambda: NOW,
+            )
+            await endpoint.start()
+            scheduled = NOW + timedelta(hours=1)
+            envelope = make_envelope(_DomainEvent(kind='later'), scheduled_time=scheduled)
+            async with container() as scope:
+                await endpoint.dispatch(envelope, scope)
+            await endpoint.stop()
+
+        entry = next(iter(inbox.entries.values()))
+        assert entry.status is InboxStatus.SCHEDULED
+        assert entry.correlation_id == envelope.correlation_id
+        assert entry.causation_id == envelope.causation_id
+        assert entry.metadata_ is not None
+        assert 'timestamp' in entry.metadata_
+        assert 'correlation_id' not in entry.payload
+        assert 'causation_id' not in entry.payload
+        assert entry.payload == encode_payload(envelope, codec)
 
 
 class TestDurableLocalQueuePartitioning:

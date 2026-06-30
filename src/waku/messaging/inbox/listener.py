@@ -3,13 +3,16 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from waku.messaging.transport.decomposition import rebuild_envelope
 from waku.messaging.transport.inbound import ConsumeDisposition
 
 if TYPE_CHECKING:
     from waku.messaging.endpoints.durable_inbox_receiver import DurableInboxReceiver
+    from waku.messaging.identity import MessageTypeRegistry
     from waku.messaging.inbox.backpressure import ListenerBackpressure
     from waku.messaging.registry import MessageRegistry
-    from waku.messaging.transport.serialization import IEnvelopeSerializer
+    from waku.messaging.transport.interfaces import EnvelopeMetadata
+    from waku.serialization.codec import PayloadCodec
 
 __all__ = [
     'InboundListener',
@@ -19,16 +22,18 @@ logger = logging.getLogger(__name__)
 
 
 class InboundListener:
-    __slots__ = ('_backpressure', '_receiver', '_registry', '_serializer')
+    __slots__ = ('_backpressure', '_codec', '_receiver', '_registry', '_type_registry')
 
     def __init__(
         self,
         *,
-        serializer: IEnvelopeSerializer,
+        codec: PayloadCodec,
+        type_registry: MessageTypeRegistry,
         registry: MessageRegistry,
         receiver: DurableInboxReceiver,
     ) -> None:
-        self._serializer = serializer
+        self._codec = codec
+        self._type_registry = type_registry
         self._registry = registry
         self._receiver = receiver
         self._backpressure: ListenerBackpressure | None = None
@@ -37,11 +42,12 @@ class InboundListener:
         # Set by the wiring before the transport starts; consume() then reports the post-enqueue depth to it.
         self._backpressure = backpressure
 
-    async def consume(self, body: dict[str, Any]) -> ConsumeDisposition:
+    async def consume(self, payload: dict[str, Any], metadata: EnvelopeMetadata) -> ConsumeDisposition:
         try:
-            envelope = self._serializer.deserialize(body)
-        except Exception:  # noqa: BLE001 -- poison must be quarantined, not requeued
-            logger.warning('Rejecting undeserializable inbound message')
+            envelope = rebuild_envelope(payload, metadata, self._codec, self._type_registry)
+        except Exception:  # noqa: BLE001 -- poison (unknown type, bad UUID, missing timestamp) must be quarantined
+            # Waku has no framework ping; an unresolvable message_type is foreign/poison — reject, do not requeue.
+            logger.warning('Rejecting unrebuildable inbound message (unknown type or malformed metadata)')
             return ConsumeDisposition.REJECT
         handler_types = frozenset(self._registry.handler_map.get_handler_types(type(envelope.payload)))
         if not handler_types:

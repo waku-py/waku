@@ -49,6 +49,7 @@ outbox_messages_table = Table(
     ),
     Column('retry_count', Integer, nullable=False, server_default='0'),
     Column('last_error', Text, nullable=True),
+    Column('metadata_', JSONB, nullable=True),
     Column('created_at', TIMESTAMP(timezone=True), server_default=func.now()),
     Column('processing_started_at', TIMESTAMP(timezone=True), nullable=True),
     Column('dispatched_at', TIMESTAMP(timezone=True), nullable=True),

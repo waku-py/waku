@@ -338,3 +338,41 @@ class TestRecoverStale:
         # 1h threshold -> cutoff = now - 1h -> a just-stored owned row is NOT stale -> not released
         recovered = await store.recover_stale(timedelta(hours=1))
         assert recovered == 0
+
+
+class TestMetadataColumns:
+    @staticmethod
+    async def test_correlation_causation_metadata_round_trip(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyInboxStore(pg_session)
+        corr = uuid4()
+        caus = uuid4()
+        meta_payload = {
+            'message_version': 3,
+            'timestamp': '2026-06-29T08:00:00+00:00',
+            'headers': {'x-tenant': 'beta'},
+            'scheduled_time': None,
+            'expires_at': None,
+        }
+        entry = _make_entry(correlation_id=corr, causation_id=caus, metadata_=meta_payload)
+        await store.store_incoming(entry)
+        await pg_session.flush()
+
+        claimed = await store.fetch_pending(batch_size=10, owner_id='w-1')
+
+        assert len(claimed) == 1
+        assert claimed[0].correlation_id == corr
+        assert claimed[0].causation_id == caus
+        assert claimed[0].metadata_ == meta_payload
+
+    @staticmethod
+    async def test_correlation_causation_default_to_none(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyInboxStore(pg_session)
+        entry = _make_entry()
+        await store.store_incoming(entry)
+        await pg_session.flush()
+
+        claimed = await store.fetch_pending(batch_size=10, owner_id='w-1')
+
+        assert claimed[0].correlation_id is None
+        assert claimed[0].causation_id is None
+        assert claimed[0].metadata_ is None

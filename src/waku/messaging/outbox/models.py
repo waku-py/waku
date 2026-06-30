@@ -3,11 +3,11 @@ from __future__ import annotations
 import enum
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 if TYPE_CHECKING:
     from datetime import datetime
     from typing import Any
-    from uuid import UUID
 
 __all__ = [
     'OutboxMessage',
@@ -39,7 +39,13 @@ class OutboxMessage:
     status: OutboxStatus = OutboxStatus.PENDING
     retry_count: int = 0
     last_error: str | None = None
+    metadata_: dict[str, Any] | None = None
     created_at: datetime | None = None
     processing_started_at: datetime | None = None
     dispatched_at: datetime | None = None
     next_retry_at: datetime | None = None
+
+    @property
+    def message_id(self) -> UUID:
+        """Original envelope message_id — the idempotency_key is ``str(envelope.message_id)``."""
+        return UUID(self.idempotency_key)

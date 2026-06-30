@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from waku.exceptions import ImproperlyConfiguredError
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Iterable, Mapping
 
-    from waku.messaging.transport.interfaces import IListener, ISender, ITransport
+    from waku.messaging.transport.interfaces import IEnvelopeMapper, IListener, ISender, ITransport
 
 __all__ = [
     'TransportRegistry',
@@ -58,20 +58,30 @@ class TransportRegistry:
     default for bare URIs.
     """
 
-    __slots__ = ('_default_scheme', '_transports')
+    __slots__ = ('_default_scheme', '_external_mappers', '_transports')
 
     def __init__(
         self,
         transports: Mapping[str, ITransport],
         *,
         default_scheme: str | None = None,
+        external_mappers: Mapping[str, IEnvelopeMapper[Any, Any]] | None = None,
     ) -> None:
         self._transports: dict[str, ITransport] = dict(transports)
         self._default_scheme: str | None = resolve_default_scheme(self._transports, explicit=default_scheme)
+        self._external_mappers: dict[str, IEnvelopeMapper[Any, Any]] = dict(external_mappers or {})
 
     def sender_for(self, uri: str) -> ISender:
         """Raises ``ImproperlyConfiguredError`` for unknown or unresolvable schemes."""
         return self._resolve(uri)
+
+    def mapper_for(self, uri: str) -> IEnvelopeMapper[Any, Any] | None:
+        """Return the per-route mapper override for *uri*, or ``None`` if none is configured.
+
+        Direct dict lookup — ``message.destination`` is byte-identical to the configured ``ExternalEntry.uri``
+        (the outbox writes ``destination=endpoint.uri`` verbatim; do NOT normalise or scheme-split here).
+        """
+        return self._external_mappers.get(uri)
 
     def listener_for(self, uri: str) -> IListener:
         """Raises ``ImproperlyConfiguredError`` for unknown or unresolvable schemes."""

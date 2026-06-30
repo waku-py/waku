@@ -63,10 +63,13 @@ class DeadLetterEntry:
     retry_count: int
     status: DeadLetterStatus = DeadLetterStatus.PENDING
     replay_count: int = 0
+    message_id: UUID | None = None
+    group_id: str | None = None
+    metadata_: dict[str, Any] | None = None
     created_at: datetime | None = None
 
     @classmethod
-    def from_failure(
+    def from_failure(  # noqa: PLR0913
         cls,
         *,
         message_type: str,
@@ -76,6 +79,9 @@ class DeadLetterEntry:
         causation_id: UUID,
         exc: Exception,
         attempt: int,
+        message_id: UUID | None = None,
+        metadata: dict[str, Any] | None = None,
+        group_id: str | None = None,
     ) -> DeadLetterEntry:
         return cls(
             id=uuid4(),
@@ -87,6 +93,9 @@ class DeadLetterEntry:
             error_type=_format_fqn(type(exc)),
             error_message=str(exc),
             retry_count=attempt,
+            message_id=message_id,
+            metadata_=metadata,
+            group_id=group_id,
         )
 
 
@@ -95,11 +104,11 @@ class IDeadLetterStore(abc.ABC):
 
     Replay contract (this interface defines it; the executor/triggers/poller are out of scope):
     a replayer reconstructs a ``MessageEnvelope`` from a stored entry via
-    ``IEnvelopeSerializer.deserialize(entry.payload)`` (``payload`` already holds the full serialized
-    envelope, headers included, on both write paths), re-injects it to ``entry.destination`` for
-    reprocessing, then records the outcome (``mark_replayed`` / ``mark_replay_failed``). Replay
-    re-enters the normal pipeline, so it is **at-least-once**; idempotency leans on the inbox
-    ``(message_id, destination)`` dedup. ``delete`` / ``purge`` remain the terminal-cleanup seam.
+    ``rebuild_envelope(entry.payload, wire_metadata_from_entry(entry), codec, type_registry)``,
+    re-injects it to ``entry.destination`` for reprocessing, then records the outcome
+    (``mark_replayed`` / ``mark_replay_failed``). Replay re-enters the normal pipeline, so it is
+    **at-least-once**; idempotency leans on the inbox ``(message_id, destination)`` dedup.
+    ``delete`` / ``purge`` remain the terminal-cleanup seam.
     """
 
     @abc.abstractmethod

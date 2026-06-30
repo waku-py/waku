@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 import anyio
 from typing_extensions import override
 
+from waku._internal.retort import default_retort  # noqa: PLC2701
 from waku.di import object_
 from waku.messaging import (
     InboundConfig,
@@ -30,19 +31,22 @@ from waku.messaging.endpoints.base import listen
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.backpressure import BufferingLimits
 from waku.messaging.inbox.models import InboxStatus
+from waku.messaging.transport.decomposition import encode_payload, envelope_metadata_of
 from waku.messaging.transport.inbound import ConsumeDisposition
-from waku.messaging.transport.interfaces import ITransport, Subscription
+from waku.messaging.transport.interfaces import IEnvelopeMapper, ITransport, Subscription
+from waku.serialization.codec import PayloadCodec
+from waku.serialization.upcasting import UpcasterChain
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, make_envelope, make_serializer
+from tests.messaging.helpers import FakeUoW, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
     from waku.messaging.endpoints.base import InboundEntry
     from waku.messaging.transport.inbound import ConsumeCallback
-    from waku.messaging.transport.interfaces import WireMetadata
+    from waku.messaging.transport.interfaces import EnvelopeMetadata
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,10 +75,22 @@ class _InProcessTransport(ITransport):
         self.subscription = _RecordingSubscription()
 
     @override
-    async def send(self, body: dict[str, Any], *, destination: str, metadata: WireMetadata) -> None: ...
+    async def send(
+        self,
+        body: dict[str, Any],
+        *,
+        destination: str,
+        metadata: EnvelopeMetadata,
+        mapper: IEnvelopeMapper[Any, Any] | None = None,
+    ) -> None: ...
 
     @override
-    def subscribe(self, queue: str, on_message: ConsumeCallback) -> Subscription:
+    def subscribe(
+        self,
+        queue: str,
+        on_message: ConsumeCallback,
+        mapper: IEnvelopeMapper[Any, Any] | None = None,
+    ) -> Subscription:
         self._on_message = on_message
         return self.subscription
 
@@ -84,11 +100,11 @@ class _InProcessTransport(ITransport):
     @override
     async def stop(self) -> None: ...
 
-    async def deliver(self, body: dict[str, Any]) -> ConsumeDisposition:
+    async def deliver(self, payload: dict[str, Any], metadata: EnvelopeMetadata) -> ConsumeDisposition:
         if self._on_message is None:
             msg = 'transport has no subscriber'
             raise RuntimeError(msg)
-        return await self._on_message(body)
+        return await self._on_message(payload, metadata)
 
 
 def _config(transport: _InProcessTransport, *, inbox: FakeInboxStore, listener: InboundEntry) -> MessagingConfig:
@@ -111,7 +127,7 @@ async def test_watermark_pauses_then_resumes_listener_end_to_end() -> None:
             await release.wait()
 
     inbox = FakeInboxStore()
-    serializer = make_serializer(_OrderPlaced)
+    codec = PayloadCodec(default_retort, UpcasterChain({}))
     transport = _InProcessTransport()
     config = _config(
         transport,
@@ -125,7 +141,8 @@ async def test_watermark_pauses_then_resumes_listener_end_to_end() -> None:
         providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
     ):
         for i in range(3):
-            await transport.deliver(serializer.serialize(make_envelope(_OrderPlaced(order_id=f'o-{i}'))))
+            env = make_envelope(_OrderPlaced(order_id=f'o-{i}'))
+            await transport.deliver(encode_payload(env, codec), envelope_metadata_of(env))
         # The durable inbox worker is max_parallel=1: one item parks in the blocking handler while the other two back
         # up in the buffer past high=2 → the listener is stopped.
         await wait_until(lambda: 'pause' in transport.subscription.events)
@@ -150,7 +167,7 @@ async def test_circuit_breaker_pauses_then_resumes_listener_after_pause_time() -
             raise RuntimeError(msg)
 
     inbox = FakeInboxStore()
-    serializer = make_serializer(_OrderPlaced)
+    codec = PayloadCodec(default_retort, UpcasterChain({}))
     transport = _InProcessTransport()
     config = _config(
         transport,
@@ -166,7 +183,8 @@ async def test_circuit_breaker_pauses_then_resumes_listener_after_pause_time() -
         extensions=[MessagingExtension().bind(_FailingHandler)],
         providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
     ):
-        await transport.deliver(serializer.serialize(make_envelope(_OrderPlaced(order_id='o-1'))))
+        env = make_envelope(_OrderPlaced(order_id='o-1'))
+        await transport.deliver(encode_payload(env, codec), envelope_metadata_of(env))
         # The single failure trips the breaker → it stops the listener.
         await wait_until(lambda: 'pause' in transport.subscription.events)
         # After pause_time elapses the breaker resumes the same gate.

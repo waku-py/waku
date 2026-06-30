@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
-from unittest.mock import AsyncMock
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
 
 from waku.eventsourcing._retry import execute_with_optimistic_retry  # noqa: PLC2701
 from waku.eventsourcing.contracts.stream import StreamId
@@ -12,10 +15,10 @@ from waku.eventsourcing.exceptions import ConcurrencyConflictError
 from tests.eventsourcing.helpers import RecordingContext
 
 
-async def test_attempt_context_entered_and_exited_on_success() -> None:
+async def test_attempt_context_entered_and_exited_on_success(mocker: MockerFixture) -> None:
     ctx = RecordingContext()
     result = await execute_with_optimistic_retry(
-        AsyncMock(return_value=42),
+        mocker.AsyncMock(return_value=42),
         max_attempts=3,
         request_name='Test',
         aggregate_id='a-1',
@@ -84,9 +87,9 @@ async def test_attempt_context_rolled_back_on_non_concurrency_error() -> None:
     assert ctx.exit_exceptions == [RuntimeError]
 
 
-async def test_nullcontext_as_attempt_context() -> None:
+async def test_nullcontext_as_attempt_context(mocker: MockerFixture) -> None:
     result = await execute_with_optimistic_retry(
-        AsyncMock(return_value=99),
+        mocker.AsyncMock(return_value=99),
         max_attempts=1,
         request_name='Test',
         aggregate_id='a-1',

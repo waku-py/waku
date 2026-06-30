@@ -14,7 +14,7 @@ from waku.messaging.inbox.backpressure import BufferingLimits
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.modules import MessagingModule
 from waku.messaging.transport.inbound import ConsumeCallback
-from waku.messaging.transport.interfaces import ITransport, Subscription, WireMetadata
+from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper, ITransport, Subscription
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
@@ -24,10 +24,22 @@ from tests.messaging.inbox.fake_store import FakeInboxStore
 
 class _StubTransport(ITransport):
     @override
-    async def send(self, body: dict[str, Any], *, destination: str, metadata: WireMetadata) -> None: ...
+    async def send(
+        self,
+        body: dict[str, Any],
+        *,
+        destination: str,
+        metadata: EnvelopeMetadata,
+        mapper: IEnvelopeMapper[Any, Any] | None = None,
+    ) -> None: ...
 
     @override
-    def subscribe(self, queue: str, on_message: ConsumeCallback) -> Subscription:
+    def subscribe(
+        self,
+        queue: str,
+        on_message: ConsumeCallback,
+        mapper: IEnvelopeMapper[Any, Any] | None = None,
+    ) -> Subscription:
         return StubSubscription()
 
     @override

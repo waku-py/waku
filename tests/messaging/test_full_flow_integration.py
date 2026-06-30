@@ -37,7 +37,7 @@ from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
 from waku.messaging.partition import ISequenceAllocator
-from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
+from waku.messaging.transport.decomposition import encode_payload
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
@@ -48,9 +48,9 @@ from tests.messaging.helpers import (
     RecordingDeadLetterStore,
     RecordingTransport,
     RelayDepsProvider,
+    make_codec,
     make_envelope,
     make_relay_evaluator,
-    make_serializer,
     order_id_partition,
 )
 from tests.messaging.outbox.in_memory_store import InMemoryOutboxStore
@@ -117,7 +117,6 @@ class TestEndToEndOutboxFlow:
             bus = await c.get(IMessageBus)
             await bus.publish(_OrderPlaced(order_id='order-1'))
             outbox = await c.get(IOutboxStore)
-            serializer = await c.get(IEnvelopeSerializer)
 
         assert isinstance(outbox, InMemoryOutboxStore)
         assert len(outbox.messages) == 1
@@ -127,7 +126,7 @@ class TestEndToEndOutboxFlow:
             polling=PollingConfig(poll_interval_min_seconds=0.01), recovery_interval=timedelta(hours=1)
         )
         async with make_async_container(
-            RelayDepsProvider(outbox, transport, serializer),
+            RelayDepsProvider(outbox, transport),
         ) as relay_container:
             relay = OutboxRelay(
                 container=relay_container,
@@ -139,9 +138,9 @@ class TestEndToEndOutboxFlow:
             await relay.stop()
 
         assert len(transport.sent) == 1
-        body, destination, _metadata = transport.sent[0]
+        body, destination, _metadata, _mapper = transport.sent[0]
         assert destination == 'notifications'
-        assert body['payload'] == {'order_id': 'order-1'}
+        assert body == {'order_id': 'order-1'}
         assert outbox.messages[0].status == OutboxStatus.DISPATCHED
 
 
@@ -208,59 +207,9 @@ class TestOutboxRelayLifecycleIntegration:
             await anyio.sleep(0.1)
 
         assert len(transport.sent) == 1
-        body, destination, _metadata = transport.sent[0]
+        body, destination, _metadata, _mapper = transport.sent[0]
         assert destination == 'notifications'
-        assert body['payload'] == {'order_id': 'lifecycle-1'}
-
-
-class TestCustomEnvelopeSerializer:
-    @staticmethod
-    async def test_custom_envelope_serializer_is_used() -> None:
-        outbox = InMemoryOutboxStore()
-
-        class CustomSerializer(IEnvelopeSerializer):
-            def __init__(self) -> None:
-                self.serialize_called = False
-
-            @override
-            def serialize(self, envelope: Any) -> dict[str, Any]:
-                self.serialize_called = True
-                fallback = make_serializer(type(envelope.payload))
-                return fallback.serialize(envelope)
-
-            @override
-            def deserialize(self, data: dict[str, Any]) -> Any:
-                raise NotImplementedError  # pragma: no cover
-
-        config = MessagingConfig(
-            endpoints=[external_endpoint('test://custom')],
-            routing=[route(_OrderPlaced).to('test://custom')],
-            outbox=OutboxConfig(
-                store=lambda: outbox,
-                envelope_serializer=CustomSerializer,
-            ),
-            transports={'test': RecordingTransport},
-            global_pipeline_behaviors=[TransactionalBehavior],
-        )
-
-        @module(extensions=[MessagingExtension().bind(_OrderPlacedHandler)])
-        class TestModule:
-            pass
-
-        async with (
-            create_test_app(
-                imports=[MessagingModule.register(config), TestModule],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
-            ) as app,
-            app.container() as c,
-        ):
-            serializer = await c.get(IEnvelopeSerializer)
-            assert isinstance(serializer, CustomSerializer)
-
-            bus = await c.get(IMessageBus)
-            await bus.publish(_OrderPlaced(order_id='custom-1'))
-
-        assert serializer.serialize_called
+        assert body == {'order_id': 'lifecycle-1'}
 
 
 class TestMessageIdentityPropagation:
@@ -325,14 +274,13 @@ def _partitioned_outbox_row(
     group_id: str,
     sequence_number: int,
     order_id: str,
-    serializer: JsonEnvelopeSerializer,
 ) -> OutboxMessage:
     envelope = make_envelope(_OrderPlaced(order_id=order_id))
     return OutboxMessage(
         id=uuid4(),
         idempotency_key=str(envelope.message_id),
         message_type=envelope.message_type,
-        payload=serializer.serialize(envelope),
+        payload=encode_payload(envelope, make_codec()),
         destination='test://orders',
         correlation_id=envelope.correlation_id,
         causation_id=envelope.causation_id,
@@ -345,21 +293,20 @@ class TestRelayPartitionOrdering:
     @staticmethod
     async def test_relay_dispatches_group_heads_in_sequence_order() -> None:
         transport = RecordingTransport()
-        serializer = make_serializer(_OrderPlaced)
         store = InMemoryOutboxStore()
         # Staged OUT of sequence order: the relay must still dispatch A-1, A-2, A-3 because it claims
         # the head (lowest pending sequence) of the group each poll — not whatever was inserted first.
         # If the relay used FIFO fetch this would dispatch A-2, A-1, A-3 and the assert would fail.
         store.messages.extend([
-            _partitioned_outbox_row(group_id='A', sequence_number=2, order_id='A-2', serializer=serializer),
-            _partitioned_outbox_row(group_id='A', sequence_number=1, order_id='A-1', serializer=serializer),
-            _partitioned_outbox_row(group_id='A', sequence_number=3, order_id='A-3', serializer=serializer),
+            _partitioned_outbox_row(group_id='A', sequence_number=2, order_id='A-2'),
+            _partitioned_outbox_row(group_id='A', sequence_number=1, order_id='A-1'),
+            _partitioned_outbox_row(group_id='A', sequence_number=3, order_id='A-3'),
         ])
 
         relay_config = OutboxRelayConfig(
             polling=PollingConfig(poll_interval_min_seconds=0.01), recovery_interval=timedelta(hours=1)
         )
-        async with make_async_container(RelayDepsProvider(store, transport, serializer)) as container:
+        async with make_async_container(RelayDepsProvider(store, transport)) as container:
             relay = OutboxRelay(
                 container=container,
                 config=relay_config,
@@ -369,7 +316,7 @@ class TestRelayPartitionOrdering:
             await wait_until(lambda: sum(1 for m in store.messages if m.status == OutboxStatus.DISPATCHED) == 3)
             await relay.stop()
 
-        dispatched_order = [body['payload']['order_id'] for body, _destination, _metadata in transport.sent]
+        dispatched_order = [body['order_id'] for body, _destination, _metadata, _mapper in transport.sent]
         assert dispatched_order == ['A-1', 'A-2', 'A-3']
 
 
@@ -583,7 +530,7 @@ class TestPartitionOrderingEndToEnd:
 
         by_idempotency_key = {m.idempotency_key: m for m in outbox.messages}
         per_group: dict[str, list[int]] = {}
-        for _body, _destination, metadata in transport.sent:
+        for _body, _destination, metadata, _mapper in transport.sent:
             row = by_idempotency_key[metadata.message_id]
             assert row.group_id is not None
             assert row.sequence_number is not None

@@ -2,18 +2,21 @@ from __future__ import annotations
 
 import math
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from waku._internal.sentinel import MISSING  # noqa: PLC2701
 from waku.messaging.circuit_breaker import CircuitBreakerConfig
 from waku.messaging.endpoints.base import (
     EndpointMode,
     ExternalEntry,
+    InboundEntry,
     LocalQueueEntry,
     external_endpoint,
+    listen,
     local_queue,
 )
 from waku.messaging.sending import SendingFailurePolicy
+from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper
 
 if TYPE_CHECKING:
     from waku.messaging.contracts.message import IMessage
@@ -128,3 +131,59 @@ class TestExternalEntrySendingFailurePolicies:
         )
         entry = external_endpoint('amqp://orders', sending_failure_policies=[policy])
         assert entry.sending_failure_policies == (policy,)
+
+
+class _StubMapper(IEnvelopeMapper[Any, Any]):
+    def map_outgoing(self, payload: dict[str, Any], metadata: EnvelopeMetadata) -> Any:  # noqa: ARG002, PLR6301
+        return payload
+
+    async def map_incoming(self, msg: Any) -> tuple[dict[str, Any], EnvelopeMetadata]:
+        raise NotImplementedError
+
+
+class TestInboundEntryMapper:
+    @staticmethod
+    def test_inbound_entry_mapper_defaults_to_none() -> None:
+        entry = InboundEntry(uri='amqp://orders')
+        assert entry.mapper is None
+
+    @staticmethod
+    def test_inbound_entry_accepts_mapper() -> None:
+        stub = _StubMapper()
+        entry = InboundEntry(uri='amqp://orders', mapper=stub)
+        assert entry.mapper is stub
+
+    @staticmethod
+    def test_listen_mapper_defaults_to_none() -> None:
+        entry = listen('amqp://orders')
+        assert entry.mapper is None
+
+    @staticmethod
+    def test_listen_carries_mapper_to_inbound_entry() -> None:
+        stub = _StubMapper()
+        entry = listen('amqp://orders', mapper=stub)
+        assert entry.mapper is stub
+
+
+class TestExternalEntryMapper:
+    @staticmethod
+    def test_external_entry_mapper_defaults_to_none() -> None:
+        entry = ExternalEntry(uri='amqp://orders')
+        assert entry.mapper is None
+
+    @staticmethod
+    def test_external_entry_accepts_mapper() -> None:
+        stub = _StubMapper()
+        entry = ExternalEntry(uri='amqp://orders', mapper=stub)
+        assert entry.mapper is stub
+
+    @staticmethod
+    def test_external_endpoint_mapper_defaults_to_none() -> None:
+        entry = external_endpoint('amqp://orders')
+        assert entry.mapper is None
+
+    @staticmethod
+    def test_external_endpoint_carries_mapper_to_external_entry() -> None:
+        stub = _StubMapper()
+        entry = external_endpoint('amqp://orders', mapper=stub)
+        assert entry.mapper is stub

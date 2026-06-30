@@ -9,7 +9,8 @@ from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage
 from waku.messaging.partition import resolve_and_allocate
-from waku.messaging.transport.serialization import IEnvelopeSerializer
+from waku.messaging.transport.decomposition import encode_metadata, encode_payload
+from waku.serialization.codec import PayloadCodec
 
 if TYPE_CHECKING:
     from waku.di import AsyncContainer
@@ -32,12 +33,13 @@ class ExternalEndpoint(Endpoint):
     async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None:
         group_id, sequence_number = await resolve_and_allocate(envelope, self._partition_by, scope)
         outbox_store = await scope.get(IOutboxStore)
-        serializer = await scope.get(IEnvelopeSerializer)
+        codec = await scope.get(PayloadCodec)
         message = OutboxMessage(
             id=uuid4(),
             idempotency_key=str(envelope.message_id),
             message_type=envelope.message_type,
-            payload=serializer.serialize(envelope),
+            payload=encode_payload(envelope, codec),
+            metadata_=encode_metadata(envelope),
             destination=self._uri,
             correlation_id=envelope.correlation_id,
             causation_id=envelope.causation_id,

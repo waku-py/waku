@@ -19,7 +19,7 @@ from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.pauser import PauseToken
-from waku.messaging.transport.serialization import IEnvelopeSerializer
+from waku.serialization.codec import PayloadCodec
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
@@ -27,8 +27,8 @@ from tests.messaging.helpers import (
     FakeUoW,
     RecordingAllocator,
     RecordingDeadLetterStore,
+    make_codec,
     make_envelope,
-    make_serializer,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
@@ -56,7 +56,7 @@ class _DepsProvider(Provider):
         super().__init__()
         self._inbox = inbox
         self._dlq = dlq
-        self._serializer: IEnvelopeSerializer = make_serializer(_Event)
+        self._codec = make_codec()
         self._uow: IUnitOfWork = FakeUoW()
         self._allocator: ISequenceAllocator = RecordingAllocator()
 
@@ -68,9 +68,9 @@ class _DepsProvider(Provider):
     def dlq(self) -> IDeadLetterStore:
         return self._dlq
 
-    @provide
-    def serializer(self) -> IEnvelopeSerializer:
-        return self._serializer
+    @provide(scope=Scope.APP)
+    def codec(self) -> PayloadCodec:
+        return self._codec
 
     @provide
     def uow(self) -> IUnitOfWork:

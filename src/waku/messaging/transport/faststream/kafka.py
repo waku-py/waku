@@ -10,16 +10,18 @@ connections and no shared connection-level flow control, so the Rabbit two-conne
 
 from __future__ import annotations
 
-import logging
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+import dataclasses
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from faststream import AckPolicy
 from faststream.kafka import KafkaBroker
-from faststream.kafka.annotations import KafkaMessage  # noqa: TC002 -- runtime: fast_depends resolves the annotation
+from faststream.kafka.annotations import KafkaMessage  # runtime: Generic base subscript + fast_depends DI
 from typing_extensions import override
 
-from waku.messaging.transport.inbound import ConsumeDisposition
-from waku.messaging.transport.interfaces import ITransport, Subscription
+from waku.messaging.transport.faststream.base import FastStreamTransportBase
+from waku.messaging.transport.interfaces import IEnvelopeMapper, ITransport, Subscription
+from waku.messaging.transport.mapping import metadata_from_headers, wire_headers_of
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection
@@ -27,51 +29,79 @@ if TYPE_CHECKING:
     from aiokafka.structs import TopicPartition
 
     from waku.messaging.transport.inbound import ConsumeCallback
-    from waku.messaging.transport.interfaces import TransportFactory, WireMetadata
+    from waku.messaging.transport.interfaces import EnvelopeMetadata, TransportFactory
 
-__all__ = ['FastStreamKafkaTransport', 'kafka_transport']
-
-logger = logging.getLogger(__name__)
+__all__ = [
+    'DefaultKafkaEnvelopeMapper',
+    'FastStreamKafkaTransport',
+    'IKafkaEnvelopeMapper',
+    'KafkaOutgoing',
+    'kafka_transport',
+]
 
 
 def _key(group_id: str | None) -> bytes | None:
     return group_id.encode('utf-8') if group_id is not None else None
 
 
-class _InboundMessage(Protocol):
-    """The broker-message surface the inbound dispatch needs: decode + the disposition acks."""
+@dataclass(frozen=True, slots=True, kw_only=True)
+class KafkaOutgoing:
+    """Outgoing Kafka message ready for ``KafkaBroker.publish``.
 
-    async def decode(self) -> Any: ...
-    async def ack(self) -> None: ...
-    async def nack(self) -> None: ...
-    async def reject(self) -> None: ...
+    ``body``, ``key``, and ``headers`` are always passed to ``KafkaBroker.publish``.
+    The native fields below are **passthrough-only** — the default ``DefaultKafkaEnvelopeMapper`` leaves them
+    ``None`` and they are omitted from the publish call.  A custom mapper may set them to reach aiokafka
+    capabilities that the Wolverine wire format does not expose.
 
-
-async def dispatch_inbound(msg: _InboundMessage, on_message: ConsumeCallback) -> None:
-    """Decode an inbound Kafka message and apply the handler's disposition, broker-honestly.
-
-    Importable (not exported) so the decode/disposition logic is unit-testable without a live broker.
+    Native fields (verified against FastStream 0.7.1 ``KafkaBroker.publish`` signature):
+        partition: Target partition override; ``None`` lets the partitioner decide.
+        timestamp_ms: Message timestamp in milliseconds since epoch; ``None`` uses the broker default.
+        correlation_id: FastStream request-reply correlation id; distinct from the Waku envelope
+            ``correlation_id`` header — do not confuse the two.
+        reply_to: FastStream reply topic; ``None`` (or empty string) disables request-reply.
     """
-    try:
-        body: dict[str, Any] = await msg.decode()
-    except Exception:
-        # An undecodable payload is poison (foreign/corrupt wire format): commit/skip it via reject(). nacking
-        # would seek-back into an infinite poison loop; leaving it unhandled never commits the offset (redelivery).
-        logger.exception('Undecodable Kafka payload rejected (commit/skip) — not seek-backed')
-        await msg.reject()
-        return
-    try:
-        disposition = await on_message(body)
-    except Exception:
-        logger.exception('Inbound Kafka message handling failed; seeking back for re-read')
-        await msg.nack()  # seek-back -> re-read on next poll (Kafka has no broker requeue)
-        return
-    if disposition is ConsumeDisposition.ACK:
-        await msg.ack()  # commit offset
-    elif disposition is ConsumeDisposition.NACK_REQUEUE:
-        await msg.nack()  # seek-back -> re-read
-    else:
-        await msg.reject()  # commit/skip (poison; Waku DLQ is handled at the processing layer)
+
+    body: dict[str, Any]
+    key: bytes | None
+    headers: dict[str, str]
+    partition: int | None = None
+    timestamp_ms: int | None = None
+    correlation_id: str | None = None
+    reply_to: str | None = None
+
+
+class IKafkaEnvelopeMapper(IEnvelopeMapper['KafkaMessage', KafkaOutgoing]):
+    """Per-Kafka-broker envelope mapper: owns the wire format for both directions."""
+
+
+class DefaultKafkaEnvelopeMapper(IKafkaEnvelopeMapper):
+    """Wolverine-faithful Kafka envelope mapper.
+
+    Outgoing: payload-in-body, Wolverine headers (bare + skip-if-reserved), ``group_id`` → Kafka message KEY.
+    Incoming: decode body, reconstruct ``EnvelopeMetadata`` from headers; Kafka message key takes precedence
+    over any ``group_id`` header (key-takes-precedence Wolverine rule).
+    """
+
+    @override
+    def map_outgoing(self, payload: dict[str, Any], metadata: EnvelopeMetadata) -> KafkaOutgoing:
+        return KafkaOutgoing(
+            body=payload,
+            key=_key(metadata.group_id),
+            headers=wire_headers_of(metadata),
+        )
+
+    @override
+    async def map_incoming(self, msg: KafkaMessage) -> tuple[dict[str, Any], EnvelopeMetadata]:
+        payload = cast('dict[str, Any]', await msg.decode())
+        meta = metadata_from_headers(msg.headers)
+        # Kafka message key takes precedence over the group_id header (Wolverine key-takes-precedence rule).
+        raw_message = cast('Any', msg.raw_message)  # raw_message not typed on KafkaMessage; pyrefly: ignore
+        raw_key: bytes | None = raw_message.key
+        # Truthy guard: an empty-bytes key ``b''`` is treated as no-key so the header group_id is kept.
+        # Real aiokafka yields None for keyless messages; this hardens the field against empty-bytes edge cases.
+        if raw_key:
+            meta = dataclasses.replace(meta, group_id=raw_key.decode())
+        return payload, meta
 
 
 class _PausableConsumer(Protocol):
@@ -118,10 +148,10 @@ class KafkaSubscription(Subscription):
             self._paused = False
 
 
-class FastStreamKafkaTransport(ITransport):
+class FastStreamKafkaTransport(FastStreamTransportBase[KafkaMessage]):
     """Bidirectional Kafka transport over a single injected ``KafkaBroker``."""
 
-    __slots__ = ('_auto_offset_reset', '_broker', '_consumer_group', '_started')
+    __slots__ = ('_auto_offset_reset', '_broker', '_consumer_group', '_mapper', '_started')
 
     def __init__(
         self,
@@ -129,19 +159,43 @@ class FastStreamKafkaTransport(ITransport):
         broker: KafkaBroker,
         consumer_group: str,
         auto_offset_reset: Literal['latest', 'earliest', 'none'] = 'latest',
+        mapper: IKafkaEnvelopeMapper | None = None,
     ) -> None:
         self._broker = broker
         self._consumer_group = consumer_group  # Kafka consumer group.id (competing consumers) — NOT the message key
         self._auto_offset_reset = auto_offset_reset
+        self._mapper: IKafkaEnvelopeMapper = mapper or DefaultKafkaEnvelopeMapper()
         self._started: bool = False
 
     @override
-    async def send(self, body: dict[str, Any], *, destination: str, metadata: WireMetadata) -> None:
-        # group_id -> Kafka message key (same key => same partition => ordering); None => round-robin.
-        await self._broker.publish(body, destination, key=_key(metadata.group_id), headers=metadata.as_headers())
+    async def send(
+        self,
+        body: dict[str, Any],
+        *,
+        destination: str,
+        metadata: EnvelopeMetadata,
+        mapper: IEnvelopeMapper[Any, Any] | None = None,
+    ) -> None:
+        effective = mapper or self._mapper
+        out = effective.map_outgoing(body, metadata)
+        extra: dict[str, Any] = {}
+        if out.partition is not None:
+            extra['partition'] = out.partition
+        if out.timestamp_ms is not None:
+            extra['timestamp_ms'] = out.timestamp_ms
+        if out.correlation_id is not None:
+            extra['correlation_id'] = out.correlation_id
+        if out.reply_to is not None:
+            extra['reply_to'] = out.reply_to
+        await self._broker.publish(out.body, destination, key=out.key, headers=out.headers, **extra)  # pyrefly: ignore[unexpected-keyword]
 
     @override
-    def subscribe(self, queue: str, on_message: ConsumeCallback) -> Subscription:
+    def subscribe(
+        self,
+        queue: str,
+        on_message: ConsumeCallback,
+        mapper: IEnvelopeMapper[Any, Any] | None = None,
+    ) -> Subscription:
         # Capture the subscriber (instead of the decorator form) so it can be paused/resumed per-subscriber.
         subscriber = self._broker.subscriber(
             queue,
@@ -150,11 +204,25 @@ class FastStreamKafkaTransport(ITransport):
             auto_offset_reset=self._auto_offset_reset,
         )
 
+        effective = mapper or self._mapper
+
         async def _handler(msg: KafkaMessage) -> None:
-            await dispatch_inbound(msg, on_message)
+            await self._dispatch_inbound(msg, on_message, effective)
 
         subscriber(_handler)  # register the handler on the captured subscriber (KafkaSubscriber.__call__)
         return KafkaSubscription(lambda: subscriber.consumer)
+
+    @override
+    async def _ack(self, msg: KafkaMessage) -> None:
+        await msg.ack()  # commit offset
+
+    @override
+    async def _nack(self, msg: KafkaMessage) -> None:
+        await msg.nack()  # seek-back -> re-read on next poll (Kafka has no broker requeue)
+
+    @override
+    async def _reject(self, msg: KafkaMessage) -> None:
+        await msg.reject()  # commit/skip (poison; Waku DLQ is handled at the processing layer)
 
     @override
     async def start(self) -> None:
@@ -174,6 +242,7 @@ def kafka_transport(
     *,
     consumer_group: str,
     auto_offset_reset: Literal['latest', 'earliest', 'none'] = 'latest',
+    mapper: IKafkaEnvelopeMapper | None = None,
 ) -> TransportFactory:
     """Return a deferred factory for ``FastStreamKafkaTransport`` (not yet started).
 
@@ -184,6 +253,7 @@ def kafka_transport(
         consumer_group: Kafka consumer ``group.id`` shared by all subscribers (competing consumers across
             pods) — distinct from the per-message ``group_id`` partition key.
         auto_offset_reset: Where a fresh consumer group starts reading.
+        mapper: Envelope mapper; defaults to ``DefaultKafkaEnvelopeMapper``.
     """
 
     # A closure (not functools.partial like rabbit_transport): the broker is injected, so each factory call
@@ -193,6 +263,7 @@ def kafka_transport(
             broker=KafkaBroker(url),
             consumer_group=consumer_group,
             auto_offset_reset=auto_offset_reset,
+            mapper=mapper,
         )
 
     return _factory

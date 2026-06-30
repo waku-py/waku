@@ -30,7 +30,8 @@ from waku.messaging.handler import EventHandler
 from waku.messaging.inbox._destination import handler_destination  # noqa: PLC2701
 from waku.messaging.inbox.models import InboxEntry
 from waku.messaging.router import route
-from waku.messaging.transport.serialization import IEnvelopeSerializer
+from waku.messaging.transport.decomposition import encode_metadata, encode_payload
+from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
@@ -66,8 +67,8 @@ class _SecondRecordingHandler(EventHandler[_OrderPlaced]):
         self.observed.append(message.order_id)
 
 
-# Inbox-only config (no outbox, no dead_letter_store): also exercises that IEnvelopeSerializer is
-# registered for inbox-only setups (the durable endpoint serializes the envelope before persisting).
+# Inbox-only config (no outbox, no dead_letter_store): also exercises that PayloadCodec is
+# registered for inbox-only setups (the durable endpoint encodes the payload before persisting).
 def _durable_config(inbox: FakeInboxStore) -> MessagingConfig:
     return MessagingConfig(
         endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0, max_buffer_size=math.inf)],
@@ -319,17 +320,20 @@ class TestDurableInboxIntegration:
             extensions=[MessagingExtension().bind(_BlockingHandler)],
             providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
         ) as app:
-            serializer = await app.container.get(IEnvelopeSerializer)
+            codec = await app.container.get(PayloadCodec)
             envelope = make_envelope(_OrderPlaced(order_id='rec-1'))
             entry = InboxEntry(
                 id=envelope.message_id,
-                payload=serializer.serialize(envelope),
+                payload=encode_payload(envelope, codec),
                 message_type=envelope.message_type,
                 source_uri=EndpointUri('orders'),
                 destination=handler_destination(_BlockingHandler),
                 owner_id=None,
                 status=InboxStatus.INCOMING,
                 attempts=0,
+                correlation_id=envelope.correlation_id,
+                causation_id=envelope.causation_id,
+                metadata_=encode_metadata(envelope),
             )
             inbox.entries[entry.id, entry.destination] = entry
             await wait_until(lambda: len(dlq.entries) == 1)
@@ -355,20 +359,23 @@ class TestDurableInboxIntegration:
             extensions=[MessagingExtension().bind(_RecordingHandler)],
             providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
         ) as app:
-            serializer = await app.container.get(IEnvelopeSerializer)
+            codec = await app.container.get(PayloadCodec)
             envelope = make_envelope(
                 _OrderPlaced(order_id='exp-1'),
                 expires_at=datetime.now(tz=UTC) - timedelta(hours=1),
             )
             entry = InboxEntry(
                 id=envelope.message_id,
-                payload=serializer.serialize(envelope),
+                payload=encode_payload(envelope, codec),
                 message_type=envelope.message_type,
                 source_uri=EndpointUri('orders'),
                 destination=handler_destination(_RecordingHandler),
                 owner_id=None,
                 status=InboxStatus.INCOMING,
                 attempts=0,
+                correlation_id=envelope.correlation_id,
+                causation_id=envelope.causation_id,
+                metadata_=encode_metadata(envelope),
             )
             inbox.entries[entry.id, entry.destination] = entry
             await wait_until(lambda: (entry.id, entry.destination) not in inbox.entries)
@@ -403,17 +410,20 @@ class TestDurableInboxIntegration:
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
             ],
         ) as app:
-            serializer = await app.container.get(IEnvelopeSerializer)
+            codec = await app.container.get(PayloadCodec)
             envelope = make_envelope(_OrderPlaced(order_id='sched-1'))
             entry = InboxEntry(
                 id=envelope.message_id,
-                payload=serializer.serialize(envelope),
+                payload=encode_payload(envelope, codec),
                 message_type=envelope.message_type,
                 source_uri=EndpointUri('orders'),
                 destination=handler_destination(_RecordingHandler),
                 owner_id=None,
                 status=InboxStatus.SCHEDULED,
                 execution_time=datetime.now(tz=UTC) - timedelta(hours=1),  # already due
+                correlation_id=envelope.correlation_id,
+                causation_id=envelope.causation_id,
+                metadata_=encode_metadata(envelope),
             )
             inbox.entries[entry.id, entry.destination] = entry
             await wait_until(lambda: _RecordingHandler.observed == ['sched-1'])
@@ -442,17 +452,20 @@ class TestDurableInboxIntegration:
             extensions=[MessagingExtension().bind(_RecordingHandler)],
             providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],  # deliberately no ISequenceAllocator
         ) as app:
-            serializer = await app.container.get(IEnvelopeSerializer)
+            codec = await app.container.get(PayloadCodec)
             envelope = make_envelope(_OrderPlaced(order_id='keyless-sched'))
             entry = InboxEntry(
                 id=envelope.message_id,
-                payload=serializer.serialize(envelope),
+                payload=encode_payload(envelope, codec),
                 message_type=envelope.message_type,
                 source_uri=EndpointUri('orders'),
                 destination=handler_destination(_RecordingHandler),
                 owner_id=None,
                 status=InboxStatus.SCHEDULED,
                 execution_time=datetime.now(tz=UTC) - timedelta(hours=1),  # already due, keyless (group_id=None)
+                correlation_id=envelope.correlation_id,
+                causation_id=envelope.causation_id,
+                metadata_=encode_metadata(envelope),
             )
             inbox.entries[entry.id, entry.destination] = entry
             await wait_until(lambda: _RecordingHandler.observed == ['keyless-sched'])

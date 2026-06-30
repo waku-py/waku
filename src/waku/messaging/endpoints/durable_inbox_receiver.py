@@ -18,7 +18,8 @@ from waku.messaging.inbox.finalize import apply_inbox_outcome
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxEntry
 from waku.messaging.partition import resolve_and_allocate
-from waku.messaging.transport.serialization import IEnvelopeSerializer
+from waku.messaging.transport.decomposition import encode_metadata, encode_payload
+from waku.serialization.codec import PayloadCodec
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -123,10 +124,11 @@ class DurableInboxReceiver:
         """
         async with unit_of_work_scope(self._container) as write_scope:
             inbox = await write_scope.get(IInboxStore)
-            serializer = await write_scope.get(IEnvelopeSerializer)
+            codec = await write_scope.get(PayloadCodec)
             # Allocate ONCE per message: all per-handler rows share the same position in the partition.
             group_id, sequence_number = await resolve_and_allocate(envelope, self._partition_by, write_scope)
-            payload = serializer.serialize(envelope)
+            payload = encode_payload(envelope, codec)
+            metadata_ = encode_metadata(envelope)
             fresh: set[HandlerType] = set()
             for handler_type in handler_types:
                 entry = InboxEntry(
@@ -138,6 +140,9 @@ class DurableInboxReceiver:
                     group_id=group_id,
                     sequence_number=sequence_number,
                     owner_id=self._inbox_owner_id,
+                    correlation_id=envelope.correlation_id,
+                    causation_id=envelope.causation_id,
+                    metadata_=metadata_,
                 )
                 if await inbox.store_incoming(entry):
                     fresh.add(handler_type)
@@ -207,15 +212,18 @@ class DurableInboxReceiver:
     async def _dead_letter_poison(self, envelope: MessageEnvelope[Any], destination: str, attempts: int) -> None:
         async with unit_of_work_scope(self._container) as scope:
             inbox = await scope.get(IInboxStore)
-            serializer = await scope.get(IEnvelopeSerializer)
+            codec = await scope.get(PayloadCodec)
             dead_letter = DeadLetterEntry.from_failure(
                 message_type=envelope.message_type,
-                payload=serializer.serialize(envelope),
+                payload=encode_payload(envelope, codec),
                 destination=destination,
                 correlation_id=envelope.correlation_id,
                 causation_id=envelope.causation_id,
                 exc=RequeueBudgetExceededError(envelope.message_id, attempts),
                 attempt=attempts,
+                message_id=envelope.message_id,
+                metadata=encode_metadata(envelope),
+                group_id=envelope.group_id,
             )
             await inbox.move_to_dead_letter(envelope.message_id, destination, dead_letter)
 

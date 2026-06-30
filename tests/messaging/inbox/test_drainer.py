@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
+from uuid import uuid4
 
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
@@ -12,13 +13,15 @@ from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.handler import EventHandler
+from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.inbox._destination import handler_destination  # noqa: PLC2701
 from waku.messaging.inbox.drainer import InboxDrainer
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
+from waku.messaging.transport.decomposition import encode_metadata, encode_payload
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, RecordingDeadLetterStore, make_envelope, make_serializer
+from tests.messaging.helpers import FakeUoW, RecordingDeadLetterStore, make_codec, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
@@ -79,6 +82,8 @@ class _Deps(Provider):
 
 
 _DESTINATION = handler_destination(_RecordingHandler)
+_CODEC = make_codec()
+_TYPE_REGISTRY = MessageTypeRegistry(identities={}, known_types=[_OrderPlaced])
 
 
 def _abandoned_entry(
@@ -88,17 +93,19 @@ def _abandoned_entry(
     source_uri: str = 'local://orders',
     attempts: int = 0,
 ) -> InboxEntry:
-    serializer = make_serializer(_OrderPlaced)
     envelope = make_envelope(_OrderPlaced(order_id='o-1'))
     entry = InboxEntry(
         id=envelope.message_id,
-        payload=serializer.serialize(envelope),
+        payload=encode_payload(envelope, _CODEC),
         message_type=envelope.message_type,
         source_uri=EndpointUri(source_uri),
         destination=HandlerDestination(destination),
         owner_id=None,
         status=InboxStatus.INCOMING,
         attempts=attempts,
+        correlation_id=envelope.correlation_id,
+        causation_id=envelope.causation_id,
+        metadata_=encode_metadata(envelope),
     )
     inbox.entries[entry.id, entry.destination] = entry
     return entry
@@ -119,7 +126,8 @@ class _DlqProvider(Provider):
 def _drainer(container: Any, executor: EndpointExecutor, *, max_attempts: int = 5) -> InboxDrainer:
     return InboxDrainer(
         container=container,
-        serializer=make_serializer(_OrderPlaced),
+        codec=_CODEC,
+        type_registry=_TYPE_REGISTRY,
         handler_by_fqn={_DESTINATION: _RecordingHandler},
         executor_factory=lambda _source_uri: executor,
         owner_id='node-a:1',
@@ -127,6 +135,58 @@ def _drainer(container: Any, executor: EndpointExecutor, *, max_attempts: int = 
         batch_size=100,
         max_attempts=max_attempts,
     )
+
+
+class _CapturingExecutor(EndpointExecutor):
+    def __init__(self) -> None:
+        self.envelopes: list[Any] = []
+
+    @override
+    async def execute(
+        self,
+        envelope: Any,
+        handler_type: HandlerType,
+        *,
+        on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
+    ) -> ExecutionResult:
+        self.envelopes.append(envelope)
+        if on_result is not None:
+            await on_result(ExecutionOutcome.SUCCESS, None)
+        return ExecutionResult(ExecutionOutcome.SUCCESS)
+
+
+async def test_drain_crash_recovery_rebuilds_envelope_from_decomposed_row() -> None:
+    # Verifies that the drainer reconstructs the full envelope from the decomposed inbox row
+    # (encoded payload + metadata_ + typed correlation_id/causation_id columns) without using
+    # serializer.deserialize. A real PayloadCodec + MessageTypeRegistry are used — no mocks.
+    inbox = FakeInboxStore()
+    envelope = make_envelope(_OrderPlaced(order_id='o-99'))
+    entry = InboxEntry(
+        id=envelope.message_id,
+        payload=encode_payload(envelope, _CODEC),
+        message_type=envelope.message_type,
+        source_uri=EndpointUri('local://orders'),
+        destination=HandlerDestination(_DESTINATION),
+        owner_id=None,
+        status=InboxStatus.INCOMING,
+        correlation_id=envelope.correlation_id,
+        causation_id=envelope.causation_id,
+        metadata_=encode_metadata(envelope),
+    )
+    inbox.entries[entry.id, entry.destination] = entry
+
+    executor = _CapturingExecutor()
+    async with make_async_container(_Deps(inbox, FakeUoW())) as container:
+        processed = await _drainer(container, executor).drain_once()
+
+    assert processed == 1
+    assert len(executor.envelopes) == 1
+    rebuilt = executor.envelopes[0]
+    assert rebuilt.message_id == envelope.message_id
+    assert rebuilt.correlation_id == envelope.correlation_id
+    assert rebuilt.causation_id == envelope.causation_id
+    assert rebuilt.message_type == envelope.message_type
+    assert rebuilt.payload.order_id == 'o-99'
 
 
 async def test_drain_executes_and_marks_handled_on_success() -> None:
@@ -164,10 +224,12 @@ async def test_drain_poison_unknown_handler_under_cap_bumps_attempts_and_leaves_
     assert stored.attempts == 1
 
 
-async def test_drain_poison_undeserializable_payload_bumps_attempts() -> None:
+async def test_drain_poison_unrebuildable_payload_bumps_attempts() -> None:
+    # A row with metadata_=None causes wire_metadata_from_entry to return timestamp=None,
+    # which makes rebuild_envelope raise ValueError — poison path, not deserialized.
     inbox = FakeInboxStore()
     entry = _abandoned_entry(inbox)
-    inbox.entries[entry.id, entry.destination] = replace(entry, payload={'message_type': 'tests.Unknown'})
+    inbox.entries[entry.id, entry.destination] = replace(entry, metadata_=None)
     async with make_async_container(_Deps(inbox, FakeUoW())) as container:
         processed = await _drainer(
             container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3
@@ -266,20 +328,31 @@ async def test_drain_deferred_terminal_at_cap_dead_letters() -> None:
     assert len(dlq.entries) == 1
 
 
-async def test_drain_poison_at_cap_falls_back_to_message_id_for_bad_or_absent_ids() -> None:
-    # correlation_id present but not a UUID (-> ValueError branch); causation_id absent (-> non-str branch).
+async def test_drain_poison_at_cap_reads_correlation_from_typed_columns_not_payload() -> None:
+    # NON-VACUOUS poison test: the payload is a real encoded dict (which never contains
+    # correlation_id / causation_id keys). Proves _poison_dead_letter reads the typed
+    # columns, not the payload blob — if it still read entry.payload.get('correlation_id')
+    # it would fall back to entry.id, not the real UUIDs.
     inbox = FakeInboxStore()
     dlq = RecordingDeadLetterStore()
+    expected_correlation = uuid4()
+    expected_causation = uuid4()
     entry = _abandoned_entry(inbox, destination='tests.GoneHandler', attempts=2)
+    # Real encoded payload — contains only the message's own fields, NOT correlation/causation.
+    real_payload = encode_payload(make_envelope(_OrderPlaced(order_id='o-1')), _CODEC)
+    assert 'correlation_id' not in real_payload
+    assert 'causation_id' not in real_payload
     inbox.entries[entry.id, entry.destination] = replace(
         entry,
-        payload={'message_type': 'tests.Unknown', 'correlation_id': 'not-a-uuid'},
+        payload=real_payload,
+        correlation_id=expected_correlation,
+        causation_id=expected_causation,
     )
     async with make_async_container(_Deps(inbox, FakeUoW()), _DlqProvider(dlq)) as container:
         await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
     assert len(dlq.entries) == 1
-    assert dlq.entries[0].correlation_id == entry.id
-    assert dlq.entries[0].causation_id == entry.id
+    assert dlq.entries[0].correlation_id == expected_correlation
+    assert dlq.entries[0].causation_id == expected_causation
 
 
 async def test_drain_crash_recovery_keyed_on_scheme_qualified_source_uri() -> None:
@@ -300,7 +373,8 @@ async def test_drain_crash_recovery_keyed_on_scheme_qualified_source_uri() -> No
     async with make_async_container(_Deps(inbox, FakeUoW())) as container:
         drainer = InboxDrainer(
             container=container,
-            serializer=make_serializer(_OrderPlaced),
+            codec=_CODEC,
+            type_registry=_TYPE_REGISTRY,
             handler_by_fqn={_DESTINATION: _RecordingHandler},
             executor_factory=capturing_factory,
             owner_id='node-a:1',

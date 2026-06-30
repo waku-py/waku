@@ -24,7 +24,6 @@ if TYPE_CHECKING:
     from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor
     from waku.messaging.sending.policy import SendingFailurePolicy
     from waku.messaging.transport.interfaces import TransportFactory
-    from waku.messaging.transport.serialization import IEnvelopeSerializer
 
 __all__ = [
     'DeadLetterConfig',
@@ -37,7 +36,6 @@ __all__ = [
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OutboxConfig:
     store: type[IOutboxStore] | Callable[..., IOutboxStore]
-    envelope_serializer: type[IEnvelopeSerializer] | Callable[..., IEnvelopeSerializer] | None = None
     relay: OutboxRelayConfig = OutboxRelayConfig()  # noqa: RUF009
 
 

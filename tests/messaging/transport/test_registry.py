@@ -6,25 +6,37 @@ import pytest
 from typing_extensions import override
 
 from waku.exceptions import ImproperlyConfiguredError
-from waku.messaging.transport.interfaces import ITransport
+from waku.messaging.transport.interfaces import IEnvelopeMapper, ITransport
 from waku.messaging.transport.registry import TransportRegistry, resolve_default_scheme, split_destination
 
 from tests.messaging.helpers import StubSubscription
 
 if TYPE_CHECKING:
     from waku.messaging.transport.inbound import ConsumeCallback
-    from waku.messaging.transport.interfaces import Subscription, WireMetadata
+    from waku.messaging.transport.interfaces import EnvelopeMetadata, Subscription
 
 
 class StubTransport(ITransport):
     """Minimal ITransport double — no-op on all methods."""
 
     @override
-    async def send(self, body: dict[str, Any], *, destination: str, metadata: WireMetadata) -> None:
+    async def send(
+        self,
+        body: dict[str, Any],
+        *,
+        destination: str,
+        metadata: EnvelopeMetadata,
+        mapper: IEnvelopeMapper[Any, Any] | None = None,
+    ) -> None:
         pass  # pragma: no cover
 
     @override
-    def subscribe(self, queue: str, on_message: ConsumeCallback) -> Subscription:
+    def subscribe(
+        self,
+        queue: str,
+        on_message: ConsumeCallback,
+        mapper: IEnvelopeMapper[Any, Any] | None = None,
+    ) -> Subscription:
         return StubSubscription()  # pragma: no cover
 
     @override
@@ -116,3 +128,38 @@ class TestResolveDefaultScheme:
     @staticmethod
     def test_explicit_overrides() -> None:
         assert resolve_default_scheme(['rabbitmq', 'kafka'], explicit='kafka') == 'kafka'
+
+
+class _StubMapper(IEnvelopeMapper[Any, Any]):
+    @override
+    def map_outgoing(self, payload: dict[str, Any], metadata: Any) -> Any:
+        raise NotImplementedError  # pragma: no cover
+
+    @override
+    async def map_incoming(self, msg: Any) -> tuple[dict[str, Any], Any]:
+        raise NotImplementedError  # pragma: no cover
+
+
+class TestTransportRegistryMapperFor:
+    @staticmethod
+    def test_configured_uri_returns_override() -> None:
+        mapper = _StubMapper()
+        reg = TransportRegistry(
+            {'rabbitmq': StubTransport()},
+            external_mappers={'rabbitmq://orders': mapper},
+        )
+        assert reg.mapper_for('rabbitmq://orders') is mapper
+
+    @staticmethod
+    def test_unconfigured_uri_returns_none() -> None:
+        mapper = _StubMapper()
+        reg = TransportRegistry(
+            {'rabbitmq': StubTransport()},
+            external_mappers={'rabbitmq://orders': mapper},
+        )
+        assert reg.mapper_for('rabbitmq://other') is None
+
+    @staticmethod
+    def test_no_external_mappers_always_returns_none() -> None:
+        reg = TransportRegistry({'rabbitmq': StubTransport()})
+        assert reg.mapper_for('rabbitmq://orders') is None

@@ -85,7 +85,6 @@ from waku.messaging.router import MessageRouter, RoutingTable
 from waku.messaging.routing_builder import RoutingTableBuilder
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicyRegistry
 from waku.messaging.transport.registry import TransportRegistry, resolve_default_scheme, split_destination
-from waku.messaging.transport.serialization import IEnvelopeSerializer, JsonEnvelopeSerializer
 from waku.modules import DynamicModule, ModuleMetadataRegistry, module
 from waku.serialization.codec import PayloadCodec
 from waku.serialization.upcasting import UpcasterChain
@@ -124,7 +123,6 @@ class MessagingModule:
     def register(cls, config: MessagingConfig | None = None, /) -> DynamicModule:
         config_ = config or MessagingConfig()
         cls._validate_config(config_)
-        serializer_provider = cls._serializer_provider(config_)
         providers: list[Provider] = [
             scoped(WithParents[IMessageBus], MessageBus),  # ty:ignore[not-subscriptable]
             scoped(AnyOf[IOutgoingMessages, IOutgoingMessagesFrames], OutgoingMessages),  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
@@ -139,8 +137,6 @@ class MessagingModule:
             transient(MessageContext, get_message_context),
             *cls._infrastructure_providers(config_),
         ]
-        if serializer_provider is not None:
-            providers.append(serializer_provider)
         extensions: list[ModuleExtension] = [
             MessageRegistryAggregator(config_),
             EndpointLifecycleExtension(),
@@ -183,15 +179,6 @@ class MessagingModule:
             raise ImproperlyConfiguredError(msg)
         _validate_transport_schemes(config)
         _reject_inline_deferred_terminal(config)
-
-    @staticmethod
-    def _serializer_provider(config: MessagingConfig) -> Provider | None:
-        # inbox also needs a serializer (DurableLocalQueueEndpoint serializes; drainer deserializes on recovery).
-        if config.outbox is None and config.dead_letter is None and config.inbox is None:
-            return None
-        if config.outbox is not None and config.outbox.envelope_serializer is not None:
-            return singleton(IEnvelopeSerializer, config.outbox.envelope_serializer)
-        return singleton(IEnvelopeSerializer, _create_envelope_serializer)
 
     @staticmethod
     def _infrastructure_providers(config: MessagingConfig) -> _HandlerProviders:
@@ -358,7 +345,12 @@ def _build_sending_failure_registry(config: MessagingConfig) -> SendingFailurePo
 def _build_transport_registry(config: MessagingConfig) -> TransportRegistry:
     # Factory function so dishka introspects the signature (not TransportRegistry's ForwardRef __init__).
     transports = {scheme: build() for scheme, build in config.transports.items()}
-    return TransportRegistry(transports)
+    external_mappers = {
+        entry.uri: entry.mapper
+        for entry in config.endpoints
+        if isinstance(entry, ExternalEntry) and entry.mapper is not None
+    }
+    return TransportRegistry(transports, external_mappers=external_mappers)
 
 
 def _build_message_type_registry(
@@ -373,10 +365,6 @@ def _build_message_type_registry(
 
 def _create_envelope_codec() -> PayloadCodec:
     return PayloadCodec(default_retort, UpcasterChain({}))
-
-
-def _create_envelope_serializer(type_registry: MessageTypeRegistry, codec: PayloadCodec) -> JsonEnvelopeSerializer:
-    return JsonEnvelopeSerializer(type_registry=type_registry, codec=codec)
 
 
 def _build_router(
@@ -752,11 +740,12 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
         for transport in registry.transports():
             await transport.start()
 
-    async def _wire_listeners(self, app: 'WakuApplication', registry: TransportRegistry) -> None:
+    async def _wire_listeners(self, app: 'WakuApplication', registry: TransportRegistry) -> None:  # noqa: PLR0914
         inbox = self._config.inbox
         if self._config.inbound is None or inbox is None:
             return
-        serializer = await app.container.get(IEnvelopeSerializer)
+        codec = await app.container.get(PayloadCodec)
+        type_registry = await app.container.get(MessageTypeRegistry)
         message_registry = await app.container.get(MessageRegistry)
         evaluator = await app.container.get(ErrorPolicyEvaluator)
         invoker = await app.container.get(HandlerPipelineInvoker)
@@ -787,9 +776,11 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
                 max_requeue_attempts=max_requeue,
                 circuit_breaker_config=None,
             )
-            listener = InboundListener(serializer=serializer, registry=message_registry, receiver=receiver)
+            listener = InboundListener(
+                codec=codec, type_registry=type_registry, registry=message_registry, receiver=receiver
+            )
             queue = split_destination(uri, default_scheme=registry.default_scheme)[1]
-            subscription = registry.listener_for(uri).subscribe(queue, listener.consume)
+            subscription = registry.listener_for(uri).subscribe(queue, listener.consume, mapper=entry.mapper)
             backpressure = self._wire_listener_backpressure(entry, messaging_config, subscription, listener, receiver)
             # start() last: the on_drain low-watermark hook needs the gate; nothing flows until transport.start().
             await receiver.start(on_drain=backpressure.observe_depth if backpressure is not None else None)

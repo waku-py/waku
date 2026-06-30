@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
-from unittest.mock import AsyncMock
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from typing_extensions import override
@@ -14,10 +13,15 @@ from waku.eventsourcing.snapshot.migration import ISnapshotMigration, SnapshotMi
 from waku.eventsourcing.snapshot.registry import SnapshotConfig
 from waku.eventsourcing.snapshot.strategy import EventCountStrategy
 
+if TYPE_CHECKING:
+    from unittest.mock import AsyncMock
+
+    from pytest_mock import MockerFixture
+
 
 @pytest.fixture
-def snapshot_store() -> AsyncMock:
-    mock = AsyncMock(spec=ISnapshotStore)
+def snapshot_store(mocker: MockerFixture) -> AsyncMock:
+    mock: AsyncMock = mocker.AsyncMock(spec=ISnapshotStore)
     mock.load.return_value = None
     return mock
 

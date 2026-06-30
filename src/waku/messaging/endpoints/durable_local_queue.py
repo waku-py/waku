@@ -16,7 +16,8 @@ from waku.messaging.inbox._destination import handler_destination
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 from waku.messaging.partition import resolve_group_id
-from waku.messaging.transport.serialization import IEnvelopeSerializer
+from waku.messaging.transport.decomposition import encode_metadata, encode_payload
+from waku.serialization.codec import PayloadCodec
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -129,8 +130,9 @@ class DurableLocalQueueEndpoint(Endpoint):
         group_id = resolve_group_id(envelope, self._partition_by)  # partition resolved; sequence deferred
         async with unit_of_work_scope(self._container) as write_scope:
             inbox = await write_scope.get(IInboxStore)
-            serializer = await write_scope.get(IEnvelopeSerializer)
-            payload = serializer.serialize(envelope)
+            codec = await write_scope.get(PayloadCodec)
+            payload = encode_payload(envelope, codec)
+            metadata_ = encode_metadata(envelope)
             for handler_type in handler_types:
                 # owner_id=None so the recovery drain (owner_id IS NULL) claims the promoted row.
                 await inbox.store_incoming(
@@ -145,6 +147,9 @@ class DurableLocalQueueEndpoint(Endpoint):
                         owner_id=None,
                         status=InboxStatus.SCHEDULED,
                         execution_time=scheduled,
+                        correlation_id=envelope.correlation_id,
+                        causation_id=envelope.causation_id,
+                        metadata_=metadata_,
                     )
                 )
 

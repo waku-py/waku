@@ -25,7 +25,7 @@ from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.pipeline.policy import BehaviorPolicyExtension, IBehaviorPolicy, Position, PositionedBehavior
 from waku.messaging.router import route, route_module
 from waku.messaging.sending import SendingFailurePolicy
-from waku.messaging.transport import IEnvelopeSerializer, ITransport
+from waku.messaging.transport import ITransport
 
 __all__ = [
     'BehaviorPolicyExtension',
@@ -40,7 +40,6 @@ __all__ = [
     'ExecutionOutcome',
     'IBehaviorPolicy',
     'IDeadLetterStore',
-    'IEnvelopeSerializer',
     'IEvent',
     'IInboxStore',
     'IMessage',

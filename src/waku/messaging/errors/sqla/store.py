@@ -41,6 +41,9 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
             retry_count=entry.retry_count,
             status=entry.status,
             replay_count=entry.replay_count,
+            message_id=entry.message_id,
+            group_id=entry.group_id,
+            metadata_=entry.metadata_,
         )
         await self._session.execute(stmt)
 
@@ -131,5 +134,8 @@ def _row_to_model(row: Any) -> DeadLetterEntry:
         retry_count=row.retry_count,
         status=DeadLetterStatus(row.status),
         replay_count=row.replay_count,
+        message_id=row.message_id,
+        group_id=row.group_id,
+        metadata_=row.metadata_,
         created_at=row.created_at,
     )

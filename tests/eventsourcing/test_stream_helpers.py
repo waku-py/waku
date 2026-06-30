@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -10,10 +10,16 @@ from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import StreamNotFoundError, StreamTooLargeError
 from waku.eventsourcing.store.interfaces import IEventStore
 
+if TYPE_CHECKING:
+    from unittest.mock import AsyncMock
+
+    from pytest_mock import MockerFixture
+
 
 @pytest.fixture
-def event_store() -> AsyncMock:
-    return AsyncMock(spec=IEventStore)
+def event_store(mocker: MockerFixture) -> AsyncMock:
+    mock: AsyncMock = mocker.AsyncMock(spec=IEventStore)
+    return mock
 
 
 @pytest.fixture
@@ -21,8 +27,12 @@ def stream_id() -> StreamId:
     return StreamId.for_aggregate('TestAggregate', 'agg-1')
 
 
-async def test_returns_stored_events(event_store: AsyncMock, stream_id: StreamId) -> None:
-    sentinel = [AsyncMock(spec=StoredEvent)]
+async def test_returns_stored_events(
+    mocker: MockerFixture,
+    event_store: AsyncMock,
+    stream_id: StreamId,
+) -> None:
+    sentinel = [mocker.AsyncMock(spec=StoredEvent)]
     event_store.read_stream.return_value = sentinel
 
     result = await read_aggregate_stream(
@@ -50,10 +60,11 @@ async def test_returns_empty_list_on_stream_not_found(
 
 
 async def test_raises_stream_too_large_when_exceeding_max_length(
+    mocker: MockerFixture,
     event_store: AsyncMock,
     stream_id: StreamId,
 ) -> None:
-    event_store.read_stream.return_value = [AsyncMock()] * 4
+    event_store.read_stream.return_value = [mocker.AsyncMock()] * 4
 
     with pytest.raises(StreamTooLargeError) as exc_info:
         await read_aggregate_stream(
@@ -113,10 +124,11 @@ async def test_forwards_start_param_to_event_store(
 
 
 async def test_start_with_max_stream_length_passes_both(
+    mocker: MockerFixture,
     event_store: AsyncMock,
     stream_id: StreamId,
 ) -> None:
-    event_store.read_stream.return_value = [AsyncMock()] * 2
+    event_store.read_stream.return_value = [mocker.AsyncMock()] * 2
 
     result = await read_aggregate_stream(
         event_store,
@@ -130,10 +142,11 @@ async def test_start_with_max_stream_length_passes_both(
 
 
 async def test_start_with_max_stream_length_raises_when_exceeded(
+    mocker: MockerFixture,
     event_store: AsyncMock,
     stream_id: StreamId,
 ) -> None:
-    event_store.read_stream.return_value = [AsyncMock()] * 4
+    event_store.read_stream.return_value = [mocker.AsyncMock()] * 4
 
     with pytest.raises(StreamTooLargeError) as exc_info:
         await read_aggregate_stream(
@@ -149,10 +162,11 @@ async def test_start_with_max_stream_length_raises_when_exceeded(
 
 
 async def test_succeeds_at_exactly_max_length(
+    mocker: MockerFixture,
     event_store: AsyncMock,
     stream_id: StreamId,
 ) -> None:
-    event_store.read_stream.return_value = [AsyncMock()] * 3
+    event_store.read_stream.return_value = [mocker.AsyncMock()] * 3
 
     result = await read_aggregate_stream(
         event_store,

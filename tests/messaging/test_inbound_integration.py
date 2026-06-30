@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import pytest
 from typing_extensions import override
@@ -10,6 +11,7 @@ faststream_rabbit = pytest.importorskip('faststream.rabbit')
 
 from faststream.rabbit import TestRabbitBroker
 
+from waku._internal.retort import default_retort  # noqa: PLC2701
 from waku.di import object_
 from waku.messaging import (
     InboundConfig,
@@ -23,12 +25,15 @@ from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.base import listen
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.models import InboxStatus
-from waku.messaging.transport.faststream.rabbitmq import FastStreamRabbitTransport
+from waku.messaging.transport.decomposition import encode_payload, envelope_metadata_of
+from waku.messaging.transport.faststream.rabbitmq import DefaultRabbitEnvelopeMapper, FastStreamRabbitTransport
+from waku.serialization.codec import PayloadCodec
+from waku.serialization.upcasting import UpcasterChain
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, make_envelope, make_serializer
+from tests.messaging.helpers import FakeUoW, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -48,7 +53,7 @@ class TestInboundIntegration:
                 observed.append(message.order_id)
 
         inbox = FakeInboxStore()
-        serializer = make_serializer(_OrderPlaced)
+        codec = PayloadCodec(default_retort, UpcasterChain({}))
         transport = FastStreamRabbitTransport(url='amqp://x')
 
         config = MessagingConfig(
@@ -59,6 +64,11 @@ class TestInboundIntegration:
         )
 
         envelope = make_envelope(_OrderPlaced(order_id='o-1'))
+        out = DefaultRabbitEnvelopeMapper().map_outgoing(
+            encode_payload(envelope, codec), envelope_metadata_of(envelope)
+        )
+        # Widen str-valued headers to the broker's FieldValue type at publish (matches the transport's own send()).
+        headers: dict[str, Any] = out.headers
 
         async with (
             TestRabbitBroker(transport._send_broker, transport._listen_broker),  # noqa: SLF001
@@ -68,7 +78,7 @@ class TestInboundIntegration:
                 providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
             ),
         ):
-            await transport._listen_broker.publish(serializer.serialize(envelope), 'orders')  # noqa: SLF001
+            await transport._listen_broker.publish(out.body, 'orders', headers=headers)  # noqa: SLF001
             await wait_until(lambda: observed == ['o-1'])
 
         entries = list(inbox.entries.values())
