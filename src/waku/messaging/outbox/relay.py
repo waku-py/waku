@@ -164,7 +164,8 @@ class OutboxRelay(PollingAgent):
         sender = registry.sender_for(message.destination)
         queue = split_destination(message.destination, default_scheme=registry.default_scheme)[1]
         metadata = wire_metadata_from_entry(message)
-        # Resolve with the full URI (not the split queue) — the override map is keyed by the configured ExternalEntry.uri.
+        # Resolve with the full URI (not the split queue) — the override map is keyed by the configured
+        # BrokerEndpointEntry.send.mapper source URI.
         mapper = registry.mapper_for(message.destination)
         await sender.send(message.payload, destination=queue, metadata=metadata, mapper=mapper)
         await store.mark_dispatched(message.id)

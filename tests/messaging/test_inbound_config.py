@@ -6,7 +6,7 @@ from typing_extensions import override
 from waku._internal.sentinel import MISSING  # noqa: PLC2701
 from waku.di import object_
 from waku.messaging.circuit_breaker import CircuitBreakerConfig
-from waku.messaging.config import InboundConfig, MessagingConfig
+from waku.messaging.config import MessagingConfig
 from waku.messaging.contracts.message import IMessage
 from waku.messaging.endpoints.base import listen
 from waku.messaging.exceptions import ImproperlyConfiguredError
@@ -56,42 +56,44 @@ def _partition_key(_message: IMessage) -> str:
 def test_listen_builds_entry_with_inherited_requeue() -> None:
     e = listen('orders')
     assert e.uri == 'orders'
-    assert e.max_requeue_attempts is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support
+    assert e.listen is not None
+    assert e.listen.max_requeue_attempts is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support
 
 
 def test_listen_builds_entry_with_explicit_requeue() -> None:
     e = listen('orders', max_requeue_attempts=3)
     assert e.uri == 'orders'
-    assert e.max_requeue_attempts == 3
+    assert e.listen is not None
+    assert e.listen.max_requeue_attempts == 3
 
 
 def test_listen_defaults_carry_no_backpressure_and_inherited_circuit_breaker() -> None:
     e = listen('orders')
-    assert e.backpressure is None
-    assert e.circuit_breaker is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support
+    assert e.listen is not None
+    assert e.listen.backpressure is None
+    assert e.listen.circuit_breaker is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support
 
 
 def test_listen_carries_backpressure_and_circuit_breaker() -> None:
     limits = BufferingLimits(high=100, low=20)
     breaker = CircuitBreakerConfig(minimum_throughput=1)
     e = listen('orders', backpressure=limits, circuit_breaker=breaker)
-    assert e.backpressure is limits
-    assert e.circuit_breaker is breaker
+    assert e.listen is not None
+    assert e.listen.backpressure is limits
+    assert e.listen.circuit_breaker is breaker
 
 
 async def test_consumer_boots_with_backpressure_and_circuit_breaker() -> None:
     inbox = FakeInboxStore()
     config = MessagingConfig(
+        endpoints=[
+            listen(
+                'orders',
+                backpressure=BufferingLimits(high=100, low=20),
+                circuit_breaker=CircuitBreakerConfig(minimum_throughput=1),
+            ),
+        ],
         inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
-        inbound=InboundConfig(
-            listeners=[
-                listen(
-                    'orders',
-                    backpressure=BufferingLimits(high=100, low=20),
-                    circuit_breaker=CircuitBreakerConfig(minimum_throughput=1),
-                ),
-            ],
-        ),
         transports={'rabbitmq': _StubTransport},
     )
     async with create_test_app(
@@ -101,29 +103,11 @@ async def test_consumer_boots_with_backpressure_and_circuit_breaker() -> None:
         pass  # wiring builds the listener gate + inbound breaker without error
 
 
-def test_inbound_without_inbox_raises() -> None:
-    config = MessagingConfig(
-        inbound=InboundConfig(listeners=[listen('q')]),
-        transports={'rabbitmq': _StubTransport},
-    )
-    with pytest.raises(ImproperlyConfiguredError, match='inbound listeners require inbox'):
-        MessagingModule.register(config)
-
-
-def test_inbound_with_no_listeners_raises() -> None:
-    config = MessagingConfig(
-        inbound=InboundConfig(listeners=[]),
-        transports={'rabbitmq': _StubTransport},
-    )
-    with pytest.raises(ImproperlyConfiguredError, match='at least one listener'):
-        MessagingModule.register(config)
-
-
 async def test_inbound_partition_by_without_allocator_raises_at_startup() -> None:
     inbox = FakeInboxStore()
     config = MessagingConfig(
+        endpoints=[listen('orders', partition_by=_partition_key)],
         inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
-        inbound=InboundConfig(listeners=[listen('orders', partition_by=_partition_key)]),
         transports={'rabbitmq': _StubTransport},
     )
     with pytest.raises(ImproperlyConfiguredError, match='ISequenceAllocator'):

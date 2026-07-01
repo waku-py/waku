@@ -677,7 +677,7 @@ class TestRelayMapperOverrideWiring:
     @staticmethod
     async def test_per_route_mapper_override_reaches_sender_send() -> None:
         # The critical end-to-end wiring proof:
-        # ExternalEntry.mapper → _build_transport_registry → TransportRegistry.mapper_for
+        # BrokerEndpointEntry.send.mapper → _build_transport_registry → TransportRegistry.mapper_for
         # → OutboxRelay._dispatch_message → RecordingTransport.send(mapper=override).
         # Observable via the 4th element of the recording tuple — not mock internals.
         override_mapper = _MarkerMapper()
@@ -697,7 +697,7 @@ class TestRelayMapperOverrideWiring:
 
     @staticmethod
     async def test_no_override_configured_sends_none_as_mapper() -> None:
-        # A route with NO ExternalEntry.mapper configured → registry.mapper_for returns None
+        # A route with NO BrokerEndpointEntry.send.mapper configured → registry.mapper_for returns None
         # → sender.send(mapper=None) so the transport falls back to its default.
         store, msg = _make_pending_store()
         transport = RecordingTransport()

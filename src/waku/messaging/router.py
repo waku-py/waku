@@ -9,7 +9,8 @@ if TYPE_CHECKING:
 
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.contracts.message import IMessage
-    from waku.messaging.endpoints.base import Endpoint, EndpointEntry
+    from waku.messaging.endpoints.base import Endpoint, LocalQueueEntry
+    from waku.messaging.endpoints.merge import MergedBrokerEndpoint
     from waku.modules import ModuleType
 
 HandlerSubscriptions: TypeAlias = 'Mapping[type[IMessage], frozenset[HandlerType]]'
@@ -17,7 +18,7 @@ HandlerSubscriptions: TypeAlias = 'Mapping[type[IMessage], frozenset[HandlerType
 
 @dataclass(frozen=True, slots=True)
 class RoutingTable:
-    entries: tuple[EndpointEntry, ...] = ()
+    entries: tuple[MergedBrokerEndpoint | LocalQueueEntry, ...] = ()
     type_routes: Mapping[type[IMessage], tuple[str, ...]] = field(default_factory=lambda: MappingProxyType({}))
     endpoint_subscriptions: Mapping[str, HandlerSubscriptions] = field(default_factory=lambda: MappingProxyType({}))
 

@@ -14,7 +14,6 @@ from faststream.rabbit import TestRabbitBroker
 from waku._internal.retort import default_retort  # noqa: PLC2701
 from waku.di import object_
 from waku.messaging import (
-    InboundConfig,
     InboxConfig,
     MessagingConfig,
     MessagingExtension,
@@ -57,8 +56,8 @@ class TestInboundIntegration:
         transport = FastStreamRabbitTransport(url='amqp://x')
 
         config = MessagingConfig(
+            endpoints=[listen('rabbitmq://orders')],
             inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
-            inbound=InboundConfig(listeners=[listen('rabbitmq://orders')]),
             transports={'rabbitmq': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )

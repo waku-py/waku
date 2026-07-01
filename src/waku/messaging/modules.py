@@ -35,10 +35,9 @@ from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.dispatcher import MessageDispatcher
 from waku.messaging.endpoints.base import (
+    BrokerEndpointEntry,
     Endpoint,
-    EndpointEntry,
     EndpointMode,
-    ExternalEntry,
     LocalQueueEntry,
 )
 from waku.messaging.endpoints.durable_inbox_receiver import DurableInboxReceiver, build_durable_inbox_receiver
@@ -47,6 +46,7 @@ from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.external import ExternalEndpoint
 from waku.messaging.endpoints.inline import InlineEndpoint
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
+from waku.messaging.endpoints.merge import MergedBrokerEndpoint, merge_broker_endpoints
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import policies_have_deferred_terminal, policies_need_dead_letter
@@ -94,7 +94,7 @@ if TYPE_CHECKING:
     from waku.application import WakuApplication
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.endpoints.base import InboundEntry
+    from waku.messaging.endpoints.aspects import ListenAspect
     from waku.messaging.transport.interfaces import Subscription
     from waku.modules import ModuleMetadata, ModuleType
 
@@ -163,7 +163,7 @@ class MessagingModule:
 
     @staticmethod
     def _validate_config(config: MessagingConfig) -> None:
-        has_external = any(isinstance(e, ExternalEntry) for e in config.endpoints)
+        has_external = any(isinstance(e, BrokerEndpointEntry) and e.send is not None for e in config.endpoints)
         if has_external and config.outbox is None:
             msg = 'external_endpoint requires outbox in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
@@ -171,14 +171,10 @@ class MessagingModule:
         if _has_durable_local_queue(config) and config.inbox is None:
             msg = 'EndpointMode.DURABLE on a local_queue entry requires inbox in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
-        if config.inbound is not None and not config.inbound.listeners:
-            msg = 'inbound config requires at least one listener'
-            raise ImproperlyConfiguredError(msg)
-        if config.inbound is not None and config.inbox is None:
-            msg = 'inbound listeners require inbox in MessagingConfig'
-            raise ImproperlyConfiguredError(msg)
         _validate_transport_schemes(config)
         _reject_inline_deferred_terminal(config)
+        _reject_partition_by_on_non_sequenced_local(config)
+        _reject_local_broker_uri_collision(config)
 
     @staticmethod
     def _infrastructure_providers(config: MessagingConfig) -> _HandlerProviders:
@@ -264,8 +260,8 @@ def _resolve_circuit_breaker(entry: LocalQueueEntry, config: MessagingConfig) ->
     return entry.circuit_breaker if entry.circuit_breaker is not MISSING else config.default_circuit_breaker  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows  # MISSING inherits default; None opts out
 
 
-def _resolve_inbound_circuit_breaker(entry: 'InboundEntry', config: MessagingConfig) -> 'CircuitBreakerConfig | None':
-    return entry.circuit_breaker if entry.circuit_breaker is not MISSING else config.default_circuit_breaker  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows  # MISSING inherits default; None opts out
+def _resolve_inbound_circuit_breaker(listen: 'ListenAspect', config: MessagingConfig) -> 'CircuitBreakerConfig | None':
+    return listen.circuit_breaker if listen.circuit_breaker is not MISSING else config.default_circuit_breaker  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows  # MISSING inherits default; None opts out
 
 
 def _resolve_max_requeue_attempts(entry: LocalQueueEntry, config: MessagingConfig) -> int:
@@ -280,6 +276,33 @@ def _reject_inline_deferred_terminal(config: MessagingConfig) -> None:
         if isinstance(entry, LocalQueueEntry) and _effective_mode(entry, config) is EndpointMode.INLINE:
             msg = f'INLINE endpoint {entry.uri!r} cannot use a requeue/pause error policy; use BUFFERED or DURABLE'
             raise ImproperlyConfiguredError(msg)
+
+
+def _reject_partition_by_on_non_sequenced_local(config: MessagingConfig) -> None:
+    for entry in config.endpoints:
+        if (
+            isinstance(entry, LocalQueueEntry)
+            and entry.partition_by is not None
+            and _effective_mode(entry, config) is not EndpointMode.DURABLE
+        ):
+            msg = (
+                f'local_queue {entry.uri!r} sets partition_by but resolves to '
+                f'{_effective_mode(entry, config).value}; partition_by is only honored on DURABLE local queues '
+                '(and broker endpoints) — use EndpointMode.DURABLE or remove partition_by'
+            )
+            raise ImproperlyConfiguredError(msg)
+
+
+def _reject_local_broker_uri_collision(config: MessagingConfig) -> None:
+    broker_uris = {entry.uri for entry in config.endpoints if isinstance(entry, BrokerEndpointEntry)}
+    local_uris = {entry.uri for entry in config.endpoints if isinstance(entry, LocalQueueEntry)}
+    collision = broker_uris & local_uris
+    if collision:
+        msg = (
+            f'URI(s) {sorted(collision)} declared as BOTH a local_queue and a broker endpoint; '
+            'local and broker endpoints must not share a URI — use distinct scheme namespaces'
+        )
+        raise ImproperlyConfiguredError(msg)
 
 
 def _reject_inline_per_handler_deferred_terminal(config: MessagingConfig, routing_table: RoutingTable) -> None:
@@ -300,9 +323,7 @@ def _reject_inline_per_handler_deferred_terminal(config: MessagingConfig, routin
 def _validate_transport_schemes(config: MessagingConfig) -> None:
     # config.transports holds builders at this point — check keys directly; instances are built later.
     default_scheme = resolve_default_scheme(config.transports)
-    referenced = [entry.uri for entry in config.endpoints if isinstance(entry, ExternalEntry)]
-    if config.inbound is not None:
-        referenced.extend(listener.uri for listener in config.inbound.listeners)
+    referenced = [entry.uri for entry in config.endpoints if isinstance(entry, BrokerEndpointEntry)]
     for uri in referenced:
         scheme, _ = split_destination(uri, default_scheme=default_scheme)
         if scheme not in config.transports:
@@ -320,20 +341,26 @@ def _has_durable_local_queue(config: MessagingConfig) -> bool:
 def _requires_sequence_allocator(config: MessagingConfig) -> bool:
     # Only ExternalEndpoint (outbox) and DURABLE local queue use ISequenceAllocator; BUFFERED/INLINE ignore partition_by.
     for entry in config.endpoints:
-        if entry.partition_by is None:
-            continue
-        if isinstance(entry, ExternalEntry):
+        # broker endpoints always honor partition_by (outbox/inbox)
+        if isinstance(entry, BrokerEndpointEntry) and entry.partition_by is not MISSING:  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
             return True
-        if isinstance(entry, LocalQueueEntry) and _effective_mode(entry, config) == EndpointMode.DURABLE:
+        if (
+            isinstance(entry, LocalQueueEntry)
+            and entry.partition_by is not None
+            and _effective_mode(entry, config) == EndpointMode.DURABLE
+        ):
             return True
-    return config.inbound is not None and any(e.partition_by is not None for e in config.inbound.listeners)
+    return False
 
 
-def _build_sending_failure_registry(config: MessagingConfig) -> SendingFailurePolicyRegistry:
+def _build_sending_failure_registry(
+    merged: tuple[MergedBrokerEndpoint, ...],
+    config: MessagingConfig,
+) -> SendingFailurePolicyRegistry:
     destination_policies = {
-        entry.uri: entry.sending_failure_policies
-        for entry in config.endpoints
-        if isinstance(entry, ExternalEntry) and entry.sending_failure_policies
+        ep.uri: ep.send.sending_failure_policies
+        for ep in merged
+        if ep.send is not None and ep.send.sending_failure_policies
     }
     synthesized = (build_relay_default_policy(config.outbox.relay),) if config.outbox is not None else ()
     return SendingFailurePolicyRegistry(
@@ -342,14 +369,10 @@ def _build_sending_failure_registry(config: MessagingConfig) -> SendingFailurePo
     )
 
 
-def _build_transport_registry(config: MessagingConfig) -> TransportRegistry:
+def _build_transport_registry(config: MessagingConfig, merged: tuple[MergedBrokerEndpoint, ...]) -> TransportRegistry:
     # Factory function so dishka introspects the signature (not TransportRegistry's ForwardRef __init__).
     transports = {scheme: build() for scheme, build in config.transports.items()}
-    external_mappers = {
-        entry.uri: entry.mapper
-        for entry in config.endpoints
-        if isinstance(entry, ExternalEntry) and entry.mapper is not None
-    }
+    external_mappers = {ep.uri: ep.mapper for ep in merged if ep.mapper is not None}
     return TransportRegistry(transports, external_mappers=external_mappers)
 
 
@@ -378,6 +401,7 @@ def _build_router(
     endpoints_by_uri = {
         entry.uri: _create_endpoint(entry, routing_table, container, evaluator, invoker, config, now)
         for entry in routing_table.entries
+        if isinstance(entry, LocalQueueEntry) or entry.send is not None
     }
     return MessageRouter(
         routes={
@@ -389,7 +413,7 @@ def _build_router(
 
 
 def _create_endpoint(
-    entry: EndpointEntry,
+    entry: MergedBrokerEndpoint | LocalQueueEntry,
     routing_table: RoutingTable,
     container: AsyncContainer,
     evaluator: ErrorPolicyEvaluator,
@@ -397,7 +421,7 @@ def _create_endpoint(
     config: MessagingConfig,
     now: Now,
 ) -> Endpoint:
-    if isinstance(entry, ExternalEntry):
+    if isinstance(entry, MergedBrokerEndpoint):
         return ExternalEndpoint(uri=entry.uri, partition_by=entry.partition_by)
 
     executor = EndpointExecutor(
@@ -495,8 +519,11 @@ class MessageRegistryAggregator(RegistryAggregator['MessagingExtension', Message
         registry.add_provider(owning_module, object_(aggregated))
         self._register_behavior_plan(registry, owning_module, aggregated)
 
+        merged = merge_broker_endpoints(self._config.endpoints, inbox_configured=self._config.inbox is not None)
+        registry.add_provider(owning_module, object_(merged, provided_type=tuple[MergedBrokerEndpoint, ...]))
         routing_table = RoutingTableBuilder(
             self._config,
+            merged_endpoints=merged,
             aggregated=aggregated,
             module_routing_map=self._module_routing_map,
         ).build()
@@ -522,7 +549,7 @@ class MessageRegistryAggregator(RegistryAggregator['MessagingExtension', Message
         evaluator = ErrorPolicyEvaluator(registry=error_policy_registry)
         registry.add_provider(owning_module, object_(evaluator))
 
-        sending_registry = _build_sending_failure_registry(self._config)
+        sending_registry = _build_sending_failure_registry(merged, self._config)
         registry.add_provider(owning_module, object_(sending_registry))
         registry.add_provider(owning_module, object_(SendingFailureEvaluator(registry=sending_registry)))
 
@@ -742,8 +769,9 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
 
     async def _wire_listeners(self, app: 'WakuApplication', registry: TransportRegistry) -> None:  # noqa: PLR0914
         inbox = self._config.inbox
-        if self._config.inbound is None or inbox is None:
+        if inbox is None:
             return
+        merged = await app.container.get(tuple[MergedBrokerEndpoint, ...])
         codec = await app.container.get(PayloadCodec)
         type_registry = await app.container.get(MessageTypeRegistry)
         message_registry = await app.container.get(MessageRegistry)
@@ -751,8 +779,10 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
         invoker = await app.container.get(HandlerPipelineInvoker)
         messaging_config = await app.container.get(MessagingConfig)
         now = await app.container.get(Now)
-        for entry in self._config.inbound.listeners:
-            uri = entry.uri
+        for ep in merged:
+            if ep.listen is None:
+                continue
+            uri = ep.uri
             executor = EndpointExecutor(
                 container=app.container,
                 evaluator=evaluator,
@@ -763,8 +793,8 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
             )
             max_requeue = (
                 self._config.default_max_requeue_attempts
-                if entry.max_requeue_attempts is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
-                else entry.max_requeue_attempts
+                if ep.listen.max_requeue_attempts is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+                else ep.listen.max_requeue_attempts
             )
             receiver = build_durable_inbox_receiver(
                 uri=uri,
@@ -772,7 +802,7 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
                 executor=executor,
                 inbox_owner_id=inbox.resolve_owner_id(),
                 keep_after_handled=inbox.keep_after_handled,
-                partition_by=entry.partition_by,
+                partition_by=ep.partition_by,
                 max_requeue_attempts=max_requeue,
                 circuit_breaker_config=None,
             )
@@ -780,15 +810,19 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
                 codec=codec, type_registry=type_registry, registry=message_registry, receiver=receiver
             )
             queue = split_destination(uri, default_scheme=registry.default_scheme)[1]
-            subscription = registry.listener_for(uri).subscribe(queue, listener.consume, mapper=entry.mapper)
-            backpressure = self._wire_listener_backpressure(entry, messaging_config, subscription, listener, receiver)
+            subscription = registry.listener_for(uri).subscribe(
+                queue, listener.consume, mapper=registry.mapper_for(uri)
+            )
+            backpressure = self._wire_listener_backpressure(
+                ep.listen, messaging_config, subscription, listener, receiver
+            )
             # start() last: the on_drain low-watermark hook needs the gate; nothing flows until transport.start().
             await receiver.start(on_drain=backpressure.observe_depth if backpressure is not None else None)
             self._receivers.append(receiver)
 
     @staticmethod
     def _wire_listener_backpressure(
-        entry: 'InboundEntry',
+        listen: 'ListenAspect',
         config: MessagingConfig,
         subscription: 'Subscription',
         listener: InboundListener,
@@ -799,8 +833,8 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
         CB-only, watermark-only, and both are all valid: the gate is the CB's pause target in every case, and
         ``observe_depth`` no-ops when no watermark is set.
         """
-        limits = entry.backpressure or config.default_backpressure
-        cb_config = _resolve_inbound_circuit_breaker(entry, config)
+        limits = listen.backpressure or config.default_backpressure
+        cb_config = _resolve_inbound_circuit_breaker(listen, config)
         if limits is None and cb_config is None:
             return None
         backpressure = ListenerBackpressure(subscription=subscription, limits=limits)

@@ -7,15 +7,23 @@ from uuid import UUID, uuid4
 
 from typing_extensions import override
 
+from waku.di import object_
+from waku.messaging import EventHandler, MessagingConfig, MessagingExtension, MessagingModule
+from waku.messaging.config import DeadLetterConfig, OutboxConfig
 from waku.messaging.contracts.event import IEvent
-from waku.messaging.endpoints.base import Endpoint
+from waku.messaging.endpoints.base import Endpoint, external_endpoint, listen
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.identity import MessageTypeRegistry
+from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.router import MessageRouter
 from waku.messaging.transport.decomposition import encode_metadata, encode_payload
+from waku.testing import create_test_app
+from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import RecordingDeadLetterStore, make_codec, make_envelope
+from tests.messaging.helpers import FakeUoW, RecordingDeadLetterStore, RecordingTransport, make_codec, make_envelope
+from tests.messaging.inbox.fake_store import FakeInboxStore
+from tests.messaging.outbox.fake_store import FakeOutboxStore
 
 if TYPE_CHECKING:
     from waku.di import AsyncContainer
@@ -25,6 +33,11 @@ if TYPE_CHECKING:
 @dataclass(frozen=True, slots=True)
 class _DlqEvent(IEvent):
     value: str
+
+
+class _DlqEventHandler(EventHandler[_DlqEvent]):
+    @override
+    async def handle(self, event: _DlqEvent, /) -> None: ...
 
 
 class _RecordingEndpoint(Endpoint):
@@ -130,6 +143,55 @@ async def test_replay_unknown_destination_marks_failed() -> None:
     assert len(store.failures) == 1
     assert store.failures[0][0] == entry.id
     assert 'local://gone' in store.failures[0][1]
+
+
+async def test_replay_bidirectional_endpoint_dispatches() -> None:
+    # A real bidirectional endpoint (external_endpoint + listen on the same URI) merges into
+    # ONE MergedBrokerEndpoint carrying both aspects. Runs the real _build_router send-filter
+    # (`isinstance(entry, LocalQueueEntry) or entry.send is not None`) through create_test_app:
+    # if the filter regressed to exclude listen+send endpoints, endpoint_for would return None
+    # and replay would mark the entry failed instead of dispatching.
+    envelope = make_envelope(_DlqEvent('hi'))
+    entry = _entry_for(envelope, destination='rabbitmq://orders')
+    dlq_store = _ReplayStore()
+    inbox_store = FakeInboxStore()
+    config = MessagingConfig(
+        endpoints=[external_endpoint('rabbitmq://orders'), listen('rabbitmq://orders')],
+        outbox=OutboxConfig(store=FakeOutboxStore),
+        inbox=InboxConfig(store=lambda: inbox_store, owner_id='test-node:1'),
+        dead_letter=DeadLetterConfig(store=lambda: dlq_store),
+        transports={'rabbitmq': RecordingTransport},
+    )
+
+    async with (
+        create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_DlqEventHandler)],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+        ) as app,
+        app.container() as scope,
+    ):
+        replayer = await scope.get(ReplayExecutor)
+
+        assert await replayer.replay(entry) is True
+
+    assert dlq_store.replayed == [entry.id]
+    assert dlq_store.failures == []
+
+
+async def test_replay_listen_only_endpoint_marks_failed() -> None:
+    # A listen-only endpoint (no send aspect) is excluded from router.endpoints by the
+    # send-filter in _build_router, so endpoint_for returns None here — not replayable.
+    envelope = make_envelope(_DlqEvent('hi'))
+    entry = _entry_for(envelope, destination='rabbitmq://orders')
+    store = _ReplayStore()
+    executor = _make_executor(store, endpoint=None)
+
+    assert await executor.replay(entry) is False
+    assert store.replayed == []
+    assert len(store.failures) == 1
+    assert store.failures[0][0] == entry.id
+    assert 'rabbitmq://orders' in store.failures[0][1]
 
 
 async def test_replay_dispatch_error_marks_failed() -> None:

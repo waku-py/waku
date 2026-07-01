@@ -16,7 +16,6 @@ from waku.messaging import (
     EventHandler,
     IEvent,
     IMessageBus,
-    InboundConfig,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
@@ -58,11 +57,10 @@ class TestTransportCollectionIntegration:
         transport = FastStreamRabbitTransport(url='amqp://x')
 
         config = MessagingConfig(
-            endpoints=[external_endpoint('rabbitmq://orders')],
+            endpoints=[external_endpoint('rabbitmq://orders'), listen('rabbitmq://orders')],
             routing=[route(_OrderPlaced).to('rabbitmq://orders')],
             outbox=OutboxConfig(store=lambda: outbox),
             inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
-            inbound=InboundConfig(listeners=[listen('rabbitmq://orders')]),
             transports={'rabbitmq': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )

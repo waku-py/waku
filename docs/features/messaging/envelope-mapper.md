@@ -162,17 +162,17 @@ Pass `mapper=` to `kafka_transport` or `rabbit_transport`. Every subscriber and 
 that transport uses the mapper unless overridden at the endpoint level.
 
 ```python linenums="1"
-from waku.messaging import InboundConfig, MessagingConfig, MessagingModule, listen
+from waku.messaging import MessagingConfig, MessagingModule, listen
 from waku.messaging.transport.faststream.kafka import kafka_transport
 
 MessagingModule.register(
     MessagingConfig(
+        endpoints=[listen('kafka://orders')],
         transports={'kafka': kafka_transport(
             'localhost:9092',
             consumer_group='orders-svc',
             mapper=LegacyKafkaMapper(),
         )},
-        inbound=InboundConfig(listeners=[listen('kafka://orders')]),
     )
 )
 ```
@@ -183,7 +183,7 @@ Pass `mapper=` to `listen()` to override the transport-level default for a singl
 Useful when one service consumes from multiple topics with different wire formats.
 
 ```python linenums="1"
-from waku.messaging import InboundConfig, MessagingConfig, MessagingModule, listen
+from waku.messaging import MessagingConfig, MessagingModule, listen
 from waku.messaging.transport.faststream.kafka import (
     DefaultKafkaEnvelopeMapper,
     kafka_transport,
@@ -191,18 +191,18 @@ from waku.messaging.transport.faststream.kafka import (
 
 MessagingModule.register(
     MessagingConfig(
-        transports={'kafka': kafka_transport(
-            'localhost:9092',
-            consumer_group='orders-svc',
-            mapper=LegacyKafkaMapper(),         # default for all listeners
-        )},
-        inbound=InboundConfig(listeners=[
+        endpoints=[
             listen('kafka://orders'),            # uses LegacyKafkaMapper
             listen(                              # overrides to Wolverine format
                 'kafka://internal-events',
                 mapper=DefaultKafkaEnvelopeMapper(),
             ),
-        ]),
+        ],
+        transports={'kafka': kafka_transport(
+            'localhost:9092',
+            consumer_group='orders-svc',
+            mapper=LegacyKafkaMapper(),         # default for all listeners
+        )},
     )
 )
 ```

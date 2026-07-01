@@ -18,7 +18,6 @@ from typing_extensions import override
 from waku._internal.retort import default_retort  # noqa: PLC2701
 from waku.di import object_
 from waku.messaging import (
-    InboundConfig,
     InboxConfig,
     MessagingConfig,
     MessagingExtension,
@@ -44,7 +43,7 @@ from tests.messaging.helpers import FakeUoW, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
-    from waku.messaging.endpoints.base import InboundEntry
+    from waku.messaging.endpoints.base import BrokerEndpointEntry
     from waku.messaging.transport.inbound import ConsumeCallback
     from waku.messaging.transport.interfaces import EnvelopeMetadata
 
@@ -107,10 +106,10 @@ class _InProcessTransport(ITransport):
         return await self._on_message(payload, metadata)
 
 
-def _config(transport: _InProcessTransport, *, inbox: FakeInboxStore, listener: InboundEntry) -> MessagingConfig:
+def _config(transport: _InProcessTransport, *, inbox: FakeInboxStore, listener: BrokerEndpointEntry) -> MessagingConfig:
     return MessagingConfig(
+        endpoints=[listener],
         inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
-        inbound=InboundConfig(listeners=[listener]),
         transports={'rabbitmq': lambda: transport},
         global_pipeline_behaviors=[TransactionalBehavior],
     )

@@ -5,7 +5,8 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from waku.messaging.endpoints.base import DEFAULT_ENDPOINT_URI, local_queue
+from waku.messaging.endpoints.base import DEFAULT_ENDPOINT_URI, LocalQueueEntry, local_queue
+from waku.messaging.endpoints.merge import MergedBrokerEndpoint
 from waku.messaging.exceptions import ImproperlyConfiguredError
 from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor, RoutingTable
 
@@ -13,7 +14,6 @@ if TYPE_CHECKING:
     from waku.messaging.config import MessagingConfig
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.contracts.message import IMessage
-    from waku.messaging.endpoints.base import EndpointEntry
     from waku.messaging.registry import MessageRegistry
     from waku.modules import ModuleType
 
@@ -29,6 +29,7 @@ class RoutingTableBuilder:
     __slots__ = (
         '_config',
         '_endpoint_handlers',
+        '_merged_endpoints',
         '_module_routing_map',
         '_per_type_overrides',
         '_registry',
@@ -39,10 +40,12 @@ class RoutingTableBuilder:
         self,
         config: MessagingConfig,
         *,
+        merged_endpoints: tuple[MergedBrokerEndpoint, ...] = (),
         aggregated: MessageRegistry,
         module_routing_map: ModuleRoutingMap,
     ) -> None:
         self._config = config
+        self._merged_endpoints = merged_endpoints
         self._registry = aggregated
         self._module_routing_map = module_routing_map
         self._type_routes: defaultdict[type[IMessage], list[str]] = defaultdict(list)
@@ -58,10 +61,14 @@ class RoutingTableBuilder:
         self._ensure_default_endpoint(endpoints)
         return self._assemble(endpoints)
 
-    def _collect_endpoint_entries(self) -> dict[str, EndpointEntry]:
-        return {entry.uri: entry for entry in self._config.endpoints}
+    def _collect_endpoint_entries(self) -> dict[str, MergedBrokerEndpoint | LocalQueueEntry]:
+        entries: dict[str, MergedBrokerEndpoint | LocalQueueEntry] = {ep.uri: ep for ep in self._merged_endpoints}
+        for entry in self._config.endpoints:
+            if isinstance(entry, LocalQueueEntry):
+                entries[entry.uri] = entry
+        return entries
 
-    def _apply_routes(self, endpoints: Mapping[str, EndpointEntry]) -> None:
+    def _apply_routes(self, endpoints: Mapping[str, MergedBrokerEndpoint | LocalQueueEntry]) -> None:
         per_type: list[RouteDescriptor] = []
         module_level: list[ModuleRouteDescriptor] = []
 
@@ -116,14 +123,14 @@ class RoutingTableBuilder:
             routed.update(ep_handlers.get(msg_type, set()))
         return routed
 
-    def _ensure_default_endpoint(self, endpoints: dict[str, EndpointEntry]) -> None:
+    def _ensure_default_endpoint(self, endpoints: dict[str, MergedBrokerEndpoint | LocalQueueEntry]) -> None:
         if DEFAULT_ENDPOINT_URI in endpoints:
             return
         needs_default = any(DEFAULT_ENDPOINT_URI in uris for uris in self._type_routes.values())
         if needs_default:
             endpoints[DEFAULT_ENDPOINT_URI] = local_queue(DEFAULT_ENDPOINT_URI)
 
-    def _assemble(self, endpoints: Mapping[str, EndpointEntry]) -> RoutingTable:
+    def _assemble(self, endpoints: Mapping[str, MergedBrokerEndpoint | LocalQueueEntry]) -> RoutingTable:
         type_routes = {msg_type: tuple(dict.fromkeys(uris)) for msg_type, uris in self._type_routes.items()}
 
         endpoint_subscriptions: dict[str, dict[type[IMessage], frozenset[HandlerType]]] = {}
@@ -139,7 +146,14 @@ class RoutingTableBuilder:
         )
 
     @staticmethod
-    def _validate_endpoint_uri(uri: str, known: Mapping[str, EndpointEntry]) -> None:
+    def _validate_endpoint_uri(uri: str, known: Mapping[str, MergedBrokerEndpoint | LocalQueueEntry]) -> None:
         if uri not in known:
             msg = f"Route references unknown endpoint URI '{uri}'. Known endpoints: {sorted(known)}"
+            raise ImproperlyConfiguredError(msg)
+        entry = known[uri]
+        if isinstance(entry, MergedBrokerEndpoint) and entry.send is None:
+            msg = (
+                f"Route targets '{uri}', a listen-only endpoint (no send aspect); cannot dispatch to it — "
+                'declare external_endpoint(...) for this URI or route elsewhere'
+            )
             raise ImproperlyConfiguredError(msg)

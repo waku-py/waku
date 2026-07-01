@@ -78,8 +78,9 @@ class TransportRegistry:
     def mapper_for(self, uri: str) -> IEnvelopeMapper[Any, Any] | None:
         """Return the per-route mapper override for *uri*, or ``None`` if none is configured.
 
-        Direct dict lookup — ``message.destination`` is byte-identical to the configured ``ExternalEntry.uri``
-        (the outbox writes ``destination=endpoint.uri`` verbatim; do NOT normalise or scheme-split here).
+        Direct dict lookup — ``message.destination`` is byte-identical to the configured
+        ``BrokerEndpointEntry.uri`` (the outbox writes ``destination=endpoint.uri`` verbatim; do NOT
+        normalise or scheme-split here).
         """
         return self._external_mappers.get(uri)
 

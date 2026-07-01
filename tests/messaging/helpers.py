@@ -206,6 +206,7 @@ class RecordingTransport(ITransport):
     def __init__(self) -> None:
         self.sent: list[tuple[dict[str, Any], str, EnvelopeMetadata, IEnvelopeMapper[Any, Any] | None]] = []
         self.sent_event = anyio.Event()
+        self.subscribed: list[tuple[str, ConsumeCallback, IEnvelopeMapper[Any, Any] | None]] = []
 
     @override
     async def send(
@@ -226,6 +227,7 @@ class RecordingTransport(ITransport):
         on_message: ConsumeCallback,
         mapper: IEnvelopeMapper[Any, Any] | None = None,
     ) -> Subscription:
+        self.subscribed.append((queue, on_message, mapper))
         return StubSubscription()
 
     @override

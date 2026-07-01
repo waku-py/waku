@@ -10,9 +10,11 @@ from typing_extensions import override
 from waku.di import is_registered, object_
 from waku.messaging import (
     CallNext,
+    EndpointMode,
     EventHandler,
     IEvent,
     IMessageBus,
+    InboxConfig,
     IPipelineBehavior,
     IRequest,
     MessageT,
@@ -26,7 +28,7 @@ from waku.messaging import (
 )
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import get_message_context
-from waku.messaging.endpoints.base import external_endpoint, local_queue
+from waku.messaging.endpoints.base import external_endpoint, listen, local_queue
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.replay import ReplayExecutor
@@ -37,12 +39,20 @@ from waku.messaging.exceptions import (
     NoRouteError,
 )
 from waku.messaging.modules import DeadLetterLifecycleExtension
+from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.pipeline.policy import BehaviorPlan
 from waku.messaging.registry import MessageRegistry
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, RecordingDeadLetterStore, RecordingTransport, order_id_partition
+from tests.messaging.helpers import (
+    FakeUoW,
+    RecordingAllocator,
+    RecordingDeadLetterStore,
+    RecordingTransport,
+    order_id_partition,
+)
+from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import FakeOutboxStore
 
 if TYPE_CHECKING:
@@ -464,13 +474,81 @@ class TestMessagingConfigValidation:
                 pass  # pragma: no cover
 
     @staticmethod
-    async def test_buffered_local_queue_partition_by_does_not_require_allocator() -> None:
-        # partition_by on a BUFFERED (in-memory) local queue is inert — no allocator is consulted, so
-        # the guard must NOT fire.
+    def test_partition_by_on_buffered_local_queue_raises() -> None:
         config = MessagingConfig(
-            endpoints=[local_queue('q://orders', partition_by=order_id_partition)],
+            endpoints=[local_queue('q://orders', mode=EndpointMode.BUFFERED, partition_by=order_id_partition)],
         )
-        async with create_test_app(imports=[MessagingModule.register(config)]):
+        with pytest.raises(ImproperlyConfiguredError, match='partition_by'):
+            MessagingModule.register(config)
+
+    @staticmethod
+    def test_partition_by_on_inline_local_queue_raises() -> None:
+        config = MessagingConfig(
+            endpoints=[local_queue('q://orders', mode=EndpointMode.INLINE, partition_by=order_id_partition)],
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='partition_by'):
+            MessagingModule.register(config)
+
+    @staticmethod
+    async def test_partition_by_on_durable_local_queue_does_not_raise() -> None:
+        inbox = FakeInboxStore()
+        config = MessagingConfig(
+            endpoints=[local_queue('q://orders', mode=EndpointMode.DURABLE, partition_by=order_id_partition)],
+            inbox=InboxConfig(store=lambda: inbox),
+            global_pipeline_behaviors=[TransactionalBehavior],
+        )
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+            ],
+        ):
+            pass
+
+    @staticmethod
+    async def test_partition_by_on_broker_endpoint_does_not_raise_local_reject() -> None:
+        # The local-only reject must not fire for broker endpoints; ISequenceAllocator is registered
+        # so the (separate) allocator-presence guard is satisfied too.
+        config = MessagingConfig(
+            endpoints=[external_endpoint('ext://orders', partition_by=order_id_partition)],
+            outbox=OutboxConfig(store=FakeOutboxStore),
+            transports={'ext': RecordingTransport},
+            global_pipeline_behaviors=[TransactionalBehavior],
+        )
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+            ],
+        ):
+            pass
+
+    @staticmethod
+    def test_local_broker_uri_collision_raises() -> None:
+        inbox = FakeInboxStore()
+        config = MessagingConfig(
+            endpoints=[local_queue('orders'), listen('orders')],
+            inbox=InboxConfig(store=lambda: inbox),
+            transports={'orders': RecordingTransport},
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='must not share a URI'):
+            MessagingModule.register(config)
+
+    @staticmethod
+    async def test_local_broker_distinct_uri_namespaces_does_not_raise() -> None:
+        inbox = FakeInboxStore()
+        config = MessagingConfig(
+            endpoints=[local_queue('local://orders'), listen('rabbitmq://orders')],
+            inbox=InboxConfig(store=lambda: inbox),
+            transports={'rabbitmq': RecordingTransport},
+            global_pipeline_behaviors=[TransactionalBehavior],
+        )
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+        ):
             pass
 
     @staticmethod

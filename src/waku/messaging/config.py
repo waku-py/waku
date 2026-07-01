@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.identity import MessageIdentity
     from waku.messaging.contracts.message import IMessage
     from waku.messaging.contracts.pipeline import IPipelineBehavior
-    from waku.messaging.endpoints.base import EndpointEntry, InboundEntry
+    from waku.messaging.endpoints.base import EndpointEntry
     from waku.messaging.errors.dead_letter import IDeadLetterStore
     from waku.messaging.errors.policy import ErrorPolicy
     from waku.messaging.inbox.backpressure import BufferingLimits
@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     'DeadLetterConfig',
-    'InboundConfig',
     'MessagingConfig',
     'OutboxConfig',
 ]
@@ -37,11 +36,6 @@ __all__ = [
 class OutboxConfig:
     store: type[IOutboxStore] | Callable[..., IOutboxStore]
     relay: OutboxRelayConfig = OutboxRelayConfig()  # noqa: RUF009
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class InboundConfig:
-    listeners: Sequence[InboundEntry] = ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -79,7 +73,6 @@ class MessagingConfig:
     dead_letter: DeadLetterConfig | None = None
     outbox: OutboxConfig | None = None
     inbox: InboxConfig | None = None
-    inbound: InboundConfig | None = None
     default_circuit_breaker: CircuitBreakerConfig | None = None
     """Fallback per-endpoint circuit-breaker config; an endpoint's own breaker shadows this."""
     default_backpressure: BufferingLimits | None = None

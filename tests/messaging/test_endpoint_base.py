@@ -7,15 +7,14 @@ from typing import TYPE_CHECKING, Any
 from waku._internal.sentinel import MISSING  # noqa: PLC2701
 from waku.messaging.circuit_breaker import CircuitBreakerConfig
 from waku.messaging.endpoints.base import (
+    BrokerEndpointEntry,
     EndpointMode,
-    ExternalEntry,
-    InboundEntry,
     LocalQueueEntry,
     external_endpoint,
     listen,
     local_queue,
 )
-from waku.messaging.sending import SendingFailurePolicy
+from waku.messaging.inbox.backpressure import BufferingLimits
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper
 
 if TYPE_CHECKING:
@@ -44,8 +43,9 @@ class TestEndpointEntryFactories:
     @staticmethod
     def test_external_endpoint_creates_entry() -> None:
         entry = external_endpoint('ext://bus')
-        assert isinstance(entry, ExternalEntry)
+        assert isinstance(entry, BrokerEndpointEntry)
         assert entry.uri == 'ext://bus'
+        assert entry.listen is None
 
 
 class TestLocalQueueNewFields:
@@ -100,39 +100,6 @@ class TestLocalQueueCircuitBreaker:
         assert local_queue('q').circuit_breaker is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support
 
 
-class TestExternalEntryPartitionBy:
-    @staticmethod
-    def test_default_partition_by_is_none() -> None:
-        entry = external_endpoint('ext://bus')
-        assert entry.partition_by is None
-
-    @staticmethod
-    def test_accepts_partition_by_callable() -> None:
-        def strategy(_: IMessage) -> str | None:
-            return 'account-42'  # pragma: no cover
-
-        entry = external_endpoint('ext://bus', partition_by=strategy)
-        assert entry.partition_by is strategy
-
-
-class TestExternalEntrySendingFailurePolicies:
-    @staticmethod
-    def test_default_sending_failure_policies_is_empty() -> None:
-        entry = external_endpoint('ext://bus')
-        assert entry.sending_failure_policies == ()
-
-    @staticmethod
-    def test_external_endpoint_carries_sending_failure_policies() -> None:
-        policy = (
-            SendingFailurePolicy
-            .on_exception(ConnectionError)
-            .retry_with_backoff(max_attempts=3)
-            .then_move_to_dead_letter()
-        )
-        entry = external_endpoint('amqp://orders', sending_failure_policies=[policy])
-        assert entry.sending_failure_policies == (policy,)
-
-
 class _StubMapper(IEnvelopeMapper[Any, Any]):
     def map_outgoing(self, payload: dict[str, Any], metadata: EnvelopeMetadata) -> Any:  # noqa: ARG002, PLR6301
         return payload
@@ -141,49 +108,53 @@ class _StubMapper(IEnvelopeMapper[Any, Any]):
         raise NotImplementedError
 
 
-class TestInboundEntryMapper:
+class TestListenBuildsBrokerEndpointEntry:
     @staticmethod
-    def test_inbound_entry_mapper_defaults_to_none() -> None:
-        entry = InboundEntry(uri='amqp://orders')
-        assert entry.mapper is None
-
-    @staticmethod
-    def test_inbound_entry_accepts_mapper() -> None:
-        stub = _StubMapper()
-        entry = InboundEntry(uri='amqp://orders', mapper=stub)
-        assert entry.mapper is stub
-
-    @staticmethod
-    def test_listen_mapper_defaults_to_none() -> None:
+    def test_listen_creates_broker_endpoint_entry_with_listen_aspect() -> None:
         entry = listen('amqp://orders')
-        assert entry.mapper is None
+        assert isinstance(entry, BrokerEndpointEntry)
+        assert entry.listen is not None
+        assert entry.send is None
 
     @staticmethod
-    def test_listen_carries_mapper_to_inbound_entry() -> None:
+    def test_listen_mapper_defaults_to_missing() -> None:
+        entry = listen('amqp://orders')
+        assert entry.mapper is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support
+
+    @staticmethod
+    def test_listen_carries_mapper_to_broker_endpoint_entry() -> None:
         stub = _StubMapper()
         entry = listen('amqp://orders', mapper=stub)
         assert entry.mapper is stub
 
-
-class TestExternalEntryMapper:
     @staticmethod
-    def test_external_entry_mapper_defaults_to_none() -> None:
-        entry = ExternalEntry(uri='amqp://orders')
-        assert entry.mapper is None
+    def test_listen_carries_aspect_fields() -> None:
+        cb = CircuitBreakerConfig(minimum_throughput=1)
+        limits = BufferingLimits(high=100, low=20)
+        entry = listen('amqp://orders', max_requeue_attempts=3, circuit_breaker=cb, backpressure=limits)
+        assert entry.listen is not None
+        assert entry.listen.max_requeue_attempts == 3
+        assert entry.listen.circuit_breaker is cb
+        assert entry.listen.backpressure is limits
+
+
+class TestBrokerEndpointEntryDefaults:
+    @staticmethod
+    def test_mapper_defaults_to_inherit() -> None:
+        entry = BrokerEndpointEntry(uri='x')
+        assert entry.mapper is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support
 
     @staticmethod
-    def test_external_entry_accepts_mapper() -> None:
-        stub = _StubMapper()
-        entry = ExternalEntry(uri='amqp://orders', mapper=stub)
-        assert entry.mapper is stub
+    def test_partition_by_defaults_to_inherit() -> None:
+        entry = BrokerEndpointEntry(uri='x')
+        assert entry.partition_by is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support
 
     @staticmethod
-    def test_external_endpoint_mapper_defaults_to_none() -> None:
-        entry = external_endpoint('amqp://orders')
-        assert entry.mapper is None
+    def test_listen_defaults_to_none() -> None:
+        entry = BrokerEndpointEntry(uri='x')
+        assert entry.listen is None
 
     @staticmethod
-    def test_external_endpoint_carries_mapper_to_external_entry() -> None:
-        stub = _StubMapper()
-        entry = external_endpoint('amqp://orders', mapper=stub)
-        assert entry.mapper is stub
+    def test_send_defaults_to_none() -> None:
+        entry = BrokerEndpointEntry(uri='x')
+        assert entry.send is None

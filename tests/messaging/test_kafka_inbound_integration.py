@@ -12,7 +12,6 @@ from faststream.kafka import KafkaBroker, TestKafkaBroker
 from waku._internal.retort import default_retort  # noqa: PLC2701
 from waku.di import object_
 from waku.messaging import (
-    InboundConfig,
     InboxConfig,
     MessagingConfig,
     MessagingExtension,
@@ -57,8 +56,8 @@ class TestKafkaInboundIntegration:
         transport = FastStreamKafkaTransport(broker=broker, consumer_group='svc')
 
         config = MessagingConfig(
+            endpoints=[listen('kafka://orders')],
             inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
-            inbound=InboundConfig(listeners=[listen('kafka://orders')]),
             transports={'kafka': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )

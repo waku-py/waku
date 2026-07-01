@@ -85,6 +85,11 @@ class TestExternalEndpoint:
         endpoint = ExternalEndpoint(uri='test')
         await endpoint.stop()
 
+    @staticmethod
+    def test_supports_scheduling_is_false() -> None:
+        endpoint = ExternalEndpoint(uri='rabbitmq://orders')
+        assert endpoint.supports_scheduling is False
+
 
 class TestExternalEndpointPartitioning:
     @staticmethod

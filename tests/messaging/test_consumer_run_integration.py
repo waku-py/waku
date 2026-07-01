@@ -12,7 +12,7 @@ from waku import module
 from waku.di import object_
 from waku.extensions import DEFAULT_EXTENSIONS
 from waku.factory import WakuFactory
-from waku.messaging import InboundConfig, InboxConfig, MessagingConfig, MessagingModule, TransactionalBehavior
+from waku.messaging import InboxConfig, MessagingConfig, MessagingModule, TransactionalBehavior
 from waku.messaging.endpoints.base import listen
 from waku.messaging.transport.faststream.rabbitmq import FastStreamRabbitTransport
 from waku.uow import IUnitOfWork
@@ -26,8 +26,8 @@ async def test_consumer_only_app_run_drives_graceful_shutdown() -> None:
     inbox = FakeInboxStore()
     transport = FastStreamRabbitTransport(url='amqp://x')
     config = MessagingConfig(
+        endpoints=[listen('rabbitmq://orders')],
         inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
-        inbound=InboundConfig(listeners=[listen('rabbitmq://orders')]),
         transports={'rabbitmq': lambda: transport},
         global_pipeline_behaviors=[TransactionalBehavior],
     )

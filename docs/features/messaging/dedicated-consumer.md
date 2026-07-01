@@ -16,9 +16,9 @@ A dedicated consumer is a separate process — its own pod or OS process — tha
 It is not a special mode or a `consumer=True` switch: it is the same application, assembled from
 consumer-shaped config and launched with `app.run()`.
 
-A pure consumer declares `transports` + `inbound` + `inbox` and omits `outbox` and HTTP routes. A
-consumer whose handlers also *produce* external messages adds `outbox` and an external endpoint —
-listeners and senders are independent. This mirrors Wolverine, where a
+A pure consumer declares `transports` + a `listen(...)` endpoint + `inbox` and omits `outbox` and
+HTTP routes. A consumer whose handlers also *produce* external messages adds `outbox` and an
+`external_endpoint(...)` — listeners and senders are independent. This mirrors Wolverine, where a
 [dedicated worker](https://wolverine.netlify.app/guide/runtime.html) is just another full node
 that happens to listen to a queue.
 
@@ -39,7 +39,6 @@ from waku.messaging import (
     EventHandler,
     IEvent,
     IInboxStore,
-    InboundConfig,
     InboxConfig,
     MessagingConfig,
     MessagingExtension,
@@ -62,8 +61,8 @@ class OrderPlacedHandler(EventHandler[OrderPlaced]):
 
 def build_config() -> MessagingConfig:
     return MessagingConfig(
+        endpoints=[listen('rabbitmq://orders')],
         transports={'rabbitmq': rabbit_transport(url='amqp://guest:guest@localhost/')},
-        inbound=InboundConfig(listeners=[listen('rabbitmq://orders')]),
         inbox=InboxConfig(store=build_inbox_store),  # your IInboxStore, e.g. the SQLAlchemy adapter
     )
 

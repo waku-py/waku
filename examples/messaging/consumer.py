@@ -16,7 +16,6 @@ from waku.messaging import (
     EventHandler,
     IEvent,
     IInboxStore,
-    InboundConfig,
     InboxConfig,
     MessagingConfig,
     MessagingExtension,
@@ -51,8 +50,8 @@ def build_inbox_store() -> IInboxStore:
 def build_config() -> MessagingConfig:
     """Consumer-only messaging config: a transport, an inbound listener, and an inbox (no outbox, no HTTP)."""
     return MessagingConfig(
+        endpoints=[listen('rabbitmq://orders')],
         transports={'rabbitmq': rabbit_transport(url='amqp://guest:guest@localhost/')},
-        inbound=InboundConfig(listeners=[listen('rabbitmq://orders')]),
         inbox=InboxConfig(store=build_inbox_store),
     )
 
