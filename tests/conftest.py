@@ -36,7 +36,7 @@ if TYPE_CHECKING:
         ),
         pytest.param(('asyncio', {'use_uvloop': False}), id='asyncio'),
     ],
-    autouse=True,  # noqa: RUF076
+    autouse=True,
 )
 def anyio_backend(request: SubRequest) -> tuple[str, dict[str, object]]:
     return cast('tuple[str, dict[str, object]]', request.param)
