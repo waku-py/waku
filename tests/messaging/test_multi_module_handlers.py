@@ -6,6 +6,7 @@ import pytest
 from typing_extensions import override
 
 from waku import WakuFactory, module
+from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging import (
     EventHandler,
     IEvent,
@@ -17,7 +18,6 @@ from waku.messaging import (
     RequestHandler,
 )
 from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
-from waku.messaging.exceptions import ImproperlyConfiguredError
 from waku.messaging.registry import MessageRegistry
 
 

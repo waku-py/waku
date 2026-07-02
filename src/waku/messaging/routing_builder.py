@@ -5,9 +5,9 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging.endpoints.base import DEFAULT_ENDPOINT_URI, LocalQueueEntry, local_queue
 from waku.messaging.endpoints.merge import MergedBrokerEndpoint
-from waku.messaging.exceptions import ImproperlyConfiguredError
 from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor, RoutingTable
 
 if TYPE_CHECKING:

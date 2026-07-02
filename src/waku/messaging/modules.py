@@ -17,6 +17,7 @@ from waku.di import (
     singleton,
     transient,
 )
+from waku.exceptions import ImproperlyConfiguredError
 from waku.extensions import (
     AfterApplicationInit,
     ModuleExtension,
@@ -53,7 +54,7 @@ from waku.messaging.errors.policy import policies_have_deferred_terminal, polici
 from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.errors.worker import DeadLetterWorker
-from waku.messaging.exceptions import HandlerAlreadyRegistered, ImproperlyConfiguredError, MultipleHandlersRegistered
+from waku.messaging.exceptions import HandlerAlreadyRegistered, MultipleHandlersRegistered
 from waku.messaging.handler import MessageHandler
 from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.impl import MessageBus

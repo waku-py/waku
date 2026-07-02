@@ -8,6 +8,7 @@ from typing_extensions import override
 
 from waku import module
 from waku.di import object_
+from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging import (
     EventHandler,
     IEvent,
@@ -24,7 +25,6 @@ from waku.messaging import (
 from waku.messaging.endpoints.base import listen, local_queue
 from waku.messaging.endpoints.external import ExternalEndpoint
 from waku.messaging.endpoints.merge import MergedBrokerEndpoint
-from waku.messaging.exceptions import ImproperlyConfiguredError
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.router import MessageRouter, RoutingTable, route
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper

@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from waku._internal.sentinel import MISSING
+from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging.endpoints.base import BrokerEndpointEntry
-from waku.messaging.exceptions import ImproperlyConfiguredError
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence

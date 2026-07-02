@@ -5,11 +5,11 @@ from typing_extensions import override
 
 from waku._internal.sentinel import MISSING  # noqa: PLC2701
 from waku.di import object_
+from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging.circuit_breaker import CircuitBreakerConfig
 from waku.messaging.config import MessagingConfig
 from waku.messaging.contracts.message import IMessage
 from waku.messaging.endpoints.base import listen
-from waku.messaging.exceptions import ImproperlyConfiguredError
 from waku.messaging.inbox.backpressure import BufferingLimits
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.modules import MessagingModule

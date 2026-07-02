@@ -7,6 +7,7 @@ import pytest
 from typing_extensions import override
 
 from waku import module
+from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging import (
     EventHandler,
     IEvent,
@@ -16,7 +17,6 @@ from waku.messaging import (
     MessagingModule,
 )
 from waku.messaging.endpoints.base import local_queue
-from waku.messaging.exceptions import ImproperlyConfiguredError
 from waku.messaging.router import route, route_module
 from waku.testing import create_test_app
 

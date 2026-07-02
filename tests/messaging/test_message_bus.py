@@ -8,6 +8,7 @@ import pytest
 from typing_extensions import override
 
 from waku.di import is_registered, object_
+from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging import (
     CallNext,
     EndpointMode,
@@ -34,7 +35,6 @@ from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.exceptions import (
     HandlerNotFound,
-    ImproperlyConfiguredError,
     MultipleHandlersRegistered,
     NoRouteError,
 )

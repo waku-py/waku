@@ -14,8 +14,8 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.contracts.message import IMessage
 
+from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging.endpoints.base import DEFAULT_ENDPOINT_URI, EndpointEntry, local_queue
-from waku.messaging.exceptions import ImproperlyConfiguredError
 from waku.messaging.handler import EventHandler, RequestHandler
 from waku.messaging.registry import MessageRegistry
 from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor

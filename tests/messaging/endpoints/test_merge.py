@@ -5,10 +5,10 @@ from typing import Any
 import pytest
 from typing_extensions import override
 
+from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging.endpoints.aspects import ListenAspect, SendAspect
 from waku.messaging.endpoints.base import BrokerEndpointEntry, LocalQueueEntry
 from waku.messaging.endpoints.merge import merge_broker_endpoints
-from waku.messaging.exceptions import ImproperlyConfiguredError
 from waku.messaging.transport.interfaces import IEnvelopeMapper
 
 

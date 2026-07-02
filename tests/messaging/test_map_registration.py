@@ -6,9 +6,10 @@ from typing import Any, TypeVar
 import pytest
 from typing_extensions import override
 
+from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.contracts.request import IRequest
-from waku.messaging.exceptions import HandlerAlreadyRegistered, ImproperlyConfiguredError, MapFrozenError
+from waku.messaging.exceptions import HandlerAlreadyRegistered, MapFrozenError
 from waku.messaging.handler import EventHandler, MessageHandler, RequestHandler
 from waku.messaging.handler_map import HandlerMap
 from waku.messaging.modules import MessagingExtension

@@ -234,6 +234,13 @@ pylint = { max-args = 7 }
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
 
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# Base framework errors have ONE home: waku.exceptions. waku.messaging.exceptions re-exports them for
+# aggregation, but per feedback_single_home_over_reexport we import the base error from its definition site
+# and keep waku.messaging.exceptions for messaging-specific subclasses (HandlerAlreadyRegistered, etc.) only.
+"waku.messaging.exceptions.ImproperlyConfiguredError".msg = "Import ImproperlyConfiguredError from waku.exceptions (single home); waku.messaging.exceptions is only for messaging-specific subclasses."
+"waku.messaging.exceptions.WakuError".msg = "Import WakuError from waku.exceptions (single home)."
+
 [tool.ruff.lint.isort]
 force-wrap-aliases = true
 combine-as-imports = true
