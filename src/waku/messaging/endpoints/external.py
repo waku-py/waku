@@ -15,6 +15,7 @@ from waku.serialization.codec import PayloadCodec
 if TYPE_CHECKING:
     from waku.di import AsyncContainer
     from waku.messaging.contracts.envelope import MessageEnvelope
+    from waku.messaging.observability.observer import MessageObservers
     from waku.messaging.partition import PartitionKeyExtractor
 
 __all__ = [
@@ -23,11 +24,18 @@ __all__ = [
 
 
 class ExternalEndpoint(Endpoint):
-    __slots__ = ('_partition_by',)
+    __slots__ = ('_observers', '_partition_by')
 
-    def __init__(self, uri: str, *, partition_by: PartitionKeyExtractor | None = None) -> None:
+    def __init__(
+        self,
+        uri: str,
+        *,
+        partition_by: PartitionKeyExtractor | None = None,
+        observers: MessageObservers,
+    ) -> None:
         super().__init__(uri)
         self._partition_by = partition_by
+        self._observers = observers
 
     @override
     async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None:
@@ -47,6 +55,7 @@ class ExternalEndpoint(Endpoint):
             sequence_number=sequence_number,
         )
         await outbox_store.save_batch([message])
+        await self._observers.sent(envelope, self._uri)
 
     @override
     async def start(self) -> None:

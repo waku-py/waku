@@ -16,11 +16,12 @@ from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.registry import ErrorPolicyRegistry
+from waku.messaging.observability.observer import MessageObservers
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.testing import create_test_app
 
 from tests._wait import ControllableSleep, wait_until
-from tests.messaging.helpers import NOOP_EVALUATOR, make_envelope
+from tests.messaging.helpers import NOOP_EVALUATOR, NOOP_OBSERVERS, make_envelope
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -78,11 +79,13 @@ async def _make_endpoint(
         evaluator=NOOP_EVALUATOR,
         endpoint_uri='local://test',
         invoker=invoker,
+        observers=MessageObservers([]),
     )
     return LocalQueueEndpoint(
         uri='local://test',
         handler_subscriptions={_OrderPlaced: frozenset({handler})},
         executor=executor,
+        observers=NOOP_OBSERVERS,
         stop_timeout=0.5,
         max_buffer_size=100,
     )
@@ -105,11 +108,13 @@ async def _make_endpoint_with_requeue(
         evaluator=_evaluator_for(ErrorPolicy.on_any_exception().requeue()),
         endpoint_uri='local://test',
         invoker=invoker,
+        observers=MessageObservers([]),
     )
     return LocalQueueEndpoint(
         uri='local://test',
         handler_subscriptions={_OrderPlaced: frozenset({handler})},
         executor=executor,
+        observers=NOOP_OBSERVERS,
         stop_timeout=0.5,
         max_buffer_size=max_buffer_size,
         max_requeue_attempts=max_requeue_attempts,
@@ -129,11 +134,13 @@ async def _make_endpoint_with_pause(
         evaluator=_evaluator_for(ErrorPolicy.on_any_exception().pause_processing(timedelta(minutes=10))),
         endpoint_uri='local://test',
         invoker=invoker,
+        observers=MessageObservers([]),
     )
     return LocalQueueEndpoint(
         uri='local://test',
         handler_subscriptions={_OrderPlaced: frozenset({handler})},
         executor=executor,
+        observers=NOOP_OBSERVERS,
         stop_timeout=0.5,
         max_buffer_size=100,
         max_requeue_attempts=max_requeue_attempts,

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import logging
+import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import anyio
+import anyio.lowlevel
+import pytest
 from typing_extensions import override
 
 from waku._internal.clock import utc_now  # noqa: PLC2701
@@ -23,6 +27,7 @@ from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.exceptions import HandlerTimeoutError
+from waku.messaging.observability.observer import IMessageObserver, MessageObservers
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
@@ -36,11 +41,12 @@ from tests.messaging.helpers import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
-    import pytest
+    from collections.abc import AsyncIterator, Awaitable, Callable
+    from typing import Any
 
     from waku.application import WakuApplication
+    from waku.messaging.contracts.envelope import MessageEnvelope
+    from waku.messaging.contracts.handler import HandlerType
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +113,7 @@ async def _make_executor(
         evaluator=evaluator,
         endpoint_uri=uri,
         invoker=invoker,
+        observers=MessageObservers([]),
         sleep=sleep,
         now=now,
     )
@@ -452,6 +459,7 @@ class TestHandlerExecutionTimeout:
                 evaluator=NOOP_EVALUATOR,
                 endpoint_uri='test://q',
                 invoker=invoker,
+                observers=MessageObservers([]),
                 default_execution_timeout=timedelta(seconds=0.01),
             )
             envelope = make_envelope(_FailingCommand(value='slow'))
@@ -464,17 +472,20 @@ class TestHandlerExecutionTimeout:
 
     @staticmethod
     async def test_execution_timeout_none_opts_out_of_default() -> None:
-        class _SlowHandler(RequestHandler[_FailingCommand, None]):
+        class _UnboundedHandler(RequestHandler[_FailingCommand, None]):
             execution_timeout = None
 
             @override
             async def handle(self, request: _FailingCommand, /) -> None:
-                # 50ms > 10ms default: if None were wrongly treated as "inherit" the deadline would cancel this.
-                await anyio.sleep(0.05)
+                # default_execution_timeout below is already-expired (0s): if None were wrongly treated as
+                # "inherit," the very first checkpoint would trip the deadline. No real sleep needed —
+                # move_on_after(0) reliably cancels at the next checkpoint (verified empirically).
+                for _ in range(10):
+                    await anyio.lowlevel.checkpoint()
 
         async with create_test_app(
             imports=[MessagingModule.register()],
-            extensions=[MessagingExtension().bind(_SlowHandler)],
+            extensions=[MessagingExtension().bind(_UnboundedHandler)],
         ) as app:
             invoker = await app.container.get(HandlerPipelineInvoker)
             executor = EndpointExecutor(
@@ -482,9 +493,187 @@ class TestHandlerExecutionTimeout:
                 evaluator=NOOP_EVALUATOR,
                 endpoint_uri='test://q',
                 invoker=invoker,
-                default_execution_timeout=timedelta(seconds=0.01),
+                observers=MessageObservers([]),
+                default_execution_timeout=timedelta(),
             )
             envelope = make_envelope(_FailingCommand(value='slow-but-allowed'))
-            outcome = (await executor.execute(envelope, _SlowHandler)).outcome
+            outcome = (await executor.execute(envelope, _UnboundedHandler)).outcome
 
         assert outcome is ExecutionOutcome.SUCCESS
+
+
+@dataclass(frozen=True, slots=True)
+class _Ping(IRequest[None]):
+    ref: str = ''
+
+
+class _PingHandler(RequestHandler[_Ping, None]):
+    @override
+    async def handle(self, request: _Ping, /) -> None:
+        return
+
+
+class _Spy(IMessageObserver):
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    @override
+    async def on_executing(self, envelope: MessageEnvelope[Any], destination: str, handler_type: HandlerType) -> None:
+        self.events.append('executing')
+
+    @override
+    async def on_executed(
+        self,
+        envelope: MessageEnvelope[Any],
+        destination: str,
+        handler_type: HandlerType,
+        outcome: ExecutionOutcome,
+        exc: Exception | None,
+        duration: timedelta,
+    ) -> None:
+        self.events.append(f'executed:{outcome.value}:{duration.total_seconds() * 1000:.0f}')
+
+
+class _DestinationSpy(IMessageObserver):
+    def __init__(self) -> None:
+        self.destinations: list[str] = []
+
+    @override
+    async def on_executing(self, envelope: MessageEnvelope[Any], destination: str, handler_type: HandlerType) -> None:
+        self.destinations.append(destination)
+
+    @override
+    async def on_executed(
+        self,
+        envelope: MessageEnvelope[Any],
+        destination: str,
+        handler_type: HandlerType,
+        outcome: ExecutionOutcome,
+        exc: Exception | None,
+        duration: timedelta,
+    ) -> None:
+        self.destinations.append(destination)
+
+
+@asynccontextmanager
+async def _executor(
+    *,
+    observers: MessageObservers,
+    monotonic: Callable[[], float] = time.perf_counter,
+) -> AsyncIterator[EndpointExecutor]:
+    async with create_test_app(
+        imports=[MessagingModule.register()],
+        extensions=[MessagingExtension().bind(_PingHandler)],
+    ) as app:
+        invoker = await app.container.get(HandlerPipelineInvoker)
+        yield EndpointExecutor(
+            container=app.container,
+            evaluator=NOOP_EVALUATOR,
+            endpoint_uri='test://q',
+            invoker=invoker,
+            observers=observers,
+            monotonic=monotonic,
+        )
+
+
+async def test_executing_then_executed_fire_with_outcome_and_duration() -> None:
+    spy = _Spy()
+    reads = iter([0.0, 5.0])  # exactly two reads on the SUCCESS path -> 5000ms; a 3rd read raises StopIteration
+    async with _executor(observers=MessageObservers([spy]), monotonic=lambda: next(reads)) as ex:
+        await ex.execute(make_envelope(_Ping(ref='r')), _PingHandler)
+    assert spy.events == ['executing', 'executed:SUCCESS:5000']
+
+
+async def test_expired_fires_executed_only_no_executing() -> None:
+    spy = _Spy()
+    past = datetime.now(tz=UTC) - timedelta(seconds=1)
+    async with _executor(observers=MessageObservers([spy])) as ex:
+        await ex.execute(make_envelope(_Ping(), expires_at=past), _PingHandler)
+    assert spy.events == ['executed:DISCARDED:0']
+
+
+async def test_execution_hooks_receive_endpoint_uri() -> None:
+    spy = _DestinationSpy()
+    async with _executor(observers=MessageObservers([spy])) as ex:
+        await ex.execute(make_envelope(_Ping(ref='r')), _PingHandler)
+    assert spy.destinations == ['test://q', 'test://q']
+
+
+async def test_expired_discard_reports_endpoint_uri_on_executed() -> None:
+    spy = _DestinationSpy()
+    past = datetime.now(tz=UTC) - timedelta(seconds=1)
+    async with _executor(observers=MessageObservers([spy])) as ex:
+        await ex.execute(make_envelope(_Ping(ref='r'), expires_at=past), _PingHandler)
+    assert spy.destinations == ['test://q']  # executed only — no executing on the expired path
+
+
+async def test_expired_fires_executed_before_on_result() -> None:
+    order: list[str] = []
+
+    class _OrderSpy(IMessageObserver):
+        @override
+        async def on_executed(
+            self,
+            envelope: MessageEnvelope[Any],
+            destination: str,
+            handler_type: HandlerType,
+            outcome: ExecutionOutcome,
+            exc: Exception | None,
+            duration: timedelta,
+        ) -> None:
+            order.append('observed')
+
+    async def _recording_on_result(_outcome: ExecutionOutcome, _exc: Exception | None) -> None:  # noqa: RUF029
+        order.append('control')
+
+    past = datetime.now(tz=UTC) - timedelta(seconds=1)
+    async with _executor(observers=MessageObservers([_OrderSpy()])) as ex:
+        await ex.execute(make_envelope(_Ping(), expires_at=past), _PingHandler, on_result=_recording_on_result)
+    assert order == ['observed', 'control']
+
+
+async def test_observer_raise_does_not_change_result() -> None:
+    class _BadObs(IMessageObserver):
+        @override
+        async def on_executed(
+            self,
+            envelope: MessageEnvelope[Any],
+            destination: str,
+            handler_type: HandlerType,
+            outcome: ExecutionOutcome,
+            exc: Exception | None,
+            duration: timedelta,
+        ) -> None:
+            msg = 'observer down'
+            raise RuntimeError(msg)
+
+    async with _executor(observers=MessageObservers([_BadObs()])) as ex:
+        result = await ex.execute(make_envelope(_Ping()), _PingHandler)
+    assert result.outcome is ExecutionOutcome.SUCCESS  # observer fault swallowed, result intact
+
+
+async def test_executed_fires_before_on_result_even_when_on_result_raises() -> None:
+    order: list[str] = []
+
+    class _OrderSpy(IMessageObserver):
+        @override
+        async def on_executed(
+            self,
+            envelope: MessageEnvelope[Any],
+            destination: str,
+            handler_type: HandlerType,
+            outcome: ExecutionOutcome,
+            exc: Exception | None,
+            duration: timedelta,
+        ) -> None:
+            order.append('observed')
+
+    async def _raising_on_result(_outcome: ExecutionOutcome, _exc: Exception | None) -> None:  # noqa: RUF029
+        order.append('control')
+        msg = 'cb boom'
+        raise RuntimeError(msg)
+
+    async with _executor(observers=MessageObservers([_OrderSpy()])) as ex:
+        with pytest.raises(RuntimeError):
+            await ex.execute(make_envelope(_Ping()), _PingHandler, on_result=_raising_on_result)
+    assert order == ['observed', 'control']  # observability recorded before the control hook

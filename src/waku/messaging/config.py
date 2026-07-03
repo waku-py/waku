@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from waku.messaging.errors.policy import ErrorPolicy
     from waku.messaging.inbox.backpressure import BufferingLimits
     from waku.messaging.inbox.config import InboxConfig
+    from waku.messaging.observability.observer import IMessageObserver
     from waku.messaging.outbox.interfaces import IOutboxStore
     from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor
     from waku.messaging.sending.policy import SendingFailurePolicy
@@ -85,6 +86,15 @@ class MessagingConfig:
     """Fallback requeue/pause budget for `local_queue` entries that leave `max_requeue_attempts` unset."""
     message_identities: Mapping[type[IMessage], str | MessageIdentity] = field(default_factory=dict)
     """Third-party override for types you can't annotate; the default path is the ClassVar."""
+    audited_members: Mapping[type[IMessage], Sequence[str]] = field(default_factory=dict)
+    """Third-party override for types you can't annotate with Audit; the default path is the field marker.
+    Names must be ANNOTATED fields (visible to ``typing.get_type_hints``): naming a property or an attribute
+    assigned only in ``__init__`` fails fast at startup with ``ImproperlyConfiguredError``."""
+    observers: Sequence[type[IMessageObserver]] = ()
+    """Global message observers (fire on every message app-wide, including ``bus.invoke()``), DI-constructed
+    at APP scope and fired alongside the built-in logging observer (never replacing it — silence logging via
+    the ``waku.message`` logger level). Constructor dependencies must be APP-scope. For observers scoped to a
+    single endpoint, use the ``observers=`` kwarg on ``listen``/``local_queue``/``external_endpoint`` instead."""
     transports: Mapping[str, TransportFactory] = field(default_factory=dict)
     """Transport factories keyed by scheme (e.g. ``{'rabbitmq': rabbit_transport(url=...)}``); each factory is
     invoked once during DI bootstrap to build the :class:`TransportRegistry`."""

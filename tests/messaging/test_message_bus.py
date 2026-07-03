@@ -537,6 +537,14 @@ class TestMessagingConfigValidation:
             MessagingModule.register(config)
 
     @staticmethod
+    def test_invoke_scheme_endpoint_raises() -> None:
+        config = MessagingConfig(
+            endpoints=[local_queue('invoke://x')],
+        )
+        with pytest.raises(ImproperlyConfiguredError, match="scheme 'invoke' is reserved"):
+            MessagingModule.register(config)
+
+    @staticmethod
     async def test_local_broker_distinct_uri_namespaces_does_not_raise() -> None:
         inbox = FakeInboxStore()
         config = MessagingConfig(

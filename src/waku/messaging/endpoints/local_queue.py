@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.endpoints.executor import EndpointExecutor
+    from waku.messaging.observability.observer import MessageObservers
     from waku.messaging.pauser import PauseToken
     from waku.messaging.router import HandlerSubscriptions
 
@@ -43,6 +44,7 @@ class LocalQueueEndpoint(Endpoint):
         '_executor',
         '_handler_subscriptions',
         '_max_requeue_attempts',
+        '_observers',
         '_timed_pauser',
         '_worker',
     )
@@ -53,6 +55,7 @@ class LocalQueueEndpoint(Endpoint):
         uri: str,
         handler_subscriptions: HandlerSubscriptions,
         executor: EndpointExecutor,
+        observers: MessageObservers,
         stop_timeout: float,
         max_buffer_size: float,
         max_parallel: int = 1,
@@ -63,6 +66,7 @@ class LocalQueueEndpoint(Endpoint):
         super().__init__(uri=uri)
         self._handler_subscriptions = handler_subscriptions
         self._executor = executor
+        self._observers = observers
         self._max_requeue_attempts = max_requeue_attempts
         # Per-message delivery counter; bounds total redeliveries (BUFFERED has no inbox row to DLQ from).
         self._delivery_counts: dict[UUID, int] = {}
@@ -87,6 +91,8 @@ class LocalQueueEndpoint(Endpoint):
                 self._uri,
                 envelope.message_id,
             )
+            return
+        await self._observers.sent(envelope, self._uri)
 
     @override
     async def start(self) -> None:

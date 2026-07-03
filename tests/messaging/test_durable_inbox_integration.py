@@ -3,16 +3,17 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import anyio
 import pytest
 from typing_extensions import override
 
-from waku.di import object_
+from waku.di import object_, singleton
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging import (
     IMessageBus,
+    IMessageObserver,
     InboxConfig,
     InboxStatus,
     ISequenceAllocator,
@@ -45,6 +46,13 @@ from tests.messaging.helpers import (
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
+if TYPE_CHECKING:
+    from typing import Any
+
+    from waku.messaging.contracts.envelope import MessageEnvelope
+    from waku.messaging.contracts.handler import HandlerType
+    from waku.messaging.endpoints.executor import ExecutionOutcome
+
 
 @dataclass(frozen=True, slots=True)
 class _OrderPlaced(IEvent):
@@ -65,6 +73,32 @@ class _SecondRecordingHandler(EventHandler[_OrderPlaced]):
     @override
     async def handle(self, message: _OrderPlaced, /) -> None:
         self.observed.append(message.order_id)
+
+
+class _EndpointSink:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str]] = []
+
+
+class _EndpointOnlyObserver(IMessageObserver):
+    def __init__(self, sink: _EndpointSink) -> None:
+        self._sink = sink
+
+    @override
+    async def on_executing(self, envelope: MessageEnvelope[Any], destination: str, handler_type: HandlerType) -> None:
+        self._sink.events.append(('executing', destination))
+
+    @override
+    async def on_executed(
+        self,
+        envelope: MessageEnvelope[Any],
+        destination: str,
+        handler_type: HandlerType,
+        outcome: ExecutionOutcome,
+        exc: Exception | None,
+        duration: timedelta,
+    ) -> None:
+        self._sink.events.append(('executed', destination))
 
 
 # Inbox-only config (no outbox, no dead_letter_store): also exercises that PayloadCodec is
@@ -383,6 +417,50 @@ class TestDurableInboxIntegration:
         assert (entry.id, entry.destination) not in inbox.entries  # DISCARDED → delete, no leaked row
         assert _RecordingHandler.observed == []  # handler never ran
         assert dlq.entries == []  # expiry is not a failure → never dead-lettered
+
+    @staticmethod
+    async def test_recovery_drain_fires_endpoint_declared_observer_for_source_uri() -> None:
+        # Crash recovery must fire the SAME per-endpoint observers as the live path — the drainer's
+        # executor is keyed to entry.source_uri, and ObserverPlan.for_endpoint composes on that URI.
+        _RecordingHandler.observed = []
+        inbox = FakeInboxStore()
+        config = MessagingConfig(
+            endpoints=[
+                local_queue(
+                    'orders',
+                    mode=EndpointMode.DURABLE,
+                    stop_timeout=1.0,
+                    observers=(_EndpointOnlyObserver,),
+                )
+            ],
+            routing=[route(_OrderPlaced).to('orders')],
+            inbox=InboxConfig(store=lambda: inbox, owner_id='node-a:1', recovery_interval=timedelta(seconds=0.01)),
+            global_pipeline_behaviors=[TransactionalBehavior],
+        )
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_RecordingHandler)],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), singleton(_EndpointSink)],
+        ) as app:
+            sink = await app.container.get(_EndpointSink)
+            codec = await app.container.get(PayloadCodec)
+            envelope = make_envelope(_OrderPlaced(order_id='recovered-obs'))
+            entry = InboxEntry(
+                id=envelope.message_id,
+                payload=encode_payload(envelope, codec),
+                message_type=envelope.message_type,
+                source_uri=EndpointUri('orders'),
+                destination=handler_destination(_RecordingHandler),
+                owner_id=None,
+                status=InboxStatus.INCOMING,
+                correlation_id=envelope.correlation_id,
+                causation_id=envelope.causation_id,
+                metadata_=encode_metadata(envelope),
+            )
+            inbox.entries[entry.id, entry.destination] = entry
+            await wait_until(lambda: sink.events == [('executing', 'orders'), ('executed', 'orders')])
+
+        assert sink.events == [('executing', 'orders'), ('executed', 'orders')]
 
     @staticmethod
     async def test_scheduled_poll_promotes_due_row_then_drain_runs_the_handler() -> None:

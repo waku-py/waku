@@ -28,12 +28,13 @@ from waku.messaging.contracts.event import IEvent as _IEvent
 from waku.messaging.endpoints.base import local_queue
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
+from waku.messaging.observability.observer import IMessageObserver, MessageObservers
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.messaging.router import route
 from waku.testing import create_test_app
 
 from tests._wait import wait_until
-from tests.messaging.helpers import NOOP_EVALUATOR, make_envelope
+from tests.messaging.helpers import NOOP_EVALUATOR, NOOP_OBSERVERS, make_envelope
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -51,6 +52,7 @@ def noop_executor(mocker: MockerFixture) -> EndpointExecutor:
         evaluator=NOOP_EVALUATOR,
         endpoint_uri='test://q',
         invoker=mocker.Mock(spec_set=HandlerPipelineInvoker),
+        observers=MessageObservers([]),
     )
 
 
@@ -60,6 +62,7 @@ def stopped_endpoint(noop_executor: EndpointExecutor) -> LocalQueueEndpoint:
         uri='test://q',
         handler_subscriptions={},
         executor=noop_executor,
+        observers=NOOP_OBSERVERS,
         stop_timeout=1.0,
         max_buffer_size=0,
     )
@@ -151,6 +154,56 @@ class TestLocalQueueLifecycle:
         assert received == ['P-1']
 
 
+class _SentSpy(IMessageObserver):
+    def __init__(self) -> None:
+        self.sent: list[str] = []
+
+    @override
+    async def on_sent(self, envelope: MessageEnvelope[Any], destination: str) -> None:
+        self.sent.append(destination)
+
+
+class TestLocalQueueOnSent:
+    @staticmethod
+    async def test_dispatch_fires_on_sent_after_successful_hand_off(
+        noop_executor: EndpointExecutor,
+        mocker: MockerFixture,
+    ) -> None:
+        spy = _SentSpy()
+        endpoint = LocalQueueEndpoint(
+            uri='test://q',
+            handler_subscriptions={},
+            executor=noop_executor,
+            observers=MessageObservers([spy]),
+            stop_timeout=1.0,
+            max_buffer_size=math.inf,
+        )
+        await endpoint.start()
+        try:
+            await endpoint.dispatch(make_envelope(_IEvent()), mocker.Mock(spec_set=AsyncContainer))
+            await wait_until(lambda: spy.sent == [endpoint.uri])
+        finally:
+            await endpoint.stop()
+
+    @staticmethod
+    async def test_dispatch_to_stopped_endpoint_does_not_fire_on_sent(
+        noop_executor: EndpointExecutor,
+        mocker: MockerFixture,
+    ) -> None:
+        spy = _SentSpy()
+        endpoint = LocalQueueEndpoint(
+            uri='test://q',
+            handler_subscriptions={},
+            executor=noop_executor,
+            observers=MessageObservers([spy]),
+            stop_timeout=1.0,
+            max_buffer_size=0,
+        )
+        # Endpoint never started -> the worker rejects the send, mirroring the stopped path.
+        await endpoint.dispatch(make_envelope(_IEvent()), mocker.Mock(spec_set=AsyncContainer))
+        assert spy.sent == []
+
+
 class TestLocalQueueConcurrency:
     @staticmethod
     async def test_max_parallel_five_processes_events_concurrently() -> None:
@@ -236,6 +289,7 @@ class TestLocalQueueCircuitBreaker:
             uri='cb-q',
             handler_subscriptions={_CbEvent: frozenset([_CbHandler])},
             executor=executor,
+            observers=NOOP_OBSERVERS,
             stop_timeout=1.0,
             max_buffer_size=math.inf,
             circuit_breaker_config=CircuitBreakerConfig(

@@ -9,6 +9,7 @@ from waku.messaging import EventHandler, IEvent, MessagingExtension, MessagingMo
 from waku.messaging.contracts.factory import EnvelopeFactory
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.inline import InlineEndpoint
+from waku.messaging.observability.observer import MessageObservers
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.testing import create_test_app
 
@@ -38,6 +39,7 @@ async def _make_inline_endpoint(app: WakuApplication) -> InlineEndpoint:
         evaluator=NOOP_EVALUATOR,
         endpoint_uri='inline://test',
         invoker=invoker,
+        observers=MessageObservers([]),
     )
     return InlineEndpoint(
         uri='inline://test',

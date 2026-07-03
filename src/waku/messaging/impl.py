@@ -95,8 +95,8 @@ class MessageBus(IMessageBus):
         envelope = self._create_envelope(message, options)
         with message_context_scope(envelope):
             if isinstance(message, IEvent):
-                return await self._dispatcher.invoke_event(self._container, message)
-            return await self._dispatcher.invoke_request(self._container, message)
+                return await self._dispatcher.invoke_event(self._container, envelope)
+            return await self._dispatcher.invoke_request(self._container, envelope)
 
     @override
     async def send(self, message: IMessage, /, options: DeliveryOptions | None = None) -> None:

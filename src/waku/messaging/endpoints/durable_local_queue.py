@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.endpoints.executor import EndpointExecutor
+    from waku.messaging.observability.observer import MessageObservers
     from waku.messaging.partition import PartitionKeyExtractor
     from waku.messaging.pauser import PauseToken
     from waku.messaging.router import HandlerSubscriptions
@@ -49,7 +50,7 @@ class DurableLocalQueueEndpoint(Endpoint):
     Delegates lifecycle to ``DurableInboxReceiver``.
     """
 
-    __slots__ = ('_container', '_handler_subscriptions', '_now', '_partition_by', '_receiver')
+    __slots__ = ('_container', '_handler_subscriptions', '_now', '_observers', '_partition_by', '_receiver')
 
     def __init__(  # noqa: PLR0913 -- DI/config values, all required; bundling is a construction-site refactor
         self,
@@ -57,6 +58,7 @@ class DurableLocalQueueEndpoint(Endpoint):
         uri: str,
         handler_subscriptions: HandlerSubscriptions,
         executor: EndpointExecutor,
+        observers: MessageObservers,
         container: AsyncContainer,
         inbox_config_keep_after_handled_seconds: float,
         inbox_owner_id: str,
@@ -70,6 +72,7 @@ class DurableLocalQueueEndpoint(Endpoint):
     ) -> None:
         super().__init__(uri=uri)
         self._handler_subscriptions = handler_subscriptions
+        self._observers = observers
         self._container = container
         self._partition_by = partition_by
         self._now = now
@@ -111,6 +114,7 @@ class DurableLocalQueueEndpoint(Endpoint):
             # SCHEDULED rows: no sequence allocated, no enqueue — memory stream can't survive a restart.
             # Promotion allocates the sequence at due-time so delayed messages sort after already-queued siblings (BLOCKER 1).
             await self._store_scheduled(envelope, handler_types, scheduled)
+            await self._observers.sent(envelope, self._uri)
             return
 
         fresh = await self._receiver.persist(envelope, handler_types)
@@ -120,6 +124,7 @@ class DurableLocalQueueEndpoint(Endpoint):
             return
 
         await self._receiver.enqueue(envelope, fresh)
+        await self._observers.sent(envelope, self._uri)
 
     async def _store_scheduled(
         self,

@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
     from waku.messaging.endpoints.aspects import ListenAspect, SendAspect
     from waku.messaging.endpoints.base import LocalQueueEntry
+    from waku.messaging.observability.observer import IMessageObserver
     from waku.messaging.partition import PartitionKeyExtractor
     from waku.messaging.transport.interfaces import IEnvelopeMapper
 
@@ -30,6 +31,7 @@ class MergedBrokerEndpoint:
     partition_by: PartitionKeyExtractor | None
     listen: ListenAspect | None
     send: SendAspect | None
+    observers: tuple[type[IMessageObserver], ...] = ()
 
 
 def merge_broker_endpoints(
@@ -58,6 +60,7 @@ def _merge_fragments(
     partition_by = _resolve_unique(uri, (fragment.partition_by for fragment in fragments), 'conflicting partition_by')
     listen = _resolve_aspect(uri, (fragment.listen for fragment in fragments), 'ListenAspect')
     send = _resolve_aspect(uri, (fragment.send for fragment in fragments), 'SendAspect')
+    observers = tuple(dict.fromkeys(t for fragment in fragments for t in fragment.observers))
 
     if listen is not None and not inbox_configured:
         msg = f"endpoint '{uri}' declares listen but no inbox is configured"
@@ -66,7 +69,14 @@ def _merge_fragments(
         msg = f"endpoint '{uri}' declares neither listen nor send"
         raise ImproperlyConfiguredError(msg)
 
-    return MergedBrokerEndpoint(uri=uri, mapper=mapper, partition_by=partition_by, listen=listen, send=send)
+    return MergedBrokerEndpoint(
+        uri=uri,
+        mapper=mapper,
+        partition_by=partition_by,
+        listen=listen,
+        send=send,
+        observers=observers,
+    )
 
 
 def _resolve_unique(uri: str, values: Iterable[_T | MISSING], conflict_message: str) -> _T | None:  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows

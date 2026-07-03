@@ -3,7 +3,9 @@ from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.circuit_breaker import CircuitBreakerConfig
 from waku.messaging.config import DeadLetterConfig, MessagingConfig, OutboxConfig
 from waku.messaging.context import MessageContext, get_message_context, try_get_message_context
+from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.contracts.event import IEvent
+from waku.messaging.contracts.handler import HandlerType
 from waku.messaging.contracts.identity import MessageIdentity
 from waku.messaging.contracts.message import IMessage, MessageT, ResponseT
 from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
@@ -19,6 +21,8 @@ from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 from waku.messaging.interfaces import IMessageBus, IPublisher, ISender
 from waku.messaging.modules import MessagingExtension, MessagingModule
+from waku.messaging.observability.audit import Audit
+from waku.messaging.observability.observer import INVOKE_DESTINATION, IMessageObserver
 from waku.messaging.outbox import IOutboxStore, OutboxRelayConfig
 from waku.messaging.outgoing import IOutgoingMessages
 from waku.messaging.partition import ISequenceAllocator
@@ -28,6 +32,8 @@ from waku.messaging.sending import SendingFailurePolicy
 from waku.messaging.transport import ITransport
 
 __all__ = [
+    'INVOKE_DESTINATION',
+    'Audit',
     'BehaviorPolicyExtension',
     'BufferingLimits',
     'CallNext',
@@ -38,12 +44,14 @@ __all__ = [
     'ErrorPolicy',
     'EventHandler',
     'ExecutionOutcome',
+    'HandlerType',
     'IBehaviorPolicy',
     'IDeadLetterStore',
     'IEvent',
     'IInboxStore',
     'IMessage',
     'IMessageBus',
+    'IMessageObserver',
     'IOutboxStore',
     'IOutgoingMessages',
     'IPipelineBehavior',
@@ -56,6 +64,7 @@ __all__ = [
     'InboxEntry',
     'InboxStatus',
     'MessageContext',
+    'MessageEnvelope',
     'MessageHandler',
     'MessageIdentity',
     'MessageT',

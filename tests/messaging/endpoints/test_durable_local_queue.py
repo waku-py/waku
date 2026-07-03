@@ -18,6 +18,7 @@ from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxStatus
+from waku.messaging.observability.observer import IMessageObserver, MessageObservers
 from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.transport.decomposition import encode_payload
 from waku.serialization.codec import PayloadCodec
@@ -25,6 +26,7 @@ from waku.uow import IUnitOfWork
 
 from tests._wait import ControllableSleep, wait_until
 from tests.messaging.helpers import (
+    NOOP_OBSERVERS,
     FakeUoW,
     RecordingAllocator,
     RecordingDeadLetterStore,
@@ -190,11 +192,13 @@ def _endpoint(  # noqa: PLR0913 -- test helper mirroring DurableLocalQueueEndpoi
     pause_sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     circuit_breaker_config: CircuitBreakerConfig | None = None,
     now: Callable[[], datetime] = utc_now,
+    observers: MessageObservers = NOOP_OBSERVERS,
 ) -> DurableLocalQueueEndpoint:
     return DurableLocalQueueEndpoint(
         uri='local://orders',
         handler_subscriptions={_DomainEvent: handlers},
         executor=executor,
+        observers=observers,
         container=container,
         inbox_config_keep_after_handled_seconds=300.0,
         stop_timeout=1.0,
@@ -660,3 +664,95 @@ class TestDurableLocalQueuePause:
             await endpoint.resume(breaker_token)  # release the remaining hold
             await wait_until(lambda: executor.calls == 2)  # only now does the redelivery run
             await endpoint.stop()
+
+
+class _SentSpy(IMessageObserver):
+    def __init__(self) -> None:
+        self.sent: list[str] = []
+
+    @override
+    async def on_sent(self, envelope: MessageEnvelope[Any], destination: str) -> None:
+        self.sent.append(destination)
+
+
+class TestDurableLocalQueueOnSent:
+    @staticmethod
+    async def test_dispatch_fires_on_sent_after_fresh_immediate_enqueue() -> None:
+        _NoopHandler.invocations = []
+        inbox = FakeInboxStore()
+        spy = _SentSpy()
+        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+            endpoint = _endpoint(container, executor, frozenset([_NoopHandler]), observers=MessageObservers([spy]))
+            await endpoint.start()
+            async with container() as scope:
+                await endpoint.dispatch(make_envelope(_DomainEvent(kind='OrderPlaced')), scope)
+            await endpoint.stop()
+
+        assert spy.sent == ['local://orders']
+
+    @staticmethod
+    async def test_dispatch_fires_on_sent_for_scheduled_message() -> None:
+        now = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
+        inbox = FakeInboxStore()
+        spy = _SentSpy()
+        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+            endpoint = _endpoint(
+                container,
+                executor,
+                frozenset([_NoopHandler]),
+                now=lambda: now,
+                observers=MessageObservers([spy]),
+            )
+            await endpoint.start()
+            scheduled = now + timedelta(hours=1)
+            async with container() as scope:
+                await endpoint.dispatch(make_envelope(_DomainEvent(kind='later'), scheduled_time=scheduled), scope)
+            await endpoint.stop()
+
+        assert spy.sent == ['local://orders']
+
+    @staticmethod
+    async def test_duplicate_dispatch_does_not_refire_on_sent() -> None:
+        _NoopHandler.invocations = []
+        inbox = FakeInboxStore()
+        spy = _SentSpy()
+        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+            endpoint = _endpoint(container, executor, frozenset([_NoopHandler]), observers=MessageObservers([spy]))
+            await endpoint.start()
+            async with container() as scope:
+                envelope = make_envelope(_DomainEvent(kind='OrderPlaced'))
+                await endpoint.dispatch(envelope, scope)
+                await endpoint.dispatch(envelope, scope)
+            await endpoint.stop()
+
+        assert spy.sent == ['local://orders']  # the duplicate (not fresh) dispatch does not re-fire
+
+    @staticmethod
+    async def test_dispatch_to_stopped_endpoint_does_not_fire_on_sent() -> None:
+        inbox = FakeInboxStore()
+        spy = _SentSpy()
+        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+            endpoint = _endpoint(container, executor, frozenset([_NoopHandler]), observers=MessageObservers([spy]))
+            # Endpoint never started -> the receiver rejects the dispatch, mirroring the BUFFERED endpoint.
+            async with container() as scope:
+                await endpoint.dispatch(make_envelope(_DomainEvent(kind='OrderPlaced')), scope)
+
+        assert spy.sent == []
+
+    @staticmethod
+    async def test_dispatch_with_no_subscribed_handlers_does_not_fire_on_sent() -> None:
+        inbox = FakeInboxStore()
+        spy = _SentSpy()
+        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+            endpoint = _endpoint(container, executor, frozenset(), observers=MessageObservers([spy]))
+            await endpoint.start()
+            async with container() as scope:
+                await endpoint.dispatch(make_envelope(_DomainEvent(kind='OrderPlaced')), scope)
+            await endpoint.stop()
+
+        assert spy.sent == []

@@ -13,6 +13,7 @@ from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.registry import ErrorPolicyRegistry
+from waku.messaging.observability.observer import MessageObservers
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.relay import OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.partition import ISequenceAllocator
@@ -73,6 +74,7 @@ def make_relay_evaluator(
 
 
 NOOP_EVALUATOR = ErrorPolicyEvaluator(registry=ErrorPolicyRegistry(handler_policies={}, default_policies=()))
+NOOP_OBSERVERS = MessageObservers([])
 
 
 class FakeUoW(IUnitOfWork):

@@ -1,20 +1,26 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from dishka import Provider, Scope, make_async_container, provide
+from typing_extensions import override
 
 from waku._internal.retort import default_retort  # noqa: PLC2701
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.external import ExternalEndpoint
+from waku.messaging.observability.observer import IMessageObserver, MessageObservers
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.transport.decomposition import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
 from waku.serialization.upcasting import UpcasterChain
 
-from tests.messaging.helpers import RecordingAllocator, make_envelope, order_id_partition
+from tests.messaging.helpers import NOOP_OBSERVERS, RecordingAllocator, make_envelope, order_id_partition
 from tests.messaging.outbox.fake_store import FakeOutboxStore
+
+if TYPE_CHECKING:
+    from waku.messaging.contracts.envelope import MessageEnvelope
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +66,7 @@ class TestExternalEndpoint:
         codec = _make_codec()
 
         async with make_async_container(_TestDepsProvider(outbox, codec)) as container:
-            endpoint = ExternalEndpoint(uri='notifications')
+            endpoint = ExternalEndpoint(uri='notifications', observers=NOOP_OBSERVERS)
             envelope = make_envelope(_OrderPlaced(order_id='123'), headers={'tenant': 'acme'})
 
             await endpoint.dispatch(envelope, container)
@@ -77,18 +83,43 @@ class TestExternalEndpoint:
 
     @staticmethod
     async def test_start_is_noop() -> None:
-        endpoint = ExternalEndpoint(uri='test')
+        endpoint = ExternalEndpoint(uri='test', observers=NOOP_OBSERVERS)
         await endpoint.start()
 
     @staticmethod
     async def test_stop_is_noop() -> None:
-        endpoint = ExternalEndpoint(uri='test')
+        endpoint = ExternalEndpoint(uri='test', observers=NOOP_OBSERVERS)
         await endpoint.stop()
 
     @staticmethod
     def test_supports_scheduling_is_false() -> None:
-        endpoint = ExternalEndpoint(uri='rabbitmq://orders')
+        endpoint = ExternalEndpoint(uri='rabbitmq://orders', observers=NOOP_OBSERVERS)
         assert endpoint.supports_scheduling is False
+
+
+class _SentSpy(IMessageObserver):
+    def __init__(self) -> None:
+        self.sent: list[str] = []
+
+    @override
+    async def on_sent(self, envelope: MessageEnvelope[Any], destination: str) -> None:
+        self.sent.append(destination)
+
+
+class TestExternalEndpointOnSent:
+    @staticmethod
+    async def test_dispatch_fires_on_sent_after_outbox_write() -> None:
+        outbox = FakeOutboxStore()
+        codec = _make_codec()
+        spy = _SentSpy()
+        async with make_async_container(_TestDepsProvider(outbox, codec)) as container:
+            endpoint = ExternalEndpoint(uri='notifications', observers=MessageObservers([spy]))
+            envelope = make_envelope(_OrderPlaced(order_id='123'))
+
+            await endpoint.dispatch(envelope, container)
+
+        assert len(outbox.saved) == 1  # the write happened before on_sent fired
+        assert spy.sent == ['notifications']
 
 
 class TestExternalEndpointPartitioning:
@@ -98,7 +129,9 @@ class TestExternalEndpointPartitioning:
         codec = _make_codec()
         allocator = RecordingAllocator()
         async with make_async_container(_TestDepsProvider(outbox, codec, allocator)) as container:
-            endpoint = ExternalEndpoint(uri='test://out', partition_by=lambda _msg: 'from-callable')
+            endpoint = ExternalEndpoint(
+                uri='test://out', partition_by=lambda _msg: 'from-callable', observers=NOOP_OBSERVERS
+            )
             envelope = make_envelope(_OrderPlaced(order_id='o-1'), group_id='from-envelope')
 
             await endpoint.dispatch(envelope, container)
@@ -113,7 +146,7 @@ class TestExternalEndpointPartitioning:
         codec = _make_codec()
         allocator = RecordingAllocator()
         async with make_async_container(_TestDepsProvider(outbox, codec, allocator)) as container:
-            endpoint = ExternalEndpoint(uri='test://out', partition_by=order_id_partition)
+            endpoint = ExternalEndpoint(uri='test://out', partition_by=order_id_partition, observers=NOOP_OBSERVERS)
             envelope = make_envelope(_OrderPlaced(order_id='o-7'))
 
             await endpoint.dispatch(envelope, container)
@@ -128,7 +161,7 @@ class TestExternalEndpointPartitioning:
         codec = _make_codec()
         allocator = RecordingAllocator()
         async with make_async_container(_TestDepsProvider(outbox, codec, allocator)) as container:
-            endpoint = ExternalEndpoint(uri='test://out', partition_by=None)
+            endpoint = ExternalEndpoint(uri='test://out', partition_by=None, observers=NOOP_OBSERVERS)
             envelope = make_envelope(_OrderPlaced(order_id='o-11'))
 
             await endpoint.dispatch(envelope, container)

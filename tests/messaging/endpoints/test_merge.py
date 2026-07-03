@@ -7,9 +7,22 @@ from typing_extensions import override
 
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging.endpoints.aspects import ListenAspect, SendAspect
-from waku.messaging.endpoints.base import BrokerEndpointEntry, LocalQueueEntry
+from waku.messaging.endpoints.base import BrokerEndpointEntry, LocalQueueEntry, external_endpoint, listen
 from waku.messaging.endpoints.merge import merge_broker_endpoints
+from waku.messaging.observability.observer import IMessageObserver
 from waku.messaging.transport.interfaces import IEnvelopeMapper
+
+
+class _ObserverA(IMessageObserver):
+    pass
+
+
+class _ObserverB(IMessageObserver):
+    pass
+
+
+class _ObserverC(IMessageObserver):
+    pass
 
 
 class _MapperA(IEnvelopeMapper[Any, Any]):
@@ -162,6 +175,35 @@ class TestMergeBrokerEndpointsValidation:
 
         with pytest.raises(ImproperlyConfiguredError):
             merge_broker_endpoints(entries, inbox_configured=True)
+
+
+class TestMergeBrokerEndpointsObservers:
+    @staticmethod
+    def test_observers_union_dedup_preserves_first_seen_order() -> None:
+        entries = (
+            listen('kafka://orders', observers=(_ObserverA, _ObserverB)),
+            external_endpoint('kafka://orders', observers=(_ObserverB, _ObserverC)),
+        )
+
+        merged = merge_broker_endpoints(entries, inbox_configured=True)
+
+        assert merged[0].observers == (_ObserverA, _ObserverB, _ObserverC)
+
+    @staticmethod
+    def test_fragments_without_observers_merge_to_empty_tuple() -> None:
+        entries = (BrokerEndpointEntry(uri='kafka://orders', send=SendAspect()),)
+
+        merged = merge_broker_endpoints(entries, inbox_configured=False)
+
+        assert merged[0].observers == ()
+
+    @staticmethod
+    def test_single_fragment_observers_pass_through() -> None:
+        entries = (external_endpoint('kafka://orders', observers=(_ObserverA,)),)
+
+        merged = merge_broker_endpoints(entries, inbox_configured=False)
+
+        assert merged[0].observers == (_ObserverA,)
 
 
 class TestMergeBrokerEndpointsFiltering:

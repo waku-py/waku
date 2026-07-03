@@ -14,6 +14,7 @@ from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.inbox._destination import handler_destination
 from waku.messaging.inbox.finalize import apply_inbox_outcome
 from waku.messaging.inbox.interfaces import IInboxStore
+from waku.messaging.observability.observer import ObserverPlan
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.messaging.registry import MessageRegistry
 from waku.messaging.transport.decomposition import rebuild_envelope, wire_metadata_from_entry
@@ -166,6 +167,7 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
     type_registry = await container.get(MessageTypeRegistry)
     messaging_config = await container.get(MessagingConfig)
     now = await container.get(Now)
+    plan = await container.get(ObserverPlan)
 
     handler_by_fqn = {handler_destination(ht): ht for ht in registry.handler_map.handler_types()}
     executors: dict[str, EndpointExecutor] = {}
@@ -178,6 +180,7 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
                 evaluator=evaluator,
                 endpoint_uri=source_uri,
                 invoker=invoker,
+                observers=plan.for_endpoint(source_uri),
                 default_execution_timeout=messaging_config.default_execution_timeout,
                 now=now,
             )

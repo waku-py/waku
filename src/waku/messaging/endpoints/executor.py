@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import enum
 import logging
+import time
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, TypeAlias, assert_never
 
 import anyio
@@ -20,7 +22,6 @@ from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-    from datetime import timedelta
 
     from dishka import AsyncContainer
 
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.errors.executor import ErrorPolicyEvaluator, PolicyOutcome
+    from waku.messaging.observability.observer import MessageObservers
     from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 
 __all__ = [
@@ -45,7 +47,8 @@ class ExecutionOutcome(enum.Enum):
     DEAD_LETTERED = 'DEAD_LETTERED'
     DEAD_LETTER_FAILED = 'DEAD_LETTER_FAILED'  # DLQ write failed; durable row survives for recovery
     DISCARDED = 'DISCARDED'
-    FAILED_NO_POLICY = 'FAILED_NO_POLICY'
+    FAILED_NO_POLICY = 'FAILED_NO_POLICY'  # failed with no recovery: endpoint path = no policy matched; invoke path
+    # = policies never consulted, exception propagates to the caller
     REQUEUED = 'REQUEUED'  # deferred-terminal: endpoint re-delivers
     PAUSED = 'PAUSED'  # deferred-terminal: re-deliver + pause listener for policy's pause_duration
 
@@ -74,28 +77,34 @@ class EndpointExecutor:
         '_endpoint_uri',
         '_evaluator',
         '_invoker',
+        '_monotonic',
         '_now',
+        '_observers',
         '_sleep',
     )
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 -- DI/config values, all required; bundling is a construction-site refactor
         self,
         *,
         container: AsyncContainer,
         evaluator: ErrorPolicyEvaluator,
         endpoint_uri: str,
         invoker: HandlerPipelineInvoker,
+        observers: MessageObservers,
         default_execution_timeout: timedelta | None = None,
         sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
         now: Now = utc_now,
+        monotonic: Callable[[], float] = time.perf_counter,
     ) -> None:
         self._container = container
         self._evaluator = evaluator
         self._endpoint_uri = endpoint_uri
         self._invoker = invoker
+        self._observers = observers
         self._default_execution_timeout = default_execution_timeout
         self._sleep = sleep
         self._now = now
+        self._monotonic = monotonic
 
     async def execute(
         self,
@@ -108,10 +117,17 @@ class EndpointExecutor:
             # Intentional expiry → DISCARD (never DLQ); deletes the row on both live and recovery paths.
             logger.info('Discarding expired message_id=%s (expires_at=%s)', envelope.message_id, envelope.expires_at)
             result = ExecutionResult(ExecutionOutcome.DISCARDED)
+            await self._observers.executed(
+                envelope, self._endpoint_uri, handler_type, result.outcome, None, timedelta()
+            )
             if on_result is not None:
                 await on_result(result.outcome, None)
             return result
+        await self._observers.executing(envelope, self._endpoint_uri, handler_type)
+        start = self._monotonic()
         result, exc = await self._run_attempts(envelope, handler_type)
+        duration = timedelta(seconds=self._monotonic() - start)
+        await self._observers.executed(envelope, self._endpoint_uri, handler_type, result.outcome, exc, duration)
         if on_result is not None:
             await on_result(result.outcome, exc)
         return result

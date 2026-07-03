@@ -10,8 +10,10 @@ from waku.di import (
     AnyOf,
     AsyncContainer,
     Provider,
+    Scope,
     WithParents,
     is_registered,
+    many,
     object_,
     scoped,
     singleton,
@@ -66,6 +68,9 @@ from waku.messaging.inbox.listener import InboundListener
 from waku.messaging.inbox.recovery import InboxRecoveryWorker
 from waku.messaging.inbox.scheduled import ScheduledPromotionWorker
 from waku.messaging.interfaces import IMessageBus
+from waku.messaging.observability.audit import AuditedMemberResolver
+from waku.messaging.observability.logging_observer import LoggingMessageObserver
+from waku.messaging.observability.observer import IMessageObserver, MessageObservers, ObserverPlan
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.outgoing import IOutgoingMessages, IOutgoingMessagesFrames, OutgoingMessages
@@ -135,6 +140,11 @@ class MessagingModule:
             singleton(EnvelopeFactory),
             singleton(HandlerPipelineInvoker),
             singleton(MessageDispatcher),
+            singleton(AuditedMemberResolver, _build_audited_member_resolver),
+            # APP scope: singleton(ObserverPlan)/singleton(MessageObservers) below depend on this collector.
+            many(IMessageObserver, *_declared_observer_types(config_), scope=Scope.APP),
+            singleton(ObserverPlan, _build_observer_plan),
+            singleton(MessageObservers, _build_message_observers),
             transient(MessageContext, get_message_context),
             *cls._infrastructure_providers(config_),
         ]
@@ -176,6 +186,7 @@ class MessagingModule:
         _reject_inline_deferred_terminal(config)
         _reject_partition_by_on_non_sequenced_local(config)
         _reject_local_broker_uri_collision(config)
+        _reject_reserved_invoke_scheme(config)
 
     @staticmethod
     def _infrastructure_providers(config: MessagingConfig) -> _HandlerProviders:
@@ -306,6 +317,17 @@ def _reject_local_broker_uri_collision(config: MessagingConfig) -> None:
         raise ImproperlyConfiguredError(msg)
 
 
+def _reject_reserved_invoke_scheme(config: MessagingConfig) -> None:
+    # Bare (schemeless) URIs can't collide with 'invoke' — only check entries with an explicit '://' scheme.
+    for entry in config.endpoints:
+        if '://' not in entry.uri:
+            continue
+        scheme, _ = split_destination(entry.uri, default_scheme=None)
+        if scheme == 'invoke':
+            msg = f"endpoint {entry.uri!r}: scheme 'invoke' is reserved for inline bus.invoke() executions"
+            raise ImproperlyConfiguredError(msg)
+
+
 def _reject_inline_per_handler_deferred_terminal(config: MessagingConfig, routing_table: RoutingTable) -> None:
     # Post-merge: routing table maps INLINE endpoints to handlers, enabling per-handler checks.
     for entry in config.endpoints:
@@ -387,6 +409,53 @@ def _build_message_type_registry(
     )
 
 
+def _build_audited_member_resolver(config: MessagingConfig) -> AuditedMemberResolver:
+    resolver = AuditedMemberResolver(config.audited_members)
+    for message_type in config.audited_members:
+        resolver.resolve(message_type)  # startup fail-fast on a config typo (ImproperlyConfiguredError)
+    return resolver
+
+
+def _declared_observer_types(config: MessagingConfig) -> tuple[type[IMessageObserver], ...]:
+    return tuple(
+        dict.fromkeys((
+            LoggingMessageObserver,
+            *config.observers,
+            *(t for entry in config.endpoints for t in entry.observers),
+        ))
+    )
+
+
+def _build_observer_plan(
+    observers: Sequence[IMessageObserver],
+    config: MessagingConfig,
+    merged: tuple[MergedBrokerEndpoint, ...],
+) -> ObserverPlan:
+    always_global = {LoggingMessageObserver, *config.observers}
+    # merged's observer types are a dedup union of the SAME config.endpoints fragments already covered above.
+    declared_endpoint = {t for entry in config.endpoints for t in entry.observers}
+    endpoint_only = declared_endpoint - always_global
+
+    global_list = [obs for obs in observers if type(obs) not in endpoint_only]
+    by_type = {type(obs): obs for obs in observers}
+
+    by_uri: dict[str, MessageObservers] = {}
+    uri_entries: tuple[LocalQueueEntry | MergedBrokerEndpoint, ...] = (
+        *(entry for entry in config.endpoints if isinstance(entry, LocalQueueEntry)),
+        *merged,
+    )
+    for entry in uri_entries:
+        extras = [t for t in entry.observers if t in endpoint_only]
+        if extras:
+            by_uri[entry.uri] = MessageObservers([*global_list, *(by_type[t] for t in extras)])
+
+    return ObserverPlan(MessageObservers(global_list), by_uri)
+
+
+def _build_message_observers(plan: ObserverPlan) -> MessageObservers:
+    return plan.global_observers
+
+
 def _create_envelope_codec() -> PayloadCodec:
     return PayloadCodec(default_retort, UpcasterChain({}))
 
@@ -398,9 +467,10 @@ def _build_router(
     invoker: HandlerPipelineInvoker,
     config: MessagingConfig,
     now: Now,
+    plan: ObserverPlan,
 ) -> MessageRouter:
     endpoints_by_uri = {
-        entry.uri: _create_endpoint(entry, routing_table, container, evaluator, invoker, config, now)
+        entry.uri: _create_endpoint(entry, routing_table, container, evaluator, invoker, config, now, plan)
         for entry in routing_table.entries
         if isinstance(entry, LocalQueueEntry) or entry.send is not None
     }
@@ -413,7 +483,7 @@ def _build_router(
     )
 
 
-def _create_endpoint(
+def _create_endpoint(  # noqa: PLR0913, PLR0917 -- one construction-site param per endpoint collaborator
     entry: MergedBrokerEndpoint | LocalQueueEntry,
     routing_table: RoutingTable,
     container: AsyncContainer,
@@ -421,15 +491,18 @@ def _create_endpoint(
     invoker: HandlerPipelineInvoker,
     config: MessagingConfig,
     now: Now,
+    plan: ObserverPlan,
 ) -> Endpoint:
+    observers = plan.for_endpoint(entry.uri)
     if isinstance(entry, MergedBrokerEndpoint):
-        return ExternalEndpoint(uri=entry.uri, partition_by=entry.partition_by)
+        return ExternalEndpoint(uri=entry.uri, partition_by=entry.partition_by, observers=observers)
 
     executor = EndpointExecutor(
         container=container,
         evaluator=evaluator,
         endpoint_uri=entry.uri,
         invoker=invoker,
+        observers=observers,
         default_execution_timeout=config.default_execution_timeout,
         now=now,
     )
@@ -447,6 +520,7 @@ def _create_endpoint(
                 uri=entry.uri,
                 handler_subscriptions=subscriptions,
                 executor=executor,
+                observers=observers,
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,
                 max_parallel=entry.max_parallel,
@@ -461,6 +535,7 @@ def _create_endpoint(
                 uri=entry.uri,
                 handler_subscriptions=subscriptions,
                 executor=executor,
+                observers=observers,
                 container=container,
                 inbox_config_keep_after_handled_seconds=config.inbox.keep_after_handled.total_seconds(),
                 inbox_owner_id=config.inbox.resolve_owner_id(),
@@ -780,6 +855,7 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
         invoker = await app.container.get(HandlerPipelineInvoker)
         messaging_config = await app.container.get(MessagingConfig)
         now = await app.container.get(Now)
+        plan = await app.container.get(ObserverPlan)
         for ep in merged:
             if ep.listen is None:
                 continue
@@ -789,6 +865,7 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
                 evaluator=evaluator,
                 endpoint_uri=uri,
                 invoker=invoker,
+                observers=plan.for_endpoint(uri),
                 default_execution_timeout=messaging_config.default_execution_timeout,
                 now=now,
             )

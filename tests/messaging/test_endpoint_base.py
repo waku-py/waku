@@ -15,10 +15,15 @@ from waku.messaging.endpoints.base import (
     local_queue,
 )
 from waku.messaging.inbox.backpressure import BufferingLimits
+from waku.messaging.observability.observer import IMessageObserver
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper
 
 if TYPE_CHECKING:
     from waku.messaging.contracts.message import IMessage
+
+
+class _ObserverA(IMessageObserver):
+    pass
 
 
 class TestEndpointEntryFactories:
@@ -98,6 +103,18 @@ class TestLocalQueueCircuitBreaker:
     @staticmethod
     def test_local_queue_circuit_breaker_defaults_to_inherit() -> None:
         assert local_queue('q').circuit_breaker is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support
+
+
+class TestLocalQueueObservers:
+    @staticmethod
+    def test_default_observers_is_empty_tuple() -> None:
+        entry = local_queue('q')
+        assert entry.observers == ()
+
+    @staticmethod
+    def test_observers_dedup_preserves_first_seen_order() -> None:
+        entry = local_queue('q', observers=(_ObserverA, _ObserverA))
+        assert entry.observers == (_ObserverA,)
 
 
 class _StubMapper(IEnvelopeMapper[Any, Any]):
