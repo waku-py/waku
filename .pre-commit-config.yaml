@@ -26,7 +26,7 @@ repos:
       - id: check-case-conflict
 
   - repo: https://github.com/python-jsonschema/check-jsonschema
-    rev: 0.37.1
+    rev: 0.37.4
     hooks:
       - id: check-github-workflows
         files: '^\.github/workflows/.*\.ya?ml$'
@@ -42,7 +42,7 @@ repos:
       - id: actionlint
 
   - repo: https://github.com/crate-ci/typos
-    rev: v1.45.0
+    rev: v1.48.0
     hooks:
       - id: typos
         args: [ "--force-exclude" ]
