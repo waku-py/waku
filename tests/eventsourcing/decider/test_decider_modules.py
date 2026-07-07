@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import sys
+import typing
 from dataclasses import dataclass
 
+import pytest
 from typing_extensions import override
 
+from waku.eventsourcing.decider.repository import DeciderRepository
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.integrations.eventsourcing_messaging import DeciderVoidCommandHandler
@@ -58,3 +62,38 @@ async def test_bind_decider_integrates_with_di_and_message_bus() -> None:
         state, version = await repo.load('c-1')
         assert state == CounterState(value=5)
         assert version == 0
+
+
+# A native `type X = ...` yields a stdlib ``typing.TypeAliasType``, which typing_extensions >= 4.16
+# no longer identifies with its own backport class. It exists only on 3.12+, so resolve the
+# constructor dynamically (typed ``Any``) to keep this module importable and type-checkable on 3.11.
+_native_type_alias_factory: typing.Any = vars(typing).get('TypeAliasType')
+
+
+@pytest.mark.skipif(sys.version_info < (3, 12), reason='PEP 695 type aliases require Python 3.12+')
+async def test_bind_decider_resolves_repository_parametrized_with_pep695_type_alias() -> None:
+    counter_event = _native_type_alias_factory('counter_event', Incremented)
+
+    class AliasCounterRepository(DeciderRepository[CounterState, Increment, counter_event]):  # type: ignore[valid-type]
+        aggregate_name = 'AliasCounter'
+
+    @module(
+        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
+        extensions=[
+            EventSourcingExtension().bind_decider(
+                repository=AliasCounterRepository,
+                decider=CounterDecider,
+                event_types=[Incremented],
+            ),
+        ],
+    )
+    class AliasCounterModule:
+        pass
+
+    async with create_test_app(imports=[AliasCounterModule]) as app, app.container() as container:
+        repo = await container.get(AliasCounterRepository)
+        state, version = await repo.load('missing')
+
+    assert isinstance(repo, AliasCounterRepository)
+    assert state == CounterState()
+    assert version == -1

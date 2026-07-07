@@ -6,9 +6,7 @@ import typing
 import uuid
 from typing import ClassVar, Final, Generic, cast
 
-from typing_extensions import TypeAliasType
-
-from waku.eventsourcing._introspection import is_abstract, resolve_generic_args
+from waku.eventsourcing._introspection import is_abstract, is_type_alias, resolve_generic_args
 from waku.eventsourcing._stream_helpers import read_aggregate_stream
 from waku.eventsourcing.contracts.aggregate import (  # Dishka needs runtime access
     CommandT,
@@ -49,7 +47,7 @@ class DeciderRepository(abc.ABC, Generic[StateT, CommandT, EventT]):
             if state_cls is None:
                 msg = f'{cls.__name__} must define aggregate_name or parametrize Generic with a concrete state type'
                 raise TypeError(msg)
-            if not isinstance(state_cls, (type, TypeAliasType)):
+            if not (isinstance(state_cls, type) or is_type_alias(state_cls)):
                 msg = (
                     f'{cls.__name__}: cannot infer aggregate_name from state type {state_cls!r}. '
                     f'Define aggregate_name explicitly when using Union or complex state types.'
