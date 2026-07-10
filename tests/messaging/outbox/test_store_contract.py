@@ -40,13 +40,25 @@ def _dead_letter_for(message: OutboxMessage) -> DeadLetterEntry:
     )
 
 
-async def test_save_batch_is_idempotent_on_idempotency_key(outbox_store: IOutboxStore) -> None:
+async def test_save_batch_dedups_same_key_and_destination(outbox_store: IOutboxStore) -> None:
+    # Dedup now requires BOTH idempotency_key AND destination: the same message saved twice is one row.
     message = _make_message()
     await outbox_store.save_batch([message])
     await outbox_store.save_batch([message])
 
     fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
     assert len(fetched) == 1
+
+
+async def test_save_batch_keeps_same_key_across_distinct_destinations(outbox_store: IOutboxStore) -> None:
+    key = str(uuid4())
+    await outbox_store.save_batch([_make_message(idempotency_key=key, destination='test://a')])
+    await outbox_store.save_batch([_make_message(idempotency_key=key, destination='test://b')])
+
+    fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
+    assert len(fetched) == 2
+    assert {m.destination for m in fetched} == {'test://a', 'test://b'}
+    assert len({m.idempotency_key for m in fetched}) == 1
 
 
 async def test_idempotency_key_is_freed_after_row_deleted(outbox_store: IOutboxStore) -> None:

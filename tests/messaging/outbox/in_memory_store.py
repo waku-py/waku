@@ -23,8 +23,9 @@ __all__ = ['InMemoryOutboxStore']
 class InMemoryOutboxStore(IOutboxStore):
     """Faithful in-memory ``IOutboxStore`` mirroring ``SqlAlchemyOutboxStore``'s observable semantics.
 
-    The canonical fake for the store contract suite: idempotency dedup (the ``uq_outbox_idempotency_key``
-    constraint), the ready/backoff filter (``coalesce(next_retry_at, now) <= now``), and the TXN-1-correct
+    The canonical fake for the store contract suite: idempotency dedup (the composite
+    ``uq_outbox_idempotency_destination`` constraint over ``(idempotency_key, destination)``), the
+    ready/backoff filter (``coalesce(next_retry_at, now) <= now``), and the TXN-1-correct
     head-of-queue (head selection is INDEPENDENT of ``next_retry_at`` so a not-ready head blocks its
     group). List insertion order stands in for ``created_at`` (server-assigned ascending). Not thread-safe.
     """
@@ -40,13 +41,16 @@ class InMemoryOutboxStore(IOutboxStore):
 
     @override
     async def save_batch(self, messages: Sequence[OutboxMessage]) -> None:
-        # ON CONFLICT DO NOTHING on the idempotency_key unique constraint: a key already present is
-        # ignored. A deleted row frees its key (the constraint only rejects live rows).
-        keys = {msg.idempotency_key for msg in self.messages}
+        # ON CONFLICT DO NOTHING on the composite (idempotency_key, destination) unique constraint: a
+        # (key, destination) pair already present is ignored, so the same message fanned to distinct
+        # destinations persists one row per destination. A deleted row frees its pair (the constraint
+        # only rejects live rows).
+        keys = {(msg.idempotency_key, msg.destination) for msg in self.messages}
         for msg in messages:
-            if msg.idempotency_key in keys:
+            key = (msg.idempotency_key, msg.destination)
+            if key in keys:
                 continue
-            keys.add(msg.idempotency_key)
+            keys.add(key)
             self.messages.append(msg)
 
     @override

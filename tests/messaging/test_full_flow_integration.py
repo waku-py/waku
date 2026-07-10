@@ -539,3 +539,49 @@ class TestPartitionOrderingEndToEnd:
         # Each group dispatched strictly seq 1, 2, 3 in order; groups run in parallel (relay claims one
         # head per group per poll, advancing each group independently).
         assert per_group == {'A': [1, 2, 3], 'B': [1, 2, 3]}
+
+
+class TestMultiDestinationFanOut:
+    @staticmethod
+    async def test_event_routed_to_two_endpoints_persists_and_delivers_to_both() -> None:
+        transport_ta = RecordingTransport()
+        transport_tb = RecordingTransport()
+        outbox = InMemoryOutboxStore()
+        config = MessagingConfig(
+            endpoints=[external_endpoint('ta://events'), external_endpoint('tb://events')],
+            routing=[route(_OrderPlaced).to('ta://events'), route(_OrderPlaced).to('tb://events')],
+            outbox=OutboxConfig(
+                store=lambda: outbox,
+                relay=OutboxRelayConfig(
+                    polling=PollingConfig(poll_interval_min_seconds=0.01), recovery_interval=timedelta(hours=1)
+                ),
+            ),
+            transports={'ta': lambda: transport_ta, 'tb': lambda: transport_tb},
+            global_pipeline_behaviors=[TransactionalBehavior],
+        )
+
+        @module(extensions=[MessagingExtension().bind(_OrderPlacedHandler)])
+        class TestModule:
+            pass
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(config), TestModule],
+                providers=[
+                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                ],
+            ) as app,
+            app.container() as c,
+        ):
+            bus = await c.get(IMessageBus)
+            await bus.publish(_OrderPlaced(order_id='x'))
+            await wait_until(lambda: len(transport_ta.sent) >= 1 and len(transport_tb.sent) >= 1)
+
+        assert len(outbox.messages) == 2
+        assert {m.destination for m in outbox.messages} == {'ta://events', 'tb://events'}
+        assert len({m.idempotency_key for m in outbox.messages}) == 1
+        ta_body, *_ta_rest = transport_ta.sent[0]
+        tb_body, *_tb_rest = transport_tb.sent[0]
+        assert ta_body['order_id'] == 'x'
+        assert tb_body['order_id'] == 'x'

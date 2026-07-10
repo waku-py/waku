@@ -25,7 +25,7 @@ __all__ = [
     'bind_outbox_tables',
 ]
 
-OUTBOX_IDEMPOTENCY_CONSTRAINT: Final = 'uq_outbox_idempotency_key'
+OUTBOX_IDEMPOTENCY_CONSTRAINT: Final = 'uq_outbox_idempotency_destination'
 
 _internal_metadata = MetaData()
 
@@ -54,7 +54,11 @@ outbox_messages_table = Table(
     Column('processing_started_at', TIMESTAMP(timezone=True), nullable=True),
     Column('dispatched_at', TIMESTAMP(timezone=True), nullable=True),
     Column('next_retry_at', TIMESTAMP(timezone=True), nullable=True),
-    UniqueConstraint('idempotency_key', name=OUTBOX_IDEMPOTENCY_CONSTRAINT),
+    UniqueConstraint(
+        'idempotency_key',
+        'destination',
+        name=OUTBOX_IDEMPOTENCY_CONSTRAINT,
+    ),
     Index('ix_outbox_status_created', 'status', 'created_at'),
     Index('ix_outbox_status_next_retry', 'status', 'next_retry_at'),
     Index('ix_outbox_group_sequence', 'group_id', 'sequence_number'),
