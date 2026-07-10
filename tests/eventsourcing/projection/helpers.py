@@ -8,13 +8,15 @@ from typing_extensions import override
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import NoStream, StreamId
 from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
-from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ProjectionErrorPolicy
+from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore, ProjectionErrorPolicy
 from waku.messaging.contracts.event import IEvent
+from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from waku.eventsourcing.contracts.event import StoredEvent
+    from waku.eventsourcing.projection.checkpoint import Checkpoint
     from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
 
@@ -72,7 +74,7 @@ def make_binding(  # noqa: PLR0913
     max_retry_delay_seconds: float = 300.0,
     batch_size: int = 100,
     event_type_names: tuple[str, ...] | None = None,
-    gap_detection_enabled: bool = False,
+    gap_detection_enabled: bool = True,
     gap_timeout_seconds: float = 10.0,
 ) -> CatchUpProjectionBinding:
     return CatchUpProjectionBinding(
@@ -86,6 +88,147 @@ def make_binding(  # noqa: PLR0913
         gap_detection_enabled=gap_detection_enabled,
         gap_timeout_seconds=gap_timeout_seconds,
     )
+
+
+class _SessionAbortedError(Exception):
+    pass
+
+
+# Models the scoped AsyncSession shared by checkpoint store, UoW, and (optionally) a projection.
+# Writes buffer as pending until commit() promotes them to durable state; abort() puts the session
+# into a pending-rollback state (any subsequent write or commit raises, as SQLAlchemy does) until
+# rollback() resets it. load_checkpoint clears the pending buffers first, modelling "new scope = new
+# transaction" — the previous scope's uncommitted writes rolled back.
+class FakeSession:
+    def __init__(self) -> None:
+        self.aborted = False
+        self._pending_checkpoints: dict[str, Checkpoint] = {}
+        self._durable_checkpoints: dict[str, Checkpoint] = {}
+        self._pending_writes: list[list[int]] = []
+        self._durable_writes: list[list[int]] = []
+
+    def abort(self) -> None:
+        self.aborted = True
+
+    def write(self, row: list[int]) -> None:
+        self._ensure_not_aborted()
+        self._pending_writes.append(row)
+
+    def save_checkpoint(self, checkpoint: Checkpoint) -> None:
+        self._ensure_not_aborted()
+        self._pending_checkpoints[checkpoint.projection_name] = checkpoint
+
+    def load_checkpoint(self, projection_name: str) -> Checkpoint | None:
+        self._pending_checkpoints.clear()
+        self._pending_writes.clear()
+        return self._durable_checkpoints.get(projection_name)
+
+    def commit(self) -> None:
+        self._ensure_not_aborted()
+        self._durable_checkpoints.update(self._pending_checkpoints)
+        self._durable_writes.extend(self._pending_writes)
+        self._pending_checkpoints.clear()
+        self._pending_writes.clear()
+
+    def rollback(self) -> None:
+        self.aborted = False
+        self._pending_checkpoints.clear()
+        self._pending_writes.clear()
+
+    def durable_checkpoint(self, projection_name: str) -> Checkpoint | None:
+        return self._durable_checkpoints.get(projection_name)
+
+    def durable_writes(self) -> list[list[int]]:
+        return list(self._durable_writes)
+
+    def _ensure_not_aborted(self) -> None:
+        if self.aborted:  # pragma: no cover - tripwire: the runner rolls back before any op on an aborted session
+            msg = 'session is in pending-rollback state'
+            raise _SessionAbortedError(msg)
+
+
+class CommitGatedCheckpointStore(ICheckpointStore):
+    def __init__(self, session: FakeSession) -> None:
+        self._session = session
+
+    @override
+    async def load(self, projection_name: str, /) -> Checkpoint | None:
+        return self._session.load_checkpoint(projection_name)
+
+    @override
+    async def save(self, checkpoint: Checkpoint, /) -> None:
+        self._session.save_checkpoint(checkpoint)
+
+
+class CommitGatedUnitOfWork(IUnitOfWork):
+    def __init__(self, session: FakeSession) -> None:
+        self._session = session
+
+    @override
+    async def commit(self) -> None:
+        self._session.commit()
+
+    @override
+    async def rollback(self) -> None:
+        self._session.rollback()
+
+
+class PoisonProjection(ICatchUpProjection):
+    projection_name = 'poison'
+
+    def __init__(
+        self,
+        poison_value: int,
+        *,
+        session: FakeSession | None = None,
+        on_skip_fails: bool = False,
+    ) -> None:
+        self._poison_value = poison_value
+        self._session = session
+        self._on_skip_fails = on_skip_fails
+        self.batches: list[list[StoredEvent]] = []
+        self.skipped: list[list[StoredEvent]] = []
+
+    @override
+    async def project(self, events: Sequence[StoredEvent], /) -> None:
+        self.batches.append(list(events))
+        values = [e.data.value for e in events]  # type: ignore[attr-defined]
+        if self._session is not None:
+            self._session.write(values)
+        if self._poison_value in values:
+            if self._session is not None:
+                self._session.abort()
+            msg = f'poison value {self._poison_value} in batch'
+            raise RuntimeError(msg)
+
+    @override
+    async def on_skip(self, events: Sequence[StoredEvent], error: Exception) -> None:
+        self.skipped.append(list(events))
+        if self._on_skip_fails:
+            if self._session is not None:
+                # Models an on_skip that writes a skip-audit row then hits an IntegrityError, aborting
+                # the shared session: the runner must roll back again before saving the checkpoint.
+                self._session.write([-1])
+                self._session.abort()
+            msg = 'on_skip also fails'
+            raise RuntimeError(msg)
+
+
+class FlakyProjection(ICatchUpProjection):
+    projection_name = 'flaky'
+
+    def __init__(self, failures: int) -> None:
+        self._remaining_failures = failures
+        self.received: list[StoredEvent] = []
+
+    @override
+    async def project(self, events: Sequence[StoredEvent], /) -> None:
+        # Raise BEFORE recording, so a failed attempt contributes nothing to `received`.
+        if self._remaining_failures > 0:
+            self._remaining_failures -= 1
+            msg = 'transient failure'
+            raise RuntimeError(msg)
+        self.received.extend(events)
 
 
 async def seed_mixed_events(store: InMemoryEventStore) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import TYPE_CHECKING, Final
 
 import anyio
@@ -10,7 +11,7 @@ from waku._internal.shutdown import wait_for_shutdown
 from waku.eventsourcing.exceptions import ProjectionError
 from waku.eventsourcing.projection.config import PollingConfig
 from waku.eventsourcing.projection.interfaces import ICheckpointStore
-from waku.eventsourcing.projection.processor import ProjectionProcessor
+from waku.eventsourcing.projection.processor import CycleOutcome, ProjectionProcessor
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.store.interfaces import IEventReader
 from waku.uow import IUnitOfWork
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
     from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
     from waku.eventsourcing.projection.interfaces import ICatchUpProjection
     from waku.eventsourcing.projection.lock.interfaces import IProjectionLock
+    from waku.eventsourcing.projection.processor import SkipRequest
 
 __all__ = ['CatchUpProjectionRunner']
 
@@ -86,7 +88,12 @@ class CatchUpProjectionRunner:
                 await projection.teardown()
                 await uow.commit()
 
-            processor = ProjectionProcessor(binding)
+            # Rebuild replays historical events, where every global_position gap is permanent (a burned
+            # Identity value from a long-ago rolled-back append). Gap detection guards the live tail
+            # against not-yet-committed positions; on permanent historical gaps it only stalls the replay,
+            # so the rebuild pass runs with it disabled and processes every committed event past the gap.
+            rebuild_binding = replace(binding, gap_detection_enabled=False)
+            processor = ProjectionProcessor(rebuild_binding)
 
             async with self._container() as scope:
                 checkpoint_store = await scope.get(ICheckpointStore)
@@ -95,8 +102,11 @@ class CatchUpProjectionRunner:
                 await uow.commit()
 
             while True:
-                processed = await self._run_cycle(binding, processor)
-                if processed == 0:
+                outcome = await self._run_cycle(rebuild_binding, processor)
+                if outcome.retry_delay_seconds is not None:
+                    await anyio.sleep(outcome.retry_delay_seconds)
+                    continue
+                if outcome.skip is None and not outcome.made_progress:
                     break
 
     def request_shutdown(self) -> None:
@@ -137,7 +147,7 @@ class CatchUpProjectionRunner:
     ) -> None:
         while not self._shutdown_event.is_set():
             try:
-                processed = await self._run_cycle(binding, processor)
+                outcome = await self._run_cycle(binding, processor)
             except ProjectionError:
                 raise
             except Exception:
@@ -145,31 +155,60 @@ class CatchUpProjectionRunner:
                     'Projection %r: cycle failed, will retry next poll',
                     binding.projection.projection_name,
                 )
-                processed = 0
+                outcome = CycleOutcome(events_processed=0, checkpoint_mutated=False)
 
-            if processed > 0:
+            if outcome.retry_delay_seconds is not None:
+                await self._wait(outcome.retry_delay_seconds)
+                continue
+
+            if outcome.made_progress or outcome.skip is not None:
                 interval.on_work_done()
             else:
                 interval.on_idle()
 
-            wait_seconds = interval.current_with_jitter()
-            with anyio.move_on_after(wait_seconds):
-                await self._shutdown_event.wait()
+            await self._wait(interval.current_with_jitter())
+
+    async def _wait(self, seconds: float) -> None:
+        with anyio.move_on_after(seconds):
+            await self._shutdown_event.wait()
 
     async def _run_cycle(
         self,
         binding: CatchUpProjectionBinding,
         processor: ProjectionProcessor,
-    ) -> int:
+    ) -> CycleOutcome:
         async with self._container() as scope:
             projection = await scope.get(binding.projection)
             reader = await scope.get(IEventReader)
             checkpoint_store = await scope.get(ICheckpointStore)
             uow = await scope.get(IUnitOfWork)
-            processed = await processor.run_once(projection, reader, checkpoint_store)
-            if processed > 0:
+            outcome = await processor.run_once(projection, reader, checkpoint_store)
+            if outcome.skip is not None:
+                await self._persist_skip(binding, projection, checkpoint_store, uow, outcome.skip)
+            elif outcome.made_progress:
                 await uow.commit()
-            return processed
+            return outcome
+
+    @staticmethod
+    async def _persist_skip(
+        binding: CatchUpProjectionBinding,
+        projection: ICatchUpProjection,
+        checkpoint_store: ICheckpointStore,
+        uow: IUnitOfWork,
+        skip: SkipRequest,
+    ) -> None:
+        # The failed project() may have left the scoped session aborted and holding partial read-model
+        # writes: roll back first, then commit the skip advance (and on_skip side effects) in a clean
+        # transaction. A failing on_skip is swallowed, with its own rollback so it cannot re-poison
+        # the checkpoint save.
+        await uow.rollback()
+        try:
+            await projection.on_skip(skip.events, skip.error)
+        except Exception:
+            logger.exception('Projection %r: on_skip handler failed', binding.projection.projection_name)
+            await uow.rollback()
+        await checkpoint_store.save(skip.checkpoint)
+        await uow.commit()
 
     async def _signal_listener(self, cancel_scope: anyio.CancelScope) -> None:  # pragma: no cover
         await wait_for_shutdown(self._shutdown_event)
