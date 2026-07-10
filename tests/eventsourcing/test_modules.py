@@ -199,6 +199,7 @@ async def test_catch_up_projections_bare_type_uses_defaults() -> None:
         projections = await container.get(Sequence[ICatchUpProjection])
         assert len(projections) == 1
         assert isinstance(projections[0], SearchIndexProjection)
+        assert es_ext.catch_up_bindings[0].gap_detection_enabled is True
 
 
 async def test_no_catch_up_projections_resolves_empty_sequence() -> None:
