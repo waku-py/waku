@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MessageContext:
-    correlation_id: UUID
-    causation_id: UUID
+    correlation_id: str
+    causation_id: str
     message_id: UUID
     headers: Mapping[str, str]
     group_id: str | None = None

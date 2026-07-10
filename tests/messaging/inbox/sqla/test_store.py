@@ -399,8 +399,8 @@ class TestMetadataColumns:
     @staticmethod
     async def test_correlation_causation_metadata_round_trip(pg_session: AsyncSession) -> None:
         store = SqlAlchemyInboxStore(pg_session)
-        corr = uuid4()
-        caus = uuid4()
+        corr = str(uuid4())
+        caus = str(uuid4())
         meta_payload = {
             'message_version': 3,
             'timestamp': '2026-06-29T08:00:00+00:00',

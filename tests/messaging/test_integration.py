@@ -81,8 +81,8 @@ class TestMessagingIntegration:
         assert len(_ContextCapturingHandler.captured) == 1
 
         ctx = _ContextCapturingHandler.captured[0]
-        assert isinstance(ctx.correlation_id, UUID)
-        assert isinstance(ctx.causation_id, UUID)
+        assert isinstance(ctx.correlation_id, str)
+        assert isinstance(ctx.causation_id, str)
         assert isinstance(ctx.message_id, UUID)
 
     @staticmethod
@@ -115,7 +115,7 @@ class TestMessagingIntegration:
             await bus.invoke(_SayHello(name='test'))
 
         ctx = _ContextCapturingHandler.captured[0]
-        assert ctx.causation_id == ctx.message_id
+        assert ctx.causation_id == str(ctx.message_id)
 
     @staticmethod
     async def test_send_sets_message_context_during_handler() -> None:
@@ -162,7 +162,7 @@ class TestMessagingIntegration:
         assert len(captured_contexts) == 2
         for ctx in captured_contexts:
             assert isinstance(ctx.message_id, UUID)
-            assert isinstance(ctx.correlation_id, UUID)
+            assert isinstance(ctx.correlation_id, str)
 
     @staticmethod
     async def test_distinct_invocations_produce_distinct_message_ids() -> None:
@@ -254,7 +254,7 @@ class TestMessagingIntegration:
         inner_ctx = inner_contexts[0]
 
         assert inner_ctx.correlation_id == outer_ctx.correlation_id
-        assert inner_ctx.causation_id == outer_ctx.message_id
+        assert inner_ctx.causation_id == str(outer_ctx.message_id)
         assert inner_ctx.message_id != outer_ctx.message_id
 
     @staticmethod

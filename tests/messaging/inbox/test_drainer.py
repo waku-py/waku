@@ -335,8 +335,8 @@ async def test_drain_poison_at_cap_reads_correlation_from_typed_columns_not_payl
     # it would fall back to entry.id, not the real UUIDs.
     inbox = FakeInboxStore()
     dlq = RecordingDeadLetterStore()
-    expected_correlation = uuid4()
-    expected_causation = uuid4()
+    expected_correlation = str(uuid4())
+    expected_causation = str(uuid4())
     entry = _abandoned_entry(inbox, destination='tests.GoneHandler', attempts=2)
     # Real encoded payload — contains only the message's own fields, NOT correlation/causation.
     real_payload = encode_payload(make_envelope(_OrderPlaced(order_id='o-1')), _CODEC)

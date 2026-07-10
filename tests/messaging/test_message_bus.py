@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING
 
 import pytest
 from typing_extensions import override
@@ -54,9 +53,6 @@ from tests.messaging.helpers import (
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import FakeOutboxStore
-
-if TYPE_CHECKING:
-    from uuid import UUID
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -347,8 +343,8 @@ async def test_send_dispatches_through_default_endpoint() -> None:
 
 
 async def test_publish_propagates_correlation_context_through_queue() -> None:
-    command_context: dict[str, UUID] = {}
-    event_context: dict[str, UUID] = {}
+    command_context: dict[str, object] = {}
+    event_context: dict[str, object] = {}
 
     class PublishingCommandHandler(RequestHandler[_Command, _Result]):
         def __init__(self, bus: IMessageBus) -> None:
@@ -382,7 +378,7 @@ async def test_publish_propagates_correlation_context_through_queue() -> None:
         await bus.invoke(_Command(name='test'))
 
     assert event_context['correlation_id'] == command_context['correlation_id']
-    assert event_context['causation_id'] == command_context['message_id']
+    assert event_context['causation_id'] == str(command_context['message_id'])
 
 
 class TestMessagingConfigValidation:

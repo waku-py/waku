@@ -41,8 +41,8 @@ class InboxEntry:
     destination: HandlerDestination
     status: InboxStatus = InboxStatus.INCOMING
     owner_id: str | None = None
-    correlation_id: UUID | None = None
-    causation_id: UUID | None = None
+    correlation_id: str | None = None
+    causation_id: str | None = None
     metadata_: dict[str, Any] | None = None
     # M3 scheduled-messages populate execution_time and gate dispatch on
     # NOW() >= execution_time (SCHEDULED -> INCOMING when due). M2b.1 never writes a

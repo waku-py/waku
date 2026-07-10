@@ -36,8 +36,8 @@ def _dead_letter_for(entry: InboxEntry) -> DeadLetterEntry:
         message_type=entry.message_type,
         payload=entry.payload,
         destination=entry.destination,
-        correlation_id=uuid4(),
-        causation_id=uuid4(),
+        correlation_id=str(uuid4()),
+        causation_id=str(uuid4()),
         exc=RuntimeError('boom'),
         attempt=3,
     )
@@ -165,8 +165,9 @@ async def test_move_to_dead_letter_deletes_entry(inbox_store: IInboxStore) -> No
 
 async def test_p2_columns_correlation_causation_metadata_round_trip(inbox_store: IInboxStore) -> None:
     # Contract: P2 decomposition columns survive the persist→fetch cycle for both fake and SQLAlchemy stores.
-    corr = uuid4()
-    caus = uuid4()
+    # Free-form (non-UUID) correlation/causation ids from foreign upstreams must round-trip verbatim.
+    corr = 'trace-abc-123'
+    caus = 'req-xyz-789'
     meta = {'message_version': 3, 'timestamp': '2026-06-29T10:00:00+00:00', 'headers': {'x-version': '3'}}
     entry = _make_entry(correlation_id=corr, causation_id=caus, metadata_=meta)
 

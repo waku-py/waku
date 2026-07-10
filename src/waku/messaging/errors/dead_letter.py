@@ -56,8 +56,8 @@ class DeadLetterEntry:
     payload: dict[str, Any]
     # Dual-origin, so deliberately bare `str`: executor path writes the endpoint URI, poison path the handler FQN.
     destination: str
-    correlation_id: UUID
-    causation_id: UUID
+    correlation_id: str
+    causation_id: str
     error_type: str
     error_message: str
     retry_count: int
@@ -75,8 +75,8 @@ class DeadLetterEntry:
         message_type: str,
         payload: dict[str, Any],
         destination: str,
-        correlation_id: UUID,
-        causation_id: UUID,
+        correlation_id: str,
+        causation_id: str,
         exc: Exception,
         attempt: int,
         message_id: UUID | None = None,

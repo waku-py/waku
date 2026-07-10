@@ -37,8 +37,8 @@ outbox_messages_table = Table(
     Column('message_type', Text, nullable=False),
     Column('payload', JSONB, nullable=False),
     Column('destination', Text, nullable=False),
-    Column('correlation_id', UUID(as_uuid=True), nullable=False),
-    Column('causation_id', UUID(as_uuid=True), nullable=False),
+    Column('correlation_id', Text, nullable=False),
+    Column('causation_id', Text, nullable=False),
     Column('group_id', Text, nullable=True),
     Column('sequence_number', BigInteger, nullable=True),
     Column(

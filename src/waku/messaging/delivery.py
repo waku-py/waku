@@ -9,7 +9,6 @@ from waku.messaging.exceptions import ConflictingDeliveryOptionsError
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from datetime import datetime
-    from uuid import UUID
 
 _ZERO = timedelta(0)
 
@@ -17,8 +16,8 @@ _ZERO = timedelta(0)
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DeliveryOptions:
     headers: Mapping[str, str] | None = None
-    correlation_id: UUID | None = None
-    causation_id: UUID | None = None
+    correlation_id: str | None = None
+    causation_id: str | None = None
     group_id: str | None = None
     scheduled_time: datetime | None = None
     schedule_delay: timedelta | None = None

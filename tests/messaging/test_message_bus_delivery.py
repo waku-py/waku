@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from typing_extensions import override
@@ -48,13 +48,13 @@ class _Note(IEvent):
 
 
 @dataclass(frozen=True, slots=True)
-class _Cmd(IRequest[UUID]):
+class _Cmd(IRequest[str]):
     name: str
 
 
-class _CorrelationEchoHandler(RequestHandler[_Cmd, UUID]):
+class _CorrelationEchoHandler(RequestHandler[_Cmd, str]):
     @override
-    async def handle(self, request: _Cmd, /) -> UUID:
+    async def handle(self, request: _Cmd, /) -> str:
         return get_message_context().correlation_id
 
 
@@ -124,7 +124,7 @@ async def _bus_with_endpoints(
 
 async def test_send_applies_correlation_and_group_overrides(container: AsyncContainer) -> None:
     bus, endpoint = await _spy_bus(container)
-    cid = uuid4()
+    cid = str(uuid4())
 
     await bus.send(_Note(), DeliveryOptions(correlation_id=cid, group_id='g1'))
 
@@ -135,7 +135,7 @@ async def test_send_applies_correlation_and_group_overrides(container: AsyncCont
 
 async def test_send_applies_causation_override(container: AsyncContainer) -> None:
     bus, endpoint = await _spy_bus(container)
-    causation = uuid4()
+    causation = str(uuid4())
 
     await bus.send(_Note(), DeliveryOptions(causation_id=causation))
 
@@ -147,7 +147,7 @@ async def test_option_correlation_beats_ambient_context(container: AsyncContaine
     bus, endpoint = await _spy_bus(container)
     ambient = await _spy_bus(container)
     ambient_envelope = ambient[0]._create_envelope(_Note())  # noqa: SLF001
-    option_cid = uuid4()
+    option_cid = str(uuid4())
 
     with message_context_scope(ambient_envelope):
         await bus.send(_Note(), DeliveryOptions(correlation_id=option_cid))
@@ -211,7 +211,7 @@ async def test_send_resolves_expiry_from_relative_within(container: AsyncContain
 
 async def test_publish_applies_overrides(container: AsyncContainer) -> None:
     bus, endpoint = await _spy_bus(container)
-    cid = uuid4()
+    cid = str(uuid4())
 
     await bus.publish(_Note(), DeliveryOptions(correlation_id=cid))
 
@@ -240,7 +240,7 @@ async def test_invoke_rejects_scheduling_and_expiration_options(
 
 async def test_invoke_applies_envelope_native_override(container: AsyncContainer) -> None:
     bus = await container.get(IMessageBus)
-    cid = uuid4()
+    cid = str(uuid4())
 
     result = await bus.invoke(_Cmd(name='x'), DeliveryOptions(correlation_id=cid))
 

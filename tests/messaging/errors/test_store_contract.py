@@ -19,13 +19,24 @@ def _make_entry(**overrides: object) -> DeadLetterEntry:
         'message_type': 'test.FailedEvent',
         'payload': {'key': 'value'},
         'destination': 'test://dead',
-        'correlation_id': uuid4(),
-        'causation_id': uuid4(),
+        'correlation_id': str(uuid4()),
+        'causation_id': str(uuid4()),
         'error_type': 'RuntimeError',
         'error_message': 'boom',
         'retry_count': 1,
     }
     return DeadLetterEntry(**(defaults | overrides))  # type: ignore[arg-type]
+
+
+async def test_non_uuid_correlation_causation_round_trip(dlq_store: IDeadLetterStore) -> None:
+    # Free-form (non-UUID) correlation/causation ids from foreign upstreams must round-trip verbatim.
+    entry = _make_entry(correlation_id='trace-abc-123', causation_id='req-xyz-789')
+    await dlq_store.save(entry)
+
+    fetched = await dlq_store.fetch(batch_size=10)
+    assert len(fetched) == 1
+    assert fetched[0].correlation_id == 'trace-abc-123'
+    assert fetched[0].causation_id == 'req-xyz-789'
 
 
 async def test_save_and_fetch_returns_stored_entry(dlq_store: IDeadLetterStore) -> None:

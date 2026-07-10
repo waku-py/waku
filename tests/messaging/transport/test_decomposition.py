@@ -49,8 +49,8 @@ def _make_envelope(
 ) -> MessageEnvelope[OrderPlaced]:
     return MessageEnvelope(
         message_id=uuid4(),
-        correlation_id=uuid4(),
-        causation_id=uuid4(),
+        correlation_id=str(uuid4()),
+        causation_id=str(uuid4()),
         message_type='order-placed',
         message_version=message_version,
         timestamp=datetime.now(tz=UTC),
@@ -179,6 +179,37 @@ class TestRebuildEnvelope:
         assert restored.expires_at == expires.astimezone(UTC)
 
     @staticmethod
+    def test_preserves_non_uuid_correlation_and_causation() -> None:
+        registry = _make_registry(OrderPlaced)
+        codec = _make_codec()
+        env = _make_envelope()
+        meta = dataclasses.replace(
+            envelope_metadata_of(env),
+            correlation_id='trace-abc-123',
+            causation_id='req-xyz-789',
+        )
+
+        restored = rebuild_envelope(encode_payload(env, codec), meta, codec, registry)
+
+        assert restored.correlation_id == 'trace-abc-123'
+        assert restored.causation_id == 'req-xyz-789'
+
+    @staticmethod
+    def test_round_trip_preserves_non_uuid_ids() -> None:
+        registry = _make_registry(OrderPlaced)
+        codec = _make_codec()
+        env = dataclasses.replace(
+            _make_envelope(),
+            correlation_id='trace-abc-123',
+            causation_id='req-xyz-789',
+        )
+
+        restored = rebuild_envelope(encode_payload(env, codec), envelope_metadata_of(env), codec, registry)
+
+        assert restored.correlation_id == env.correlation_id
+        assert restored.causation_id == env.causation_id
+
+    @staticmethod
     def test_unknown_message_type_raises_value_error() -> None:
         registry = _make_registry(OrderPlaced)
         codec = _make_codec()
@@ -244,8 +275,8 @@ class TestRebuildEnvelope:
         # Build an envelope that is already at version 2 with the real total value.
         env = MessageEnvelope(
             message_id=uuid4(),
-            correlation_id=uuid4(),
-            causation_id=uuid4(),
+            correlation_id=str(uuid4()),
+            causation_id=str(uuid4()),
             message_type='order-placed',
             message_version=2,
             timestamp=datetime.now(tz=UTC),
@@ -282,8 +313,8 @@ def _make_meta_json(
 
 
 def _make_outbox_message(**overrides: object) -> OutboxMessage:
-    corr = uuid4()
-    caus = uuid4()
+    corr = str(uuid4())
+    caus = str(uuid4())
     defaults: dict[str, object] = {
         'id': uuid4(),
         'idempotency_key': str(uuid4()),
@@ -297,8 +328,8 @@ def _make_outbox_message(**overrides: object) -> OutboxMessage:
 
 
 def _make_inbox_entry(**overrides: object) -> InboxEntry:
-    corr = uuid4()
-    caus = uuid4()
+    corr = str(uuid4())
+    caus = str(uuid4())
     defaults: dict[str, object] = {
         'id': uuid4(),
         'payload': {'test': True},
@@ -312,8 +343,8 @@ def _make_inbox_entry(**overrides: object) -> InboxEntry:
 
 
 def _make_dlq_entry(**overrides: object) -> DeadLetterEntry:
-    corr = uuid4()
-    caus = uuid4()
+    corr = str(uuid4())
+    caus = str(uuid4())
     defaults: dict[str, object] = {
         'id': uuid4(),
         'message_type': 'test.FailedEvent',
@@ -368,8 +399,8 @@ class TestWireMetadataFromEntry:
 
     @staticmethod
     def test_typed_columns_mapped_for_outbox() -> None:
-        corr = uuid4()
-        caus = uuid4()
+        corr = str(uuid4())
+        caus = str(uuid4())
         entry = _make_outbox_message(
             correlation_id=corr,
             causation_id=caus,
@@ -387,8 +418,8 @@ class TestWireMetadataFromEntry:
 
     @staticmethod
     def test_typed_columns_mapped_for_inbox() -> None:
-        corr = uuid4()
-        caus = uuid4()
+        corr = str(uuid4())
+        caus = str(uuid4())
         entry = _make_inbox_entry(
             correlation_id=corr,
             causation_id=caus,
@@ -430,8 +461,8 @@ class TestWireMetadataFromEntry:
 
     @staticmethod
     def test_none_metadata_returns_minimal_with_typed_columns() -> None:
-        corr = uuid4()
-        caus = uuid4()
+        corr = str(uuid4())
+        caus = str(uuid4())
         entry = _make_outbox_message(correlation_id=corr, causation_id=caus, metadata_=None)
 
         result = wire_metadata_from_entry(entry)
@@ -447,8 +478,8 @@ class TestWireMetadataFromEntry:
 
     @staticmethod
     def test_corrupt_metadata_returns_minimal_with_typed_columns() -> None:
-        corr = uuid4()
-        caus = uuid4()
+        corr = str(uuid4())
+        caus = str(uuid4())
         # Corrupt: timestamp value is not a valid isoformat string.
         corrupt_meta = {'message_version': 1, 'timestamp': 'NOT-A-DATE', 'headers': {}}
         entry = _make_inbox_entry(correlation_id=corr, causation_id=caus, metadata_=corrupt_meta)

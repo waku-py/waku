@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import anyio
 import pytest
@@ -22,9 +21,6 @@ from waku.messaging import (
 )
 from waku.messaging.context import get_message_context
 from waku.testing import create_test_app
-
-if TYPE_CHECKING:
-    from uuid import UUID
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -87,8 +83,8 @@ class TestCascadingThroughInvoke:
 
     @staticmethod
     async def test_cascaded_event_inherits_parent_correlation_id() -> None:
-        parent_ids: dict[str, UUID] = {}
-        cascaded_ids: dict[str, UUID] = {}
+        parent_ids: dict[str, object] = {}
+        cascaded_ids: dict[str, object] = {}
         done = asyncio.Event()
 
         class PlaceOrderHandler(RequestHandler[_PlaceOrder, _OrderId]):
@@ -127,7 +123,7 @@ class TestCascadingThroughInvoke:
                 await done.wait()
 
         assert cascaded_ids['correlation_id'] == parent_ids['correlation_id']
-        assert cascaded_ids['causation_id'] == parent_ids['message_id']
+        assert cascaded_ids['causation_id'] == str(parent_ids['message_id'])
         assert cascaded_ids['message_id'] != parent_ids['message_id']
 
     @staticmethod

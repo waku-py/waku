@@ -32,8 +32,8 @@ class OutboxMessage:
     message_type: str
     payload: dict[str, Any]
     destination: str
-    correlation_id: UUID
-    causation_id: UUID
+    correlation_id: str
+    causation_id: str
     group_id: str | None = None
     sequence_number: int | None = None
     status: OutboxStatus = OutboxStatus.PENDING

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import ClassVar
 
@@ -193,6 +193,26 @@ async def test_foreign_message_type_rejects() -> None:
 
     assert result is ConsumeDisposition.REJECT
     assert len(inbox.entries) == 0
+
+
+async def test_foreign_non_uuid_correlation_survives_inbound_persist() -> None:
+    # A registered type carrying a foreign non-UUID correlation id (e.g. an upstream trace id) must
+    # rebuild and persist verbatim — no ValueError, no quarantine.
+    inbox = FakeInboxStore()
+    async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        listener, receiver = _listener(container)
+        codec = _make_codec()
+        envelope = make_envelope(_Event(kind='OrderPlaced'))
+        payload = encode_payload(envelope, codec)
+        metadata = replace(envelope_metadata_of(envelope), correlation_id='trace-abc-123')
+
+        await receiver.start()
+        result = await listener.consume(payload, metadata)
+        await receiver.stop()
+
+    assert result is ConsumeDisposition.ACK
+    stored = next(iter(inbox.entries.values()))
+    assert stored.correlation_id == 'trace-abc-123'
 
 
 async def test_unknown_type_with_no_handler_acks() -> None:

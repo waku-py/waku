@@ -4,7 +4,6 @@ import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, ClassVar
-from uuid import UUID
 
 from anyio.lowlevel import checkpoint
 from typing_extensions import override
@@ -187,7 +186,7 @@ class TestLocalQueueEndpoint:
         assert ctx.correlation_id == envelope.correlation_id
         assert ctx.causation_id == envelope.causation_id
         assert ctx.message_id == envelope.message_id
-        assert isinstance(ctx.correlation_id, UUID)
+        assert isinstance(ctx.correlation_id, str)
 
     @staticmethod
     async def test_worker_continues_processing_after_handler_error() -> None:

@@ -21,7 +21,7 @@ class _Transfer(IMessage):
 
 
 def _envelope(payload: IMessage) -> MessageEnvelope[Any]:
-    cid = uuid4()
+    cid = str(uuid4())
     return MessageEnvelope(
         message_id=uuid4(),
         correlation_id=cid,
@@ -117,8 +117,8 @@ async def test_audit_field_named_like_reserved_key_is_namespaced(caplog: pytest.
 
     env = MessageEnvelope(
         message_id=uuid4(),
-        correlation_id=uuid4(),
-        causation_id=uuid4(),
+        correlation_id=str(uuid4()),
+        causation_id=str(uuid4()),
         message_type='Collide',
         timestamp=datetime.now(tz=UTC),
         payload=_Collide(),

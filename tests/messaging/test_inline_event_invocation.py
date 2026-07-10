@@ -122,7 +122,7 @@ class TestInvokeEventEndToEnd:
             bus = await container.get(IMessageBus)
             await bus.invoke(_OrderShipped(order='o-3'))
 
-        assert captured['child_causation_id'] == captured['parent_message_id']
+        assert captured['child_causation_id'] == str(captured['parent_message_id'])
         assert captured['child_correlation_id'] == captured['parent_correlation_id']
         assert captured['child_message_id'] != captured['parent_message_id']
 

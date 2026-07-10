@@ -39,8 +39,8 @@ def _make_message(**overrides: object) -> OutboxMessage:
         'message_type': 'test.Event',
         'payload': {'test': True},
         'destination': 'test://dest',
-        'correlation_id': uuid4(),
-        'causation_id': uuid4(),
+        'correlation_id': str(uuid4()),
+        'causation_id': str(uuid4()),
     }
     return OutboxMessage(**(defaults | overrides))  # type: ignore[arg-type]
 

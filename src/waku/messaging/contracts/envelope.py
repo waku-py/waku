@@ -16,8 +16,8 @@ _MessageT = TypeVar('_MessageT', bound=IMessage)
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MessageEnvelope(Generic[_MessageT]):
     message_id: UUID
-    correlation_id: UUID
-    causation_id: UUID
+    correlation_id: str
+    causation_id: str
     message_type: str
     timestamp: datetime
     payload: _MessageT

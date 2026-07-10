@@ -26,8 +26,8 @@ def _make_message(**overrides: object) -> OutboxMessage:
         'message_type': 'test.Event',
         'payload': {'test': True},
         'destination': 'test://dest',
-        'correlation_id': uuid4(),
-        'causation_id': uuid4(),
+        'correlation_id': str(uuid4()),
+        'causation_id': str(uuid4()),
     }
     return OutboxMessage(**(defaults | overrides))  # type: ignore[arg-type]
 
@@ -52,6 +52,17 @@ async def test_save_batch_dedups_same_key_and_destination(outbox_store: IOutboxS
 
     fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
     assert len(fetched) == 1
+
+
+async def test_non_uuid_correlation_causation_round_trip(outbox_store: IOutboxStore) -> None:
+    # Free-form (non-UUID) correlation/causation ids from foreign upstreams must round-trip verbatim.
+    message = _make_message(correlation_id='trace-abc-123', causation_id='req-xyz-789')
+    await outbox_store.save_batch([message])
+
+    fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
+    assert len(fetched) == 1
+    assert fetched[0].correlation_id == 'trace-abc-123'
+    assert fetched[0].causation_id == 'req-xyz-789'
 
 
 async def test_save_batch_keeps_same_key_across_distinct_destinations(outbox_store: IOutboxStore) -> None:

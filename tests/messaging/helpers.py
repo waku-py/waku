@@ -48,8 +48,8 @@ def make_envelope(
     payload_type = type(payload)
     return MessageEnvelope(
         message_id=uuid4(),
-        correlation_id=uuid4(),
-        causation_id=uuid4(),
+        correlation_id=str(uuid4()),
+        causation_id=str(uuid4()),
         message_type=f'{payload_type.__module__}.{payload_type.__qualname__}',
         timestamp=datetime.now(tz=UTC),
         payload=payload,

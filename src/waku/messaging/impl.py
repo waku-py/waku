@@ -147,7 +147,7 @@ class MessageBus(IMessageBus):
         return self._envelope_factory.create(
             message,
             correlation_id=_override(opt.correlation_id, ctx.correlation_id if ctx else None),
-            causation_id=_override(opt.causation_id, ctx.message_id if ctx else None),
+            causation_id=_override(opt.causation_id, str(ctx.message_id) if ctx else None),
             group_id=_override(opt.group_id, ctx.group_id if ctx else None),
             headers={**ctx_headers, **(opt.headers or {})},  # fresh dict; never alias the caller's mapping
             scheduled_time=self._resolve_scheduled(opt),

@@ -58,7 +58,8 @@ def envelope_metadata_of(envelope: MessageEnvelope[Any]) -> EnvelopeMetadata:
 
     In-memory peer of :func:`encode_metadata` (the persistence dict): where ``encode_metadata``
     serialises to a JSONB blob, this function preserves datetime objects for the wire/transport layer.
-    UUIDs are stringified; ``timestamp``/``scheduled_time``/``expires_at`` remain as
+    ``message_id`` (a ``UUID``) is stringified; ``correlation_id``/``causation_id`` are already
+    free-form ``str``; ``timestamp``/``scheduled_time``/``expires_at`` remain as
     ``datetime`` objects — isoformatting happens at the persistence or wire boundary.
 
     Note: this is the in-memory construction path used by tests and inbound producers.
@@ -67,8 +68,8 @@ def envelope_metadata_of(envelope: MessageEnvelope[Any]) -> EnvelopeMetadata:
     """
     return EnvelopeMetadata(
         message_id=str(envelope.message_id),
-        correlation_id=str(envelope.correlation_id),
-        causation_id=str(envelope.causation_id),
+        correlation_id=envelope.correlation_id,
+        causation_id=envelope.causation_id,
         message_type=envelope.message_type,
         message_version=envelope.message_version,
         timestamp=envelope.timestamp,
@@ -118,8 +119,8 @@ def rebuild_envelope(
 
     return MessageEnvelope(
         message_id=UUID(metadata.message_id),
-        correlation_id=UUID(metadata.correlation_id),
-        causation_id=UUID(metadata.causation_id),
+        correlation_id=metadata.correlation_id,
+        causation_id=metadata.causation_id,
         message_type=metadata.message_type,
         message_version=metadata.message_version,
         timestamp=metadata.timestamp.astimezone(UTC),
@@ -195,8 +196,8 @@ def wire_metadata_from_entry(entry: OutboxMessage | InboxEntry | DeadLetterEntry
     message_id = str(raw_message_id) if raw_message_id is not None else str(entry.id)
     # Legacy rows with NULL correlation_id/causation_id fall back to str(entry.id) so rebuild_envelope
     # receives a valid UUID string rather than '' (which crashes UUID('')).
-    correlation_id = str(entry.correlation_id) if entry.correlation_id is not None else str(entry.id)
-    causation_id = str(entry.causation_id) if entry.causation_id is not None else str(entry.id)
+    correlation_id = entry.correlation_id if entry.correlation_id is not None else str(entry.id)
+    causation_id = entry.causation_id if entry.causation_id is not None else str(entry.id)
 
     message_version = 1
     timestamp: datetime | None = None

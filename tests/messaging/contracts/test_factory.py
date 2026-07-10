@@ -26,17 +26,18 @@ class TestEnvelopeFactory:
         assert isinstance(envelope.message_id, UUID)
 
     @staticmethod
-    def test_create_generates_uuid_correlation_id_when_not_provided() -> None:
+    def test_create_generates_correlation_id_when_not_provided() -> None:
         envelope = _make_factory().create(SampleMessage())
 
-        assert isinstance(envelope.correlation_id, UUID)
-        assert envelope.correlation_id != envelope.message_id
+        assert isinstance(envelope.correlation_id, str)
+        assert UUID(envelope.correlation_id)  # UUID-shaped by default
+        assert envelope.correlation_id != str(envelope.message_id)
 
     @staticmethod
     def test_create_sets_causation_id_to_message_id_when_not_provided() -> None:
         envelope = _make_factory().create(SampleMessage())
 
-        assert envelope.causation_id == envelope.message_id
+        assert envelope.causation_id == str(envelope.message_id)
 
     @staticmethod
     def test_create_uses_registry_fqn_fallback() -> None:
@@ -91,7 +92,7 @@ class TestEnvelopeFactory:
 
     @staticmethod
     def test_create_uses_explicit_correlation_id() -> None:
-        explicit_id = uuid4()
+        explicit_id = str(uuid4())
 
         envelope = _make_factory().create(SampleMessage(), correlation_id=explicit_id)
 
@@ -99,7 +100,7 @@ class TestEnvelopeFactory:
 
     @staticmethod
     def test_create_uses_explicit_causation_id() -> None:
-        explicit_id = uuid4()
+        explicit_id = str(uuid4())
 
         envelope = _make_factory().create(SampleMessage(), causation_id=explicit_id)
 
@@ -120,7 +121,7 @@ class TestEnvelopeFactory:
         envelope = _make_factory().create(SampleMessage(), message_id=explicit_id)
 
         assert envelope.message_id == explicit_id
-        assert envelope.causation_id == explicit_id
+        assert envelope.causation_id == str(explicit_id)
 
     @staticmethod
     def test_create_forwards_group_id() -> None:
