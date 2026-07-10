@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Protocol, final
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
+    from waku.eventsourcing.contracts.event import StoredEvent
     from waku.messages import IEvent
 
 __all__ = [
@@ -35,15 +36,16 @@ class IAppendedEvents(Protocol):
 
     The event store calls ``record()`` on the real-append path and ``clear()`` on each
     ``append_to_stream`` entry (per optimistic-retry attempt); ``EventForwardingBehavior`` calls
-    ``drain()`` after the handler returns. This is an Event-Sourcing-local contract holding raw
-    ``IEvent``s — no bus, no router — so the store stays ignorant of messaging.
+    ``drain()`` after the handler returns. This is an Event-Sourcing-local contract holding appended
+    ``StoredEvent``s — data plus stream provenance, no bus, no router — so the store stays ignorant of
+    messaging.
     """
 
     def clear(self) -> None: ...
 
-    def record(self, events: Sequence[IEvent], /) -> None: ...
+    def record(self, stored_events: Sequence[StoredEvent], /) -> None: ...
 
-    def drain(self) -> list[IEvent]: ...
+    def drain(self) -> list[StoredEvent]: ...
 
 
 class AppendedEventsCollector(IAppendedEvents):
@@ -57,15 +59,15 @@ class AppendedEventsCollector(IAppendedEvents):
     __slots__ = ('_events',)
 
     def __init__(self) -> None:
-        self._events: list[IEvent] = []
+        self._events: list[StoredEvent] = []
 
     def clear(self) -> None:
         self._events.clear()
 
-    def record(self, events: Sequence[IEvent], /) -> None:
-        self._events.extend(events)
+    def record(self, stored_events: Sequence[StoredEvent], /) -> None:
+        self._events.extend(stored_events)
 
-    def drain(self) -> list[IEvent]:
+    def drain(self) -> list[StoredEvent]:
         drained = list(self._events)
         self._events.clear()
         return drained
@@ -73,7 +75,7 @@ class AppendedEventsCollector(IAppendedEvents):
 
 @dataclass(frozen=True, slots=True)
 class _ForwardRule:
-    transform: Callable[[IEvent], IEvent] | None = None
+    transform: Callable[[StoredEvent], IEvent] | None = None
     same_transaction: bool = False
 
 
@@ -98,12 +100,12 @@ class ForwardBuilder:
 
     def transformed_to(
         self,
-        transform: Callable[[IEvent], IEvent],
+        transform: Callable[[StoredEvent], IEvent],
         /,
         *,
         same_transaction: bool = False,
     ) -> ForwardDescriptor:
-        """Map the internal event to an integration event before forwarding."""
+        """Map the appended ``StoredEvent`` (internal event plus stream provenance) to an integration event."""
         return ForwardDescriptor(self._event_type, _ForwardRule(transform=transform, same_transaction=same_transaction))
 
     def same_transaction(self) -> ForwardDescriptor:

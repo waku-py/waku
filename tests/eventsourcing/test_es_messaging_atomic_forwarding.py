@@ -256,7 +256,7 @@ async def test_rollback_after_append_forwards_nothing(pg_engine: AsyncEngine) ->
 
 async def test_translation_seam_forwards_integration_event(pg_engine: AsyncEngine) -> None:
     msg_ext = MessagingExtension().bind(CreateNoteHandler).bind(_NoteCreatedIntegrationSubscriber)
-    forwarding = [forward(NoteCreated).transformed_to(lambda e: NoteCreatedIntegration(title=_note_title(e)))]
+    forwarding = [forward(NoteCreated).transformed_to(lambda s: NoteCreatedIntegration(title=_note_title(s.data)))]
     async with _forwarding_app(
         pg_engine,
         msg_ext=msg_ext,

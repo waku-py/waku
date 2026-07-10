@@ -295,7 +295,7 @@ class SqlAlchemyEventStore(IEventStore):
         # attempt never reaches here; combined with clear-on-entry, the collector reflects exactly the
         # events that survived to commit.
         if self._appended_events is not None:
-            self._appended_events.record([stored.data for stored in stored_events])
+            self._appended_events.record(stored_events)
 
         for projection in self._projections:
             await projection.project(stored_events)

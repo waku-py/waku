@@ -58,7 +58,10 @@ async def test_records_appended_domain_events_in_order(
         [make_envelope(first), make_envelope(second)],
         expected_version=NoStream(),
     )
-    assert collector.drain() == [first, second]
+    stored = collector.drain()
+    assert [s.data for s in stored] == [first, second]
+    assert [s.stream_id for s in stored] == [order_stream, order_stream]
+    assert [s.position for s in stored] == [0, 1]
 
 
 async def test_empty_events_records_nothing(
@@ -77,7 +80,7 @@ async def test_idempotent_replay_records_nothing(
 ) -> None:
     envelope = make_envelope(OrderCreated('1'))
     await recording_store.append_to_stream(order_stream, [envelope], expected_version=NoStream())
-    assert collector.drain() == [envelope.domain_event]
+    assert [s.data for s in collector.drain()] == [envelope.domain_event]
 
     await recording_store.append_to_stream(order_stream, [envelope], expected_version=Exact(0))
     assert collector.drain() == []
@@ -92,7 +95,7 @@ async def test_clear_on_entry_keeps_only_latest_attempt(
     await recording_store.append_to_stream(order_stream, [make_envelope(first)], expected_version=NoStream())
     # The second append re-enters append_to_stream (as a retry would) and clears the prior record.
     await recording_store.append_to_stream(order_stream, [make_envelope(second)], expected_version=Exact(0))
-    assert collector.drain() == [second]
+    assert [s.data for s in collector.drain()] == [second]
 
 
 async def test_conflicting_attempt_clears_and_records_nothing(

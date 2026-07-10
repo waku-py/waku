@@ -13,7 +13,7 @@ from waku.messaging.outgoing import IOutgoingMessages  # noqa: TC001
 from waku.messaging.router import MessageRouter  # noqa: TC001
 
 if TYPE_CHECKING:
-    from waku.messages import IEvent
+    from waku.eventsourcing.contracts.event import StoredEvent
     from waku.messaging.contracts.pipeline import CallNext
 
 __all__ = [
@@ -25,8 +25,9 @@ class EventForwardingBehavior(IPipelineBehavior[Any, Any]):
     """Forwards event-store appends into the messaging outbox (Marten Event Forwarding parity).
 
     The PRODUCER half of M2e: it runs inner to ``OutboxCascadingBehavior``, so after the ES command
-    handler appends, this behavior drains the scoped ``IAppendedEvents`` collector and pushes each
-    appended event into ``IOutgoingMessages``. The outer ``OutboxCascadingBehavior`` is the sole
+    handler appends, this behavior drains the scoped ``IAppendedEvents`` collector of ``StoredEvent``s
+    and pushes each appended event (``stored.data`` raw, or a transform of the ``StoredEvent``) into
+    ``IOutgoingMessages``. The outer ``OutboxCascadingBehavior`` is the sole
     CONSUMER that drains the frame into the outbox in the handler's transaction — single drain, no
     double-flush. This behavior never writes the outbox itself.
 
@@ -59,13 +60,13 @@ class EventForwardingBehavior(IPipelineBehavior[Any, Any]):
     @override
     async def handle(self, message: Any, /, call_next: CallNext[Any]) -> Any:
         result = await call_next()
-        for event in self._appended.drain():
-            await self._forward(event)
+        for stored in self._appended.drain():
+            await self._forward(stored)
         return result
 
-    async def _forward(self, event: IEvent, /) -> None:
-        rule = self._registry.rule_for(type(event))
-        forwarded = rule.transform(event) if rule.transform is not None else event
+    async def _forward(self, stored: StoredEvent, /) -> None:
+        rule = self._registry.rule_for(type(stored.data))
+        forwarded = rule.transform(stored) if rule.transform is not None else stored.data
         if rule.same_transaction:
             await self._sender.invoke(forwarded)
         elif self._router.resolve(type(forwarded)):
