@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Self, TypeAlias
 
 from typing_extensions import override
 
-from waku.di import Provider, WithParents, many, object_, scoped
+from waku.di import Provider, WithParents, is_registered, many, object_, scoped
 from waku.eventsourcing._introspection import resolve_generic_args
 from waku.eventsourcing.contracts.aggregate import IDecider
 from waku.eventsourcing.contracts.event import IMetadataEnricher
@@ -19,7 +19,12 @@ from waku.eventsourcing.exceptions import (
     UnknownEventTypeError,
     UpcasterChainError,
 )
-from waku.eventsourcing.forwarding import AppendedEventsCollector, ForwardingRegistry, IAppendedEvents
+from waku.eventsourcing.forwarding import (
+    AppendedEventsCollector,
+    ForwardingConsumer,
+    ForwardingRegistry,
+    IAppendedEvents,
+)
 from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
 from waku.eventsourcing.projection.interfaces import (
     ICatchUpProjection,
@@ -35,13 +40,15 @@ from waku.eventsourcing.snapshot.interfaces import ISnapshotStore
 from waku.eventsourcing.snapshot.migration import SnapshotMigrationChain
 from waku.eventsourcing.snapshot.registry import SnapshotConfig, SnapshotConfigRegistry
 from waku.eventsourcing.store.interfaces import IEventStore
-from waku.extensions import OnModuleConfigure, RegistryAggregator
+from waku.exceptions import ImproperlyConfiguredError
+from waku.extensions import OnContainerBuilt, OnModuleConfigure, RegistryAggregator
 from waku.modules import DynamicModule, ModuleMetadataRegistry, module
 from waku.serialization.upcasting.chain import UpcasterChain
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
 
+    from waku.application import WakuApplication
     from waku.eventsourcing.forwarding import ForwardDescriptor
     from waku.eventsourcing.repository import EventSourcedRepository
     from waku.eventsourcing.snapshot.interfaces import ISnapshotStrategy
@@ -140,6 +147,50 @@ class EventSourcingRegistry:
             raise RegistryFrozenError
 
 
+class _ForwardingValidationExtension(OnContainerBuilt):
+    """Fail fast when ``forwarding`` is configured but cannot actually forward.
+
+    Two silent traps, both owned by ES core (the only code guaranteed to run whenever ``forwarding`` is
+    configured, bridge present or not):
+
+    - **No consumer.** ``forward(...)`` rules only take effect through the ES<->messaging bridge; without
+      it the rules silently no-op. This proves a consumer is wired via a neutral ``ForwardingConsumer``
+      presence marker (registered by the bridge) — no messaging import crosses into ES.
+    - **Non-recording store.** Only a store that records appended events into ``IAppendedEvents`` can
+      forward; a non-recording store (e.g. ``InMemoryEventStore``) silently drops every event. This
+      dispatches on the store's ``records_appended_events`` trait, never a concrete type.
+
+    The marker is checked before the store is resolved, so the no-consumer path never needs the store's
+    DB dependencies.
+    """
+
+    __slots__ = ('_forwarding_configured',)
+
+    def __init__(self, *, forwarding_configured: bool) -> None:
+        self._forwarding_configured = forwarding_configured
+
+    @override
+    async def on_container_built(self, app: WakuApplication) -> None:
+        if not self._forwarding_configured:
+            return
+        async with app.container() as scope:  # is_registered is a pure presence check; the store is scoped
+            if not await is_registered(scope, ForwardingConsumer):
+                msg = (
+                    'forwarding=[...] is configured but no forwarding consumer is installed, so appended '
+                    'events are silently dropped. Import EventSourcingMessagingModule.register() to wire '
+                    'the ES<->messaging bridge that forwards appended events to the message bus.'
+                )
+                raise ImproperlyConfiguredError(msg)
+            store = await scope.get(IEventStore)
+            if not store.records_appended_events:
+                msg = (
+                    f'forwarding=[...] is configured against {type(store).__name__}, which does not record '
+                    'appended events, so every forwarded event is silently dropped. Use a recording event '
+                    'store (e.g. SqlAlchemyEventStore via make_sqlalchemy_event_store).'
+                )
+                raise ImproperlyConfiguredError(msg)
+
+
 @module()
 class EventSourcingModule:
     @classmethod
@@ -176,6 +227,7 @@ class EventSourcingModule:
             providers=providers,
             extensions=[
                 EventSourcingRegistryAggregator(has_serializer=config.event_serializer is not None),
+                _ForwardingValidationExtension(forwarding_configured=bool(config.forwarding)),
             ],
             is_global=True,
         )

@@ -30,6 +30,11 @@ class SqlAlchemyOutboxStore(IOutboxStore):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    @property
+    def session(self) -> AsyncSession:
+        """The underlying AsyncSession — used for sharing-by-identity validation at startup."""
+        return self._session
+
     async def save_batch(self, messages: Sequence[OutboxMessage]) -> None:
         if not messages:
             return

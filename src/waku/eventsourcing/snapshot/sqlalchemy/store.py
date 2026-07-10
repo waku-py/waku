@@ -27,6 +27,11 @@ class SqlAlchemySnapshotStore(ISnapshotStore):
         self._session = session
         self._snapshots = snapshots_table
 
+    @property
+    def session(self) -> AsyncSession:
+        """The underlying AsyncSession — used for sharing-by-identity validation at startup."""
+        return self._session
+
     async def load(self, stream_id: StreamId, /) -> Snapshot | None:
         key = str(stream_id)
         query = select(self._snapshots).where(self._snapshots.c.stream_id == key)

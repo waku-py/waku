@@ -26,6 +26,11 @@ class SqlAlchemyCheckpointStore(ICheckpointStore):
         self._session = session
         self._checkpoints = checkpoints_table
 
+    @property
+    def session(self) -> AsyncSession:
+        """The underlying AsyncSession — used for sharing-by-identity validation at startup."""
+        return self._session
+
     async def load(self, projection_name: str, /) -> Checkpoint | None:
         query = select(self._checkpoints).where(self._checkpoints.c.projection_name == projection_name)
         result = await self._session.execute(query)

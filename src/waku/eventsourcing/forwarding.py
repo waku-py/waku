@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, final
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -11,10 +11,23 @@ if TYPE_CHECKING:
 __all__ = [
     'AppendedEventsCollector',
     'ForwardDescriptor',
+    'ForwardingConsumer',
     'ForwardingRegistry',
     'IAppendedEvents',
     'forward',
 ]
+
+
+@final
+class ForwardingConsumer:
+    """Presence token: a consumer that drains appended events into the message bus is installed.
+
+    ES core produces appended events but never consumes them — the ES<->messaging bridge does. The
+    bridge registers this token so ES-side startup validation fails loud when ``forwarding=[...]`` is
+    configured but no consumer is wired (otherwise forwarding silently no-ops).
+    """
+
+    __slots__ = ()
 
 
 class IAppendedEvents(Protocol):

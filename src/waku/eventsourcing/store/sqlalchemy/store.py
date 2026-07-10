@@ -13,6 +13,7 @@ from sqlalchemy import (  # Dishka needs runtime access
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002  # Dishka needs runtime access
+from typing_extensions import override
 
 from waku.eventsourcing.contracts.event import EventMetadata, IMetadataEnricher, StoredEvent
 from waku.eventsourcing.contracts.stream import StreamId, StreamPosition
@@ -91,6 +92,11 @@ class SqlAlchemyEventStore(IEventStore):
     def session(self) -> AsyncSession:
         """The underlying AsyncSession — used for sharing-by-identity validation at startup."""
         return self._session
+
+    @property
+    @override
+    def records_appended_events(self) -> bool:
+        return self._appended_events is not None
 
     @property
     def _not_deleted(self) -> Any:

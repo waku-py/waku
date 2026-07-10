@@ -26,6 +26,7 @@ from waku.eventsourcing import (
     EventSourcingConfig,
     EventSourcingExtension,
     EventSourcingModule,
+    forward,
 )
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
@@ -198,6 +199,12 @@ async def create_session(engine_: AsyncEngine) -> AsyncIterator[AsyncSession]:
 es_config = EventSourcingConfig(
     store=make_sqlalchemy_event_store(tables),
     event_serializer=JsonEventSerializer,
+    # Recording store + bridge: appended events forward inline (same transaction) via invoke, so the
+    # bound read-side handlers below actually fire.
+    forwarding=[
+        forward(AccountOpened).same_transaction(),
+        forward(MoneyDeposited).same_transaction(),
+    ],
 )
 
 

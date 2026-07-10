@@ -85,6 +85,16 @@ class IEventWriter(abc.ABC):
         """
         ...
 
+    @property
+    def records_appended_events(self) -> bool:
+        """Whether this store records appended domain events into ``IAppendedEvents`` for forwarding.
+
+        Default ``False``: a store forwards nothing unless it deliberately wires the appended-events
+        collector, so ES startup validation rejects ``forwarding=[...]`` against a store whose trait is
+        ``False``. Recording stores override to ``True``.
+        """
+        return False
+
 
 class IEventStore(IEventReader, IEventWriter, abc.ABC):
     pass
