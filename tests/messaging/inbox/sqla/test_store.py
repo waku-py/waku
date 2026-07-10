@@ -261,6 +261,61 @@ class TestFetchPendingPartitioned:
         assert [e.sequence_number for e in second] == [2]
 
     @staticmethod
+    async def test_committed_claimed_head_blocks_successor_across_sessions(pg_engine: AsyncEngine) -> None:
+        # Recovery-path symmetry with the outbox: worker-A claims a partition head (owner_id set) and
+        # COMMITS; worker-B must NOT promote the successor while the predecessor is in flight. Two
+        # sessions over one engine model two concurrent pods. Reverting the head predicate makes B claim
+        # G.seq2 -> this goes red.
+        metadata = MetaData()
+        bind_inbox_tables(metadata)
+        async with pg_engine.begin() as conn:
+            await conn.run_sync(metadata.create_all)
+        try:
+            g1 = _make_entry(group_id='G', sequence_number=1)
+            g2 = _make_entry(group_id='G', sequence_number=2)
+            async with AsyncSession(pg_engine, expire_on_commit=False) as seed:
+                store = SqlAlchemyInboxStore(seed)
+                await store.store_incoming(g1)
+                await store.store_incoming(g2)
+                await seed.commit()
+
+            async with AsyncSession(pg_engine, expire_on_commit=False) as sa:
+                store_a = SqlAlchemyInboxStore(sa)
+                async with sa.begin():
+                    claimed_a = await store_a.fetch_pending_partitioned(batch_size=10, owner_id='A')
+                assert [e.sequence_number for e in claimed_a] == [1]  # G.seq1 owned by A, COMMITTED
+
+                # Independently seed another group H + a keyless entry so B has non-G work available.
+                async with AsyncSession(pg_engine, expire_on_commit=False) as seed2:
+                    store2 = SqlAlchemyInboxStore(seed2)
+                    await store2.store_incoming(_make_entry(group_id='H', sequence_number=1))
+                    await store2.store_incoming(_make_entry())
+                    await seed2.commit()
+
+                async with AsyncSession(pg_engine, expire_on_commit=False) as sb:
+                    store_b = SqlAlchemyInboxStore(sb)
+                    async with sb.begin():
+                        await sb.execute(text("SET LOCAL lock_timeout = '500ms'"))
+                        claimed_b = await store_b.fetch_pending_partitioned(batch_size=10, owner_id='B')
+                    groups_b = {e.group_id for e in claimed_b}
+                    assert 'G' not in groups_b  # successor blocked by the in-flight claimed head
+                    assert 'H' in groups_b  # other groups flow
+                    assert None in groups_b  # keyless flows
+
+                    # A handles G.seq1; B may then claim G.seq2.
+                    async with sa.begin():
+                        await store_a.mark_as_handled(
+                            g1.id, g1.destination, datetime.now(tz=UTC) + timedelta(minutes=5)
+                        )
+                    async with sb.begin():
+                        await sb.execute(text("SET LOCAL lock_timeout = '500ms'"))
+                        claimed_b2 = await store_b.fetch_pending_partitioned(batch_size=10, owner_id='B')
+                    assert [(e.group_id, e.sequence_number) for e in claimed_b2] == [('G', 2)]
+        finally:
+            async with pg_engine.begin() as conn:
+                await conn.run_sync(metadata.drop_all)
+
+    @staticmethod
     async def test_fetch_pending_partitioned_skip_locked(pg_engine: AsyncEngine) -> None:
         # Concurrent claim safety across two sessions: while one worker holds the claimed head in an
         # open tx, a second worker's claim is SKIPPED (not blocked) and never double-claims it. The

@@ -121,6 +121,26 @@ async def test_fetch_pending_partitioned_claim_is_exclusive(inbox_store: IInboxS
     assert list(second) == []
 
 
+async def test_claimed_partition_head_blocks_successor(inbox_store: IInboxStore) -> None:
+    # Symmetric to the outbox: a claimed (owner_id set, in-flight) partition head still occupies its
+    # (group_id, destination) slot, so a second worker must NOT promote the successor until the head is
+    # handled. Fails today — seq 2 is wrongly promoted while seq 1 is claimed by another worker.
+    head = _make_entry(group_id='A', sequence_number=1)
+    successor = _make_entry(group_id='A', sequence_number=2)
+    await inbox_store.store_incoming(head)
+    await inbox_store.store_incoming(successor)
+
+    first = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
+    assert [e.id for e in first] == [head.id]  # seq 1 claimed by w-1 (in flight)
+
+    second = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w-2')
+    assert list(second) == []  # seq 2 NOT promoted while seq 1 is in flight
+
+    await inbox_store.mark_as_handled(head.id, head.destination, datetime.now(tz=UTC) + timedelta(minutes=5))
+    third = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w-2')
+    assert [e.id for e in third] == [successor.id]
+
+
 async def test_recover_stale_reclaims_owned_past_threshold(inbox_store: IInboxStore) -> None:
     entry = _make_entry()
     await inbox_store.store_incoming(entry)

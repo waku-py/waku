@@ -62,35 +62,43 @@ class SqlAlchemyOutboxStore(IOutboxStore):
     async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
         now = func.now()
         pending = _t.c.status == OutboxStatus.PENDING.value
+        head_eligible = _t.c.status.in_((OutboxStatus.PENDING.value, OutboxStatus.PROCESSING.value))
         ready = func.coalesce(_t.c.next_retry_at, now) <= now
 
-        # Head of each partition: the lowest-sequence PENDING row per group_id, INDEPENDENT of
-        # next_retry_at. Readiness is NOT applied here — a not-ready head must remain the group's
-        # head so it blocks its successors; gating readiness at head-SELECTION would promote a
-        # later sequence the moment the head is rescheduled (TXN-1). DISTINCT ON cannot carry a
-        # locking clause, so this CTE only reads.
+        # Head of each partition: the lowest-sequence NON-TERMINAL row (status PENDING or PROCESSING)
+        # per (group_id, destination), INDEPENDENT of next_retry_at. A committed PROCESSING (in-flight)
+        # row still occupies its slot, so no successor is promoted while a predecessor is being
+        # dispatched by another relay — that is the cluster-wide per-group FIFO guarantee. The composite
+        # (group_id, destination) key (not group_id alone) keeps a message fanned to N destinations from
+        # collapsing to one head and starving the other destinations (post-C1 fan-out). Readiness is NOT
+        # applied here — a not-ready head must remain its partition's head so it blocks its successors;
+        # gating readiness at head-SELECTION would promote a later sequence the moment the head is
+        # rescheduled (TXN-1). DISTINCT ON cannot carry a locking clause, so this CTE only reads.
         partitioned_heads = (
             select(_t.c.id)
-            .distinct(_t.c.group_id)
-            .where(pending)
+            .distinct(_t.c.group_id, _t.c.destination)
+            .where(head_eligible)
             .where(_t.c.group_id.isnot(None))
-            .order_by(_t.c.group_id, _t.c.sequence_number.asc())
+            .order_by(_t.c.group_id, _t.c.destination, _t.c.sequence_number.asc())
             .cte('partitioned_heads')
         )
 
         # Claim against the BASE TABLE, where BOTH readiness and the FOR UPDATE SKIP LOCKED claim are
         # applied. FOR UPDATE SKIP LOCKED is invalid over a UNION/DISTINCT subquery, so the locking
-        # SELECT reads `outbox_messages` directly and filters to each group's head OR any keyless
+        # SELECT reads `outbox_messages` directly and filters to each partition head OR any keyless
         # (group_id IS NULL) row. `OF outbox_messages` scopes the lock to base rows, never the
-        # read-only heads CTE. A group's head that is not-ready (future next_retry_at) OR already
-        # locked by another worker simply isn't claimed this cycle — and because only the head id is
-        # in `partitioned_heads`, the successor is never promoted in its place. So per-group FIFO holds
-        # for BOTH the contention path and the retry-backoff path (TXN-1). Keyless rows are claimed
-        # concurrently; their created_at ordering is fetch fairness only, NOT a serialization
-        # guarantee. No xmin/commit-order filter is needed — the allocator's per-group row lock + MVCC
-        # already serialize allocations and hide uncommitted rows (verified
-        # .research/sequence_rowlock_mre.md); the xid8 fix addresses the global-BIGSERIAL variant we
-        # do not have.
+        # read-only heads CTE. Only PENDING heads are claimed: a PROCESSING head is in `partitioned_heads`
+        # but excluded here by the `pending` filter, and its successor is never promoted because only the
+        # head id is in the CTE. A head that is not-ready (future next_retry_at) OR already locked by
+        # another worker simply isn't claimed this cycle. So at most one message per (group_id,
+        # destination) is in flight cluster-wide — bounded by `recover_stuck`: a genuinely-live send
+        # slower than `stuck_threshold` is false-positive-swept PROCESSING->PENDING and can be re-claimed
+        # by a second relay, briefly reopening the duplicate-head window (pre-existing at-least-once
+        # behaviour, covered by handler idempotency). Keyless rows are claimed concurrently; their
+        # created_at ordering is fetch fairness only, NOT a serialization guarantee. No xmin/commit-order
+        # filter is needed — the allocator's per-group row lock + MVCC already serialize allocations and
+        # hide uncommitted rows (verified .research/sequence_rowlock_mre.md); the xid8 fix addresses the
+        # global-BIGSERIAL variant we do not have.
         to_process = (
             select(_t.c.id)
             .where(pending)

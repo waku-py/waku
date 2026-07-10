@@ -4,10 +4,14 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+import pytest
+
 from waku.messaging.errors.dead_letter import DeadLetterEntry
-from waku.messaging.outbox.models import OutboxMessage
+from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from waku.messaging.outbox.interfaces import IOutboxStore
 
 # Behavioral contract shared by every IOutboxStore implementation. Parametrized via the `outbox_store`
@@ -165,6 +169,73 @@ async def test_not_ready_head_blocks_successor(outbox_store: IOutboxStore) -> No
     claimed_ids = {m.id for m in await outbox_store.fetch_head_of_queue(batch_size=10)}
     assert head.id not in claimed_ids
     assert successor.id not in claimed_ids
+
+
+async def test_processing_head_blocks_successor(outbox_store: IOutboxStore) -> None:
+    # A committed PROCESSING (in-flight) head occupies its group's slot cluster-wide: no successor is
+    # promoted until the head reaches a terminal state. Fails today — seq 2 is wrongly promoted while
+    # seq 1 is still PROCESSING.
+    head = _make_message(group_id='g', sequence_number=1)
+    successor = _make_message(group_id='g', sequence_number=2)
+    await outbox_store.save_batch([head, successor])
+
+    first = await outbox_store.fetch_head_of_queue(batch_size=10)
+    assert [m.id for m in first] == [head.id]  # seq 1 claimed -> PROCESSING
+
+    second = await outbox_store.fetch_head_of_queue(batch_size=10)
+    assert list(second) == []  # seq 2 NOT promoted while seq 1 is in flight
+
+    await outbox_store.mark_dispatched(head.id)
+    third = await outbox_store.fetch_head_of_queue(batch_size=10)
+    assert [m.id for m in third] == [successor.id]
+
+
+async def test_processing_head_for_one_destination_does_not_block_sibling(outbox_store: IOutboxStore) -> None:
+    # Post-C1 fan-out (#8): a grouped message sent to N destinations creates same-group_id sibling rows.
+    # The outbox head is composite (group_id, destination), so each destination has an INDEPENDENT head —
+    # a PROCESSING head for destination A must not starve destination B's co-sequenced sibling. Fails
+    # today: DISTINCT ON (group_id) collapses the two siblings to one head, so only one destination fires.
+    key = str(uuid4())
+    await outbox_store.save_batch([
+        _make_message(idempotency_key=key, destination='test://a', group_id='g', sequence_number=1),
+        _make_message(idempotency_key=key, destination='test://b', group_id='g', sequence_number=1),
+    ])
+
+    fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
+    assert {m.destination for m in fetched} == {'test://a', 'test://b'}
+    assert all(m.status is OutboxStatus.PROCESSING for m in fetched)
+
+
+@pytest.mark.parametrize(
+    'drive_to_terminal',
+    [
+        pytest.param(
+            lambda store, msg: store.move_to_dead_letter(msg.id, _dead_letter_for(msg)),
+            id='dead_lettered',
+        ),
+        pytest.param(lambda store, msg: store.mark_discarded(msg.id, 'policy drop'), id='discarded'),
+        pytest.param(lambda store, msg: store.mark_failed(msg.id, 'exhausted', next_retry_at=None), id='failed'),
+    ],
+)
+async def test_terminal_head_unblocks_successor(
+    outbox_store: IOutboxStore,
+    drive_to_terminal: Callable[[IOutboxStore, OutboxMessage], Awaitable[None]],
+) -> None:
+    # Goal-3 regression guard on the exact dimension this slice changes: after a grouped head reaches
+    # ANY terminal state (DEAD_LETTERED / DISCARDED / FAILED) its successor must be promotable. Green
+    # today and after a correct widen; a botched head_eligible (a notin_ omitting one terminal, or a
+    # `!= DISPATCHED` predicate) would freeze the group here forever.
+    head = _make_message(group_id='g', sequence_number=1)
+    successor = _make_message(group_id='g', sequence_number=2)
+    await outbox_store.save_batch([head, successor])
+
+    first = await outbox_store.fetch_head_of_queue(batch_size=10)
+    assert [m.id for m in first] == [head.id]  # seq 1 -> PROCESSING
+
+    await drive_to_terminal(outbox_store, head)
+
+    second = await outbox_store.fetch_head_of_queue(batch_size=10)
+    assert [m.id for m in second] == [successor.id]
 
 
 async def test_mutations_on_unknown_id_are_harmless_no_ops(outbox_store: IOutboxStore) -> None:

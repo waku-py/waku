@@ -83,21 +83,31 @@ class FakeInboxStore(IInboxStore):
     async def fetch_pending_partitioned(self, batch_size: int, owner_id: str) -> Sequence[InboxEntry]:
         if self.fetch_pending_error is not None:
             raise self.fetch_pending_error
-        candidates = [e for e in self.entries.values() if e.status is InboxStatus.INCOMING and e.owner_id is None]
-        # Head per (group_id, destination); keyless entries are all claimable. Mirrors the SQL
-        # DISTINCT ON (group_id, destination) ORDER BY ..., sequence_number.
+        incoming = [e for e in self.entries.values() if e.status is InboxStatus.INCOMING]
+        # Head per (group_id, destination) over ALL INCOMING rows regardless of owner_id: a claimed
+        # (owner_id set) in-flight head still occupies its slot, so its successor is not promoted while it
+        # is processed. Mirrors the SQL DISTINCT ON (group_id, destination) ORDER BY ..., sequence_number.
         seen: set[tuple[str, str]] = set()
-        selected: list[InboxEntry] = []
+        heads: set[tuple[UUID, str]] = set()
         for entry in sorted(
-            candidates,
+            incoming,
             # NULL sequence_number sorts last, mirroring PostgreSQL's ORDER BY ... ASC default.
             key=lambda e: (e.group_id or '', e.destination, e.sequence_number is None, e.sequence_number or 0),
         ):
-            if entry.group_id is not None:
-                key = (entry.group_id, entry.destination)
-                if key in seen:
-                    continue
-                seen.add(key)
+            if entry.group_id is None:
+                continue
+            partition = (entry.group_id, entry.destination)
+            if partition in seen:
+                continue
+            seen.add(partition)
+            heads.add((entry.id, entry.destination))
+        # Claim only unclaimed heads (or keyless): a claimed head occupies its slot but is not re-claimed.
+        selected: list[InboxEntry] = []
+        for entry in incoming:
+            if entry.owner_id is not None:
+                continue
+            if entry.group_id is not None and (entry.id, entry.destination) not in heads:
+                continue
             selected.append(entry)
             if len(selected) >= batch_size:
                 break

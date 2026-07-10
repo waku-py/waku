@@ -25,9 +25,11 @@ class InMemoryOutboxStore(IOutboxStore):
 
     The canonical fake for the store contract suite: idempotency dedup (the composite
     ``uq_outbox_idempotency_destination`` constraint over ``(idempotency_key, destination)``), the
-    ready/backoff filter (``coalesce(next_retry_at, now) <= now``), and the TXN-1-correct
-    head-of-queue (head selection is INDEPENDENT of ``next_retry_at`` so a not-ready head blocks its
-    group). List insertion order stands in for ``created_at`` (server-assigned ascending). Not thread-safe.
+    ready/backoff filter (``coalesce(next_retry_at, now) <= now``), and the head-of-queue rule (head
+    selection is over the NON-TERMINAL set ``{PENDING, PROCESSING}`` per ``(group_id, destination)`` and
+    INDEPENDENT of ``next_retry_at``, so both a not-ready backoff head and an in-flight PROCESSING head
+    block their partition's successors). List insertion order stands in for ``created_at``
+    (server-assigned ascending). Not thread-safe.
     """
 
     def __init__(self) -> None:
@@ -57,18 +59,24 @@ class InMemoryOutboxStore(IOutboxStore):
     async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
         now = datetime.now(tz=UTC)
         pending = [msg for msg in self.messages if msg.status is OutboxStatus.PENDING]
-        # Head per group: lowest-sequence PENDING row, INDEPENDENT of next_retry_at (TXN-1). Readiness
-        # is applied at claim time below, so a not-ready head keeps blocking its group's successors.
+        # Head per (group_id, destination): lowest-sequence NON-TERMINAL row (PENDING or PROCESSING),
+        # INDEPENDENT of next_retry_at. A committed PROCESSING (in-flight) row still occupies its slot
+        # so its successor is not promoted while a predecessor is being dispatched; the composite
+        # (group_id, destination) key keeps a fanned-out message's per-destination heads independent.
+        # Readiness is applied at claim time below, so a not-ready head keeps blocking its successors.
         # A NULL sequence_number sorts last, mirroring PostgreSQL's `ORDER BY sequence_number ASC`.
-        head_ids: dict[str, tuple[tuple[bool, int], UUID]] = {}
-        for msg in pending:
+        head_eligible = [msg for msg in self.messages if msg.status in {OutboxStatus.PENDING, OutboxStatus.PROCESSING}]
+        head_ids: dict[tuple[str, str], tuple[tuple[bool, int], UUID]] = {}
+        for msg in head_eligible:
             if msg.group_id is None:
                 continue
             order = (msg.sequence_number is None, msg.sequence_number or 0)
-            current = head_ids.get(msg.group_id)
+            key = (msg.group_id, msg.destination)
+            current = head_ids.get(key)
             if current is None or order < current[0]:
-                head_ids[msg.group_id] = (order, msg.id)
+                head_ids[key] = (order, msg.id)
         heads = {message_id for _, message_id in head_ids.values()}
+        # Only PENDING rows are claimed: a PROCESSING head occupies its slot but is never re-claimed.
         claimable = [
             msg
             for msg in pending

@@ -140,6 +140,82 @@ class TestFetchHeadOfQueue:
         assert successor.id not in claimed_ids
 
     @staticmethod
+    async def test_backoff_head_blocks_successor_while_other_groups_flow(pg_session: AsyncSession) -> None:
+        # Widening head selection to {PENDING, PROCESSING} must not disturb the readiness gate: a
+        # not-ready (backoff) PENDING head still blocks its own successor, while OTHER groups + keyless
+        # flow. Green before and after — guards the TXN-1 readiness behaviour against the predicate change.
+        store = SqlAlchemyOutboxStore(pg_session)
+        g_head = _make_message(group_id='G', sequence_number=1)
+        g_succ = _make_message(group_id='G', sequence_number=2)
+        h_head = _make_message(group_id='H', sequence_number=1)
+        keyless = _make_message()
+        await store.save_batch([g_head, g_succ, h_head, keyless])
+        await pg_session.flush()
+
+        future = datetime.now(tz=UTC) + timedelta(seconds=60)
+        await store.mark_failed(g_head.id, 'transient', next_retry_at=future)
+        await pg_session.flush()
+
+        claimed_ids = {m.id for m in await store.fetch_head_of_queue(batch_size=10)}
+        # G's not-ready backoff head blocks its successor; neither G row is claimed.
+        assert g_head.id not in claimed_ids
+        assert g_succ.id not in claimed_ids
+        # Other groups + keyless are unaffected.
+        assert h_head.id in claimed_ids
+        assert keyless.id in claimed_ids
+
+    @staticmethod
+    async def test_committed_processing_head_blocks_successor_across_sessions(pg_engine: AsyncEngine) -> None:
+        # The live I2 bug: relay-A claims a group head PROCESSING and COMMITS before dispatch; relay-B
+        # must NOT promote the successor while the predecessor is in flight. Two sessions over one engine
+        # model the two concurrent relays. Reverting head_eligible makes B claim G.seq2 -> this goes red.
+        metadata = MetaData()
+        bind_outbox_tables(metadata)
+        async with pg_engine.begin() as conn:
+            await conn.run_sync(metadata.create_all)
+        try:
+            g1 = _make_message(group_id='G', sequence_number=1)
+            g2 = _make_message(group_id='G', sequence_number=2)
+            async with AsyncSession(pg_engine, expire_on_commit=False) as seed:
+                await SqlAlchemyOutboxStore(seed).save_batch([g1, g2])
+                await seed.commit()
+
+            async with AsyncSession(pg_engine, expire_on_commit=False) as sa:
+                store_a = SqlAlchemyOutboxStore(sa)
+                async with sa.begin():
+                    claimed_a = await store_a.fetch_head_of_queue(batch_size=10)
+                assert [m.sequence_number for m in claimed_a] == [1]  # G.seq1 -> PROCESSING, COMMITTED
+
+                # Independently seed another group H + a keyless row so B has non-G work available.
+                async with AsyncSession(pg_engine, expire_on_commit=False) as seed2:
+                    await SqlAlchemyOutboxStore(seed2).save_batch([
+                        _make_message(group_id='H', sequence_number=1),
+                        _make_message(),
+                    ])
+                    await seed2.commit()
+
+                async with AsyncSession(pg_engine, expire_on_commit=False) as sb:
+                    store_b = SqlAlchemyOutboxStore(sb)
+                    async with sb.begin():
+                        await sb.execute(text("SET LOCAL lock_timeout = '500ms'"))
+                        claimed_b = await store_b.fetch_head_of_queue(batch_size=10)
+                    groups_b = {m.group_id for m in claimed_b}
+                    assert 'G' not in groups_b  # successor blocked by the in-flight PROCESSING head
+                    assert 'H' in groups_b  # other groups flow
+                    assert None in groups_b  # keyless flows
+
+                    # A dispatches G.seq1 (terminal); B may then claim G.seq2.
+                    async with sa.begin():
+                        await store_a.mark_dispatched(g1.id)
+                    async with sb.begin():
+                        await sb.execute(text("SET LOCAL lock_timeout = '500ms'"))
+                        claimed_b2 = await store_b.fetch_head_of_queue(batch_size=10)
+                    assert [(m.group_id, m.sequence_number) for m in claimed_b2] == [('G', 2)]
+        finally:
+            async with pg_engine.begin() as conn:
+                await conn.run_sync(metadata.drop_all)
+
+    @staticmethod
     async def test_fetch_head_of_queue_skip_locked(pg_engine: AsyncEngine) -> None:
         # Concurrent claim safety: while one worker holds the claimed head in an open tx, a second
         # worker's fetch is SKIPPED (not blocked) and never double-claims it. Mirrors

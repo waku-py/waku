@@ -131,21 +131,26 @@ class SqlAlchemyInboxStore(IInboxStore):
         unclaimed = _t.c.owner_id.is_(None)
 
         # DISTINCT ON (group_id, destination) not (group_id) alone: DISTINCT ON (group_id) would
-        # collapse fan-out sibling rows to one, starving all but one handler. DISTINCT ON carries no
-        # FOR UPDATE (PostgreSQL forbids it); locking happens on the base table in to_claim.
+        # collapse fan-out sibling rows to one, starving all but one handler. Heads are computed over ALL
+        # INCOMING rows (owner_id NOT filtered here): a claimed (owner_id set) in-flight head still
+        # occupies its (group_id, destination) slot, so no successor is promoted while its predecessor is
+        # being processed by another pod — cluster-wide per-partition FIFO, bounded by `recover_stale`.
+        # DISTINCT ON carries no FOR UPDATE (PostgreSQL forbids it); locking happens on the base table
+        # in to_claim.
         partitioned_heads = (
             select(_t.c.id, _t.c.destination)
             .distinct(_t.c.group_id, _t.c.destination)
             .where(incoming)
-            .where(unclaimed)
             .where(_t.c.group_id.isnot(None))
             .order_by(_t.c.group_id, _t.c.destination, _t.c.sequence_number.asc())
             .cte('partitioned_heads')
         )
 
-        # Claim against the base table (FOR UPDATE SKIP LOCKED is invalid on UNION/DISTINCT).
-        # (id, destination) confines the claim to exactly the locked rows — id alone claims every sibling.
-        # `OF inbox_entries` scopes the lock; SKIP LOCKED drops a locked head without skipping FIFO.
+        # Claim against the base table (FOR UPDATE SKIP LOCKED is invalid on UNION/DISTINCT). Only
+        # unclaimed heads are claimed: a claimed head is in `partitioned_heads` but excluded here by the
+        # `unclaimed` filter, and its successor is not a head. (id, destination) confines the claim to
+        # exactly the locked rows — id alone claims every sibling. `OF inbox_entries` scopes the lock;
+        # SKIP LOCKED drops a locked head without skipping FIFO.
         to_claim = (
             select(_t.c.id, _t.c.destination)
             .where(incoming)
