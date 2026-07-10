@@ -8,8 +8,12 @@ from typing import Any
 import pytest
 from typing_extensions import override
 
+from waku import module
 from waku.di import object_
+from waku.exceptions import ImproperlyConfiguredError
+from waku.factory import ContainerConfig, WakuFactory
 from waku.messaging import (
+    CallNext,
     IMessageBus,
     IRequest,
     MessagingConfig,
@@ -208,3 +212,59 @@ class TestTransactionalBehaviorViaDI:
 
         assert uow.commit_count == 0
         assert uow.rollback_count == 1
+
+    @staticmethod
+    async def test_declared_subclass_resolves_via_di_and_commits() -> None:
+        uow = FakeUoW()
+        recorder: list[Any] = []
+
+        class _RecordingTransactional(TransactionalBehavior):
+            @override
+            async def handle(self, message: Any, /, call_next: CallNext[Any]) -> Any:
+                recorder.append(message)
+                return await super().handle(message, call_next=call_next)
+
+        class _Handler(RequestHandler[_TxRequest, None]):
+            behaviors = (_RecordingTransactional,)
+
+            @override
+            async def handle(self, request: _TxRequest, /) -> None: ...
+
+        async with (
+            create_test_app(
+                providers=[object_(uow, provided_type=IUnitOfWork)],
+                imports=[MessagingModule.register(MessagingConfig())],
+                extensions=[MessagingExtension().bind(_Handler)],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            await bus.invoke(_TxRequest())
+
+        assert len(recorder) == 1
+        assert uow.commit_count == 1
+        assert uow.rollback_count == 0
+
+
+async def test_subclass_only_handler_missing_uow_raises_at_startup() -> None:
+    class _AuditTxn(TransactionalBehavior): ...
+
+    class _Handler(RequestHandler[_TxRequest, None]):
+        behaviors = (_AuditTxn,)
+
+        @override
+        async def handle(self, request: _TxRequest, /) -> None: ...
+
+    @module(
+        imports=[MessagingModule.register(MessagingConfig())],
+        extensions=[MessagingExtension().bind(_Handler)],
+    )
+    class _Root:  # no IUnitOfWork provider — deliberately
+        pass
+
+    # skip_validation defers dishka's eager graph check so the _UnitOfWorkValidationExtension is the
+    # startup guard; its plan scan must match the installed subclass by issubclass, not identity.
+    app = WakuFactory(_Root, container_config=ContainerConfig(skip_validation=True)).create()
+    with pytest.raises(ImproperlyConfiguredError, match='IUnitOfWork is required but not registered'):
+        async with app:
+            pass

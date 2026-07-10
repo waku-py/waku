@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from typing_extensions import override
 
+from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging.behaviors.cascading import CascadingBehavior
 from waku.messaging.behaviors.outbox_cascading import DeferredCascadingBehavior, OutboxCascadingBehavior
 from waku.messaging.behaviors.transactional import TransactionalBehavior
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
 
     from waku.messaging.config import MessagingConfig
     from waku.messaging.contracts.handler import HandlerType
+    from waku.messaging.contracts.pipeline import IPipelineBehavior
     from waku.messaging.registry import MessageRegistry
 
 __all__ = [
@@ -49,6 +51,34 @@ def _handler_requires_uow(handler: HandlerType, config: MessagingConfig) -> bool
     if any(issubclass(behavior, TransactionalBehavior) for behavior in handler.behaviors):
         return True
     return policies_need_dead_letter(handler.error_policies)
+
+
+def _resolve_transactional_behavior(
+    handler: HandlerType,
+    config: MessagingConfig,
+) -> type[IPipelineBehavior[Any, Any]]:
+    # Honor a user-declared TransactionalBehavior subclass at the framework position. Candidates come from
+    # BOTH the per-handler `behaviors` ClassVar and `global_pipeline_behaviors`; the MOST-DERIVED declared
+    # class wins (the unique candidate that is a subclass of every other). With none declared the base frame
+    # is installed (durable-config / dead-letter need). Two sibling subclasses have no unique most-derived
+    # class — ambiguous config, rejected at startup.
+    candidates = {
+        behavior
+        for behavior in (*handler.behaviors, *config.global_pipeline_behaviors)
+        if issubclass(behavior, TransactionalBehavior)
+    }
+    if not candidates:
+        return TransactionalBehavior
+    most_derived = [c for c in candidates if all(issubclass(c, other) for other in candidates)]
+    if len(most_derived) == 1:
+        return most_derived[0]
+    names = ', '.join(sorted(c.__name__ for c in candidates))
+    msg = (
+        f'handler {handler.__name__!r} resolves multiple sibling TransactionalBehavior subclasses '
+        f'({names}) from its `behaviors` and `global_pipeline_behaviors`; no single most-derived class '
+        'exists — declare exactly one, or make one subclass the other'
+    )
+    raise ImproperlyConfiguredError(msg)
 
 
 class CascadingPolicy(IBehaviorPolicy):
@@ -133,7 +163,8 @@ class TransactionalPolicy(IBehaviorPolicy):
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]:
         if _handler_requires_uow(handler, config):
-            return (PositionedBehavior(TransactionalBehavior, Position.USER_GLOBAL, sequence=-1),)
+            behavior = _resolve_transactional_behavior(handler, config)
+            return (PositionedBehavior(behavior, Position.USER_GLOBAL, sequence=-1),)
         return ()
 
 

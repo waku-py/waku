@@ -720,7 +720,7 @@ class _UnitOfWorkValidationExtension(OnContainerBuilt):
         plan = await app.container.get(BehaviorPlan)
         registry = await app.container.get(MessageRegistry)
         return any(
-            TransactionalBehavior in plan.for_handler(handler_type)
+            any(issubclass(behavior, TransactionalBehavior) for behavior in plan.for_handler(handler_type))
             for handler_type in registry.handler_map.handler_types()
         )
 
