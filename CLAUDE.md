@@ -17,7 +17,7 @@ Waku is a modular, type-safe Python framework (3.11+) inspired by NestJS, built 
 src/waku/
 ├── uow.py           # IUnitOfWork protocol (general infrastructure concern)
 ├── messaging/       # Messaging: IRequest, IEvent, Pipeline behaviors, MessageBus
-│   ├── contracts/   # IMessage, IRequest, IEvent, IPipelineBehavior, HandlerType, MessageEnvelope, EnvelopeFactory
+│   ├── contracts/   # IMessage, IRequest, IPipelineBehavior, HandlerType, MessageEnvelope, EnvelopeFactory
 │   ├── context.py   # MessageContext (ContextVar-based, correlation/causation propagation)
 │   ├── dispatcher.py # MessageDispatcher (handler/behavior resolution, no routing)
 │   ├── endpoints/   # Endpoint model (ABC, LocalQueueEndpoint, EndpointEntry)

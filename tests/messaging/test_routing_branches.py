@@ -9,9 +9,9 @@ from typing_extensions import override
 from waku import module
 from waku.di import object_
 from waku.exceptions import ImproperlyConfiguredError
+from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
-    IEvent,
     IMessageBus,
     IRequest,
     MessagingConfig,

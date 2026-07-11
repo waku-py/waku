@@ -17,7 +17,7 @@ from tests.eventsourcing.store.domain import ItemAdded, OrderCreated
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from waku.messaging import IEvent
+    from waku.messages import IEvent
 
 
 def make_envelope(event: IEvent) -> EventEnvelope:

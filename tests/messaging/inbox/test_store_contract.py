@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from typing_extensions import override
 
-from waku.messaging.contracts.event import IEvent
+from waku.messages import IEvent
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox._destination import handler_destination  # noqa: PLC2701

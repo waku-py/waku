@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass
 
 from waku.eventsourcing.contracts.event import EventEnvelope
-from waku.messaging import IEvent
+from waku.messages import IEvent
 
 
 @dataclass(frozen=True)

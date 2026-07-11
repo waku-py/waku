@@ -11,8 +11,8 @@ from waku.messaging.outbox.relay import OutboxRelayConfig
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
+    from waku.messages import MessageIdentity
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
-    from waku.messaging.contracts.identity import MessageIdentity
     from waku.messaging.contracts.message import IMessage
     from waku.messaging.contracts.pipeline import IPipelineBehavior
     from waku.messaging.endpoints.base import EndpointEntry

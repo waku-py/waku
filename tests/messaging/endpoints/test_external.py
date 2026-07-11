@@ -7,7 +7,7 @@ from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
 from waku._internal.retort import default_retort  # noqa: PLC2701
-from waku.messaging.contracts.event import IEvent
+from waku.messages import IEvent
 from waku.messaging.endpoints.external import ExternalEndpoint
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers
 from waku.messaging.outbox.interfaces import IOutboxStore

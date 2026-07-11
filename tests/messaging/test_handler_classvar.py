@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from waku.messages import IEvent
 from waku.messaging.behaviors.transactional import TransactionalBehavior
-from waku.messaging.contracts.event import IEvent
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.handler import EventHandler
 

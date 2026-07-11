@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from waku.messaging.contracts.event import IEvent
+from waku.messages import IEvent
 from waku.messaging.errors.executor import ErrorPolicyEvaluator, FailureContext
 from waku.messaging.errors.policy import ErrorPolicy, RetryAction
 from waku.messaging.errors.registry import ErrorPolicyRegistry

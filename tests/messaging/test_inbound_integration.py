@@ -13,6 +13,7 @@ from faststream.rabbit import TestRabbitBroker
 
 from waku._internal.retort import default_retort  # noqa: PLC2701
 from waku.di import object_
+from waku.messages import IEvent
 from waku.messaging import (
     InboxConfig,
     MessagingConfig,
@@ -20,7 +21,6 @@ from waku.messaging import (
     MessagingModule,
     TransactionalBehavior,
 )
-from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.base import listen
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.models import InboxStatus

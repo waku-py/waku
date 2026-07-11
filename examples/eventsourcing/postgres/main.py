@@ -32,9 +32,9 @@ from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
 from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
 from waku.integrations.eventsourcing_messaging import EventSourcedCommandHandler, EventSourcingMessagingModule
+from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
-    IEvent,
     IMessageBus,
     IRequest,
     MessagingExtension,

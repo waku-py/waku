@@ -10,8 +10,8 @@ from dishka import AsyncContainer, Provider, Scope, make_async_container, provid
 from typing_extensions import override
 
 from waku._internal.clock import utc_now  # noqa: PLC2701
+from waku.messages import IEvent
 from waku.messaging.circuit_breaker import CircuitBreakerConfig
-from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.durable_local_queue import DurableLocalQueueEndpoint
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
 from waku.messaging.errors.dead_letter import IDeadLetterStore

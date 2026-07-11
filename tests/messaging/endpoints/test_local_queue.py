@@ -10,7 +10,8 @@ from anyio.lowlevel import checkpoint
 from typing_extensions import override
 
 from waku.di import object_
-from waku.messaging import EventHandler, IEvent, MessagingConfig, MessagingExtension, MessagingModule
+from waku.messages import IEvent
+from waku.messaging import EventHandler, MessagingConfig, MessagingExtension, MessagingModule
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome

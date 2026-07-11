@@ -9,7 +9,7 @@ from dishka import AsyncContainer, Provider, Scope, make_async_container, provid
 from typing_extensions import override
 
 from waku._internal.retort import default_retort  # noqa: PLC2701
-from waku.messaging.contracts.event import IEvent
+from waku.messages import IEvent
 from waku.messaging.endpoints.durable_inbox_receiver import DurableInboxReceiver
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
 from waku.messaging.errors.dead_letter import IDeadLetterStore

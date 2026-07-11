@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
+from waku.messages import IEvent
 from waku.messaging._identifiers import GroupId  # noqa: PLC2701
-from waku.messaging.contracts.event import IEvent
 from waku.messaging.partition import ISequenceAllocator, resolve_and_allocate, resolve_group_id
 
 from tests.messaging.helpers import make_envelope

@@ -6,9 +6,9 @@ from typing_extensions import override
 
 from waku import WakuFactory, module
 from waku.di import scoped
+from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
-    IEvent,
     IRequest,
     MessagingConfig,
     MessagingExtension,

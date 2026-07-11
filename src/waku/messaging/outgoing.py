@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from waku.messaging.contracts.event import IEvent
+    from waku.messages import IEvent
     from waku.messaging.contracts.message import IMessage
     from waku.messaging.contracts.request import IRequest
 

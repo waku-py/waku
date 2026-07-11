@@ -13,9 +13,12 @@ from dishka import AsyncContainer
 from typing_extensions import override
 
 from waku import module
+from waku.messages import (
+    IEvent,
+    IEvent as _IEvent,
+)
 from waku.messaging import (
     EventHandler,
-    IEvent,
     IMessageBus,
     IRequest,
     MessagingConfig,
@@ -24,7 +27,6 @@ from waku.messaging import (
     RequestHandler,
 )
 from waku.messaging.circuit_breaker import CircuitBreakerConfig
-from waku.messaging.contracts.event import IEvent as _IEvent
 from waku.messaging.endpoints.base import local_queue
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint

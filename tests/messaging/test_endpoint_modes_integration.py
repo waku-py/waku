@@ -8,12 +8,12 @@ from typing import ClassVar
 import anyio.lowlevel
 from typing_extensions import override
 
+from waku.messages import IEvent
 from waku.messaging import (
     CircuitBreakerConfig,
     EndpointDefaults,
     EndpointMode,
     EventHandler,
-    IEvent,
     IMessageBus,
     MessagingConfig,
     MessagingExtension,

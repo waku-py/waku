@@ -6,7 +6,7 @@ from typing import TypeAlias
 import pytest
 
 from waku.eventsourcing.testing import DeciderSpec
-from waku.messaging import IEvent
+from waku.messages import IEvent
 
 from tests.eventsourcing.domain import CounterState, Increment, Incremented
 

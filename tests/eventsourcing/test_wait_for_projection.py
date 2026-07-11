@@ -17,7 +17,7 @@ from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.testing import wait_for_all_projections, wait_for_projection
-from waku.messaging.contracts.event import IEvent
+from waku.messages import IEvent
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

@@ -7,8 +7,8 @@ from typing_extensions import override
 
 from waku._internal.clock import Now, utc_now  # Now stays runtime: dishka introspects __init__
 from waku.di import AsyncContainer  # noqa: TC001
+from waku.messages import IEvent
 from waku.messaging.context import message_context_scope, try_get_message_context
-from waku.messaging.contracts.event import IEvent
 from waku.messaging.contracts.factory import EnvelopeFactory  # noqa: TC001
 from waku.messaging.delivery import DeliveryOptions
 from waku.messaging.dispatcher import MessageDispatcher  # noqa: TC001

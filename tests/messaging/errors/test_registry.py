@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from waku.messaging.contracts.event import IEvent
+from waku.messages import IEvent
 from waku.messaging.errors.policy import ErrorPolicy, RetryAction
 from waku.messaging.errors.registry import DuplicateErrorPolicyError, ErrorPolicyRegistry
 from waku.messaging.handler import EventHandler

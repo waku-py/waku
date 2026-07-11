@@ -11,9 +11,9 @@ from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
 from waku.di import object_
+from waku.messages import IEvent
 from waku.messaging import EndpointDefaults, MessagingConfig, MessagingExtension, MessagingModule
 from waku.messaging._identifiers import EndpointUri, HandlerDestination  # noqa: PLC2701
-from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
 from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore  # noqa: PLC2701
 from waku.messaging.errors.dead_letter import IDeadLetterStore

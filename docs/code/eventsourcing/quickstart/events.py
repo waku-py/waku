@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from waku.messaging import IEvent
+from waku.messages import IEvent
 
 
 @dataclass(frozen=True, kw_only=True)

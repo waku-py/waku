@@ -8,9 +8,9 @@ from uuid import UUID, uuid4
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku.messages import IEvent
 from waku.messaging import PollingConfig
 from waku.messaging.config import DeadLetterConfig
-from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.errors.replay import ReplayExecutor

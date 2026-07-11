@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from waku.exceptions import ImproperlyConfiguredError
-from waku.messaging.contracts.identity import MessageIdentity
+from waku.messages import MessageIdentity
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping

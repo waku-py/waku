@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING, ClassVar
 
 from typing_extensions import override
 
-from waku.messaging import EventHandler, IEvent, MessagingExtension, MessagingModule
+from waku.messages import IEvent
+from waku.messaging import EventHandler, MessagingExtension, MessagingModule
 from waku.messaging.contracts.factory import EnvelopeFactory
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.inline import InlineEndpoint

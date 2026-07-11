@@ -12,7 +12,7 @@ from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.sqlalchemy.store import SqlAlchemyEventStore
 from waku.eventsourcing.store.sqlalchemy.tables import EventStoreTables, bind_event_store_tables
-from waku.messaging import IEvent
+from waku.messages import IEvent
 from waku.serialization.upcasting import UpcasterChain, rename_field
 
 if TYPE_CHECKING:

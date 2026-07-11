@@ -8,12 +8,12 @@ from typing_extensions import override
 
 from waku.di import is_registered, object_
 from waku.exceptions import ImproperlyConfiguredError
+from waku.messages import IEvent
 from waku.messaging import (
     CallNext,
     EndpointDefaults,
     EndpointMode,
     EventHandler,
-    IEvent,
     IMessageBus,
     InboxConfig,
     IPipelineBehavior,

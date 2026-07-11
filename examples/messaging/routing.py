@@ -15,9 +15,9 @@ import logging
 from dataclasses import dataclass
 
 from waku import WakuFactory, module
+from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
-    IEvent,
     IMessageBus,
     IRequest,
     MessagingConfig,

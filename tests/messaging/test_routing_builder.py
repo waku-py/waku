@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING
 import pytest
 from typing_extensions import override
 
+from waku.messages import IEvent
 from waku.messaging.config import MessagingConfig
-from waku.messaging.contracts.event import IEvent
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.endpoints.base import LocalQueueEntry
 

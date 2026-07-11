@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from typing_extensions import override
 
 from waku.di import object_, singleton
+from waku.messages import IEvent
 from waku.messaging import (
     IMessageObserver,
     InboxConfig,
@@ -15,7 +16,6 @@ from waku.messaging import (
     OutboxConfig,
     TransactionalBehavior,
 )
-from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.base import BrokerEndpointEntry, external_endpoint, listen
 from waku.messaging.handler import EventHandler
 from waku.messaging.transport.decomposition import encode_payload, envelope_metadata_of

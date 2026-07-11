@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from waku.messaging.contracts.event import IEvent
+from waku.messages import IEvent
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.outgoing import Action, OutgoingMessages, PendingMessage
 

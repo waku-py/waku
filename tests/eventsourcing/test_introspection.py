@@ -10,7 +10,7 @@ from typing_extensions import TypeAliasType
 
 from waku.eventsourcing._introspection import resolve_generic_args  # noqa: PLC2701
 from waku.eventsourcing.decider.repository import DeciderRepository
-from waku.messaging import IEvent
+from waku.messages import IEvent
 
 S = TypeVar('S')
 C = TypeVar('C')

@@ -14,8 +14,8 @@ from waku.uow import IUnitOfWork, NoOpUnitOfWork
 
 if TYPE_CHECKING:
     from waku.di import AsyncContainer
+    from waku.messages import IEvent
     from waku.messaging.contracts.envelope import MessageEnvelope
-    from waku.messaging.contracts.event import IEvent
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.contracts.message import ResponseT
     from waku.messaging.contracts.request import IRequest

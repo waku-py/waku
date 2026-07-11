@@ -29,7 +29,7 @@ This is the **fan-out pattern**: one event, many reactions, no coupling between 
 ```python linenums="1"
 from dataclasses import dataclass
 
-from waku.messaging import IEvent
+from waku.messages import IEvent
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -51,7 +51,7 @@ with your own base class:
 from dataclasses import dataclass
 from datetime import datetime
 
-from waku.messaging import IEvent
+from waku.messages import IEvent
 
 
 @dataclass(frozen=True, kw_only=True)

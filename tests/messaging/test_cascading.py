@@ -9,9 +9,9 @@ import anyio
 import pytest
 from typing_extensions import override
 
+from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
-    IEvent,
     IMessageBus,
     IOutgoingMessages,
     IRequest,

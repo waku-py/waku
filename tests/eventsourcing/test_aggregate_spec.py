@@ -6,7 +6,7 @@ import pytest
 
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.testing import AggregateSpec
-from waku.messaging.contracts.event import IEvent
+from waku.messages import IEvent
 
 
 @dataclass(frozen=True)

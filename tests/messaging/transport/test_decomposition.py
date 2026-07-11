@@ -8,8 +8,8 @@ from uuid import uuid4
 import pytest
 
 from waku._internal.retort import default_retort  # noqa: PLC2701
+from waku.messages import IEvent
 from waku.messaging.contracts.envelope import MessageEnvelope
-from waku.messaging.contracts.event import IEvent
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.inbox.models import InboxEntry

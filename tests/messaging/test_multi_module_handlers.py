@@ -7,9 +7,9 @@ from typing_extensions import override
 
 from waku import WakuFactory, module
 from waku.exceptions import ImproperlyConfiguredError
+from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
-    IEvent,
     IMessageBus,
     IRequest,
     MessagingConfig,

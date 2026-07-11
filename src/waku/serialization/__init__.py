@@ -1,4 +1,3 @@
-from waku.messages import MessageIdentity
 from waku.serialization.codec import PayloadCodec
 from waku.serialization.upcasting import (
     FnUpcaster,
@@ -14,7 +13,6 @@ from waku.serialization.upcasting import (
 __all__ = [
     'FnUpcaster',
     'IPayloadUpcaster',
-    'MessageIdentity',
     'PayloadCodec',
     'UpcasterChain',
     'add_field',

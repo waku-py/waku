@@ -4,8 +4,8 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from waku.messages import MessageIdentity
 from waku.messaging.contracts.envelope import MessageEnvelope
-from waku.messaging.contracts.identity import MessageIdentity
 from waku.messaging.transport.interfaces import EnvelopeMetadata
 
 if TYPE_CHECKING:

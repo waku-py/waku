@@ -11,8 +11,7 @@ from waku.eventsourcing.exceptions import (
     UnknownEventTypeError,
 )
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
-from waku.messages import MessageIdentity
-from waku.messaging import IEvent
+from waku.messages import IEvent, MessageIdentity
 
 
 @dataclass(frozen=True)

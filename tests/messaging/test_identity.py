@@ -6,7 +6,7 @@ from typing import ClassVar
 import pytest
 
 from waku.exceptions import ImproperlyConfiguredError
-from waku.messaging.contracts.identity import MessageIdentity
+from waku.messages import MessageIdentity
 from waku.messaging.contracts.message import IMessage
 from waku.messaging.identity import MessageTypeRegistry, resolve_message_identity
 

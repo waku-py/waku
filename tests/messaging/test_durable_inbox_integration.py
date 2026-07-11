@@ -11,6 +11,7 @@ from typing_extensions import override
 
 from waku.di import object_, singleton
 from waku.exceptions import ImproperlyConfiguredError
+from waku.messages import IEvent
 from waku.messaging import (
     EndpointDefaults,
     IMessageBus,
@@ -25,7 +26,6 @@ from waku.messaging import (
 )
 from waku.messaging._identifiers import EndpointUri  # noqa: PLC2701
 from waku.messaging.config import DeadLetterConfig
-from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.base import EndpointMode, local_queue
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.handler import EventHandler

@@ -9,8 +9,8 @@ import anyio
 from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku.messages import IEvent
 from waku.messaging.circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitState
-from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.durable_inbox_receiver import DurableInboxReceiver
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
 from waku.messaging.errors.dead_letter import IDeadLetterStore

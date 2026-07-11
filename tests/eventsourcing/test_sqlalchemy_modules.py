@@ -19,7 +19,7 @@ from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
 from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
-from waku.messaging.contracts.event import IEvent
+from waku.messages import IEvent
 from waku.modules import module
 from waku.serialization.upcasting import rename_field
 from waku.testing import create_test_app

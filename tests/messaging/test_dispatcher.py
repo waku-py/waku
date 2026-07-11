@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from typing_extensions import override
 
+from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
     ExecutionOutcome,
-    IEvent,
     IRequest,
     MessageEnvelope,
     MessagingConfig,

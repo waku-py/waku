@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from waku.eventsourcing.contracts.event import EventMetadata, StoredEvent
 from waku.eventsourcing.contracts.stream import StreamId
-from waku.messaging import IEvent
+from waku.messages import IEvent
 
 
 @dataclass(frozen=True)

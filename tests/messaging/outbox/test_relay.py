@@ -12,9 +12,9 @@ import anyio
 from dishka import make_async_container
 from typing_extensions import override
 
+from waku.messages import IEvent
 from waku.messaging import PollingConfig
 from waku.messaging._escalation import RetryAction, walk_stages  # noqa: PLC2701
-from waku.messaging.contracts.event import IEvent
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage

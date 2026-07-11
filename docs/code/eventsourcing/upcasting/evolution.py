@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from waku.messaging import IEvent
+from waku.messages import IEvent
 from waku.eventsourcing import EventType, add_field, rename_field
 
 

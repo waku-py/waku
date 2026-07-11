@@ -27,8 +27,8 @@ from waku.eventsourcing import (
 )
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.integrations.eventsourcing_messaging import EventSourcedCommandHandler, EventSourcingMessagingModule
+from waku.messages import IEvent
 from waku.messaging import (
-    IEvent,
     IMessageBus,
     IRequest,
     MessagingExtension,

@@ -16,7 +16,7 @@ from waku.eventsourcing.forwarding import (
     ForwardingRegistry,
 )
 from waku.integrations.eventsourcing_messaging.forwarding import EventForwardingBehavior
-from waku.messaging.contracts.event import IEvent
+from waku.messages import IEvent
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.interfaces import ISender
 from waku.messaging.outgoing import IOutgoingMessages

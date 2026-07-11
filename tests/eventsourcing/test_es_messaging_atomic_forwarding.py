@@ -21,6 +21,7 @@ from waku.eventsourcing.store.interfaces import IEventStore
 from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
 from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
 from waku.integrations.eventsourcing_messaging import EventSourcedVoidCommandHandler, EventSourcingMessagingModule
+from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
     IMessageBus,
@@ -33,7 +34,6 @@ from waku.messaging import (
     external_endpoint,
     route,
 )
-from waku.messaging.contracts.event import IEvent
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.sqla.uow import SqlAlchemyUnitOfWork
 from waku.modules import module

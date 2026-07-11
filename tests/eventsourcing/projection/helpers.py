@@ -9,7 +9,7 @@ from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import NoStream, StreamId
 from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore, ProjectionErrorPolicy
-from waku.messaging.contracts.event import IEvent
+from waku.messages import IEvent
 from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:

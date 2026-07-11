@@ -9,6 +9,7 @@ import pytest
 from typing_extensions import override
 
 from waku.di import Scope, many, object_, singleton
+from waku.messages import IEvent
 from waku.messaging import (
     INVOKE_DESTINATION,
     Audit,
@@ -16,7 +17,6 @@ from waku.messaging import (
     EventHandler,
     ExecutionOutcome,
     HandlerType,
-    IEvent,
     IMessageBus,
     IMessageObserver,
     InboxConfig,

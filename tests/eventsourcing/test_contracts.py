@@ -19,7 +19,7 @@ from waku.eventsourcing.exceptions import (
     StreamNotFoundError,
 )
 from waku.exceptions import ImproperlyConfiguredError
-from waku.messaging import IEvent
+from waku.messages import IEvent
 
 
 @dataclass(frozen=True)
