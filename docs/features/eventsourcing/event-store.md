@@ -27,7 +27,7 @@ The store interface is split into two protocols:
 **`IEventWriter`** — write-side operations:
 
 - `append_to_stream(stream_id, events, *, expected_version)` — append events with optimistic concurrency
-- `delete_stream(stream_id)` — soft-delete a stream (see [Stream Deletion](#stream-deletion))
+- `archive_stream(stream_id)` — archive a stream (see [Stream Archiving](#stream-archiving))
 
 `IEventStore` combines both:
 
@@ -76,7 +76,7 @@ class IEventWriter(abc.ABC):
         expected_version: ExpectedVersion,
     ) -> int: ...
 
-    async def delete_stream(self, stream_id: StreamId, /) -> None: ...
+    async def archive_stream(self, stream_id: StreamId, /) -> None: ...
 
 
 class IEventStore(IEventReader, IEventWriter, abc.ABC):
@@ -191,7 +191,7 @@ This creates two tables:
 | `version` | `Integer` | NOT NULL, default `0` | Current stream version (incremented on each append) |
 | `created_at` | `TIMESTAMP WITH TIME ZONE` | default `now()` | Stream creation time |
 | `updated_at` | `TIMESTAMP WITH TIME ZONE` | default `now()`, auto-update | Last modification time |
-| `deleted_at` | `TIMESTAMP WITH TIME ZONE` | nullable | Soft-delete timestamp (see [Stream Deletion](#stream-deletion)) |
+| `deleted_at` | `TIMESTAMP WITH TIME ZONE` | nullable | Archive timestamp (see [Stream Archiving](#stream-archiving)) |
 
 #### `es_events`
 
@@ -285,33 +285,34 @@ The SQLAlchemy store persists idempotency keys in a dedicated column on `es_even
 composite unique constraint `(stream_id, idempotency_key)`. The in-memory store tracks keys
 per stream in a dictionary with an async lock for thread safety.
 
-## Stream Deletion
+## Stream Archiving
 
-`delete_stream()` performs a **soft delete** — the stream is marked as deleted but its events
-are preserved for audit purposes.
+`archive_stream()` marks a stream as archived — the stream is excluded from read paths but its
+events are preserved for audit purposes.
 
 ```python
-await store.delete_stream(stream_id)
+await store.archive_stream(stream_id)
 ```
 
 | Operation | Behavior |
 |-----------|----------|
 | `stream_exists(stream_id)` | Returns `False` |
-| `read_all()` | Excludes events from deleted streams |
-| `read_positions()` | Excludes positions from deleted streams |
-| `append_to_stream(stream_id, ...)` | Raises `StreamDeletedError` |
+| `read_all()` | Excludes events from archived streams |
+| `read_positions()` | Excludes positions from archived streams |
+| `append_to_stream(stream_id, ...)` | Raises `StreamArchivedError` |
 | `read_stream(stream_id)` | Still returns events (audit trail) |
 
-Calling `delete_stream()` on a nonexistent stream raises `StreamNotFoundError`.
-Calling it on an already-deleted stream is a no-op.
+The `stream_exists` exclusion and the append block are intentionally stricter than Marten's
+archive semantics. Calling `archive_stream()` on a nonexistent stream raises
+`StreamNotFoundError`. Calling it on an already-archived stream is a no-op.
 
 !!! note
-    Repositories (`EventSourcedRepository`, `DeciderRepository`) can still `load()` a deleted
-    aggregate for read-only audit. Only `save()` will fail with `StreamDeletedError`.
+    Repositories (`EventSourcedRepository`, `DeciderRepository`) can still `load()` an archived
+    aggregate for read-only audit. Only `save()` will fail with `StreamArchivedError`.
 
 The SQLAlchemy store sets a `deleted_at` timestamp on the `es_streams` row and uses a JOIN
-filter to exclude deleted streams from `read_all` and `read_positions` queries. The in-memory
-store tracks deleted stream keys in a separate set.
+filter to exclude archived streams from `read_all` and `read_positions` queries. The in-memory
+store tracks archived stream keys in a separate set.
 
 ## Metadata Enrichment
 

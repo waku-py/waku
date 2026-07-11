@@ -8,6 +8,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any, TypeAlias, assert_never
 
 import anyio
+from dishka.exceptions import NoFactoryError
 
 from waku._internal.clock import utc_now
 from waku._internal.sentinel import MISSING
@@ -18,7 +19,7 @@ from waku.messaging.errors.policy import RetryAction
 from waku.messaging.exceptions import HandlerTimeoutError
 from waku.messaging.transport.decomposition import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
-from waku.uow import IUnitOfWork
+from waku.uow import IUnitOfWork, NoOpUnitOfWork
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -209,7 +210,7 @@ class EndpointExecutor:
         match outcome.action:
             case RetryAction.DEAD_LETTER:
                 logger.warning('Moving message_id=%s to dead letter after %d attempt(s)', envelope.message_id, attempt)
-                persisted = await self._write_dead_letter(envelope, exc, attempt)
+                persisted = await self.write_dead_letter(envelope, exc, attempt)
                 dlq_outcome = ExecutionOutcome.DEAD_LETTERED if persisted else ExecutionOutcome.DEAD_LETTER_FAILED
                 return ExecutionResult(dlq_outcome)
             case RetryAction.DISCARD:
@@ -238,11 +239,19 @@ class EndpointExecutor:
             case _ as unreachable:  # pragma: no cover
                 assert_never(unreachable)
 
-    async def _write_dead_letter(self, envelope: MessageEnvelope[Any], exc: Exception, attempt: int) -> bool:
+    async def write_dead_letter(self, envelope: MessageEnvelope[Any], exc: Exception, attempt: int) -> bool:
+        """Persist *envelope* as a dead-letter entry; returns whether the write committed.
+
+        The store is always resolvable (``DiscardingDeadLetterStore`` when unconfigured); the UoW is
+        resolve-or-noop so a pure-BUFFERED app with no durability (and thus no UoW) never crashes here.
+        """
         async with self._container() as scope:
             store = await scope.get(IDeadLetterStore)
             codec = await scope.get(PayloadCodec)
-            uow = await scope.get(IUnitOfWork)
+            try:
+                uow: IUnitOfWork = await scope.get(IUnitOfWork)
+            except NoFactoryError:
+                uow = NoOpUnitOfWork()
             entry = DeadLetterEntry.from_failure(
                 message_type=envelope.message_type,
                 payload=encode_payload(envelope, codec),

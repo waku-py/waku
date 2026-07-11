@@ -24,7 +24,7 @@ __all__ = [
     'SnapshotConfigNotFoundError',
     'SnapshotMigrationChainError',
     'SnapshotTypeMismatchError',
-    'StreamDeletedError',
+    'StreamArchivedError',
     'StreamNotFoundError',
     'StreamTooLargeError',
     'UnknownEventTypeError',
@@ -46,10 +46,10 @@ class StreamNotFoundError(EventSourcingError):
         super().__init__(f'Stream {stream_id} not found')
 
 
-class StreamDeletedError(EventSourcingError):
+class StreamArchivedError(EventSourcingError):
     def __init__(self, stream_id: StreamId) -> None:
         self.stream_id = stream_id
-        super().__init__(f'Stream {stream_id} is deleted')
+        super().__init__(f'Stream {stream_id} is archived')
 
 
 class AggregateNotFoundError(EventSourcingError):

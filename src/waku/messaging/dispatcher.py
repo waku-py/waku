@@ -3,7 +3,6 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from dishka.exceptions import NoFactoryError
-from typing_extensions import override
 
 from waku.messaging.behaviors.transactional import _TransactionDepth, run_in_transaction
 from waku.messaging.endpoints.executor import ExecutionOutcome
@@ -11,7 +10,7 @@ from waku.messaging.exceptions import HandlerNotFound
 from waku.messaging.observability.observer import INVOKE_DESTINATION, MessageObservers
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.messaging.registry import MessageRegistry
-from waku.uow import IUnitOfWork
+from waku.uow import IUnitOfWork, NoOpUnitOfWork
 
 if TYPE_CHECKING:
     from waku.di import AsyncContainer
@@ -20,23 +19,6 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.contracts.message import ResponseT
     from waku.messaging.contracts.request import IRequest
-
-
-class _NoOpUnitOfWork(IUnitOfWork):
-    """Dispatcher-seam null UoW substituted when no real UoW is registered.
-
-    Lets ``invoke_event`` always run one owning transaction frame. Never registered under the ``IUnitOfWork``
-    DI key (that would silently defeat the UoW presence checks); provisioned only here at the resolve seam,
-    where ``commit``/``rollback`` no-op.
-    """
-
-    __slots__ = ()
-
-    @override
-    async def commit(self) -> None: ...
-
-    @override
-    async def rollback(self) -> None: ...
 
 
 class MessageDispatcher:
@@ -133,5 +115,5 @@ class MessageDispatcher:
         try:
             uow: IUnitOfWork = await scope.get(IUnitOfWork)
         except NoFactoryError:
-            return _NoOpUnitOfWork()
+            return NoOpUnitOfWork()
         return uow

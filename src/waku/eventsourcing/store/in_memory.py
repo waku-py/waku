@@ -13,7 +13,7 @@ from waku.eventsourcing.contracts.stream import StreamPosition
 from waku.eventsourcing.exceptions import (
     DuplicateIdempotencyKeyError,
     PartialDuplicateAppendError,
-    StreamDeletedError,
+    StreamArchivedError,
     StreamNotFoundError,
 )
 from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001  # Dishka needs runtime access
@@ -73,7 +73,7 @@ class InMemoryEventStore(IEventStore):
                 subset = subset[:count]
             return list(subset)
 
-    async def delete_stream(self, stream_id: StreamId, /) -> None:
+    async def archive_stream(self, stream_id: StreamId, /) -> None:
         async with self._lock:
             key = str(stream_id)
             if key not in self._streams:
@@ -143,7 +143,7 @@ class InMemoryEventStore(IEventStore):
         async with self._lock:
             key = str(stream_id)
             if key in self._deleted_streams:
-                raise StreamDeletedError(stream_id)
+                raise StreamArchivedError(stream_id)
             stream = self._streams.get(key)
             current_version = len(stream) - 1 if stream is not None else -1
 

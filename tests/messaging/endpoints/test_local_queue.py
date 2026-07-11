@@ -5,31 +5,40 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, ClassVar
 
+import pytest
 from anyio.lowlevel import checkpoint
 from typing_extensions import override
 
-from waku.messaging import EventHandler, IEvent, MessagingExtension, MessagingModule
+from waku.di import object_
+from waku.messaging import EventHandler, IEvent, MessagingConfig, MessagingExtension, MessagingModule
+from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import MessageContext, get_message_context
-from waku.messaging.endpoints.executor import EndpointExecutor
+from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.registry import ErrorPolicyRegistry
-from waku.messaging.observability.observer import MessageObservers
+from waku.messaging.exceptions import RequeueBudgetExceededError
+from waku.messaging.observability.observer import IMessageObserver, MessageObservers
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.testing import create_test_app
+from waku.uow import IUnitOfWork
 
 from tests._wait import ControllableSleep, wait_until
-from tests.messaging.helpers import NOOP_EVALUATOR, NOOP_OBSERVERS, make_envelope
+from tests.messaging.helpers import NOOP_EVALUATOR, NOOP_OBSERVERS, FakeUoW, RecordingDeadLetterStore, make_envelope
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
+    from typing import Any
 
-    import pytest
     from pytest_mock import MockerFixture
 
     from waku.application import WakuApplication
+    from waku.messaging.contracts.envelope import MessageEnvelope
+    from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.router import HandlerSubscriptions
+
+_DISCARDING_LOGGER = 'waku.messaging.errors._internal.discarding_store'
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +127,26 @@ class _FallbackHandler(EventHandler[_FallbackEvent]):
         raise ValueError
 
 
+class _TerminalSpy(IMessageObserver):
+    def __init__(self) -> None:
+        self.executed: list[tuple[str, ExecutionOutcome, Exception | None]] = []
+
+    @override
+    async def on_executed(
+        self,
+        envelope: MessageEnvelope[Any],
+        destination: str,
+        handler_type: HandlerType,
+        outcome: ExecutionOutcome,
+        exc: Exception | None,
+        duration: timedelta,
+    ) -> None:
+        self.executed.append((destination, outcome, exc))
+
+    def outcomes_at(self, destination: str) -> list[ExecutionOutcome]:
+        return [outcome for dest, outcome, _ in self.executed if dest == destination]
+
+
 async def _make_endpoint(
     app: WakuApplication,
     handler: type[EventHandler[_OrderPlaced]],
@@ -151,6 +180,7 @@ async def _make_endpoint_with_requeue(
     max_requeue_attempts: int,
     max_buffer_size: float = 100,
     policies: Sequence[ErrorPolicy] | None = None,
+    observers: MessageObservers = NOOP_OBSERVERS,
 ) -> LocalQueueEndpoint:
     resolved_policies = policies if policies is not None else (ErrorPolicy.on_any_exception().requeue(),)
     invoker = await app.container.get(HandlerPipelineInvoker)
@@ -165,7 +195,7 @@ async def _make_endpoint_with_requeue(
         uri='local://test',
         handler_subscriptions=subscriptions,
         executor=executor,
-        observers=NOOP_OBSERVERS,
+        observers=observers,
         stop_timeout=0.5,
         max_buffer_size=max_buffer_size,
         max_requeue_attempts=max_requeue_attempts,
@@ -305,8 +335,40 @@ class TestLocalQueueRequeue:
         assert _FailingThenRecordingHandler.call_count == 2  # failed once -> requeued -> handled
 
     @staticmethod
-    async def test_requeue_budget_drops_at_bound(caplog: pytest.LogCaptureFixture) -> None:
+    async def test_requeue_exhaustion_writes_dead_letter_when_store_configured() -> None:
         _AlwaysFailingHandler.call_count = 0
+        dl_store = RecordingDeadLetterStore()
+        spy = _TerminalSpy()
+
+        async with create_test_app(
+            imports=[MessagingModule.register(MessagingConfig(dead_letter=DeadLetterConfig(store=lambda: dl_store)))],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
+        ) as app:
+            endpoint = await _make_endpoint_with_requeue(
+                app,
+                {_OrderPlaced: frozenset({_AlwaysFailingHandler})},
+                max_requeue_attempts=2,
+                observers=MessageObservers([spy]),
+            )
+            await endpoint.start()
+            envelope = make_envelope(_OrderPlaced(order_id='poison'))
+            await endpoint.dispatch(envelope, app.container)
+            await wait_until(lambda: len(dl_store.entries) == 1)
+            await endpoint.stop()
+
+        # original + 1 requeue, then terminal dead-letter at the budget bound — no infinite redelivery.
+        assert _AlwaysFailingHandler.call_count == 2
+        entry = dl_store.entries[0]
+        assert entry.destination == 'local://test'
+        assert entry.message_type == envelope.message_type
+        assert entry.payload == {'order_id': 'poison'}
+        assert spy.outcomes_at('local://test') == [ExecutionOutcome.DEAD_LETTERED]
+
+    @staticmethod
+    async def test_requeue_exhaustion_warns_and_observes_when_unconfigured(caplog: pytest.LogCaptureFixture) -> None:
+        _AlwaysFailingHandler.call_count = 0
+        spy = _TerminalSpy()
 
         async with create_test_app(
             imports=[MessagingModule.register()],
@@ -316,18 +378,74 @@ class TestLocalQueueRequeue:
                 app,
                 {_OrderPlaced: frozenset({_AlwaysFailingHandler})},
                 max_requeue_attempts=2,
+                observers=MessageObservers([spy]),
             )
             await endpoint.start()
-            with caplog.at_level(logging.WARNING, logger='waku.messaging.endpoints.local_queue'):
+            with caplog.at_level(logging.WARNING, logger=_DISCARDING_LOGGER):
                 await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='poison')), app.container)
-                await wait_until(lambda: _AlwaysFailingHandler.call_count == 2)
-                for _ in range(10):
-                    await checkpoint()
+                await wait_until(lambda: ExecutionOutcome.DEAD_LETTERED in spy.outcomes_at('local://test'))
             await endpoint.stop()
 
-        # original + 1 requeue, then dropped at the budget bound — no infinite redelivery.
         assert _AlwaysFailingHandler.call_count == 2
-        assert 'budget exhausted' in caplog.text.lower()
+        assert 'not persisted' in caplog.text.lower()  # loss WARN comes from the discarding store, not the endpoint
+        terminal = [(o, exc) for _, o, exc in spy.executed if o is ExecutionOutcome.DEAD_LETTERED]
+        assert len(terminal) == 1
+        assert isinstance(terminal[0][1], RequeueBudgetExceededError)
+
+    @staticmethod
+    @pytest.mark.parametrize('configured', [True, False])
+    async def test_dead_letter_observer_fires_in_both_branches(configured: bool) -> None:
+        _AlwaysFailingHandler.call_count = 0
+        dl_store = RecordingDeadLetterStore()
+        spy = _TerminalSpy()
+        config = MessagingConfig(dead_letter=DeadLetterConfig(store=lambda: dl_store)) if configured else None
+        providers = [object_(FakeUoW(), provided_type=IUnitOfWork)] if configured else []
+
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            providers=providers,
+            extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
+        ) as app:
+            endpoint = await _make_endpoint_with_requeue(
+                app,
+                {_OrderPlaced: frozenset({_AlwaysFailingHandler})},
+                max_requeue_attempts=2,
+                observers=MessageObservers([spy]),
+            )
+            await endpoint.start()
+            await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='poison')), app.container)
+            await wait_until(lambda: ExecutionOutcome.DEAD_LETTERED in spy.outcomes_at('local://test'))
+            await endpoint.stop()
+
+        assert spy.outcomes_at('local://test') == [ExecutionOutcome.DEAD_LETTERED]
+        assert len(dl_store.entries) == (1 if configured else 0)
+
+    @staticmethod
+    async def test_terminal_dead_letter_fires_at_per_rule_limit() -> None:
+        _BudgetTwoHandler.call_count = 0
+        dl_store = RecordingDeadLetterStore()
+        spy = _TerminalSpy()
+
+        async with create_test_app(
+            imports=[MessagingModule.register(MessagingConfig(dead_letter=DeadLetterConfig(store=lambda: dl_store)))],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            extensions=[MessagingExtension().bind(_BudgetTwoHandler)],
+        ) as app:
+            endpoint = await _make_endpoint_with_requeue(
+                app,
+                {_BudgetTwoEvent: frozenset({_BudgetTwoHandler})},
+                max_requeue_attempts=7,
+                policies=(ErrorPolicy.on_exception(_BudgetTwoError).requeue(max_attempts=2),),
+                observers=MessageObservers([spy]),
+            )
+            await endpoint.start()
+            await endpoint.dispatch(make_envelope(_BudgetTwoEvent(ref='b2')), app.container)
+            await wait_until(lambda: len(dl_store.entries) == 1)
+            await endpoint.stop()
+
+        # the terminal fires at the per-rule limit (2), never reaching the endpoint-wide bound (7).
+        assert _BudgetTwoHandler.call_count == 2
+        assert spy.outcomes_at('local://test') == [ExecutionOutcome.DEAD_LETTERED]
 
     @staticmethod
     async def test_per_rule_budget_overrides_endpoint_bound_with_fallback() -> None:

@@ -23,6 +23,8 @@ from waku.messaging.outgoing import IOutgoingMessages
 from waku.messaging.router import MessageRouter
 
 if TYPE_CHECKING:
+    from datetime import timedelta
+
     from waku.messaging.contracts.message import IMessage
     from waku.messaging.delivery import DeliveryOptions
     from waku.messaging.endpoints.base import Endpoint
@@ -69,6 +71,18 @@ class _RecordingSender(ISender):
     @override
     async def send(self, message: IMessage, /, options: DeliveryOptions | None = None) -> None:  # pragma: no cover
         msg = 'forwarding must not send'
+        raise AssertionError(msg)
+
+    @override
+    async def schedule_send(
+        self,
+        message: IMessage,
+        /,
+        *,
+        at: datetime | None = None,
+        delay: timedelta | None = None,
+    ) -> None:  # pragma: no cover
+        msg = 'forwarding must not schedule'
         raise AssertionError(msg)
 
 

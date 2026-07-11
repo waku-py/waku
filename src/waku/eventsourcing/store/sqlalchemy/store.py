@@ -21,7 +21,7 @@ from waku.eventsourcing.exceptions import (
     ConcurrencyConflictError,
     DuplicateIdempotencyKeyError,
     PartialDuplicateAppendError,
-    StreamDeletedError,
+    StreamArchivedError,
     StreamNotFoundError,
 )
 from waku.eventsourcing.forwarding import IAppendedEvents  # noqa: TC001  # Dishka needs runtime access
@@ -232,7 +232,7 @@ class SqlAlchemyEventStore(IEventStore):
         result = await self._session.execute(query)
         return [row[0] for row in result.fetchall()]
 
-    async def delete_stream(self, stream_id: StreamId, /) -> None:
+    async def archive_stream(self, stream_id: StreamId, /) -> None:
         stream_row = await self._get_stream(stream_id)
         if stream_row is None:
             raise StreamNotFoundError(stream_id)
@@ -326,7 +326,7 @@ class SqlAlchemyEventStore(IEventStore):
         if existing_keys == unique_keys:
             stream_row = await self._get_stream(stream_id)
             if stream_row.deleted_at is not None:
-                raise StreamDeletedError(stream_id)
+                raise StreamArchivedError(stream_id)
             return int(stream_row.version)  # stream must exist if events with these keys exist
 
         raise PartialDuplicateAppendError(stream_id, len(existing_keys), len(keys))
@@ -338,7 +338,7 @@ class SqlAlchemyEventStore(IEventStore):
     ) -> int:
         stream_row = await self._get_stream(stream_id)
         if stream_row is not None and stream_row.deleted_at is not None:
-            raise StreamDeletedError(stream_id)
+            raise StreamArchivedError(stream_id)
         current_version = stream_row.version if stream_row is not None else -1
         check_expected_version(stream_id, expected_version, current_version, exists=stream_row is not None)
         return current_version

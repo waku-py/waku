@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 import anyio
@@ -8,18 +9,19 @@ from typing_extensions import override
 
 from waku.messaging.circuit_breaker.breaker import CircuitBreaker, PassthroughCircuitBreaker
 from waku.messaging.endpoints.base import Endpoint
-from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES
+from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES, ExecutionOutcome
 from waku.messaging.endpoints.worker import MemoryStreamWorker
+from waku.messaging.exceptions import RequeueBudgetExceededError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-    from datetime import timedelta
     from uuid import UUID
 
     from waku.di import AsyncContainer
     from waku.messaging.circuit_breaker.breaker import ICircuitBreaker
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
+    from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.endpoints.executor import EndpointExecutor
     from waku.messaging.observability.observer import MessageObservers
     from waku.messaging.pauser import PauseToken
@@ -60,7 +62,7 @@ class LocalQueueEndpoint(Endpoint):
         stop_timeout: float,
         max_buffer_size: float,
         max_parallel: int = 1,
-        max_requeue_attempts: int = 5,  # BUFFERED drops at the bound (no DLQ row)
+        max_requeue_attempts: int = 5,  # BUFFERED dead-letters at the bound (no inbox row to recover from)
         pause_sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
         circuit_breaker_config: CircuitBreakerConfig | None = None,
     ) -> None:
@@ -119,13 +121,14 @@ class LocalQueueEndpoint(Endpoint):
         for handler_type in self._handler_subscriptions.get(type(envelope.payload), ()):
             result = await self._executor.execute(envelope, handler_type, on_result=on_result)
             if result.outcome in DEFERRED_TERMINAL_OUTCOMES:
-                await self._enact_redelivery(envelope, result.pause_duration, result.requeue_limit)
+                await self._enact_redelivery(envelope, handler_type, result.pause_duration, result.requeue_limit)
             else:
                 self._delivery_counts.pop(envelope.message_id, None)
 
     async def _enact_redelivery(
         self,
         envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
         pause_duration: timedelta | None,
         requeue_limit: int | None,
     ) -> None:
@@ -133,12 +136,25 @@ class LocalQueueEndpoint(Endpoint):
         delivered = self._delivery_counts.get(envelope.message_id, 1)
         if delivered >= limit:
             self._delivery_counts.pop(envelope.message_id, None)
-            logger.warning('Requeue budget exhausted for message_id=%s; dropping', envelope.message_id)
+            await self._terminal_dead_letter(envelope, handler_type, delivered)
             return  # PAUSE shares this bound — no re-pause at the limit (no livelock)
         if not self._worker.try_send(envelope):
             self._delivery_counts.pop(envelope.message_id, None)
-            logger.warning('Requeue dropped (buffer full/closed) for message_id=%s', envelope.message_id)
+            await self._terminal_dead_letter(envelope, handler_type, delivered)
             return
         self._delivery_counts[envelope.message_id] = delivered + 1
         if pause_duration is not None:  # re-enqueued; halt the listener for the PAUSE duration
             await self._timed_pauser.pause(pause_duration)
+
+    async def _terminal_dead_letter(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        delivered: int,
+    ) -> None:
+        # Unconditional: IDeadLetterStore is always resolvable — a real store persists; the discarding
+        # fallback logs the loss WARN and no-ops (a successful no-op write -> DEAD_LETTERED).
+        exc = RequeueBudgetExceededError(envelope.message_id, delivered)
+        persisted = await self._executor.write_dead_letter(envelope, exc, delivered)
+        outcome = ExecutionOutcome.DEAD_LETTERED if persisted else ExecutionOutcome.DEAD_LETTER_FAILED
+        await self._observers.executed(envelope, self._uri, handler_type, outcome, exc, timedelta())

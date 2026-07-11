@@ -12,6 +12,7 @@ from waku.messaging.contracts.message import IMessage
 from waku.messaging.endpoints.executor import ExecutionOutcome
 from waku.messaging.observability.audit import Audit, AuditedMemberResolver
 from waku.messaging.observability.logging_observer import LoggingMessageObserver
+from waku.messaging.observability.observer import INVOKE_DESTINATION
 
 
 @dataclass
@@ -95,6 +96,37 @@ async def test_executed_level_by_outcome(
             _envelope(_Transfer()), 'queue-a', cast('HandlerType', object), outcome, None, timedelta()
         )
     assert next(r for r in caplog.records if r.name == 'waku.message.Transfer').levelno == level
+
+
+async def test_invoke_success_logs_debug(caplog: pytest.LogCaptureFixture) -> None:
+    obs = LoggingMessageObserver(AuditedMemberResolver(overrides={}))
+    with caplog.at_level(logging.DEBUG, logger='waku.message.Transfer'):
+        await obs.on_executed(
+            _envelope(_Transfer('a1', 5)),
+            INVOKE_DESTINATION,
+            cast('HandlerType', object),
+            ExecutionOutcome.SUCCESS,
+            None,
+            timedelta(milliseconds=1),
+        )
+    rec = next(r for r in caplog.records if r.name == 'waku.message.Transfer')
+    assert rec.levelno == logging.DEBUG
+    assert rec.outcome == 'SUCCESS'  # type: ignore[attr-defined]
+
+
+async def test_invoke_failure_still_logs_error(caplog: pytest.LogCaptureFixture) -> None:
+    obs = LoggingMessageObserver(AuditedMemberResolver(overrides={}))
+    with caplog.at_level(logging.DEBUG, logger='waku.message.Transfer'):
+        await obs.on_executed(
+            _envelope(_Transfer()),
+            INVOKE_DESTINATION,
+            cast('HandlerType', object),
+            ExecutionOutcome.FAILED_NO_POLICY,
+            ValueError('nope'),
+            timedelta(milliseconds=1),
+        )
+    rec = next(r for r in caplog.records if r.name == 'waku.message.Transfer')
+    assert rec.levelno == logging.ERROR
 
 
 async def test_sent_and_executing_log_debug(caplog: pytest.LogCaptureFixture) -> None:

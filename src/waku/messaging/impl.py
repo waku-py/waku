@@ -140,6 +140,21 @@ class MessageBus(IMessageBus):
             raise ConflictingDeliveryOptionsError(msg)
         await self.send(message, DeliveryOptions(scheduled_time=at, schedule_delay=delay))
 
+    @override
+    async def schedule_publish(
+        self,
+        message: IMessage,
+        /,
+        *,
+        at: datetime | None = None,
+        delay: timedelta | None = None,
+    ) -> None:
+        # Both-set falls through to DeliveryOptions.__post_init__ (canonical message); guard the neither-case.
+        if at is None and delay is None:
+            msg = 'schedule_publish requires exactly one of at or delay'
+            raise ConflictingDeliveryOptionsError(msg)
+        await self.publish(message, DeliveryOptions(scheduled_time=at, schedule_delay=delay))
+
     def _create_envelope(self, message: IMessage, options: DeliveryOptions | None = None) -> MessageEnvelope[Any]:
         ctx = try_get_message_context()
         opt = options or _EMPTY_OPTIONS

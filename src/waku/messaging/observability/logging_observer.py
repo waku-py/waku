@@ -8,7 +8,7 @@ from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.contracts.handler import HandlerType
 from waku.messaging.endpoints.executor import ExecutionOutcome
 from waku.messaging.observability.audit import AuditedMemberResolver
-from waku.messaging.observability.observer import IMessageObserver
+from waku.messaging.observability.observer import INVOKE_DESTINATION, IMessageObserver
 
 __all__ = ['LoggingMessageObserver']
 
@@ -82,6 +82,8 @@ class LoggingMessageObserver(IMessageObserver):
     ) -> None:
         log = self._logger(envelope.message_type)
         level = _executed_level(outcome)
+        if destination == INVOKE_DESTINATION and outcome is ExecutionOutcome.SUCCESS:
+            level = logging.DEBUG  # inline invoke success is caller-visible; INFO would double-log every invoke
         if not log.isEnabledFor(level):
             return
         extra = {

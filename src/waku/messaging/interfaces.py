@@ -48,21 +48,6 @@ class ISender(abc.ABC):
         Raises NoRouteError if no route is configured for the message type.
         """
 
-
-class IPublisher(abc.ABC):
-    """Publish messages to all subscribers."""
-
-    @abc.abstractmethod
-    async def publish(self, message: IMessage, /, options: DeliveryOptions | None = None) -> None:
-        """Fan-out to all subscribers. Routable; silent no-op if none exist.
-
-        Each subscriber runs isolated. For same-transaction inline fan-out use ``ISender.invoke(event)``.
-        """
-
-
-class IMessageBus(ISender, IPublisher, abc.ABC):
-    """Unified bus -- inject the narrowest interface needed."""
-
     @abc.abstractmethod
     async def schedule_send(
         self,
@@ -77,3 +62,34 @@ class IMessageBus(ISender, IPublisher, abc.ABC):
         Raises ``ConflictingDeliveryOptionsError`` if both or neither are set.
         Raises ``SchedulingNotSupportedError`` when routed to a non-durable endpoint.
         """
+
+
+class IPublisher(abc.ABC):
+    """Publish messages to all subscribers."""
+
+    @abc.abstractmethod
+    async def publish(self, message: IMessage, /, options: DeliveryOptions | None = None) -> None:
+        """Fan-out to all subscribers. Routable; silent no-op if none exist.
+
+        Each subscriber runs isolated. For same-transaction inline fan-out use ``ISender.invoke(event)``.
+        """
+
+    @abc.abstractmethod
+    async def schedule_publish(
+        self,
+        message: IMessage,
+        /,
+        *,
+        at: datetime | None = None,
+        delay: timedelta | None = None,
+    ) -> None:
+        """Sugar over ``publish`` with a scheduling option. Exactly one of ``at``/``delay`` required.
+
+        Silent no-op when no subscribers exist.
+        Raises ``ConflictingDeliveryOptionsError`` if both or neither are set.
+        Raises ``SchedulingNotSupportedError`` when any subscriber endpoint is non-durable.
+        """
+
+
+class IMessageBus(ISender, IPublisher, abc.ABC):
+    """Unified bus -- inject the narrowest interface needed."""

@@ -72,16 +72,17 @@ class IEventWriter(abc.ABC):
     ) -> int: ...
 
     @abc.abstractmethod
-    async def delete_stream(self, stream_id: StreamId, /) -> None:
-        """Mark a stream as permanently deleted.
+    async def archive_stream(self, stream_id: StreamId, /) -> None:
+        """Mark a stream as archived.
 
-        Deleted streams are excluded from ``read_all``, ``read_positions``,
-        and ``stream_exists``. Appending to a deleted stream raises
-        ``StreamDeletedError``. Events remain accessible via ``read_stream``
-        for audit purposes.
+        Archived streams are excluded from ``read_all``, ``read_positions``,
+        and ``stream_exists``; their events remain readable via ``read_stream``
+        for audit purposes. Appending to an archived stream raises
+        ``StreamArchivedError``. Both the ``stream_exists`` exclusion and the
+        append block are intentionally stricter than Marten's archive semantics.
 
         Raises ``StreamNotFoundError`` if the stream does not exist.
-        No-op if already deleted.
+        No-op if already archived.
         """
         ...
 

@@ -266,18 +266,56 @@ async def test_schedule_send_with_relative_delay_resolves_scheduled_time(contain
     assert endpoint.last.scheduled_time == _NOW + timedelta(seconds=90)
 
 
-async def test_schedule_send_without_at_or_delay_raises(container: AsyncContainer) -> None:
+@pytest.mark.parametrize('verb', ['schedule_send', 'schedule_publish'])
+async def test_schedule_without_at_or_delay_raises(container: AsyncContainer, verb: str) -> None:
     bus, _ = await _spy_bus(container)
 
     with pytest.raises(ConflictingDeliveryOptionsError):
-        await bus.schedule_send(_Note())
+        await getattr(bus, verb)(_Note())
 
 
-async def test_schedule_send_with_both_at_and_delay_raises(container: AsyncContainer) -> None:
+@pytest.mark.parametrize('verb', ['schedule_send', 'schedule_publish'])
+async def test_schedule_with_both_at_and_delay_raises(container: AsyncContainer, verb: str) -> None:
     bus, _ = await _spy_bus(container)
 
     with pytest.raises(ConflictingDeliveryOptionsError):
-        await bus.schedule_send(_Note(), at=_NOW, delay=timedelta(seconds=5))
+        await getattr(bus, verb)(_Note(), at=_NOW, delay=timedelta(seconds=5))
+
+
+async def test_schedule_publish_with_absolute_at_resolves_scheduled_time(container: AsyncContainer) -> None:
+    bus, endpoint = await _spy_bus(container, endpoint=_CapturingEndpoint(supports_scheduling=True))
+    when = _NOW + timedelta(hours=2)
+
+    await bus.schedule_publish(_Note(), at=when)
+
+    assert endpoint.last is not None
+    assert endpoint.last.scheduled_time == when
+
+
+async def test_schedule_publish_with_relative_delay_resolves_scheduled_time(container: AsyncContainer) -> None:
+    bus, endpoint = await _spy_bus(container, endpoint=_CapturingEndpoint(supports_scheduling=True))
+
+    await bus.schedule_publish(_Note(), delay=timedelta(seconds=90))
+
+    assert endpoint.last is not None
+    assert endpoint.last.scheduled_time == _NOW + timedelta(seconds=90)
+
+
+async def test_schedule_publish_with_zero_subscribers_is_silent_noop(container: AsyncContainer) -> None:
+    bus, endpoint = await _spy_bus(container, routes=())
+
+    await bus.schedule_publish(_Note(), delay=timedelta(seconds=5))
+
+    assert endpoint.last is None
+
+
+async def test_schedule_publish_mixed_subscribers_raises_scheduling_not_supported(container: AsyncContainer) -> None:
+    capable = _CapturingEndpoint(uri='spy://durable', supports_scheduling=True)
+    incapable = _CapturingEndpoint(uri='spy://buffered', supports_scheduling=False)
+    bus = await _bus_with_endpoints(container, (capable, incapable))
+
+    with pytest.raises(SchedulingNotSupportedError):
+        await bus.schedule_publish(_Note(), at=_NOW + timedelta(hours=1))
 
 
 async def test_send_drops_already_expired_message(container: AsyncContainer) -> None:
