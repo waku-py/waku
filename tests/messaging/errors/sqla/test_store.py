@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, DeadLetterStatus
@@ -206,6 +206,9 @@ class TestSqlAlchemyDeadLetterStore:
                     claimed1 = await SqlAlchemyDeadLetterStore(s1).claim_replayable(batch_size=10, max_replay_count=3)
                     assert len(claimed1) == 1
                     async with s2.begin():
+                        # A short lock_timeout turns a regression (skip_locked dropped) into a fast,
+                        # loud failure: s2 would block on s1's row lock and raise, not hang the suite.
+                        await s2.execute(text("SET LOCAL lock_timeout = '500ms'"))
                         claimed2 = await SqlAlchemyDeadLetterStore(s2).claim_replayable(
                             batch_size=10, max_replay_count=3
                         )

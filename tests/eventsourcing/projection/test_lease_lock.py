@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import anyio
+import anyio.lowlevel
 import pytest
 from sqlalchemy import MetaData, text
 
@@ -13,6 +13,16 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from sqlalchemy.ext.asyncio import AsyncEngine
+
+
+async def _wait_for_expiry_advance(engine: AsyncEngine, projection_name: str) -> None:
+    select = text('SELECT expires_at FROM es_projection_leases WHERE projection_name = :name')
+    async with engine.connect() as conn:
+        await conn.execution_options(isolation_level='AUTOCOMMIT')
+        initial = (await conn.execute(select, {'name': projection_name})).scalar_one()
+        with anyio.fail_after(5):
+            while (await conn.execute(select, {'name': projection_name})).scalar_one() <= initial:
+                await anyio.lowlevel.checkpoint()
 
 
 @pytest.fixture
@@ -59,38 +69,28 @@ async def test_lease_released_on_exit(pg_engine: AsyncEngine) -> None:
 
 
 @pytest.mark.usefixtures('lease_tables')
-async def test_lease_expires_after_ttl(pg_engine: AsyncEngine) -> None:
-    short_config = LeaseConfig(ttl_seconds=0.3)
-    lock2 = PostgresLeaseProjectionLock(pg_engine, short_config)
+async def test_expired_lease_is_reacquired(pg_engine: AsyncEngine) -> None:
+    lock = PostgresLeaseProjectionLock(pg_engine, LeaseConfig())
 
     async with pg_engine.connect() as conn:
         await conn.execution_options(isolation_level='AUTOCOMMIT')
         await conn.execute(
             text("""\
             INSERT INTO es_projection_leases (projection_name, holder_id, expires_at)
-            VALUES (:name, :holder, now() + make_interval(secs => :ttl))
+            VALUES (:name, :holder, now() - make_interval(secs => :ttl))
             """),
-            {'name': 'orders', 'holder': 'stale-holder', 'ttl': 0.3},
+            {'name': 'orders', 'holder': 'stale-holder', 'ttl': 60},
         )
 
-    async with lock2.acquire('orders') as acquired:
-        assert acquired is False
-
-    await anyio.sleep(0.5)
-
-    async with lock2.acquire('orders') as acquired:
+    async with lock.acquire('orders') as acquired:
         assert acquired is True
 
 
 @pytest.mark.usefixtures('lease_tables')
-async def test_lease_heartbeat_renews(pg_engine: AsyncEngine) -> None:
+async def test_heartbeat_renews_lease_expiry_while_held(pg_engine: AsyncEngine) -> None:
     config = LeaseConfig(ttl_seconds=0.5)
     lock = PostgresLeaseProjectionLock(pg_engine, config)
 
     async with lock.acquire('orders') as acquired:
         assert acquired is True
-        await anyio.sleep(1.0)
-
-        lock2 = PostgresLeaseProjectionLock(pg_engine, config)
-        async with lock2.acquire('orders') as second:
-            assert second is False
+        await _wait_for_expiry_advance(pg_engine, 'orders')

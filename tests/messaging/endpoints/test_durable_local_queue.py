@@ -215,7 +215,7 @@ def _endpoint(  # noqa: PLR0913 -- test helper mirroring DurableLocalQueueEndpoi
 
 class TestDurableLocalQueueEndpoint:
     @staticmethod
-    async def test_dispatch_persists_entry_before_enqueuing() -> None:
+    async def test_dispatch_persists_entry_and_marks_it_handled() -> None:
         _NoopHandler.invocations = []
         inbox = FakeInboxStore()
         async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:

@@ -324,7 +324,7 @@ class TestOutboxRelay:
                 sending_failure_evaluator=make_relay_evaluator(slow_config),
             )
             await relay.start()
-            await anyio.sleep(0.05)
+            await wait_until(lambda: store.poll_calls >= 1)
             await asyncio.wait_for(relay.stop(), timeout=1.0)
 
     @staticmethod
@@ -398,8 +398,13 @@ class TestOutboxRelay:
         transport = RecordingTransport()
 
         class _BlockingOutboxStore(_TrackingOutboxStore):
+            def __init__(self) -> None:
+                super().__init__()
+                self.fetch_entered = anyio.Event()
+
             @override
             async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
+                self.fetch_entered.set()
                 await anyio.sleep_forever()
                 return []  # pragma: no cover
 
@@ -419,7 +424,7 @@ class TestOutboxRelay:
                     sending_failure_evaluator=make_relay_evaluator(config),
                 )
                 await relay.start()
-                await anyio.sleep(0.02)
+                await wait_until(blocking_store.fetch_entered.is_set)
                 await relay.stop()
 
         assert 'OutboxRelay did not terminate' in caplog.text

@@ -135,7 +135,7 @@ class TestEndToEndOutboxFlow:
                 sending_failure_evaluator=make_relay_evaluator(relay_config),
             )
             await relay.start()
-            await anyio.sleep(0.05)
+            await wait_until(lambda: outbox.messages[0].status == OutboxStatus.DISPATCHED)
             await relay.stop()
 
         assert len(transport.sent) == 1
@@ -205,7 +205,7 @@ class TestOutboxRelayLifecycleIntegration:
         ):
             bus = await c.get(IMessageBus)
             await bus.publish(_OrderPlaced(order_id='lifecycle-1'))
-            await anyio.sleep(0.1)
+            await wait_until(lambda: len(transport.sent) == 1)
 
         assert len(transport.sent) == 1
         body, destination, _metadata, _mapper = transport.sent[0]
