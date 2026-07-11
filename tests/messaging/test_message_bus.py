@@ -10,6 +10,7 @@ from waku.di import is_registered, object_
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging import (
     CallNext,
+    EndpointDefaults,
     EndpointMode,
     EventHandler,
     IEvent,
@@ -393,7 +394,7 @@ class TestMessagingConfigValidation:
     @staticmethod
     async def test_dead_letter_policy_without_dead_letter_store_raises() -> None:
         config = MessagingConfig(
-            default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
+            endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
         )
         with pytest.raises(ImproperlyConfiguredError, match='dead_letter'):
             async with create_test_app(imports=[MessagingModule.register(config)]):
@@ -402,7 +403,9 @@ class TestMessagingConfigValidation:
     @staticmethod
     async def test_dead_letter_escalation_without_dead_letter_store_raises() -> None:
         config = MessagingConfig(
-            default_error_policies=(ErrorPolicy.on_any_exception().retry(max_attempts=3).then_move_to_dead_letter(),),
+            endpoint_defaults=EndpointDefaults(
+                error_policies=(ErrorPolicy.on_any_exception().retry(max_attempts=3).then_move_to_dead_letter(),),
+            ),
         )
         with pytest.raises(ImproperlyConfiguredError, match='dead_letter'):
             async with create_test_app(imports=[MessagingModule.register(config)]):

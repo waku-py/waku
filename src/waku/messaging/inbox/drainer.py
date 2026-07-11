@@ -181,7 +181,7 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
                 endpoint_uri=source_uri,
                 invoker=invoker,
                 observers=plan.for_endpoint(source_uri),
-                default_execution_timeout=messaging_config.default_execution_timeout,
+                default_execution_timeout=messaging_config.endpoint_defaults.execution_timeout,
                 now=now,
             )
             executors[source_uri] = executor

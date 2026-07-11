@@ -15,6 +15,7 @@ from typing_extensions import override
 from waku._internal.clock import utc_now  # noqa: PLC2701
 from waku.di import object_
 from waku.messaging import (
+    EndpointDefaults,
     IRequest,
     MessagingConfig,
     MessagingExtension,
@@ -266,7 +267,7 @@ class TestEndpointExecutorDeadLetter:
         uow = FakeUoW()
 
         config = MessagingConfig(
-            default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
+            endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
             dead_letter=DeadLetterConfig(store=lambda: dl_store),
         )
 
@@ -292,7 +293,7 @@ class TestEndpointExecutorDeadLetter:
         dl_store = RecordingDeadLetterStore()
 
         config = MessagingConfig(
-            default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
+            endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
             dead_letter=DeadLetterConfig(store=lambda: dl_store),
         )
 
@@ -316,7 +317,7 @@ class TestEndpointExecutorDeadLetter:
         handler, _ = _make_always_fail_handler()
 
         config = MessagingConfig(
-            default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
+            endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
             dead_letter=DeadLetterConfig(store=FailingDeadLetterStore),
         )
 
@@ -416,7 +417,7 @@ class TestHandlerExecutionTimeout:
                 await blocked.wait()
 
         config = MessagingConfig(
-            default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
+            endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
             dead_letter=DeadLetterConfig(store=lambda: dl_store),
         )
         observer, recorded = _make_observer()

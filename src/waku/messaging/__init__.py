@@ -1,7 +1,7 @@
 from waku._internal.polling import PollingConfig
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.circuit_breaker import CircuitBreakerConfig
-from waku.messaging.config import DeadLetterConfig, MessagingConfig, OutboxConfig
+from waku.messaging.config import DeadLetterConfig, EndpointDefaults, MessagingConfig, OutboxConfig
 from waku.messaging.context import MessageContext, get_message_context, try_get_message_context
 from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.contracts.event import IEvent
@@ -40,6 +40,7 @@ __all__ = [
     'CircuitBreakerConfig',
     'DeadLetterConfig',
     'DeliveryOptions',
+    'EndpointDefaults',
     'EndpointMode',
     'ErrorPolicy',
     'EventHandler',

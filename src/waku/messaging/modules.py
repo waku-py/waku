@@ -259,30 +259,34 @@ def _infer_message_type(handler_type: 'type[MessageHandler[Any, Any]]') -> 'type
 
 
 def _requires_dead_letter_store(registry: MessageRegistry, config: MessagingConfig) -> bool:
-    if policies_need_dead_letter(config.default_error_policies):
+    if policies_need_dead_letter(config.endpoint_defaults.error_policies):
         return True
     return any(policies_need_dead_letter(ht.error_policies) for ht in registry.handler_map.handler_types())
 
 
 def _effective_mode(entry: LocalQueueEntry, config: MessagingConfig) -> EndpointMode:
-    return config.default_endpoint_mode if entry.mode is MISSING else entry.mode  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+    return config.endpoint_defaults.mode if entry.mode is MISSING else entry.mode  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
 
 
 def _resolve_circuit_breaker(entry: LocalQueueEntry, config: MessagingConfig) -> 'CircuitBreakerConfig | None':
-    return entry.circuit_breaker if entry.circuit_breaker is not MISSING else config.default_circuit_breaker  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows  # MISSING inherits default; None opts out
+    return entry.circuit_breaker if entry.circuit_breaker is not MISSING else config.endpoint_defaults.circuit_breaker  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows  # MISSING inherits default; None opts out
 
 
 def _resolve_inbound_circuit_breaker(listen: 'ListenAspect', config: MessagingConfig) -> 'CircuitBreakerConfig | None':
-    return listen.circuit_breaker if listen.circuit_breaker is not MISSING else config.default_circuit_breaker  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows  # MISSING inherits default; None opts out
+    return listen.circuit_breaker if listen.circuit_breaker is not MISSING else config.endpoint_defaults.circuit_breaker  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows  # MISSING inherits default; None opts out
 
 
 def _resolve_max_requeue_attempts(entry: LocalQueueEntry, config: MessagingConfig) -> int:
-    return config.default_max_requeue_attempts if entry.max_requeue_attempts is MISSING else entry.max_requeue_attempts  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+    return (
+        config.endpoint_defaults.max_requeue_attempts
+        if entry.max_requeue_attempts is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+        else entry.max_requeue_attempts
+    )
 
 
 def _reject_inline_deferred_terminal(config: MessagingConfig) -> None:
     # Per-handler policies checked post-merge in _finalize; this catches global defaults early.
-    if not policies_have_deferred_terminal(config.default_error_policies):
+    if not policies_have_deferred_terminal(config.endpoint_defaults.error_policies):
         return
     for entry in config.endpoints:
         if isinstance(entry, LocalQueueEntry) and _effective_mode(entry, config) is EndpointMode.INLINE:
@@ -388,7 +392,7 @@ def _build_sending_failure_registry(
     synthesized = (build_relay_default_policy(config.outbox.relay),) if config.outbox is not None else ()
     return SendingFailurePolicyRegistry(
         destination_policies=destination_policies,
-        default_policies=(*config.default_sending_failure_policies, *synthesized),
+        default_policies=(*config.endpoint_defaults.sending_failure_policies, *synthesized),
     )
 
 
@@ -503,7 +507,7 @@ def _create_endpoint(  # noqa: PLR0913, PLR0917 -- one construction-site param p
         endpoint_uri=entry.uri,
         invoker=invoker,
         observers=observers,
-        default_execution_timeout=config.default_execution_timeout,
+        default_execution_timeout=config.endpoint_defaults.execution_timeout,
         now=now,
     )
     subscriptions = routing_table.endpoint_subscriptions.get(entry.uri, {})
@@ -618,7 +622,7 @@ class MessageRegistryAggregator(RegistryAggregator['MessagingExtension', Message
         }
         error_policy_registry = ErrorPolicyRegistry(
             handler_policies=handler_policies,
-            default_policies=self._config.default_error_policies,
+            default_policies=self._config.endpoint_defaults.error_policies,
         )
         registry.add_provider(owning_module, object_(error_policy_registry))
 
@@ -866,11 +870,11 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
                 endpoint_uri=uri,
                 invoker=invoker,
                 observers=plan.for_endpoint(uri),
-                default_execution_timeout=messaging_config.default_execution_timeout,
+                default_execution_timeout=messaging_config.endpoint_defaults.execution_timeout,
                 now=now,
             )
             max_requeue = (
-                self._config.default_max_requeue_attempts
+                self._config.endpoint_defaults.max_requeue_attempts
                 if ep.listen.max_requeue_attempts is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
                 else ep.listen.max_requeue_attempts
             )
@@ -911,7 +915,7 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
         CB-only, watermark-only, and both are all valid: the gate is the CB's pause target in every case, and
         ``observe_depth`` no-ops when no watermark is set.
         """
-        limits = listen.backpressure or config.default_backpressure
+        limits = listen.backpressure or config.endpoint_defaults.backpressure
         cb_config = _resolve_inbound_circuit_breaker(listen, config)
         if limits is None and cb_config is None:
             return None

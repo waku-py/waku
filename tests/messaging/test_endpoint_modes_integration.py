@@ -10,6 +10,7 @@ from typing_extensions import override
 
 from waku.messaging import (
     CircuitBreakerConfig,
+    EndpointDefaults,
     EndpointMode,
     EventHandler,
     IEvent,
@@ -172,10 +173,12 @@ class TestCircuitBreakerEndToEnd:
                 raise RuntimeError(msg)
 
         config = MessagingConfig(
-            default_circuit_breaker=CircuitBreakerConfig(
-                minimum_throughput=2,
-                failure_rate_threshold=0.5,
-                pause_time=timedelta(minutes=5),  # large: the timed resume must NOT fire during the test
+            endpoint_defaults=EndpointDefaults(
+                circuit_breaker=CircuitBreakerConfig(
+                    minimum_throughput=2,
+                    failure_rate_threshold=0.5,
+                    pause_time=timedelta(minutes=5),  # large: the timed resume must NOT fire during the test
+                ),
             ),
             endpoints=[local_queue('cb-default-q', mode=EndpointMode.BUFFERED)],
             routing=[route(_Bang).to('cb-default-q')],
@@ -191,7 +194,7 @@ class TestCircuitBreakerEndToEnd:
             bus = await container.get(IMessageBus)
             for i in range(4):
                 await bus.publish(_Bang(n=i))
-            # No per-endpoint CB → fallback default_circuit_breaker applies; trips after 2 failures.
+            # No per-endpoint CB → fallback endpoint_defaults.circuit_breaker applies; trips after 2 failures.
             await wait_until(lambda: len(handled) >= 2)
             for _ in range(10):
                 await anyio.lowlevel.checkpoint()
@@ -213,10 +216,12 @@ class TestCircuitBreakerEndToEnd:
                 raise RuntimeError(msg)
 
         config = MessagingConfig(
-            default_circuit_breaker=CircuitBreakerConfig(
-                minimum_throughput=2,
-                failure_rate_threshold=0.5,
-                pause_time=timedelta(minutes=5),
+            endpoint_defaults=EndpointDefaults(
+                circuit_breaker=CircuitBreakerConfig(
+                    minimum_throughput=2,
+                    failure_rate_threshold=0.5,
+                    pause_time=timedelta(minutes=5),
+                ),
             ),
             endpoints=[local_queue('cb-optout-q', mode=EndpointMode.BUFFERED, circuit_breaker=None)],
             routing=[route(_Pop).to('cb-optout-q')],

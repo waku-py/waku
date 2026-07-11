@@ -7,6 +7,7 @@ from typing_extensions import override
 
 from waku.di import object_
 from waku.messaging import (
+    EndpointDefaults,
     IMessageBus,
     IRequest,
     MessagingConfig,
@@ -94,7 +95,7 @@ async def test_dead_letter_then_replay_reprocesses_message() -> None:
     _attempts.clear()
     dl_store = _DictDeadLetterStore()
     config = MessagingConfig(
-        default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
+        endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
         dead_letter=DeadLetterConfig(store=lambda: dl_store),
     )
 

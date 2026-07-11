@@ -12,6 +12,7 @@ from typing_extensions import override
 from waku.di import object_, singleton
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging import (
+    EndpointDefaults,
     IMessageBus,
     IMessageObserver,
     InboxConfig,
@@ -126,7 +127,7 @@ def _dlq_failing_config(inbox: FakeInboxStore) -> MessagingConfig:
         endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0, max_buffer_size=math.inf)],
         routing=[route(_OrderPlaced).to('orders')],
         inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
-        default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
+        endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
         dead_letter=DeadLetterConfig(store=FailingDeadLetterStore),
         global_pipeline_behaviors=[TransactionalBehavior],
     )
@@ -232,7 +233,7 @@ class TestDurableInboxIntegration:
             routing=[route(_OrderPlaced).to('orders')],
             inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
             global_pipeline_behaviors=[TransactionalBehavior],
-            default_endpoint_mode=EndpointMode.DURABLE,
+            endpoint_defaults=EndpointDefaults(mode=EndpointMode.DURABLE),
         )
         async with (
             create_test_app(
@@ -260,7 +261,7 @@ class TestDurableInboxIntegration:
             routing=[route(_OrderPlaced).to('orders')],
             inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
             global_pipeline_behaviors=[TransactionalBehavior],
-            default_endpoint_mode=EndpointMode.DURABLE,
+            endpoint_defaults=EndpointDefaults(mode=EndpointMode.DURABLE),
         )
         async with (
             create_test_app(
@@ -282,7 +283,7 @@ class TestDurableInboxIntegration:
         config = MessagingConfig(
             endpoints=[local_queue('orders')],  # mode unset -> durable under the global default
             routing=[route(_OrderPlaced).to('orders')],
-            default_endpoint_mode=EndpointMode.DURABLE,
+            endpoint_defaults=EndpointDefaults(mode=EndpointMode.DURABLE),
         )
         with pytest.raises(ImproperlyConfiguredError):
             MessagingModule.register(config)
@@ -292,7 +293,7 @@ class TestDurableInboxIntegration:
         config = MessagingConfig(
             endpoints=[local_queue('orders', mode=EndpointMode.INLINE)],
             routing=[route(_OrderPlaced).to('orders')],
-            default_error_policies=(ErrorPolicy.on_any_exception().requeue(),),
+            endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().requeue(),)),
         )
         with pytest.raises(ImproperlyConfiguredError, match='INLINE'):
             MessagingModule.register(config)
@@ -302,7 +303,9 @@ class TestDurableInboxIntegration:
         config = MessagingConfig(
             endpoints=[local_queue('orders', mode=EndpointMode.INLINE)],
             routing=[route(_OrderPlaced).to('orders')],
-            default_error_policies=(ErrorPolicy.on_any_exception().pause_processing(timedelta(minutes=5)),),
+            endpoint_defaults=EndpointDefaults(
+                error_policies=(ErrorPolicy.on_any_exception().pause_processing(timedelta(minutes=5)),),
+            ),
         )
         with pytest.raises(ImproperlyConfiguredError, match='INLINE'):
             MessagingModule.register(config)
@@ -329,7 +332,7 @@ class TestDurableInboxIntegration:
 
     @staticmethod
     async def test_recovery_drain_applies_execution_timeout_to_durable_handler() -> None:
-        # Recovery executor must honour default_execution_timeout like the live path. If it doesn't,
+        # Recovery executor must honour endpoint_defaults.execution_timeout like the live path. If it doesn't,
         # the drain blocks forever and the DLQ row never appears (wait_until trips).
         inbox = FakeInboxStore()
         dlq = RecordingDeadLetterStore()
@@ -338,8 +341,10 @@ class TestDurableInboxIntegration:
             routing=[route(_OrderPlaced).to('orders')],
             inbox=InboxConfig(store=lambda: inbox, owner_id='node-a:1', recovery_interval=timedelta(seconds=0.01)),
             dead_letter=DeadLetterConfig(store=lambda: dlq),
-            default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
-            default_execution_timeout=timedelta(seconds=0.01),
+            endpoint_defaults=EndpointDefaults(
+                error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
+                execution_timeout=timedelta(seconds=0.01),
+            ),
             global_pipeline_behaviors=[TransactionalBehavior],
         )
         blocked = anyio.Event()  # never set: the handler stalls until the deadline cancels it

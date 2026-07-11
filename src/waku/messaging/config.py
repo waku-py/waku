@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     'DeadLetterConfig',
+    'EndpointDefaults',
     'MessagingConfig',
     'OutboxConfig',
 ]
@@ -60,30 +61,37 @@ class DeadLetterConfig:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class EndpointDefaults:
+    mode: EndpointMode = EndpointMode.BUFFERED
+    """Fallback mode for `local_queue` entries that leave `mode` unset; DURABLE makes all local queues durable."""
+    error_policies: Sequence[ErrorPolicy] = ()
+    """Fallback policies; a handler's own `error_policies` shadow these per-exception."""
+    sending_failure_policies: Sequence[SendingFailurePolicy] = ()
+    """Fallback send-failure policies; a destination's own `sending_failure_policies` shadow these per-exception."""
+    circuit_breaker: CircuitBreakerConfig | None = None
+    """Fallback per-endpoint circuit-breaker config; an endpoint's own breaker shadows this."""
+    backpressure: BufferingLimits | None = None
+    """Fallback in-memory watermark for inbound listeners; a listener's own ``backpressure`` shadows this."""
+    execution_timeout: timedelta | None = timedelta(seconds=60)
+    """Default-on 60s deadline per handler; None disables it. Per-handler `execution_timeout` overrides."""
+    max_requeue_attempts: int = 5
+    """Fallback requeue/pause budget for `local_queue` entries that leave `max_requeue_attempts` unset."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class MessagingConfig:
     global_pipeline_behaviors: Sequence[type[IPipelineBehavior[Any, Any]]] = ()
     """Always-run behaviors composed (outer) around every handler."""
 
     endpoints: Sequence[EndpointEntry] = ()
     routing: Sequence[RouteDescriptor | ModuleRouteDescriptor] = ()
-    default_error_policies: Sequence[ErrorPolicy] = ()
-    """Fallback policies; a handler's own `error_policies` shadow these per-exception."""
-    default_sending_failure_policies: Sequence[SendingFailurePolicy] = ()
-    """Fallback send-failure policies; a destination's own `sending_failure_policies` shadow these per-exception."""
+    endpoint_defaults: EndpointDefaults = EndpointDefaults()
+    """Per-endpoint fallback knobs (mode, error/sending policies, circuit breaker, backpressure,
+    execution timeout, requeue budget); each is shadowed by an explicit per-endpoint/handler value."""
 
     dead_letter: DeadLetterConfig | None = None
     outbox: OutboxConfig | None = None
     inbox: InboxConfig | None = None
-    default_circuit_breaker: CircuitBreakerConfig | None = None
-    """Fallback per-endpoint circuit-breaker config; an endpoint's own breaker shadows this."""
-    default_backpressure: BufferingLimits | None = None
-    """Fallback in-memory watermark for inbound listeners; a listener's own ``backpressure`` shadows this."""
-    default_execution_timeout: timedelta | None = timedelta(seconds=60)
-    """Default-on 60s deadline per handler; None disables it. Per-handler `execution_timeout` overrides."""
-    default_endpoint_mode: EndpointMode = EndpointMode.BUFFERED
-    """Fallback mode for `local_queue` entries that leave `mode` unset; DURABLE makes all local queues durable."""
-    default_max_requeue_attempts: int = 5
-    """Fallback requeue/pause budget for `local_queue` entries that leave `max_requeue_attempts` unset."""
     message_identities: Mapping[type[IMessage], str | MessageIdentity] = field(default_factory=dict)
     """Third-party override for types you can't annotate; the default path is the ClassVar."""
     audited_members: Mapping[type[IMessage], Sequence[str]] = field(default_factory=dict)

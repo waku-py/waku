@@ -12,6 +12,7 @@ from typing_extensions import override
 from waku import module
 from waku.di import object_
 from waku.messaging import (
+    EndpointDefaults,
     EventHandler,
     IEvent,
     IMessageBus,
@@ -150,7 +151,7 @@ class TestErrorPolicyIntegration:
         dl_store = _SignalingDeadLetterStore()
 
         config = MessagingConfig(
-            default_error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
+            endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
             dead_letter=DeadLetterConfig(store=lambda: dl_store),
         )
 
@@ -385,7 +386,7 @@ class TestClassVarHandlerConfig:
         config = MessagingConfig(
             endpoints=[local_queue('orders')],
             routing=[route(_OrderPlaced).to('orders')],
-            default_error_policies=(ErrorPolicy.on_any_exception().retry(max_attempts=2),),
+            endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().retry(max_attempts=2),)),
         )
         async with (
             create_test_app(
