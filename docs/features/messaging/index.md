@@ -455,7 +455,9 @@ async def main() -> None:
 | [Events](events.md)                   | Event definitions, handlers, and publishers          |
 | [Pipeline Behaviors](pipeline.md)     | Cross-cutting middleware for request handling         |
 | [Routing & Endpoints](routing.md)     | Route messages to local queues and external systems  |
+| [Delivery Options & Scheduling](delivery-options.md) | Per-call metadata, scheduled send/publish, expiration |
 | [Error Handling](error-handling.md)   | Retry policies, dead letter queues, failure recovery |
+| [Resilience](resilience.md)           | Circuit breaker and backpressure for listeners       |
 | [Outbox & Transport](outbox.md)       | Transactional outbox, relay, and external transports |
 | [Message Context](context.md)         | Correlation tracking across message chains           |
 | [Transactions](transactions.md)       | Unit of work and transactional pipeline behavior     |

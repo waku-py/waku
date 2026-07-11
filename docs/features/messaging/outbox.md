@@ -70,7 +70,7 @@ sequenceDiagram
 The outbox pattern in waku follows three stages:
 
 1. **Write-ahead persistence.** When a message is routed to an external endpoint, the
-   `ExternalEndpoint` serializes the envelope and writes it to the outbox store. This happens
+   `ExternalEndpoint` decomposes the envelope and writes it to the outbox store. This happens
    within the same DI scope (and therefore the same database transaction) as the handler.
 
 2. **Relay dispatch.** The `OutboxRelay` runs as a background task. It polls the outbox store
@@ -273,24 +273,34 @@ OutboxConfig(
 
 ### Relay Configuration
 
-| Parameter            | Type        | Default                 | Description                                              |
-|----------------------|-------------|-------------------------|----------------------------------------------------------|
-| `batch_size`         | `int`       | `100`                   | Messages fetched per poll cycle                          |
-| `poll_interval`      | `float`     | `1.0`                   | Minimum seconds between polls                            |
-| `max_poll_interval`  | `float`     | `30.0`                  | Maximum seconds between polls (adaptive backoff)         |
-| `poll_step`          | `float`     | `1.0`                   | Seconds added to interval on idle                        |
-| `jitter_factor`      | `float`     | `0.1`                   | Random jitter factor for poll timing                     |
-| `max_attempts`       | `int`       | `5`                     | Max relay dispatch attempts before dead-lettering        |
-| `base_delay`         | `float`     | `1.0`                   | Base delay for exponential backoff on failure             |
-| `max_delay`          | `float`     | `60.0`                  | Maximum backoff delay                                    |
-| `stuck_threshold`    | `timedelta` | `5 minutes`             | Messages stuck in `PROCESSING` longer than this are recovered |
-| `recovery_interval`  | `timedelta` | `1 minute`              | How often to check for stuck messages                    |
-| `stop_timeout`       | `float`     | `10.0`                  | Seconds to wait for relay shutdown                       |
+| Parameter            | Type                | Default                 | Description                                              |
+|----------------------|---------------------|-------------------------|----------------------------------------------------------|
+| `batch_size`         | `int`               | `100`                   | Messages fetched per poll cycle                          |
+| `polling`            | `PollingConfig`     | *(see below)*           | Adaptive poll pacing (nested; see below)                |
+| `max_attempts`       | `int`               | `5`                     | Max relay dispatch attempts before dead-lettering        |
+| `base_delay`         | `float`             | `1.0`                   | Base delay for exponential backoff on failure             |
+| `max_delay`          | `float`             | `60.0`                  | Maximum backoff delay                                    |
+| `stuck_threshold`    | `timedelta`         | `5 minutes`             | Messages stuck in `PROCESSING` longer than this are recovered |
+| `recovery_interval`  | `timedelta`         | `1 minute`              | How often to check for stuck messages                    |
+| `retention`          | `timedelta \| None` | `None`                  | When set, dispatched messages older than this are purged; `None` keeps them |
+| `cleanup_interval`   | `timedelta`         | `1 hour`                | How often to purge dispatched messages when `retention` is set |
+| `stop_timeout`       | `timedelta`         | `timedelta(seconds=10)` | How long to wait for relay shutdown                     |
+
+`polling` nests the adaptive-poll knobs. Left unset, the relay uses a tuned default of
+`PollingConfig(poll_interval_min_seconds=1.0, poll_interval_max_seconds=30.0)`. Override it with your
+own `PollingConfig`, whose field defaults are:
+
+| Field                          | Type    | Default | Description                                          |
+|--------------------------------|---------|---------|------------------------------------------------------|
+| `poll_interval_min_seconds`    | `float` | `0.5`   | Minimum seconds between polls                        |
+| `poll_interval_max_seconds`    | `float` | `5.0`   | Maximum seconds between polls (adaptive backoff)     |
+| `poll_interval_step_seconds`   | `float` | `1.0`   | Seconds added to the interval when idle              |
+| `poll_interval_jitter_factor`  | `float` | `0.1`   | Random jitter factor applied to poll timing          |
 
 ### Adaptive Polling
 
 The relay uses **adaptive polling** — when there is work to process, it polls at the minimum
-interval. When the outbox is empty, it gradually increases the interval up to `max_poll_interval`.
+interval. When the outbox is empty, it gradually increases the interval up to `poll_interval_max_seconds`.
 This reduces database load during quiet periods while maintaining low latency during bursts.
 
 ### Stuck Message Recovery
@@ -382,7 +392,7 @@ class AppModule:
 
 With this setup:
 
-1. When `bus.publish(OrderPlaced(...))` is called, the `ExternalEndpoint` serializes the envelope
+1. When `bus.publish(OrderPlaced(...))` is called, the `ExternalEndpoint` decomposes the envelope
    and writes it to the `outbox_messages` table within the handler's database transaction.
 2. The outbox relay polls the table, picks up the stored wire body, and dispatches it through the
    `FastStreamRabbitTransport` to the `notifications` queue on RabbitMQ.

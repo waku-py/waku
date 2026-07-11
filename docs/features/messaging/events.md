@@ -227,6 +227,45 @@ the single commit.
     `invoke(event)` still runs handlers inline and fail-fast, but there is nothing to roll back —
     the same as `invoke(request)` without a unit of work.
 
+## Cascading messages
+
+A handler often needs to emit follow-on messages — a handler that reserves stock and then announces
+`StockReserved`. Instead of injecting the bus and dispatching mid-handler, inject `IOutgoingMessages`
+and **schedule** the follow-ons; the framework dispatches them after the handler succeeds. There is no
+behavior to register — cascading is auto-wired as a framework [pipeline behavior](pipeline.md).
+
+```python linenums="1"
+from typing_extensions import override
+
+from waku.messaging import EventHandler, IOutgoingMessages
+
+
+class ReserveStock(EventHandler[OrderPlaced]):
+    def __init__(self, outgoing: IOutgoingMessages) -> None:
+        self._outgoing = outgoing
+
+    @override
+    async def handle(self, event: OrderPlaced, /) -> None:
+        # ... reserve stock ...
+        self._outgoing.publish(StockReserved(order_id=event.order_id))  # fan-out
+        self._outgoing.send(ShipOrder(order_id=event.order_id))         # fire-and-forget command
+```
+
+`IOutgoingMessages` mirrors the bus verbs: `.publish(event)` fans out, `.send(command)` dispatches
+fire-and-forget. Both only **schedule** — nothing leaves until the pipeline finishes successfully.
+
+| Setup | Cascade delivery |
+|-------|------------------|
+| No outbox | Flushed **post-commit**, isolated — a cascade failure is logged, never rolls back the handler or surfaces to the caller |
+| Outbox configured | Cascades bound for a **durable external endpoint** join the handler's transaction (the [outbox](outbox.md) write commits atomically with your data); others flush post-commit |
+
+This is the framework-native replacement for the manual `EventDispatcher` bridge shown above — the
+aggregate's reactions become scheduled cascades instead of a hand-written publish loop.
+
+!!! warning "forward XOR cascade"
+    An event propagated by [event-store forwarding](../eventsourcing/forwarding.md) should not also
+    be cascaded — the two paths would deliver it twice. Choose one path per event type.
+
 ## Further reading
 
 - **[Requests](requests.md)** — commands, queries, and request handlers
@@ -235,4 +274,5 @@ the single commit.
 - **[Routing & Endpoints](routing.md)** — route events to local queues or external systems
 - **[Error Handling](error-handling.md)** — retry policies and dead letter queues
 - **[Message Bus](index.md)** — setup, interfaces, and complete example
+- **[Event Forwarding](../eventsourcing/forwarding.md)** — forward event-store appends onto the bus
 - **[Event Sourcing](../eventsourcing/index.md)** — event-sourced aggregates, deciders, and projections

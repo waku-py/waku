@@ -102,6 +102,46 @@ entry = external_endpoint('notifications')
 
 ---
 
+## Endpoint Modes
+
+A local queue endpoint runs in one of three **modes**. The mode selects where the handler runs and
+whether the message survives a crash:
+
+| Mode       | Processing                                                                     | Survives crash |
+|------------|--------------------------------------------------------------------------------|----------------|
+| `INLINE`   | Runs in the caller's dispatch — no background worker, like a synchronous local handler | No     |
+| `BUFFERED` | Enqueued to an in-memory anyio queue drained by a background worker (the default) | No           |
+| `DURABLE`  | Persisted to the inbox before processing, then dispatched by a background worker | Yes           |
+
+Set the mode per endpoint with `local_queue(mode=...)`, or set the fallback for every entry that
+leaves `mode` unset with `endpoint_defaults.mode`. A per-endpoint `mode` overrides the default:
+
+```python linenums="1"
+from waku.messaging import EndpointDefaults, EndpointMode, MessagingConfig, local_queue
+
+config = MessagingConfig(
+    endpoint_defaults=EndpointDefaults(mode=EndpointMode.INLINE),  # fallback for unset entries
+    endpoints=[
+        local_queue('audit'),                               # inherits INLINE
+        local_queue('emails', mode=EndpointMode.BUFFERED),  # overrides to BUFFERED
+    ],
+)
+```
+
+The default is `BUFFERED`. Modes apply only to `local_queue` endpoints — `listen(...)` and
+`external_endpoint(...)` are broker endpoints and take no `mode`. Per-group FIFO via `partition_by`
+is honored only on `DURABLE` local queues and broker endpoints; setting it on a `BUFFERED` or
+`INLINE` local queue is a startup error.
+
+!!! warning "DURABLE requires an inbox"
+    A `DURABLE` local queue persists messages before processing, so it needs an `inbox` in
+    `MessagingConfig`. Without one, `MessagingModule.register(...)` raises
+    `ImproperlyConfiguredError`: *EndpointMode.DURABLE on a local_queue entry requires inbox in
+    MessagingConfig*. See [Dedicated Consumer](dedicated-consumer.md) for inbox setup and
+    [Transactions](transactions.md) for the unit of work the durable path commits through.
+
+---
+
 ## Per-Type Routing
 
 Use `route(MessageType).to('endpoint-uri')` to route a specific message type to an endpoint:
@@ -283,7 +323,9 @@ class AppModule:
 
 ## Further reading
 
+- **[Delivery Options & Scheduling](delivery-options.md)** — per-call delivery metadata and scheduling
 - **[Error Handling](error-handling.md)** — retry policies and dead letter queues for endpoint workers
+- **[Resilience](resilience.md)** — circuit breaker and backpressure for endpoints
 - **[Outbox & Transport](outbox.md)** — transactional outbox and external transports
 - **[Message Bus](index.md)** — setup, interfaces, and dispatch methods
 - **[Message Context](context.md)** — correlation tracking across message chains

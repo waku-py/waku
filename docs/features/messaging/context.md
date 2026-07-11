@@ -163,4 +163,5 @@ class AuditBehavior(IPipelineBehavior[MessageT, ResponseT]):
 - **[Message Bus](index.md)** — setup, interfaces, and dispatch methods
 - **[Requests](requests.md)** — commands, queries, and request handlers
 - **[Pipeline Behaviors](pipeline.md)** — cross-cutting middleware for request handling
+- **[Delivery Options & Scheduling](delivery-options.md)** — override correlation/causation ids per call
 - **[Outbox & Transport](outbox.md)** — correlation IDs propagate through the outbox

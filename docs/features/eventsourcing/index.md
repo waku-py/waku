@@ -127,4 +127,5 @@ projections on top:
 | [Projections](projections.md) | Build read models from event streams |
 | [Snapshots](snapshots.md) | Optimize loading for long-lived aggregates |
 | [Schema Evolution](schema-evolution.md) | Upcasting and event type registries |
+| [Event Forwarding](forwarding.md) | Forward appended events onto the message bus |
 | [Testing](testing.md) | Given/When/Then DSL for decider testing |

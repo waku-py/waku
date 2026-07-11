@@ -208,8 +208,8 @@ from waku.messaging.errors import DeadLetterEntry, IDeadLetterStore
 | `message_type`    | `str`               | Wire name of the message type            |
 | `payload`         | `dict[str, Any]`    | Serialized message envelope              |
 | `destination`     | `str`               | Where the message was destined (see note)|
-| `correlation_id`  | `UUID`              | Correlation ID from the message envelope |
-| `causation_id`    | `UUID`              | Causation ID from the message envelope   |
+| `correlation_id`  | `str`               | Correlation ID from the message envelope |
+| `causation_id`    | `str`               | Causation ID from the message envelope   |
 | `error_type`      | `str`               | Fully-qualified exception type name      |
 | `error_message`   | `str`               | Exception message text                   |
 | `retry_count`     | `int`               | Number of attempts before dead-lettering |
@@ -224,18 +224,26 @@ entries it carries the **handler FQN** instead.
 
 ## Configuration
 
-Set process-wide default policies with `default_error_policies`, and provide the dead letter store
-via `dead_letter`:
+Set process-wide default policies with `endpoint_defaults.error_policies`, and provide the dead
+letter store via `dead_letter`:
 
 ```python linenums="1"
-from waku.messaging import DeadLetterConfig, ErrorPolicy, MessagingConfig, MessagingModule
+from waku.messaging import (
+    DeadLetterConfig,
+    EndpointDefaults,
+    ErrorPolicy,
+    MessagingConfig,
+    MessagingModule,
+)
 
 MessagingModule.register(
     MessagingConfig(
-        default_error_policies=(
-            ErrorPolicy.on_any_exception()
-                .retry_with_backoff(max_attempts=3)
-                .then_move_to_dead_letter(),
+        endpoint_defaults=EndpointDefaults(
+            error_policies=(
+                ErrorPolicy.on_any_exception()
+                    .retry_with_backoff(max_attempts=3)
+                    .then_move_to_dead_letter(),
+            ),
         ),
         dead_letter=DeadLetterConfig(store=MyDeadLetterStore),    # (1)!
     ),
@@ -244,7 +252,7 @@ MessagingModule.register(
 
 1. `DeadLetterConfig.store` is any class implementing `IDeadLetterStore`, or a factory callable.
 
-A handler's own `error_policies` shadow `default_error_policies` per exception.
+A handler's own `error_policies` shadow `endpoint_defaults.error_policies` per exception.
 
 !!! warning "Validation"
     waku validates at startup that when any error policy escalates to the `DEAD_LETTER` action, a
@@ -308,6 +316,78 @@ class PostgresDeadLetterStore(IDeadLetterStore):
 
 ---
 
+## Dead Letter Replay
+
+A dead-lettered message is not the end of the line — it can be re-injected into the pipeline once
+the underlying fault is fixed. Replay rebuilds the stored envelope and re-dispatches it to its
+original destination.
+
+### Manual replay
+
+Resolve `ReplayExecutor` and replay a single entry by id. It re-dispatches the rebuilt envelope and
+**never commits** — the caller owns the transaction boundary:
+
+```python linenums="1"
+from uuid import UUID
+
+from waku.messaging.errors import ReplayExecutor
+from waku.uow import IUnitOfWork
+
+
+async def replay_one(container, entry_id: UUID) -> None:
+    async with container() as scope:
+        replayer = await scope.get(ReplayExecutor)
+        uow = await scope.get(IUnitOfWork)
+        replayed = await replayer.replay_by_id(entry_id)  # or replay(entry) with a fetched entry
+        await uow.commit()
+        if not replayed:
+            ...  # no endpoint for the destination, or re-injection failed → entry marked REPLAY_FAILED
+```
+
+`ReplayExecutor` is registered automatically when `dead_letter` is configured. Re-injection is
+at-least-once: the message re-enters the normal pipeline, so idempotency leans on the durable inbox
+`(message_id, destination)` dedup. The rebuilt `message_id` is the original envelope's, stored on the
+entry, so it is stable across repeated replays of the same entry.
+
+### Auto-replay
+
+Opt in to a background worker that replays entries on a schedule:
+
+```python linenums="1"
+from datetime import timedelta
+
+from waku.messaging import DeadLetterConfig
+
+DeadLetterConfig(
+    store=MyDeadLetterStore,
+    auto_replay_enabled=True,   # off by default — manual replay only
+    max_replay_count=3,         # re-injection attempts before an entry is left REPLAY_FAILED
+    retention=timedelta(days=7),
+)
+```
+
+With `auto_replay_enabled=True`, a single-per-datacenter worker claims replayable rows
+(`FOR UPDATE SKIP LOCKED`) and re-injects them. `max_replay_count` bounds how many times an entry is
+re-injected before it is left terminally `REPLAY_FAILED`. The worker never commits inside the
+executor or the store — it owns the transaction scope for the whole batch.
+
+### Retention
+
+When `retention` is set, the same worker periodically purges entries older than the cutoff, at the
+`cleanup_interval` cadence. Leave `retention=None` (the default) to keep entries forever.
+
+!!! note "Replay status lifecycle"
+    An entry's `status` moves `PENDING → REPLAYED` on a successful re-injection, or
+    `PENDING → REPLAY_FAILED` when re-dispatch fails (and back to `REPLAY_FAILED` after each further
+    auto-replay attempt up to `max_replay_count`). These are the same `status` / `replay_count`
+    fields listed in the [DeadLetterEntry table](#deadletterentry-fields) above.
+
+For scaling replay across pods and the one-worker-per-datacenter model, see
+[Dedicated Consumer](dedicated-consumer.md); for pausing a failing listener rather than dead-lettering
+each message, see [Resilience](resilience.md).
+
+---
+
 ## Messages Without Policies
 
 When a handler fails and no error policy matches the message type + exception combination:
@@ -330,6 +410,7 @@ When a handler fails and no error policy matches the message type + exception co
 ## Further reading
 
 - **[Routing & Endpoints](routing.md)** — where error policies are applied (endpoint workers)
+- **[Resilience](resilience.md)** — circuit breaker and backpressure for failing or overwhelmed listeners
 - **[Outbox & Transport](outbox.md)** — transactional outbox with its own retry semantics
 - **[Transactions](transactions.md)** — unit of work and transactional pipeline behavior
 - **[Message Bus](index.md)** — setup, interfaces, and dispatch methods

@@ -24,6 +24,11 @@ graph LR
     B1 --> Send
 ```
 
+Some behaviors ship with the framework and are auto-wired — you do not author or register them.
+[Cascading messages](events.md#cascading-messages) dispatch the follow-on messages a handler emits,
+and [`TransactionalBehavior`](transactions.md) wraps handling in a unit of work. This page is about
+writing your *own* behaviors.
+
 ---
 
 ## Defining a Behavior
