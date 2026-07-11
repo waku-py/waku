@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import abc
 import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+from typing_extensions import override
 
 from waku.messaging.pauser import PauseRegistry
 
@@ -24,7 +27,21 @@ class BufferingLimits:
             raise ValueError(msg)
 
 
-class ListenerBackpressure:
+class IListenerBackpressure(abc.ABC):
+    """Minimal listener-gate seam: report the post-enqueue in-memory depth so the gate can pause/resume.
+
+    Only ``observe_depth`` is shared (ISP) — the circuit breaker drives ``pause_listener``/``resume_listener`` on
+    the concrete ``ListenerBackpressure`` directly — so a no-op sibling (``NoOpBackpressure``) can be the
+    listener's default and the ``observe_depth`` call site never branches on the gate's absence.
+    """
+
+    __slots__ = ()
+
+    @abc.abstractmethod
+    async def observe_depth(self, depth: int) -> None: ...
+
+
+class ListenerBackpressure(IListenerBackpressure):
     """One refcounted gate over a broker ``Subscription``, fed by two triggers that share a single resume.
 
     The circuit breaker drives ``pause_listener``/``resume_listener`` directly (their shape matches
@@ -60,6 +77,7 @@ class ListenerBackpressure:
         async with self._lock:
             await self._resume_gate(token)
 
+    @override
     async def observe_depth(self, depth: int) -> None:
         if self._limits is None:
             return  # CB-only: no watermark configured

@@ -3,13 +3,14 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from waku.messaging.inbox._internal.noop_backpressure import NoOpBackpressure
 from waku.messaging.transport.decomposition import rebuild_envelope
 from waku.messaging.transport.inbound import ConsumeDisposition
 
 if TYPE_CHECKING:
     from waku.messaging.endpoints.durable_inbox_receiver import DurableInboxReceiver
     from waku.messaging.identity import MessageTypeRegistry
-    from waku.messaging.inbox.backpressure import ListenerBackpressure
+    from waku.messaging.inbox.backpressure import IListenerBackpressure
     from waku.messaging.registry import MessageRegistry
     from waku.messaging.transport.interfaces import EnvelopeMetadata
     from waku.serialization.codec import PayloadCodec
@@ -36,9 +37,9 @@ class InboundListener:
         self._type_registry = type_registry
         self._registry = registry
         self._receiver = receiver
-        self._backpressure: ListenerBackpressure | None = None
+        self._backpressure: IListenerBackpressure = NoOpBackpressure()
 
-    def attach_backpressure(self, backpressure: ListenerBackpressure) -> None:
+    def attach_backpressure(self, backpressure: IListenerBackpressure) -> None:
         # Set by the wiring before the transport starts; consume() then reports the post-enqueue depth to it.
         self._backpressure = backpressure
 
@@ -60,7 +61,6 @@ class InboundListener:
             return ConsumeDisposition.NACK_REQUEUE
         if fresh:
             await self._receiver.enqueue(envelope, fresh)
-            if self._backpressure is not None:
-                # High-watermark check at the enqueue site: stop the listener when the in-memory backlog grows.
-                await self._backpressure.observe_depth(self._receiver.queue_depth)
+            # High-watermark check at the enqueue site: stop the listener when the in-memory backlog grows.
+            await self._backpressure.observe_depth(self._receiver.queue_depth)
         return ConsumeDisposition.ACK

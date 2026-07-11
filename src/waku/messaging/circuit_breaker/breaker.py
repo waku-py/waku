@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import abc
 import asyncio
 import contextlib
 import enum
@@ -8,6 +9,7 @@ from collections import deque
 from typing import TYPE_CHECKING
 
 import anyio
+from typing_extensions import override
 
 from waku.messaging.endpoints.executor import ExecutionOutcome
 
@@ -35,7 +37,24 @@ class CircuitState(enum.Enum):
     OPEN = 'OPEN'
 
 
-class CircuitBreaker:
+class ICircuitBreaker(abc.ABC):
+    """Minimal breaker seam the endpoints depend on: sample an execution outcome, and close on shutdown.
+
+    Kept to exactly what consumers call (ISP) so a null sibling (``PassthroughCircuitBreaker``) can stand
+    in for ``None`` when an endpoint has no ``circuit_breaker_config`` — the endpoint feeds every outcome to
+    ``record`` unconditionally and never branches on the breaker's absence.
+    """
+
+    __slots__ = ()
+
+    @abc.abstractmethod
+    async def record(self, outcome: ExecutionOutcome, exc: Exception | None) -> None: ...
+
+    @abc.abstractmethod
+    async def aclose(self) -> None: ...
+
+
+class CircuitBreaker(ICircuitBreaker):
     """Per-endpoint, rate-based circuit breaker. CLOSED → OPEN(pause) → resume+reset → CLOSED.
 
     One sample per handler-execution. `DISCARDED` is not recorded; `REQUEUED`/`PAUSED` record as
@@ -84,6 +103,7 @@ class CircuitBreaker:
     def state(self) -> CircuitState:
         return self._state
 
+    @override
     async def record(self, outcome: ExecutionOutcome, exc: Exception | None) -> None:
         if outcome is ExecutionOutcome.DISCARDED:
             return
@@ -142,9 +162,22 @@ class CircuitBreaker:
         if task is not None:
             await task
 
+    @override
     async def aclose(self) -> None:
         if self._resume_task is not None:
             self._resume_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._resume_task
             self._resume_task = None
+
+
+class PassthroughCircuitBreaker(ICircuitBreaker):
+    """Always-closed null breaker used when an endpoint has no ``circuit_breaker_config`` — both methods no-op."""
+
+    __slots__ = ()
+
+    @override
+    async def record(self, outcome: ExecutionOutcome, exc: Exception | None) -> None: ...
+
+    @override
+    async def aclose(self) -> None: ...

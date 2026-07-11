@@ -50,6 +50,7 @@ from waku.messaging.endpoints.external import ExternalEndpoint
 from waku.messaging.endpoints.inline import InlineEndpoint
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
 from waku.messaging.endpoints.merge import MergedBrokerEndpoint, merge_broker_endpoints
+from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import policies_have_deferred_terminal, policies_need_dead_letter
@@ -60,7 +61,8 @@ from waku.messaging.exceptions import HandlerAlreadyRegistered, MultipleHandlers
 from waku.messaging.handler import MessageHandler
 from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.impl import MessageBus
-from waku.messaging.inbox.backpressure import ListenerBackpressure
+from waku.messaging.inbox._internal.noop_backpressure import NoOpBackpressure
+from waku.messaging.inbox.backpressure import IListenerBackpressure, ListenerBackpressure
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.drainer import build_inbox_drainer
 from waku.messaging.inbox.interfaces import IInboxStore
@@ -197,6 +199,9 @@ class MessagingModule:
             providers.append(scoped(IOutboxStore, config.outbox.store))
         if config.dead_letter is not None:
             providers.extend((scoped(IDeadLetterStore, config.dead_letter.store), scoped(ReplayExecutor)))
+        else:
+            # Always-present null fallback so consumers never branch on the store's absence.
+            providers.append(scoped(IDeadLetterStore, DiscardingDeadLetterStore))
         if config.inbox is not None:
             providers.extend((
                 scoped(IInboxStore, config.inbox.store),
@@ -895,7 +900,7 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
             )
             backpressure = self._wire_listener_backpressure(ep.listen, self._config, subscription, listener, receiver)
             # start() last: the on_drain low-watermark hook needs the gate; nothing flows until transport.start().
-            await receiver.start(on_drain=backpressure.observe_depth if backpressure is not None else None)
+            await receiver.start(on_drain=backpressure.observe_depth)
             self._receivers.append(receiver)
 
     @staticmethod
@@ -905,16 +910,19 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
         subscription: 'Subscription',
         listener: InboundListener,
         receiver: DurableInboxReceiver,
-    ) -> ListenerBackpressure | None:
-        """Build the one listener gate when a watermark and/or inbound circuit breaker is configured.
+    ) -> IListenerBackpressure:
+        """Build the one listener gate; a no-op gate when neither a watermark nor an inbound circuit breaker exists.
 
-        CB-only, watermark-only, and both are all valid: the gate is the CB's pause target in every case, and
-        ``observe_depth`` no-ops when no watermark is set.
+        CB-only, watermark-only, and both build the real ``ListenerBackpressure`` (the gate is the CB's pause
+        target in every case, and ``observe_depth`` no-ops when no watermark is set); with neither configured the
+        listener keeps its ``NoOpBackpressure`` default so ``observe_depth`` stays a safe unconditional call.
         """
         limits = listen.backpressure or config.endpoint_defaults.backpressure
         cb_config = _resolve_inbound_circuit_breaker(listen, config)
         if limits is None and cb_config is None:
-            return None
+            noop = NoOpBackpressure()
+            listener.attach_backpressure(noop)
+            return noop
         backpressure = ListenerBackpressure(subscription=subscription, limits=limits)
         listener.attach_backpressure(backpressure)
         if cb_config is not None:

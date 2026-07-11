@@ -30,6 +30,7 @@ from waku.messaging import (
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import get_message_context
 from waku.messaging.endpoints.base import external_endpoint, listen, local_queue
+from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore  # noqa: PLC2701
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.replay import ReplayExecutor
@@ -456,6 +457,15 @@ class TestMessagingConfigValidation:
         ):
             assert await is_registered(scope, IDeadLetterStore)
             assert await is_registered(scope, ReplayExecutor)
+
+    @staticmethod
+    async def test_dead_letter_none_resolves_discarding_store_and_no_replay_executor() -> None:
+        async with (
+            create_test_app(imports=[MessagingModule.register(MessagingConfig())]) as app,
+            app.container() as scope,
+        ):
+            assert isinstance(await scope.get(IDeadLetterStore), DiscardingDeadLetterStore)
+            assert not await is_registered(scope, ReplayExecutor)
 
     @staticmethod
     async def test_partition_by_without_allocator_raises_at_startup() -> None:

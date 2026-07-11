@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
 
     import pytest
+    from pytest_mock import MockerFixture
 
     from waku.application import WakuApplication
     from waku.messaging.router import HandlerSubscriptions
@@ -238,6 +239,26 @@ class TestLocalQueueEndpoint:
         assert ctx.causation_id == envelope.causation_id
         assert ctx.message_id == envelope.message_id
         assert isinstance(ctx.correlation_id, str)
+
+    @staticmethod
+    async def test_no_circuit_breaker_config_never_pauses(mocker: MockerFixture) -> None:
+        # No circuit_breaker_config => the PassthroughCircuitBreaker default; a failing message reaches
+        # its terminal outcome without ever pausing the worker (nothing feeds a real trip).
+        _AlwaysFailingHandler.call_count = 0
+        async with create_test_app(
+            imports=[MessagingModule.register()],
+            extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
+        ) as app:
+            endpoint = await _make_endpoint(app, _AlwaysFailingHandler)
+            pause_spy = mocker.spy(LocalQueueEndpoint, 'pause')
+            await endpoint.start()
+            await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='x')), app.container)
+            await wait_until(lambda: _AlwaysFailingHandler.call_count >= 1)
+            for _ in range(5):
+                await checkpoint()
+            await endpoint.stop()
+
+        pause_spy.assert_not_called()
 
     @staticmethod
     async def test_worker_continues_processing_after_handler_error() -> None:

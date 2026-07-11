@@ -35,6 +35,8 @@ from tests.messaging.inbox.fake_store import FakeInboxStore
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from pytest_mock import MockerFixture
+
 
 @dataclass
 class _Event(IEvent):
@@ -327,6 +329,27 @@ class TestDurableInboxReceiverBackpressureSeams:
             await receiver.stop()  # aclose()s the attached breaker exactly once, cancelling its parked resume
 
         assert pauses == ['pause']  # the attached breaker tripped → it drove its pause callback
+
+    @staticmethod
+    async def test_no_circuit_breaker_never_pauses(mocker: MockerFixture) -> None:
+        # No breaker attached => the PassthroughCircuitBreaker default: failing outcomes are recorded to
+        # nothing and the receiver never pauses.
+        inbox = FakeInboxStore()
+        async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            receiver = _receiver(
+                container,
+                _ObservingExecutor(outcome=ExecutionOutcome.FAILED_NO_POLICY, exc=RuntimeError()),
+            )
+            pause_spy = mocker.spy(DurableInboxReceiver, 'pause')
+            envelope = make_envelope(_Event(kind='Boom'))
+
+            await receiver.start()
+            fresh = await receiver.persist(envelope, frozenset([_Handler]))
+            await receiver.enqueue(envelope, fresh)
+            await wait_until(lambda: not inbox.entries)  # FAILED_NO_POLICY finalizes (deletes) the row
+            await receiver.stop()
+
+        pause_spy.assert_not_called()
 
     @staticmethod
     async def test_queue_depth_reflects_buffered_items() -> None:

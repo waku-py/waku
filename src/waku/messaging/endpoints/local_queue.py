@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 import anyio
 from typing_extensions import override
 
-from waku.messaging.circuit_breaker.breaker import CircuitBreaker
+from waku.messaging.circuit_breaker.breaker import CircuitBreaker, PassthroughCircuitBreaker
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES
 from waku.messaging.endpoints.worker import MemoryStreamWorker
@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from waku.di import AsyncContainer
+    from waku.messaging.circuit_breaker.breaker import ICircuitBreaker
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.endpoints.executor import EndpointExecutor
@@ -76,10 +77,10 @@ class LocalQueueEndpoint(Endpoint):
             max_parallel=max_parallel,
         )
         self._timed_pauser = self._worker.make_timed_pauser(sleep=pause_sleep)
-        self._circuit_breaker = (
+        self._circuit_breaker: ICircuitBreaker = (
             CircuitBreaker(config=circuit_breaker_config, pause=self.pause, resume=self.resume)
             if circuit_breaker_config is not None
-            else None
+            else PassthroughCircuitBreaker()
         )
 
     @override
@@ -102,8 +103,7 @@ class LocalQueueEndpoint(Endpoint):
     async def stop(self) -> None:
         await self._timed_pauser.aclose()  # cancel parked auto-resume before force-resume
         await self._worker.stop()
-        if self._circuit_breaker is not None:
-            await self._circuit_breaker.aclose()
+        await self._circuit_breaker.aclose()
 
     @override
     async def pause(self) -> PauseToken:
@@ -115,7 +115,7 @@ class LocalQueueEndpoint(Endpoint):
             await self._worker.resume(token)
 
     async def _process_envelope(self, envelope: MessageEnvelope[Any]) -> None:
-        on_result = self._circuit_breaker.record if self._circuit_breaker is not None else None
+        on_result = self._circuit_breaker.record
         for handler_type in self._handler_subscriptions.get(type(envelope.payload), ()):
             result = await self._executor.execute(envelope, handler_type, on_result=on_result)
             if result.outcome in DEFERRED_TERMINAL_OUTCOMES:

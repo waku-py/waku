@@ -74,6 +74,10 @@ class ExecutionResult:
 _ResultObserver: TypeAlias = 'Callable[[ExecutionOutcome, Exception | None], Awaitable[None]]'
 
 
+async def _noop_result_observer(outcome: ExecutionOutcome, exc: Exception | None) -> None:
+    """Null result observer: the default so ``execute`` feeds every outcome without branching on absence."""
+
+
 class EndpointExecutor:
     """Scope-per-attempt execution with retry, dead-letter, and timeout. Endpoints delegate entirely."""
 
@@ -117,7 +121,7 @@ class EndpointExecutor:
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
         *,
-        on_result: _ResultObserver | None = None,
+        on_result: _ResultObserver = _noop_result_observer,
     ) -> ExecutionResult:
         if self._is_expired(envelope):
             # Intentional expiry → DISCARD (never DLQ); deletes the row on both live and recovery paths.
@@ -126,16 +130,14 @@ class EndpointExecutor:
             await self._observers.executed(
                 envelope, self._endpoint_uri, handler_type, result.outcome, None, timedelta()
             )
-            if on_result is not None:
-                await on_result(result.outcome, None)
+            await on_result(result.outcome, None)
             return result
         await self._observers.executing(envelope, self._endpoint_uri, handler_type)
         start = self._monotonic()
         result, exc = await self._run_attempts(envelope, handler_type)
         duration = timedelta(seconds=self._monotonic() - start)
         await self._observers.executed(envelope, self._endpoint_uri, handler_type, result.outcome, exc, duration)
-        if on_result is not None:
-            await on_result(result.outcome, exc)
+        await on_result(result.outcome, exc)
         return result
 
     def _is_expired(self, envelope: MessageEnvelope[Any]) -> bool:

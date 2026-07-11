@@ -68,6 +68,14 @@ class MessageObservers:
     """Fans a lifecycle event out to all observers, swallowing per-observer failure.
 
     Observability must never affect processing — this is the single sanctioned broad-catch home.
+
+    Null-object consistency (house doctrine). An injected/optional collaborator is resolved to a null default in
+    place of ``None``, and its consumer fans out or calls through with NO per-call absence guard. This class is
+    the pattern's reference: an empty ``observers`` tuple makes every ``sent``/``executing``/``executed`` fan-out
+    a no-op loop. The same shape recurs — ``Endpoint.pause``/``resume`` default to no-ops (only buffered/durable
+    override), ``RoutingTable.resolve`` returns ``()`` for unrouted types, and each optional messaging collaborator
+    (circuit breaker, dead-letter store, invoke-path unit of work, listener backpressure) resolves to a null
+    default so its consumer never branches on absence.
     """
 
     __slots__ = ('_observers',)

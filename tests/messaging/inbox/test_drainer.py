@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -14,6 +15,7 @@ from waku.messaging import EndpointDefaults, MessagingConfig, MessagingExtension
 from waku.messaging._identifiers import EndpointUri, HandlerDestination  # noqa: PLC2701
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
+from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore  # noqa: PLC2701
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.handler import EventHandler
 from waku.messaging.identity import MessageTypeRegistry
@@ -33,6 +35,8 @@ from tests.messaging.inbox.fake_store import FakeInboxStore
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from uuid import UUID
+
+    import pytest
 
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
@@ -255,12 +259,16 @@ async def test_drain_poison_at_cap_dead_letters_and_deletes() -> None:
     assert dlq.entries[0].message_type == entry.message_type
 
 
-async def test_drain_poison_at_cap_without_dlq_store_deletes() -> None:
+async def test_drain_poison_at_cap_discards_and_deletes(caplog: pytest.LogCaptureFixture) -> None:
+    # dead_letter unconfigured => the always-present DiscardingDeadLetterStore fallback. Poison-at-cap
+    # deletes the row and (N5) emits the discarding WARN naming the loss before the drop.
     inbox = FakeInboxStore()
     entry = _abandoned_entry(inbox, destination='tests.GoneHandler', attempts=2)
-    async with make_async_container(_Deps(inbox, FakeUoW())) as container:
-        await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
+    async with make_async_container(_Deps(inbox, FakeUoW()), _DlqProvider(DiscardingDeadLetterStore())) as container:
+        with caplog.at_level(logging.WARNING, logger='waku.messaging.errors._internal.discarding_store'):
+            await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
     assert (entry.id, entry.destination) not in inbox.entries
+    assert 'not persisted' in caplog.text.lower()
 
 
 async def test_drain_isolates_poison_from_healthy_entries_in_a_batch() -> None:

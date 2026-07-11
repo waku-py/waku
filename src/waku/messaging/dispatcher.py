@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from dishka.exceptions import NoFactoryError
+from typing_extensions import override
 
 from waku.messaging.behaviors.transactional import _TransactionDepth, run_in_transaction
 from waku.messaging.endpoints.executor import ExecutionOutcome
@@ -19,6 +20,23 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.contracts.message import ResponseT
     from waku.messaging.contracts.request import IRequest
+
+
+class _NoOpUnitOfWork(IUnitOfWork):
+    """Dispatcher-seam null UoW substituted when no real UoW is registered.
+
+    Lets ``invoke_event`` always run one owning transaction frame. Never registered under the ``IUnitOfWork``
+    DI key (that would silently defeat the UoW presence checks); provisioned only here at the resolve seam,
+    where ``commit``/``rollback`` no-op.
+    """
+
+    __slots__ = ()
+
+    @override
+    async def commit(self) -> None: ...
+
+    @override
+    async def rollback(self) -> None: ...
 
 
 class MessageDispatcher:
@@ -62,10 +80,11 @@ class MessageDispatcher:
         ``INVOKE_DESTINATION``.
 
         Execution order is NOT a public contract — handlers for one event are independent.
-        ``invoke`` is inline same-transaction execution: when a UoW is configured, the
-        dispatcher owns ONE transaction frame around the whole fan-out so the N per-handler
-        ``TransactionalBehavior`` frames join it (one commit over all N handlers + any nested
-        invoke). Without a UoW it degrades to sequential fail-fast (same as ``invoke(request)``).
+        ``invoke`` is inline same-transaction execution: the dispatcher owns ONE transaction
+        frame around the whole fan-out so the N per-handler ``TransactionalBehavior`` frames
+        join it (one commit over all N handlers + any nested invoke). When no UoW is registered
+        the owning frame runs against a no-op unit of work, so the fan-out stays sequential
+        fail-fast with no commit.
 
         Raises:
             HandlerNotFound: If no handler is registered for the event type.
@@ -79,10 +98,7 @@ class MessageDispatcher:
             for handler_type in handlers:
                 await self._observed_invoke(scope, envelope, handler_type)
 
-        uow = await self._try_get_uow(scope)
-        if uow is None:
-            await _run_all()
-            return
+        uow = await self._resolve_uow(scope)
         depth = await scope.get(_TransactionDepth)
         await run_in_transaction(uow, depth, _run_all)
 
@@ -111,8 +127,11 @@ class MessageDispatcher:
         return result
 
     @staticmethod
-    async def _try_get_uow(scope: 'AsyncContainer') -> 'IUnitOfWork | None':
+    async def _resolve_uow(scope: 'AsyncContainer') -> 'IUnitOfWork':
+        # Null-provisioning seam (not the doctrine's target): a real UoW when registered, else the null
+        # UoW. The noop is NOT put on the IUnitOfWork DI key — that would defeat the UoW presence checks.
         try:
-            return await scope.get(IUnitOfWork)
+            uow: IUnitOfWork = await scope.get(IUnitOfWork)
         except NoFactoryError:
-            return None
+            return _NoOpUnitOfWork()
+        return uow

@@ -5,6 +5,7 @@ from datetime import timedelta
 import anyio.lowlevel
 
 from waku.messaging.circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitState
+from waku.messaging.circuit_breaker.breaker import PassthroughCircuitBreaker
 from waku.messaging.endpoints.executor import ExecutionOutcome
 from waku.messaging.pauser import PauseRegistry, PauseToken
 
@@ -273,4 +274,13 @@ async def test_circuit_breaker_resume_does_not_open_gate_held_by_another_pauser(
     registry.resume(other)
     opened = registry.paused
     assert opened is False
+    await breaker.aclose()
+
+
+async def test_passthrough_never_trips_and_aclose_is_noop() -> None:
+    # The null breaker substituted when no CB is configured: a would-trip failing burst records to nothing
+    # and aclose has nothing to cancel — a state-less no-op with no pause target to drive.
+    breaker = PassthroughCircuitBreaker()
+    for _ in range(20):
+        await breaker.record(ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
     await breaker.aclose()

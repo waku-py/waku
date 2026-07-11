@@ -8,7 +8,7 @@ import anyio
 
 from waku._internal.transaction import unit_of_work_scope
 from waku.messaging._identifiers import EndpointUri
-from waku.messaging.circuit_breaker.breaker import CircuitBreaker
+from waku.messaging.circuit_breaker.breaker import CircuitBreaker, PassthroughCircuitBreaker
 from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES
 from waku.messaging.endpoints.worker import MemoryStreamWorker
 from waku.messaging.errors.dead_letter import DeadLetterEntry
@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
     from dishka import AsyncContainer
 
+    from waku.messaging.circuit_breaker.breaker import ICircuitBreaker
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
@@ -94,10 +95,10 @@ class DurableInboxReceiver:
             max_parallel=1,
         )
         self._timed_pauser = self._worker.make_timed_pauser(sleep=pause_sleep)
-        self._circuit_breaker: CircuitBreaker | None = (
+        self._circuit_breaker: ICircuitBreaker = (
             CircuitBreaker(config=circuit_breaker_config, pause=self.pause, resume=self.resume)
             if circuit_breaker_config is not None
-            else None
+            else PassthroughCircuitBreaker()
         )
 
     @property
@@ -157,8 +158,7 @@ class DurableInboxReceiver:
     async def stop(self) -> None:
         await self._timed_pauser.aclose()  # cancel parked auto-resume before the worker force-resumes
         await self._worker.stop()
-        if self._circuit_breaker is not None:
-            await self._circuit_breaker.aclose()
+        await self._circuit_breaker.aclose()
 
     async def pause(self) -> PauseToken:
         return await self._worker.pause()
@@ -169,7 +169,7 @@ class DurableInboxReceiver:
 
     async def _process_work_item(self, work_item: _WorkItem) -> None:
         envelope, handler_types = work_item
-        on_result = self._circuit_breaker.record if self._circuit_breaker is not None else None
+        on_result = self._circuit_breaker.record
         for handler_type in handler_types:
             destination = handler_destination(handler_type)
             result = await self._executor.execute(envelope, handler_type, on_result=on_result)

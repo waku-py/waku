@@ -4,7 +4,6 @@ import logging
 from typing import TYPE_CHECKING
 
 from waku._internal.transaction import unit_of_work_scope
-from waku.di import is_registered
 from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES, EndpointExecutorFactory
 from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.identity import MessageTypeRegistry
@@ -130,9 +129,8 @@ class InboxDrainer:
         async with unit_of_work_scope(self._container) as scope:
             inbox = await scope.get(IInboxStore)
             if attempt >= self._max_attempts:
-                if await is_registered(scope, IDeadLetterStore):
-                    store = await scope.get(IDeadLetterStore)
-                    await store.save(_poison_dead_letter(entry, reason, attempt))
+                store = await scope.get(IDeadLetterStore)
+                await store.save(_poison_dead_letter(entry, reason, attempt))
                 await inbox.delete(entry.id, entry.destination)
                 logger.error(
                     'Dropping poison inbox row id=%s destination=%r message_type=%s after %d attempts: %s',

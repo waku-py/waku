@@ -3,6 +3,7 @@ import anyio.lowlevel
 import pytest
 from typing_extensions import override
 
+from waku.messaging.inbox._internal.noop_backpressure import NoOpBackpressure  # noqa: PLC2701
 from waku.messaging.inbox.backpressure import BufferingLimits, ListenerBackpressure
 from waku.messaging.transport.interfaces import Subscription
 
@@ -130,3 +131,9 @@ class TestListenerBackpressureGate:
 
         assert sub.events == ['pause', 'resume']  # serialized in order
         assert sub.running is True  # the listener is running again, not stranded stopped
+
+
+async def test_noop_backpressure_observe_depth_never_touches_a_subscription() -> None:
+    # The null gate the listener defaults to when no watermark/CB is wired: observe_depth is inert (no
+    # subscription to touch, no raise) at any depth.
+    await NoOpBackpressure().observe_depth(1_000)
