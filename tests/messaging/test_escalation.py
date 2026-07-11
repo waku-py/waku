@@ -146,6 +146,36 @@ def test_walk_retry_then_requeue_hands_off_to_requeue() -> None:
     assert walk_stages(stages, attempt=3).action is RetryAction.REQUEUE
 
 
+def test_walk_requeue_stage_carries_budget() -> None:
+    stage = RetryStage(action=RetryAction.REQUEUE, requeue_limit=3)
+    outcome = walk_stages((stage,), attempt=1)
+    assert outcome.action is RetryAction.REQUEUE
+    assert outcome.exhausted is False
+    assert outcome.requeue_limit == 3
+
+
+def test_walk_requeue_stage_without_budget_carries_none() -> None:
+    outcome = walk_stages((RetryStage(action=RetryAction.REQUEUE),), attempt=1)
+    assert outcome.requeue_limit is None
+
+
+def test_walk_pause_stage_carries_duration_and_budget() -> None:
+    stage = RetryStage(action=RetryAction.PAUSE, pause_duration=timedelta(seconds=5), requeue_limit=4)
+    outcome = walk_stages((stage,), attempt=1)
+    assert outcome.pause_duration == timedelta(seconds=5)
+    assert outcome.requeue_limit == 4
+
+
+def test_walk_retry_then_budgeted_requeue_keeps_independent_counts() -> None:
+    stages = (
+        RetryStage(action=RetryAction.RETRY, max_attempts=2),
+        RetryStage(action=RetryAction.REQUEUE, requeue_limit=6),
+    )
+    outcome = walk_stages(stages, attempt=2)
+    assert outcome.action is RetryAction.REQUEUE
+    assert outcome.requeue_limit == 6
+
+
 def test_validate_rejects_stage_after_requeue() -> None:
     stages = (
         RetryStage(action=RetryAction.REQUEUE),
@@ -165,9 +195,24 @@ def test_error_policy_then_requeue_follows_retry() -> None:
     assert [s.action for s in policy.stages] == [RetryAction.RETRY, RetryAction.REQUEUE]
 
 
-def test_error_policy_requeue_rejects_multi_attempt() -> None:
+def test_error_policy_requeue_carries_budget() -> None:
+    stage = ErrorPolicy.on_any_exception().requeue(max_attempts=10).stages[0]
+    assert stage.action is RetryAction.REQUEUE
+    assert stage.requeue_limit == 10
+
+
+def test_error_policy_requeue_without_budget_carries_none() -> None:
+    assert ErrorPolicy.on_any_exception().requeue().stages[0].requeue_limit is None
+
+
+def test_error_policy_then_requeue_carries_budget() -> None:
+    policy = ErrorPolicy.on_any_exception().retry(max_attempts=2).then_requeue(max_attempts=3)
+    assert policy.stages[-1].requeue_limit == 3
+
+
+def test_error_policy_requeue_rejects_zero_budget() -> None:
     with pytest.raises(ValueError, match='max_attempts'):
-        ErrorPolicy.on_any_exception().requeue(max_attempts=2)
+        ErrorPolicy.on_any_exception().requeue(max_attempts=0)
 
 
 def test_error_policy_pause_processing_seeds_single_pause_stage() -> None:
@@ -180,6 +225,23 @@ def test_error_policy_then_pause_processing_follows_retry() -> None:
     policy = ErrorPolicy.on_any_exception().retry(max_attempts=2).then_pause_processing(timedelta(seconds=30))
     assert [s.action for s in policy.stages] == [RetryAction.RETRY, RetryAction.PAUSE]
     assert policy.stages[-1].pause_duration == timedelta(seconds=30)
+
+
+def test_error_policy_pause_processing_carries_budget() -> None:
+    stage = ErrorPolicy.on_any_exception().pause_processing(timedelta(minutes=5), max_attempts=2).stages[0]
+    assert stage.action is RetryAction.PAUSE
+    assert stage.pause_duration == timedelta(minutes=5)
+    assert stage.requeue_limit == 2
+
+
+def test_error_policy_then_pause_processing_carries_budget() -> None:
+    policy = (
+        ErrorPolicy
+        .on_any_exception()
+        .retry(max_attempts=2)
+        .then_pause_processing(timedelta(seconds=30), max_attempts=4)
+    )
+    assert policy.stages[-1].requeue_limit == 4
 
 
 def test_walk_pause_stage_carries_duration() -> None:

@@ -219,6 +219,40 @@ async def test_executor_requeue_policy_surfaces_requeued_outcome() -> None:
     assert len(calls) == 1  # REQUEUE fires once, no inline retry
     assert result.outcome is ExecutionOutcome.REQUEUED
     assert result.pause_duration is None
+    assert result.requeue_limit is None  # budget-less → endpoint fallback
+
+
+async def test_executor_budgeted_requeue_surfaces_limit() -> None:
+    handler, _ = _make_always_fail_handler()
+    evaluator = _evaluator_for(ErrorPolicy.on_any_exception().requeue(max_attempts=7))
+
+    async with create_test_app(
+        imports=[MessagingModule.register()],
+        extensions=[MessagingExtension().bind(handler)],
+    ) as app:
+        executor = await _make_executor(app, evaluator)
+        envelope = make_envelope(_FailingCommand(value='budgeted-requeue'))
+        result = await executor.execute(envelope, handler)
+
+    assert result.outcome is ExecutionOutcome.REQUEUED
+    assert result.requeue_limit == 7
+
+
+async def test_executor_budgeted_pause_surfaces_limit_and_duration() -> None:
+    handler, _ = _make_always_fail_handler()
+    evaluator = _evaluator_for(ErrorPolicy.on_any_exception().pause_processing(timedelta(seconds=1), max_attempts=2))
+
+    async with create_test_app(
+        imports=[MessagingModule.register()],
+        extensions=[MessagingExtension().bind(handler)],
+    ) as app:
+        executor = await _make_executor(app, evaluator)
+        envelope = make_envelope(_FailingCommand(value='budgeted-pause'))
+        result = await executor.execute(envelope, handler)
+
+    assert result.outcome is ExecutionOutcome.PAUSED
+    assert result.pause_duration == timedelta(seconds=1)
+    assert result.requeue_limit == 2
 
 
 class TestEndpointExecutorExpiry:

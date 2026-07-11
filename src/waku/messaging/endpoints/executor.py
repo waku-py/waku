@@ -60,10 +60,15 @@ DEFERRED_TERMINAL_OUTCOMES = frozenset({ExecutionOutcome.REQUEUED, ExecutionOutc
 
 @dataclass(frozen=True, slots=True)
 class ExecutionResult:
-    """Terminal outcome plus optional pause window (for PAUSED); named fields over PolicyOutcome."""
+    """Terminal outcome plus optional pause window (for PAUSED) and per-rule redelivery budget.
+
+    `requeue_limit` carries the matched policy's budget onto REQUEUE/PAUSE outcomes; `None` means the
+    endpoint falls back to its own `max_requeue_attempts`. Named fields over PolicyOutcome.
+    """
 
     outcome: ExecutionOutcome
     pause_duration: timedelta | None = None
+    requeue_limit: int | None = None
 
 
 _ResultObserver: TypeAlias = 'Callable[[ExecutionOutcome, Exception | None], Awaitable[None]]'
@@ -220,12 +225,14 @@ class EndpointExecutor:
                 return None
             case RetryAction.REQUEUE:
                 logger.info('Requeuing message_id=%s after %d attempt(s)', envelope.message_id, attempt)
-                return ExecutionResult(ExecutionOutcome.REQUEUED)
+                return ExecutionResult(ExecutionOutcome.REQUEUED, requeue_limit=outcome.requeue_limit)
             case RetryAction.PAUSE:
                 logger.warning(
                     'Pausing listener after message_id=%s failed (%d attempt(s))', envelope.message_id, attempt
                 )
-                return ExecutionResult(ExecutionOutcome.PAUSED, outcome.pause_duration)
+                return ExecutionResult(
+                    ExecutionOutcome.PAUSED, outcome.pause_duration, requeue_limit=outcome.requeue_limit
+                )
             case _ as unreachable:  # pragma: no cover
                 assert_never(unreachable)
 

@@ -35,11 +35,9 @@ def policies_have_deferred_terminal(policies: Sequence[ErrorPolicy]) -> bool:
     return any(stage.action in DEFERRED_TERMINAL_ACTIONS for policy in policies for stage in policy.stages)
 
 
-def _reject_multi_attempt(max_attempts: int) -> None:
-    validate_max_attempts(max_attempts)
-    if max_attempts > 1:
-        msg = f'requeue/pause fire once; max_attempts must be 1, got {max_attempts}'
-        raise ValueError(msg)
+def _validate_optional_budget(max_attempts: int | None) -> None:
+    if max_attempts is not None:
+        validate_max_attempts(max_attempts)
 
 
 class _ErrorActionBuilder(ActionBuilder['ErrorPolicy']):
@@ -47,12 +45,13 @@ class _ErrorActionBuilder(ActionBuilder['ErrorPolicy']):
 
     __slots__ = ()
 
-    def requeue(self, max_attempts: int = 1) -> ErrorPolicy:
-        _reject_multi_attempt(max_attempts)
-        return self._seed(RetryStage(action=RetryAction.REQUEUE))
+    def requeue(self, max_attempts: int | None = None) -> ErrorPolicy:
+        _validate_optional_budget(max_attempts)
+        return self._seed(RetryStage(action=RetryAction.REQUEUE, requeue_limit=max_attempts))
 
-    def pause_processing(self, duration: timedelta) -> ErrorPolicy:
-        return self._seed(RetryStage(action=RetryAction.PAUSE, pause_duration=duration))
+    def pause_processing(self, duration: timedelta, max_attempts: int | None = None) -> ErrorPolicy:
+        _validate_optional_budget(max_attempts)
+        return self._seed(RetryStage(action=RetryAction.PAUSE, pause_duration=duration, requeue_limit=max_attempts))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -80,8 +79,10 @@ class ErrorPolicy(EscalationChain['ErrorPolicy']):
     ) -> _ErrorActionBuilder:
         return _ErrorActionBuilder(cls, None, when)
 
-    def then_requeue(self) -> Self:
-        return self._append(RetryStage(action=RetryAction.REQUEUE))
+    def then_requeue(self, max_attempts: int | None = None) -> Self:
+        _validate_optional_budget(max_attempts)
+        return self._append(RetryStage(action=RetryAction.REQUEUE, requeue_limit=max_attempts))
 
-    def then_pause_processing(self, duration: timedelta) -> Self:
-        return self._append(RetryStage(action=RetryAction.PAUSE, pause_duration=duration))
+    def then_pause_processing(self, duration: timedelta, max_attempts: int | None = None) -> Self:
+        _validate_optional_budget(max_attempts)
+        return self._append(RetryStage(action=RetryAction.PAUSE, pause_duration=duration, requeue_limit=max_attempts))

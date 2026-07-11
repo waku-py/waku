@@ -43,6 +43,8 @@ class RetryStage:
 
     Terminal stages (DISCARD/DEAD_LETTER) ignore `max_attempts` — they fire once. Retry stages own
     `max_attempts` attempts; each stage's backoff curve restarts from its own `base_delay`.
+    Deferred-terminal stages (REQUEUE/PAUSE) may carry an optional per-rule redelivery budget the
+    endpoint honors; `requeue_limit=None` inherits the endpoint's `max_requeue_attempts` bound.
     """
 
     action: RetryAction
@@ -50,6 +52,7 @@ class RetryStage:
     base_delay: float = 1.0
     max_delay: float = 60.0
     pause_duration: timedelta | None = None
+    requeue_limit: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +61,7 @@ class PolicyOutcome:
     retry_delay: float | None = None
     exhausted: bool = False
     pause_duration: timedelta | None = None
+    requeue_limit: int | None = None
 
 
 class Matchable(Protocol):
@@ -90,7 +94,12 @@ def walk_stages(stages: Sequence[RetryStage], attempt: int) -> PolicyOutcome:
             continue
         if stage.action in DEFERRED_TERMINAL_ACTIONS:
             # Disposition handed to the endpoint (re-deliver / pause); message NOT dropped.
-            return PolicyOutcome(action=stage.action, exhausted=False, pause_duration=stage.pause_duration)
+            return PolicyOutcome(
+                action=stage.action,
+                exhausted=False,
+                pause_duration=stage.pause_duration,
+                requeue_limit=stage.requeue_limit,
+            )
         # Terminal stage (DISCARD / DEAD_LETTER) — fires once, ends the chain.
         return PolicyOutcome(action=stage.action, exhausted=True)
     # Budget exhausted with no explicit terminal stage: implicit DISCARD.

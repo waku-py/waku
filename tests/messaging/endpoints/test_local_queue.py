@@ -23,11 +23,12 @@ from tests._wait import ControllableSleep, wait_until
 from tests.messaging.helpers import NOOP_EVALUATOR, NOOP_OBSERVERS, make_envelope
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Sequence
 
     import pytest
 
     from waku.application import WakuApplication
+    from waku.messaging.router import HandlerSubscriptions
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +69,54 @@ class _AlwaysFailingHandler(EventHandler[_OrderPlaced]):
         raise RuntimeError(msg)
 
 
+class _BudgetTwoError(RuntimeError): ...
+
+
+class _BudgetFourError(RuntimeError): ...
+
+
+@dataclass(frozen=True, slots=True)
+class _BudgetTwoEvent(IEvent):
+    ref: str
+
+
+@dataclass(frozen=True, slots=True)
+class _BudgetFourEvent(IEvent):
+    ref: str
+
+
+@dataclass(frozen=True, slots=True)
+class _FallbackEvent(IEvent):
+    ref: str
+
+
+class _BudgetTwoHandler(EventHandler[_BudgetTwoEvent]):
+    call_count: ClassVar[int] = 0
+
+    @override
+    async def handle(self, event: _BudgetTwoEvent, /) -> None:
+        type(self).call_count += 1
+        raise _BudgetTwoError
+
+
+class _BudgetFourHandler(EventHandler[_BudgetFourEvent]):
+    call_count: ClassVar[int] = 0
+
+    @override
+    async def handle(self, event: _BudgetFourEvent, /) -> None:
+        type(self).call_count += 1
+        raise _BudgetFourError
+
+
+class _FallbackHandler(EventHandler[_FallbackEvent]):
+    call_count: ClassVar[int] = 0
+
+    @override
+    async def handle(self, event: _FallbackEvent, /) -> None:
+        type(self).call_count += 1
+        raise ValueError
+
+
 async def _make_endpoint(
     app: WakuApplication,
     handler: type[EventHandler[_OrderPlaced]],
@@ -90,28 +139,30 @@ async def _make_endpoint(
     )
 
 
-def _evaluator_for(policy: ErrorPolicy) -> ErrorPolicyEvaluator:
-    return ErrorPolicyEvaluator(ErrorPolicyRegistry(handler_policies={}, default_policies=(policy,)))
+def _evaluator_for(*policies: ErrorPolicy) -> ErrorPolicyEvaluator:
+    return ErrorPolicyEvaluator(ErrorPolicyRegistry(handler_policies={}, default_policies=policies))
 
 
 async def _make_endpoint_with_requeue(
     app: WakuApplication,
-    handler: type[EventHandler[_OrderPlaced]],
+    subscriptions: HandlerSubscriptions,
     *,
     max_requeue_attempts: int,
     max_buffer_size: float = 100,
+    policies: Sequence[ErrorPolicy] | None = None,
 ) -> LocalQueueEndpoint:
+    resolved_policies = policies if policies is not None else (ErrorPolicy.on_any_exception().requeue(),)
     invoker = await app.container.get(HandlerPipelineInvoker)
     executor = EndpointExecutor(
         container=app.container,
-        evaluator=_evaluator_for(ErrorPolicy.on_any_exception().requeue()),
+        evaluator=_evaluator_for(*resolved_policies),
         endpoint_uri='local://test',
         invoker=invoker,
         observers=MessageObservers([]),
     )
     return LocalQueueEndpoint(
         uri='local://test',
-        handler_subscriptions={_OrderPlaced: frozenset({handler})},
+        handler_subscriptions=subscriptions,
         executor=executor,
         observers=NOOP_OBSERVERS,
         stop_timeout=0.5,
@@ -220,7 +271,11 @@ class TestLocalQueueRequeue:
             imports=[MessagingModule.register()],
             extensions=[MessagingExtension().bind(_FailingThenRecordingHandler)],
         ) as app:
-            endpoint = await _make_endpoint_with_requeue(app, _FailingThenRecordingHandler, max_requeue_attempts=5)
+            endpoint = await _make_endpoint_with_requeue(
+                app,
+                {_OrderPlaced: frozenset({_FailingThenRecordingHandler})},
+                max_requeue_attempts=5,
+            )
             await endpoint.start()
             await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='rq-1')), app.container)
             await wait_until(lambda: [e.order_id for e in _FailingThenRecordingHandler.received] == ['rq-1'])
@@ -236,7 +291,11 @@ class TestLocalQueueRequeue:
             imports=[MessagingModule.register()],
             extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
         ) as app:
-            endpoint = await _make_endpoint_with_requeue(app, _AlwaysFailingHandler, max_requeue_attempts=2)
+            endpoint = await _make_endpoint_with_requeue(
+                app,
+                {_OrderPlaced: frozenset({_AlwaysFailingHandler})},
+                max_requeue_attempts=2,
+            )
             await endpoint.start()
             with caplog.at_level(logging.WARNING, logger='waku.messaging.endpoints.local_queue'):
                 await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='poison')), app.container)
@@ -248,6 +307,50 @@ class TestLocalQueueRequeue:
         # original + 1 requeue, then dropped at the budget bound — no infinite redelivery.
         assert _AlwaysFailingHandler.call_count == 2
         assert 'budget exhausted' in caplog.text.lower()
+
+    @staticmethod
+    async def test_per_rule_budget_overrides_endpoint_bound_with_fallback() -> None:
+        _BudgetTwoHandler.call_count = 0
+        _BudgetFourHandler.call_count = 0
+        _FallbackHandler.call_count = 0
+
+        async with create_test_app(
+            imports=[MessagingModule.register()],
+            extensions=[MessagingExtension().bind(_BudgetTwoHandler, _BudgetFourHandler, _FallbackHandler)],
+        ) as app:
+            subscriptions: HandlerSubscriptions = {
+                _BudgetTwoEvent: frozenset({_BudgetTwoHandler}),
+                _BudgetFourEvent: frozenset({_BudgetFourHandler}),
+                _FallbackEvent: frozenset({_FallbackHandler}),
+            }
+            endpoint = await _make_endpoint_with_requeue(
+                app,
+                subscriptions,
+                max_requeue_attempts=7,
+                policies=(
+                    ErrorPolicy.on_exception(_BudgetTwoError).requeue(max_attempts=2),
+                    ErrorPolicy.on_exception(_BudgetFourError).requeue(max_attempts=4),
+                    ErrorPolicy.on_any_exception().requeue(),
+                ),
+            )
+            await endpoint.start()
+            await endpoint.dispatch(make_envelope(_BudgetTwoEvent(ref='b2')), app.container)
+            await endpoint.dispatch(make_envelope(_BudgetFourEvent(ref='b4')), app.container)
+            await endpoint.dispatch(make_envelope(_FallbackEvent(ref='fb')), app.container)
+            await wait_until(
+                lambda: (
+                    _BudgetTwoHandler.call_count == 2
+                    and _BudgetFourHandler.call_count == 4
+                    and _FallbackHandler.call_count == 7
+                ),
+            )
+            for _ in range(10):
+                await checkpoint()
+            await endpoint.stop()
+
+        assert _BudgetTwoHandler.call_count == 2  # per-rule budget bounds well under the endpoint's 7
+        assert _BudgetFourHandler.call_count == 4  # a different per-rule budget honored independently
+        assert _FallbackHandler.call_count == 7  # budget-less rule falls back to max_requeue_attempts
 
 
 class TestLocalQueuePause:

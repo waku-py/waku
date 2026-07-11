@@ -82,9 +82,10 @@ class _DepsProvider(Provider):
 
 
 class _StubExecutor(EndpointExecutor):
-    def __init__(self, *, return_value: ExecutionOutcome) -> None:
+    def __init__(self, *, return_value: ExecutionOutcome, requeue_limit: int | None = None) -> None:
         # Bypass parent __init__: tests don't exercise real dispatch.
         self.return_value = return_value
+        self.requeue_limit = requeue_limit
         self.calls = 0
 
     @override
@@ -96,7 +97,7 @@ class _StubExecutor(EndpointExecutor):
         on_result: object = None,
     ) -> ExecutionResult:
         self.calls += 1
-        return ExecutionResult(outcome=self.return_value, pause_duration=None)
+        return ExecutionResult(outcome=self.return_value, pause_duration=None, requeue_limit=self.requeue_limit)
 
 
 def _receiver(
@@ -219,6 +220,38 @@ class TestDurableInboxReceiverProcess:
             await receiver.stop()
 
         assert len(inbox.dead_lettered) == 1
+
+    @staticmethod
+    async def test_per_rule_budget_dead_letters_below_endpoint_bound() -> None:
+        inbox = FakeInboxStore()
+        async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.REQUEUED, requeue_limit=2)
+            receiver = _receiver(container, executor, max_requeue_attempts=5, max_buffer_size=1_000)
+            envelope = make_envelope(_Event(kind='BudgetTwo'))
+
+            await receiver.start()
+            fresh = await receiver.persist(envelope, frozenset([_Handler]))
+            await receiver.enqueue(envelope, fresh)
+            await wait_until(lambda: len(inbox.dead_lettered) == 1)
+            await receiver.stop()
+
+        assert executor.calls == 2  # per-rule budget dead-letters below the endpoint's 5
+
+    @staticmethod
+    async def test_distinct_per_rule_budget_honored_independently() -> None:
+        inbox = FakeInboxStore()
+        async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.REQUEUED, requeue_limit=4)
+            receiver = _receiver(container, executor, max_requeue_attempts=5, max_buffer_size=1_000)
+            envelope = make_envelope(_Event(kind='BudgetFour'))
+
+            await receiver.start()
+            fresh = await receiver.persist(envelope, frozenset([_Handler]))
+            await receiver.enqueue(envelope, fresh)
+            await wait_until(lambda: len(inbox.dead_lettered) == 1)
+            await receiver.stop()
+
+        assert executor.calls == 4  # a different per-rule budget honored independently of the endpoint's 5
 
 
 class _ObservingExecutor(EndpointExecutor):

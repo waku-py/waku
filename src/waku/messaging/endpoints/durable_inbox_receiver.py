@@ -174,7 +174,13 @@ class DurableInboxReceiver:
             destination = handler_destination(handler_type)
             result = await self._executor.execute(envelope, handler_type, on_result=on_result)
             if result.outcome in DEFERRED_TERMINAL_OUTCOMES:
-                await self._enact_redelivery(envelope, destination, frozenset({handler_type}), result.pause_duration)
+                await self._enact_redelivery(
+                    envelope,
+                    destination,
+                    frozenset({handler_type}),
+                    result.pause_duration,
+                    result.requeue_limit,
+                )
             else:
                 self._requeue_counts.pop((envelope.message_id, destination), None)
                 await self._finalize(envelope, destination, result.outcome)
@@ -185,11 +191,13 @@ class DurableInboxReceiver:
         destination: str,
         handler_types: frozenset[HandlerType],
         pause_duration: timedelta | None,
+        requeue_limit: int | None,
     ) -> None:
+        limit = requeue_limit if requeue_limit is not None else self._max_requeue_attempts
         key = (envelope.message_id, destination)
         count = self._requeue_counts.get(key, 0) + 1
         await self._record_requeue_attempt(envelope, destination)
-        if count >= self._max_requeue_attempts:
+        if count >= limit:
             self._requeue_counts.pop(key, None)
             await self._dead_letter_poison(envelope, destination, count)
             return  # budget exhausted → DLQ

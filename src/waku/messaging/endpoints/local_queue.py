@@ -119,13 +119,19 @@ class LocalQueueEndpoint(Endpoint):
         for handler_type in self._handler_subscriptions.get(type(envelope.payload), ()):
             result = await self._executor.execute(envelope, handler_type, on_result=on_result)
             if result.outcome in DEFERRED_TERMINAL_OUTCOMES:
-                await self._enact_redelivery(envelope, result.pause_duration)
+                await self._enact_redelivery(envelope, result.pause_duration, result.requeue_limit)
             else:
                 self._delivery_counts.pop(envelope.message_id, None)
 
-    async def _enact_redelivery(self, envelope: MessageEnvelope[Any], pause_duration: timedelta | None) -> None:
+    async def _enact_redelivery(
+        self,
+        envelope: MessageEnvelope[Any],
+        pause_duration: timedelta | None,
+        requeue_limit: int | None,
+    ) -> None:
+        limit = requeue_limit if requeue_limit is not None else self._max_requeue_attempts
         delivered = self._delivery_counts.get(envelope.message_id, 1)
-        if delivered >= self._max_requeue_attempts:
+        if delivered >= limit:
             self._delivery_counts.pop(envelope.message_id, None)
             logger.warning('Requeue budget exhausted for message_id=%s; dropping', envelope.message_id)
             return  # PAUSE shares this bound — no re-pause at the limit (no livelock)
