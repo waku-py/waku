@@ -29,11 +29,12 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.errors.executor import ErrorPolicyEvaluator, PolicyOutcome
-    from waku.messaging.observability.observer import MessageObservers
+    from waku.messaging.observability.observer import MessageObservers, ObserverPlan
     from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 
 __all__ = [
     'EndpointExecutor',
+    'EndpointExecutorFactory',
     'ExecutionOutcome',
     'ExecutionResult',
 ]
@@ -252,3 +253,46 @@ class EndpointExecutor:
                 logger.exception('Failed to write dead letter entry for message_id=%s', envelope.message_id)
                 return False
             return True
+
+
+class EndpointExecutorFactory:
+    """Single construction seam for EndpointExecutor across the live, listener, and recovery paths.
+
+    Captures the app-scope collaborators once so every URI's executor shares identical deadline
+    (default_execution_timeout) and clock (now) semantics; only the URI (and its observers) varies.
+    """
+
+    __slots__ = ('_cache', '_container', '_default_execution_timeout', '_evaluator', '_invoker', '_now', '_plan')
+
+    def __init__(
+        self,
+        *,
+        container: AsyncContainer,
+        evaluator: ErrorPolicyEvaluator,
+        invoker: HandlerPipelineInvoker,
+        plan: ObserverPlan,
+        default_execution_timeout: timedelta | None,
+        now: Now,
+    ) -> None:
+        self._container = container
+        self._evaluator = evaluator
+        self._invoker = invoker
+        self._plan = plan
+        self._default_execution_timeout = default_execution_timeout
+        self._now = now
+        self._cache: dict[str, EndpointExecutor] = {}
+
+    def for_uri(self, endpoint_uri: str) -> EndpointExecutor:
+        executor = self._cache.get(endpoint_uri)
+        if executor is None:
+            executor = EndpointExecutor(
+                container=self._container,
+                evaluator=self._evaluator,
+                endpoint_uri=endpoint_uri,
+                invoker=self._invoker,
+                observers=self._plan.for_endpoint(endpoint_uri),
+                default_execution_timeout=self._default_execution_timeout,
+                now=self._now,
+            )
+            self._cache[endpoint_uri] = executor
+        return executor

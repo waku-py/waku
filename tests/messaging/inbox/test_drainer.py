@@ -5,9 +5,12 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 from uuid import uuid4
 
+import anyio.lowlevel
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku.di import object_
+from waku.messaging import EndpointDefaults, MessagingConfig, MessagingExtension, MessagingModule
 from waku.messaging._identifiers import EndpointUri, HandlerDestination  # noqa: PLC2701
 from waku.messaging.contracts.event import IEvent
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
@@ -15,10 +18,13 @@ from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.handler import EventHandler
 from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.inbox._destination import handler_destination  # noqa: PLC2701
-from waku.messaging.inbox.drainer import InboxDrainer
+from waku.messaging.inbox.config import InboxConfig
+from waku.messaging.inbox.drainer import InboxDrainer, build_inbox_drainer
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 from waku.messaging.transport.decomposition import encode_metadata, encode_payload
+from waku.serialization.codec import PayloadCodec
+from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests.messaging.helpers import FakeUoW, RecordingDeadLetterStore, make_codec, make_envelope
@@ -388,3 +394,55 @@ async def test_drain_crash_recovery_keyed_on_scheme_qualified_source_uri() -> No
     assert factory_calls == ['rabbitmq://orders']
     assert executor.calls == [(entry.message_type, _RecordingHandler)]
     assert inbox.entries[entry.id, entry.destination].status is InboxStatus.HANDLED
+
+
+@dataclass(frozen=True, kw_only=True)
+class _DrainSignal(IEvent):
+    ref: str
+
+
+class _DrainCheckpointHandler(EventHandler[_DrainSignal]):
+    # execution_timeout unset (MISSING) → inherits the 0s endpoint_defaults deadline the factory captures.
+    completed: ClassVar[list[str]] = []
+
+    @override
+    async def handle(self, message: _DrainSignal, /) -> None:
+        await anyio.lowlevel.checkpoint()
+        _DrainCheckpointHandler.completed.append(message.ref)
+
+
+async def test_build_inbox_drainer_executor_enforces_config_deadline() -> None:
+    fake_inbox = FakeInboxStore()
+    inbox_config = InboxConfig(store=lambda: fake_inbox)
+    config = MessagingConfig(
+        endpoint_defaults=EndpointDefaults(execution_timeout=timedelta()),
+        inbox=inbox_config,
+    )
+    async with create_test_app(
+        imports=[MessagingModule.register(config)],
+        extensions=[MessagingExtension().bind(_DrainCheckpointHandler)],
+        providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+    ) as app:
+        codec = await app.container.get(PayloadCodec)
+        envelope = make_envelope(_DrainSignal(ref='r-1'))
+        entry = InboxEntry(
+            id=envelope.message_id,
+            payload=encode_payload(envelope, codec),
+            message_type=envelope.message_type,
+            source_uri=EndpointUri('rabbitmq://orders'),
+            destination=handler_destination(_DrainCheckpointHandler),
+            owner_id=None,
+            status=InboxStatus.INCOMING,
+            correlation_id=envelope.correlation_id,
+            causation_id=envelope.causation_id,
+            metadata_=encode_metadata(envelope),
+        )
+        fake_inbox.entries[entry.id, entry.destination] = entry
+
+        drainer = await build_inbox_drainer(app.container, inbox_config)
+        await drainer.drain_once()
+
+    # Robust outcome regardless of whether the manual drain or the background recovery worker acted first:
+    # both share the factory-built executor, so the 0s deadline cancels the handler and the row is deleted.
+    assert _DrainCheckpointHandler.completed == []  # cancelled at the checkpoint before it could record
+    assert (entry.id, entry.destination) not in fake_inbox.entries  # FAILED_NO_POLICY → delete

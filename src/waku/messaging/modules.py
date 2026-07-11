@@ -45,7 +45,7 @@ from waku.messaging.endpoints.base import (
 )
 from waku.messaging.endpoints.durable_inbox_receiver import DurableInboxReceiver, build_durable_inbox_receiver
 from waku.messaging.endpoints.durable_local_queue import DurableLocalQueueEndpoint
-from waku.messaging.endpoints.executor import EndpointExecutor
+from waku.messaging.endpoints.executor import EndpointExecutorFactory
 from waku.messaging.endpoints.external import ExternalEndpoint
 from waku.messaging.endpoints.inline import InlineEndpoint
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
@@ -403,6 +403,25 @@ def _build_transport_registry(config: MessagingConfig, merged: tuple[MergedBroke
     return TransportRegistry(transports, external_mappers=external_mappers)
 
 
+def _build_endpoint_executor_factory(
+    container: AsyncContainer,
+    evaluator: ErrorPolicyEvaluator,
+    invoker: HandlerPipelineInvoker,
+    plan: ObserverPlan,
+    config: MessagingConfig,
+    now: Now,
+) -> EndpointExecutorFactory:
+    # Factory function so dishka introspects the signature, not the class __init__ (see _build_transport_registry).
+    return EndpointExecutorFactory(
+        container=container,
+        evaluator=evaluator,
+        invoker=invoker,
+        plan=plan,
+        default_execution_timeout=config.endpoint_defaults.execution_timeout,
+        now=now,
+    )
+
+
 def _build_message_type_registry(
     registry: MessageRegistry,
     config: MessagingConfig,
@@ -467,14 +486,13 @@ def _create_envelope_codec() -> PayloadCodec:
 def _build_router(
     routing_table: RoutingTable,
     container: AsyncContainer,
-    evaluator: ErrorPolicyEvaluator,
-    invoker: HandlerPipelineInvoker,
+    factory: EndpointExecutorFactory,
     config: MessagingConfig,
     now: Now,
     plan: ObserverPlan,
 ) -> MessageRouter:
     endpoints_by_uri = {
-        entry.uri: _create_endpoint(entry, routing_table, container, evaluator, invoker, config, now, plan)
+        entry.uri: _create_endpoint(entry, routing_table, container, factory, config, now, plan)
         for entry in routing_table.entries
         if isinstance(entry, LocalQueueEntry) or entry.send is not None
     }
@@ -487,12 +505,11 @@ def _build_router(
     )
 
 
-def _create_endpoint(  # noqa: PLR0913, PLR0917 -- one construction-site param per endpoint collaborator
+def _create_endpoint(
     entry: MergedBrokerEndpoint | LocalQueueEntry,
     routing_table: RoutingTable,
     container: AsyncContainer,
-    evaluator: ErrorPolicyEvaluator,
-    invoker: HandlerPipelineInvoker,
+    factory: EndpointExecutorFactory,
     config: MessagingConfig,
     now: Now,
     plan: ObserverPlan,
@@ -501,15 +518,7 @@ def _create_endpoint(  # noqa: PLR0913, PLR0917 -- one construction-site param p
     if isinstance(entry, MergedBrokerEndpoint):
         return ExternalEndpoint(uri=entry.uri, partition_by=entry.partition_by, observers=observers)
 
-    executor = EndpointExecutor(
-        container=container,
-        evaluator=evaluator,
-        endpoint_uri=entry.uri,
-        invoker=invoker,
-        observers=observers,
-        default_execution_timeout=config.endpoint_defaults.execution_timeout,
-        now=now,
-    )
+    executor = factory.for_uri(entry.uri)
     subscriptions = routing_table.endpoint_subscriptions.get(entry.uri, {})
     effective_mode = _effective_mode(entry, config)  # resolve MISSING before the match
     match effective_mode:
@@ -628,6 +637,7 @@ class MessageRegistryAggregator(RegistryAggregator['MessagingExtension', Message
 
         evaluator = ErrorPolicyEvaluator(registry=error_policy_registry)
         registry.add_provider(owning_module, object_(evaluator))
+        registry.add_provider(owning_module, singleton(EndpointExecutorFactory, _build_endpoint_executor_factory))
 
         sending_registry = _build_sending_failure_registry(merged, self._config)
         registry.add_provider(owning_module, object_(sending_registry))
@@ -847,7 +857,7 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
         for transport in registry.transports():
             await transport.start()
 
-    async def _wire_listeners(self, app: 'WakuApplication', registry: TransportRegistry) -> None:  # noqa: PLR0914
+    async def _wire_listeners(self, app: 'WakuApplication', registry: TransportRegistry) -> None:
         inbox = self._config.inbox
         if inbox is None:
             return
@@ -855,24 +865,12 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
         codec = await app.container.get(PayloadCodec)
         type_registry = await app.container.get(MessageTypeRegistry)
         message_registry = await app.container.get(MessageRegistry)
-        evaluator = await app.container.get(ErrorPolicyEvaluator)
-        invoker = await app.container.get(HandlerPipelineInvoker)
-        messaging_config = await app.container.get(MessagingConfig)
-        now = await app.container.get(Now)
-        plan = await app.container.get(ObserverPlan)
+        factory = await app.container.get(EndpointExecutorFactory)
         for ep in merged:
             if ep.listen is None:
                 continue
             uri = ep.uri
-            executor = EndpointExecutor(
-                container=app.container,
-                evaluator=evaluator,
-                endpoint_uri=uri,
-                invoker=invoker,
-                observers=plan.for_endpoint(uri),
-                default_execution_timeout=messaging_config.endpoint_defaults.execution_timeout,
-                now=now,
-            )
+            executor = factory.for_uri(uri)
             max_requeue = (
                 self._config.endpoint_defaults.max_requeue_attempts
                 if ep.listen.max_requeue_attempts is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
@@ -895,9 +893,7 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
             subscription = registry.listener_for(uri).subscribe(
                 queue, listener.consume, mapper=registry.mapper_for(uri)
             )
-            backpressure = self._wire_listener_backpressure(
-                ep.listen, messaging_config, subscription, listener, receiver
-            )
+            backpressure = self._wire_listener_backpressure(ep.listen, self._config, subscription, listener, receiver)
             # start() last: the on_drain low-watermark hook needs the gate; nothing flows until transport.start().
             await receiver.start(on_drain=backpressure.observe_depth if backpressure is not None else None)
             self._receivers.append(receiver)

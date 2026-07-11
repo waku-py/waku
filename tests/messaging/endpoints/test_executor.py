@@ -5,7 +5,7 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import anyio
 import anyio.lowlevel
@@ -23,7 +23,7 @@ from waku.messaging import (
     RequestHandler,
 )
 from waku.messaging.config import DeadLetterConfig
-from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome
+from waku.messaging.endpoints.executor import EndpointExecutor, EndpointExecutorFactory, ExecutionOutcome
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.registry import ErrorPolicyRegistry
@@ -501,6 +501,45 @@ class TestHandlerExecutionTimeout:
             outcome = (await executor.execute(envelope, _UnboundedHandler)).outcome
 
         assert outcome is ExecutionOutcome.SUCCESS
+
+
+@dataclass(frozen=True, slots=True)
+class _CheckpointCommand(IRequest[None]):
+    ref: str = ''
+
+
+class _CheckpointHandler(RequestHandler[_CheckpointCommand, None]):
+    # execution_timeout intentionally unset (MISSING) → inherits the executor's default deadline.
+    completed: ClassVar[list[str]] = []
+
+    @override
+    async def handle(self, request: _CheckpointCommand, /) -> None:
+        await anyio.lowlevel.checkpoint()
+        _CheckpointHandler.completed.append(request.ref)
+
+
+async def test_factory_gives_live_and_recovery_uris_identical_deadline_and_clock() -> None:
+    config = MessagingConfig(endpoint_defaults=EndpointDefaults(execution_timeout=timedelta()))
+    async with create_test_app(
+        imports=[MessagingModule.register(config)],
+        extensions=[MessagingExtension().bind(_CheckpointHandler)],
+    ) as app:
+        factory = await app.container.get(EndpointExecutorFactory)
+        live = factory.for_uri('local://orders')
+        recovery = factory.for_uri('rabbitmq://orders')
+
+        past = datetime.now(tz=UTC) - timedelta(seconds=1)
+        for executor in (live, recovery):
+            expired = make_envelope(_CheckpointCommand(ref='expired'), expires_at=past)
+            discarded = (await executor.execute(expired, _CheckpointHandler)).outcome
+            assert discarded is ExecutionOutcome.DISCARDED  # clock: past expires_at → discard on both URIs
+
+            fresh = make_envelope(_CheckpointCommand(ref='fresh'))
+            deadline = (await executor.execute(fresh, _CheckpointHandler)).outcome
+            assert deadline is ExecutionOutcome.FAILED_NO_POLICY  # same 0s default deadline fires on both URIs
+
+        assert factory.for_uri('local://orders') is live  # memoization: cache-hit returns the same instance
+        assert _CheckpointHandler.completed == []  # the deadline cancelled the handler before it recorded
 
 
 @dataclass(frozen=True, slots=True)
