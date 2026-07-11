@@ -58,10 +58,9 @@ OOP and functional approaches.
 !!! tip "The Critter Stack for Python"
     In .NET, [Marten](https://martendb.io/) (event sourcing) and
     [Wolverine](https://wolverine.netlify.app/) (messaging) form the
-    **[Critter Stack](https://jeremydmiller.com/critter-stack/)** — a seamless combination for
-    building event-driven systems. waku brings this vision to Python: the
-    [event sourcing](index.md) and [messaging](../messaging/index.md) modules are designed to
-    work together as a unified stack.
+    **[Critter Stack](https://jeremydmiller.com/critter-stack/)**. waku brings this pairing to
+    Python: the event sourcing and [messaging](../messaging/index.md) modules are built to
+    work together as one stack.
 
 ??? info "Design lineage"
 

@@ -83,7 +83,7 @@ from waku.messaging.behaviors.transactional import TransactionalBehavior
 
 MessagingModule.register(
     MessagingConfig(
-        pipeline_behaviors=[TransactionalBehavior],
+        global_pipeline_behaviors=[TransactionalBehavior],
     ),
 )
 ```
@@ -143,7 +143,7 @@ class InfraModule: ...
         InfraModule,
         MessagingModule.register(
             MessagingConfig(
-                pipeline_behaviors=[TransactionalBehavior],
+                global_pipeline_behaviors=[TransactionalBehavior],
             ),
         ),
     ],

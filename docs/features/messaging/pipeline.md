@@ -70,7 +70,7 @@ from waku.messaging import MessagingConfig, MessagingModule
 
 MessagingModule.register(
     MessagingConfig(
-        pipeline_behaviors=[LoggingBehavior, ValidationBehavior],
+        global_pipeline_behaviors=[LoggingBehavior, ValidationBehavior],
     ),
 )
 ```
@@ -138,7 +138,7 @@ Each event handler gets its own pipeline invocation — behaviors run independen
 
 Behaviors execute in this order:
 
-1. **Global behaviors** (from `MessagingConfig.pipeline_behaviors`, in order)
+1. **Global behaviors** (from `MessagingConfig.global_pipeline_behaviors`, in order)
 2. **Per-message-type behaviors** (from `bind` `behaviors=[...]`, in order)
 3. **Handler**
 

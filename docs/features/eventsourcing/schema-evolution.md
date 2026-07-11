@@ -142,6 +142,14 @@ version it upgrades.
 When reading an event stored at version *N*, the `UpcasterChain` applies every upcaster whose
 `from_version >= N` in order, producing data compatible with the current version.
 
+!!! warning "Register an upcaster for every shape change"
+    The chain is sparse and keyed only by `from_version` — a version with no upcaster
+    legitimately means "no shape change here", so waku **cannot** detect a *missing* one. If
+    you add, rename, or remove a field without registering a matching upcaster (and bumping
+    `version`), old stored events are read against the new schema with no transformation:
+    a silent read-time misbehavior, not a startup error. Bump `version` and add an upcaster
+    for every real change; use `noop` only when the payload genuinely did not change.
+
 ### Built-in Helpers
 
 | Helper         | Signature                                   | Description                                              |

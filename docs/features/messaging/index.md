@@ -44,15 +44,14 @@ graph LR
 waku's messaging subsystem is inspired by [Wolverine](https://wolverine.netlify.app/) (.NET)
 and integrates with the module system, dependency injection, and extension lifecycle. The
 method semantics (`invoke` / `send` / `publish`), endpoint model, and error policy system all
-follow Wolverine's proven architecture — with deliberate adaptations for Python's ecosystem.
+follow Wolverine's architecture — with deliberate adaptations for Python's ecosystem.
 
 !!! tip "The Critter Stack for Python"
     In .NET, [Wolverine](https://wolverine.netlify.app/) (messaging) and
     [Marten](https://martendb.io/) (event sourcing) form the
-    **[Critter Stack](https://jeremydmiller.com/critter-stack/)** — a seamless combination for
-    building event-driven systems. waku brings this vision to Python: the
-    [messaging](index.md) and [event sourcing](../eventsourcing/index.md) modules are
-    designed to work together as a unified stack.
+    **[Critter Stack](https://jeremydmiller.com/critter-stack/)** for building event-driven
+    systems. waku brings this pairing to Python: the messaging and
+    [event sourcing](../eventsourcing/index.md) modules are built to work together as one stack.
 
 ### Differences from Wolverine
 
@@ -167,14 +166,32 @@ class AppModule:
 
 ### MessagingConfig
 
-| Option                | Type                                                 | Default | Description                                                                    |
-|-----------------------|------------------------------------------------------|---------|--------------------------------------------------------------------------------|
-| `pipeline_behaviors`  | `Sequence[type[IPipelineBehavior]]`                  | `()`    | Global pipeline behaviors applied to every message                             |
-| `endpoints`           | `Sequence[EndpointEntry]`                            | `()`    | Available message endpoints (see [Routing](routing.md))                        |
-| `routing`             | `Sequence[RouteDescriptor | ModuleRouteDescriptor]` | `()`    | Route descriptors mapping messages to endpoints (see [Routing](routing.md))    |
-| `default_error_policies` | `Sequence[ErrorPolicy]`                           | `()`    | Default error policies for endpoint workers (see [Error Handling](error-handling.md)) |
-| `dead_letter`         | `DeadLetterConfig | None`                            | `None`  | Dead-letter configuration — store, retention, auto-replay (see [Error Handling](error-handling.md)) |
-| `outbox`              | `OutboxConfig | None`                                | `None`  | Outbox subsystem config — store, transport, relay (see [Outbox](outbox.md))    |
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `global_pipeline_behaviors` | `Sequence[type[IPipelineBehavior[Any, Any]]]` | `()` | Always-run behaviors composed (outer) around every handler |
+| `endpoints` | `Sequence[EndpointEntry]` | `()` | Message endpoints — local queues, external, listen (see [Routing](routing.md)) |
+| `routing` | `Sequence[RouteDescriptor \| ModuleRouteDescriptor]` | `()` | Route descriptors mapping message types to endpoint URIs |
+| `endpoint_defaults` | `EndpointDefaults` | `EndpointDefaults()` | Per-endpoint fallback knobs; each is shadowed by an explicit per-endpoint/handler value (see below) |
+| `dead_letter` | `DeadLetterConfig \| None` | `None` | Dead-letter store, retention, auto-replay (see [Error Handling](error-handling.md)) |
+| `outbox` | `OutboxConfig \| None` | `None` | Outbox store + relay (see [Outbox](outbox.md)) |
+| `inbox` | `InboxConfig \| None` | `None` | Durable inbox store + drainer for external listeners |
+| `message_identities` | `Mapping[type[IMessage], str \| MessageIdentity]` | `{}` | Third-party type-name overrides for types you can't annotate; default path is the ClassVar |
+| `audited_members` | `Mapping[type[IMessage], Sequence[str]]` | `{}` | Third-party audit-member overrides; names must be annotated fields |
+| `observers` | `Sequence[type[IMessageObserver]]` | `()` | Global message observers (fire on every message incl. `invoke()`), DI-constructed at app scope |
+| `transports` | `Mapping[str, TransportFactory]` | `{}` | Transport factories keyed by URI scheme; each invoked once at bootstrap |
+
+`endpoint_defaults` nests the per-endpoint fallback knobs, each shadowed by an explicit
+per-endpoint or per-handler setting:
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `mode` | `EndpointMode` | `EndpointMode.BUFFERED` | Fallback mode for `local_queue` entries without an explicit `mode`; `DURABLE` makes all local queues durable |
+| `error_policies` | `Sequence[ErrorPolicy]` | `()` | Fallback handler error policies; a handler's own `error_policies` shadow these per-exception |
+| `sending_failure_policies` | `Sequence[SendingFailurePolicy]` | `()` | Fallback send-failure policies; a destination's own shadow these per-exception |
+| `circuit_breaker` | `CircuitBreakerConfig \| None` | `None` | Fallback per-endpoint circuit breaker; an endpoint's own breaker shadows this |
+| `backpressure` | `BufferingLimits \| None` | `None` | Fallback in-memory watermark for inbound listeners; a listener's own `backpressure` shadows this |
+| `execution_timeout` | `timedelta \| None` | `timedelta(seconds=60)` | Default-on 60s per-handler deadline; `None` disables. Per-handler `execution_timeout` overrides |
+| `max_requeue_attempts` | `int` | `5` | Fallback requeue/pause budget for `local_queue` entries without an explicit value |
 
 Passing `None` (or no argument) to `MessagingModule.register()` uses the defaults:
 

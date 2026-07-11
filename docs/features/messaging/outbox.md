@@ -192,7 +192,7 @@ outbox_tables = bind_outbox_tables(metadata)  # (1)!
 ## Transport
 
 `ITransport` (`ISender + IListener`) is the wire-adapter interface. It receives an already-encoded
-body (`dict[str, Any]`) and a `WireMetadata` struct carrying correlation headers — no serialization
+body (`dict[str, Any]`) and an `EnvelopeMetadata` struct carrying correlation headers — no serialization
 logic belongs here. The transport's only job is to put the bytes on the wire and activate consumers.
 
 The shipped adapter for RabbitMQ is `FastStreamRabbitTransport`, configured via the
@@ -214,50 +214,40 @@ zero-argument callable. The framework invokes it once during DI bootstrap to con
 `FastStreamRabbitTransport`, which opens two RabbitMQ connections: one for publishing (outbox
 relay) and one for consuming (inbound listener).
 
-Support for additional brokers (Kafka, NATS, etc.) is on the roadmap. To integrate a broker not
-yet shipped, implement `ITransport` from `waku.messaging.transport.interfaces` — the port
-accepts a pre-encoded `body: dict[str, Any]` and a `WireMetadata` instance and must not perform
-any envelope deserialization.
+waku ships RabbitMQ and Kafka transports; see [Envelope Mapper](envelope-mapper.md) for Kafka
+setup and per-broker wire formats. To integrate a broker not yet shipped (NATS, etc.), implement
+`ITransport` from `waku.messaging.transport.interfaces` — the port accepts a pre-encoded
+`body: dict[str, Any]` and an `EnvelopeMetadata` instance and must not perform any envelope
+deserialization.
 
 ---
 
 ## Envelope Serialization
 
-Messages are serialized before being stored in the outbox and deserialized by the relay before
-transport dispatch. waku provides `JsonEnvelopeSerializer` as the default implementation:
+At persist time the `ExternalEndpoint` **decomposes** the envelope rather than blob-serializing it.
+The message payload is encoded to a JSON-compatible `dict` by the `PayloadCodec` (an adaptix
+`Retort` plus the upcaster chain, provided automatically by `MessagingModule`), and the
+non-payload envelope fields — correlation/causation ids, message type, version, scheduling, and
+user headers — are captured as `EnvelopeMetadata`. Both are written to the outbox row (payload
+blob + `metadata_` + typed columns) inside the handler's transaction.
 
-```python linenums="1"
-from waku.messaging.transport import IEnvelopeSerializer, JsonEnvelopeSerializer
-```
+The relay dispatches the stored payload and metadata to the transport **verbatim** — the body was
+encoded once, at persist time, and is never re-serialized on the way out.
 
-### Auto-configured Serializer
+The default codec produces JSON and needs no configuration. What you *can* customise is the
+**broker wire format** — which metadata field lands in which broker header, and how a foreign
+producer's payload is read back — via a per-transport or per-endpoint `IEnvelopeMapper`. See
+**[Envelope Mapper](envelope-mapper.md)** for the mapper interface, the default Wolverine-style
+header layout, and Kafka/RabbitMQ examples.
 
-When `envelope_serializer` is `None` in `MessagingConfig` (the default), waku auto-creates a
-`JsonEnvelopeSerializer` using all registered message types as the type registry. This means
-every message type bound via `MessagingExtension.bind()` is automatically serializable.
+### Message type resolution
 
-### Custom Serializer
-
-Provide a custom serializer class or factory for special requirements (e.g., Protobuf, Avro):
-
-```python linenums="1"
-OutboxConfig(
-    store=SqlAlchemyOutboxStore,
-    envelope_serializer=MyProtobufSerializer,
-)
-```
-
-### Message Type Resolution
-
-`JsonEnvelopeSerializer` identifies message types by their fully-qualified Python name
-(e.g., `myapp.orders.events.OrderPlaced`). The type registry maps these names to Python classes
-for deserialization. If the relay encounters an unknown type, it raises `ValueError` with a
-list of registered types.
-
-!!! tip "Stable type names"
-    Renaming or moving a message class changes its fully-qualified name, which breaks
-    deserialization of in-flight outbox messages. Plan module structure carefully, or provide a
-    custom `envelope_serializer` with explicit type name mapping.
+A message's wire type name comes from its **identity**: an explicit alias declared on the message
+via its `message_identity` ClassVar (a plain `str`, or a `MessageIdentity(name=..., version=...)`
+value) or supplied via `MessagingConfig.message_identities`, falling back to the fully-qualified
+Python name (e.g. `myapp.orders.events.OrderPlaced`). Renaming or moving a message class changes
+its fully-qualified name and breaks resolution of in-flight messages stored under the old name —
+pin an explicit identity for types you expect to refactor.
 
 ---
 
@@ -406,3 +396,4 @@ With this setup:
 - **[Error Handling](error-handling.md)** — retry policies and dead letter queues
 - **[Transactions](transactions.md)** — unit of work and transactional pipeline behavior
 - **[Message Bus](index.md)** — setup, interfaces, and dispatch methods
+- **[Envelope Mapper](envelope-mapper.md)** — broker wire format and header layout

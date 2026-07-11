@@ -73,7 +73,7 @@ Catch-up projections poll the event store, process events in batches, and checkp
     `project()` **must** be idempotent.
 
 Error handling is configured per-projection via `bind_catch_up_projection()` (defaults to
-`ErrorPolicy.STOP` with no retries — see [Error Policies](#error-policies)).
+`ProjectionErrorPolicy.STOP` with no retries — see [Error Policies](#error-policies)).
 
 Each catch-up projection also has two optional hooks:
 
@@ -87,7 +87,7 @@ Each catch-up projection also has two optional hooks:
 Register catch-up projections via `bind_catch_up_projection()`:
 
 ```python linenums="1"
-from waku.eventsourcing.projection.interfaces import ErrorPolicy
+from waku.eventsourcing.projection.interfaces import ProjectionErrorPolicy
 
 (
     EventSourcingExtension()
@@ -97,7 +97,7 @@ from waku.eventsourcing.projection.interfaces import ErrorPolicy
     )
     .bind_catch_up_projection(
         AccountSummaryProjection,
-        error_policy=ErrorPolicy.SKIP,
+        error_policy=ProjectionErrorPolicy.SKIP,
         max_retry_attempts=3,
     )
 )
@@ -154,8 +154,8 @@ validated at startup; unregistered types raise `EventSourcingConfigError`.
 
 | Policy | Behavior |
 |--------|----------|
-| `ErrorPolicy.STOP` | Stop the projection (default) |
-| `ErrorPolicy.SKIP` | Skip failed batch and continue; calls `on_skip()` hook before advancing |
+| `ProjectionErrorPolicy.STOP` | Stop the projection (default) |
+| `ProjectionErrorPolicy.SKIP` | Skip failed batch and continue; calls `on_skip()` hook before advancing |
 
 Both policies retry first when `max_retry_attempts > 0`. The policy only applies after
 retries are exhausted.
@@ -199,6 +199,12 @@ Use `rebuild(projection_name)` to reprocess all events from the beginning. This 
 `teardown()` on the projection, resets the checkpoint to `-1` (nothing processed), and
 replays every event through the projection.
 
+!!! note "Gap detection during rebuild"
+    `rebuild()` always runs with gap detection disabled, regardless of the projection's
+    `gap_detection_enabled` setting. A gap in historical events is permanent, not a
+    concurrent writer still committing — holding back the checkpoint for one would stall
+    the rebuild forever, so it processes every committed event past the gap instead.
+
 !!! tip
     Run the projection runner as a separate process (e.g., a dedicated worker or sidecar)
     so it does not block your main application.
@@ -211,12 +217,12 @@ configured through `bind_catch_up_projection()`:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `projection` | *(required)* | The `ICatchUpProjection` class |
-| `error_policy` | `ErrorPolicy.STOP` | What to do after retries are exhausted |
+| `error_policy` | `ProjectionErrorPolicy.STOP` | What to do after retries are exhausted |
 | `max_retry_attempts` | `0` | Retry count before applying the error policy |
 | `base_retry_delay_seconds` | `10.0` | Initial delay between retries (exponential backoff) |
 | `max_retry_delay_seconds` | `300.0` | Maximum delay cap for retries |
 | `batch_size` | `100` | Maximum events per batch |
-| `gap_detection_enabled` | `False` | Enable contiguity checks (see [Gap Detection](#gap-detection)) |
+| `gap_detection_enabled` | `True` | Contiguity checks against concurrent-writer gaps (see [Gap Detection](#gap-detection)); disable for single-writer/single-partition deployments |
 | `gap_timeout_seconds` | `10.0` | Seconds before a gap is considered permanent and skipped |
 
 The runner's polling interval is configured globally via `PollingConfig` (passed to the runner
@@ -235,7 +241,7 @@ When multiple writers append to the event store concurrently, a projection may r
 with non-contiguous global positions — a gap appears when a concurrent transaction has not
 yet committed. Advancing the checkpoint past a gap would permanently skip that event.
 
-Enable gap detection per-projection via `bind_catch_up_projection()`:
+Gap detection is on by default; tune the timeout via `bind_catch_up_projection()`:
 
 ```python
 (
@@ -243,7 +249,6 @@ Enable gap detection per-projection via `bind_catch_up_projection()`:
     .bind_aggregate(...)
     .bind_catch_up_projection(
         AccountSummaryProjection,
-        gap_detection_enabled=True,
         gap_timeout_seconds=10.0,
     )
 )
@@ -255,8 +260,9 @@ persists beyond `gap_timeout_seconds`, it is assumed permanent (e.g., a rolled-b
 transaction) and skipped.
 
 !!! info "Single-writer deployments"
-    If your event store has a single writer process, gaps cannot occur and gap detection
-    adds unnecessary overhead. Leave it disabled (the default).
+    If your event store has a single writer process (or a projection reads a single partition),
+    gaps cannot occur and gap detection adds unnecessary overhead. Pass
+    `gap_detection_enabled=False` to `bind_catch_up_projection()` to opt out.
 
 ## Distributed Locking
 
