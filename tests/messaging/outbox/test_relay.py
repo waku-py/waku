@@ -408,7 +408,7 @@ class TestOutboxRelay:
         config = OutboxRelayConfig(
             polling=PollingConfig(poll_interval_min_seconds=0.01),
             recovery_interval=timedelta(hours=1),
-            stop_timeout=0.05,
+            stop_timeout=timedelta(seconds=0.05),
         )
 
         with caplog.at_level(logging.WARNING, logger='waku.messaging.outbox.relay'):

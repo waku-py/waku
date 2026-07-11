@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from waku.eventsourcing.exceptions import SnapshotConfigNotFoundError
-from waku.eventsourcing.snapshot.migration import _EMPTY_CHAIN, SnapshotMigrationChain
+from waku.eventsourcing.snapshot.migration import EMPTY_CHAIN, SnapshotMigrationChain
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -21,7 +21,7 @@ __all__ = [
 class SnapshotConfig:
     strategy: ISnapshotStrategy
     schema_version: int = 1
-    migration_chain: SnapshotMigrationChain = field(default=_EMPTY_CHAIN)
+    migration_chain: SnapshotMigrationChain = field(default=EMPTY_CHAIN)
 
 
 class SnapshotConfigRegistry:

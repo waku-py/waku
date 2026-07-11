@@ -6,7 +6,7 @@ import anyio.lowlevel
 
 from waku.messaging.circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitState
 from waku.messaging.circuit_breaker.breaker import PassthroughCircuitBreaker
-from waku.messaging.endpoints.executor import ExecutionOutcome
+from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.pauser import PauseRegistry, PauseToken
 
 from tests._wait import ControllableSleep, wait_until

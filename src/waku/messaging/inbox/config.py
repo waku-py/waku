@@ -28,7 +28,7 @@ class InboxConfig:
     scheduled_poll_interval: timedelta = timedelta(seconds=5)
     """Cadence of SCHEDULED→INCOMING promotion (separate timer from ``recovery_interval``; Wolverine ``ScheduledJobPollingTime`` parity)."""
     owner_id: str = ''
-    stop_timeout: float = 10.0
+    stop_timeout: timedelta = timedelta(seconds=10)
 
     def resolve_owner_id(self) -> str:
         if self.owner_id:

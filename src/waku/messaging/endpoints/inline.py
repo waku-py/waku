@@ -42,11 +42,3 @@ class InlineEndpoint(Endpoint):
     async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None:
         for handler_type in self._handler_subscriptions.get(type(envelope.payload), ()):
             await self._executor.execute(envelope, handler_type)
-
-    @override
-    async def start(self) -> None:
-        return
-
-    @override
-    async def stop(self) -> None:
-        return

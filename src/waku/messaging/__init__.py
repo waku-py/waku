@@ -10,7 +10,7 @@ from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
 from waku.messaging.contracts.request import IRequest, RequestT
 from waku.messaging.delivery import DeliveryOptions
 from waku.messaging.endpoints.base import EndpointMode, external_endpoint, listen, local_queue
-from waku.messaging.endpoints.executor import ExecutionOutcome
+from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors import ErrorPolicy, IDeadLetterStore, RetryAction, RetryStage
 from waku.messaging.handler import EventHandler, MessageHandler, RequestHandler
 from waku.messaging.inbox.backpressure import BufferingLimits

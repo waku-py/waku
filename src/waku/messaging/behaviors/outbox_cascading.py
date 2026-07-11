@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any
 from typing_extensions import override
 
 from waku.messaging.contracts.pipeline import IPipelineBehavior
-from waku.messaging.endpoints.external import ExternalEndpoint
 
 # IMessageBus + MessageRouter are DI-injected -> runtime imports (dishka introspects __init__ type
 # hints at container-build time); the TC001 noqa keeps ruff from moving them under TYPE_CHECKING.
@@ -67,7 +66,7 @@ class OutboxCascadingBehavior(IPipelineBehavior[Any, Any]):
 
     def _is_durable(self, pending: PendingMessage, /) -> bool:
         endpoints = self._router.resolve(type(pending.message))
-        return any(isinstance(endpoint, ExternalEndpoint) for endpoint in endpoints)
+        return any(endpoint.is_outbox_backed for endpoint in endpoints)
 
     async def _dispatch_durable(self, pending: PendingMessage, /) -> None:
         try:

@@ -8,7 +8,7 @@ from typing_extensions import override
 
 from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.contracts.handler import HandlerType
-from waku.messaging.endpoints.executor import ExecutionOutcome
+from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers, ObserverPlan
 
 

@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import anyio
 from typing_extensions import override
 
@@ -44,7 +46,7 @@ class _FakeAgent(PollingAgent):
         self.fail_once = False
         self.target = 3
         self.reached = anyio.Event()
-        super().__init__(stop_timeout=1.0)
+        super().__init__(stop_timeout=timedelta(seconds=1))
 
     @override
     def _make_pace(self) -> FixedPace:

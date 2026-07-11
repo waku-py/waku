@@ -4,8 +4,9 @@ from typing import TYPE_CHECKING, Any
 
 from dishka.exceptions import NoFactoryError
 
-from waku.messaging.behaviors.transactional import _TransactionDepth, run_in_transaction
-from waku.messaging.endpoints.executor import ExecutionOutcome
+from waku._internal.transaction import TransactionDepth
+from waku.messaging.behaviors.transactional import run_in_transaction
+from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.exceptions import HandlerNotFound
 from waku.messaging.observability.observer import INVOKE_DESTINATION, MessageObservers
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
@@ -81,7 +82,7 @@ class MessageDispatcher:
                 await self._observed_invoke(scope, envelope, handler_type)
 
         uow = await self._resolve_uow(scope)
-        depth = await scope.get(_TransactionDepth)
+        depth = await scope.get(TransactionDepth)
         await run_in_transaction(uow, depth, _run_all)
 
     async def _observed_invoke(

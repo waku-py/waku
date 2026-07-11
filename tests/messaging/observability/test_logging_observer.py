@@ -9,7 +9,7 @@ import pytest
 from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.contracts.handler import HandlerType
 from waku.messaging.contracts.message import IMessage
-from waku.messaging.endpoints.executor import ExecutionOutcome
+from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.observability.audit import Audit, AuditedMemberResolver
 from waku.messaging.observability.logging_observer import LoggingMessageObserver
 from waku.messaging.observability.observer import INVOKE_DESTINATION

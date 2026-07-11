@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 import anyio
 from typing_extensions import override
 
-from waku.messaging.endpoints.executor import ExecutionOutcome
+from waku.messaging.endpoints.outcome import ExecutionOutcome
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable

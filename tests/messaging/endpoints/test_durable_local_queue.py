@@ -13,7 +13,8 @@ from waku._internal.clock import utc_now  # noqa: PLC2701
 from waku.messages import IEvent
 from waku.messaging.circuit_breaker import CircuitBreakerConfig
 from waku.messaging.endpoints.durable_local_queue import DurableLocalQueueEndpoint
-from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
+from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionResult
+from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.interfaces import IInboxStore

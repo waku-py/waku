@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import enum
 import logging
 import time
 from dataclasses import dataclass
@@ -13,6 +12,7 @@ from dishka.exceptions import NoFactoryError
 from waku._internal.clock import utc_now
 from waku._internal.sentinel import MISSING
 from waku.messaging.context import message_context_scope
+from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.errors.executor import FailureContext
 from waku.messaging.errors.policy import RetryAction
@@ -36,23 +36,10 @@ if TYPE_CHECKING:
 __all__ = [
     'EndpointExecutor',
     'EndpointExecutorFactory',
-    'ExecutionOutcome',
     'ExecutionResult',
 ]
 
 logger = logging.getLogger(__name__)
-
-
-@enum.unique
-class ExecutionOutcome(enum.Enum):
-    SUCCESS = 'SUCCESS'
-    DEAD_LETTERED = 'DEAD_LETTERED'
-    DEAD_LETTER_FAILED = 'DEAD_LETTER_FAILED'  # DLQ write failed; durable row survives for recovery
-    DISCARDED = 'DISCARDED'
-    FAILED_NO_POLICY = 'FAILED_NO_POLICY'  # failed with no recovery: endpoint path = no policy matched; invoke path
-    # = policies never consulted, exception propagates to the caller
-    REQUEUED = 'REQUEUED'  # deferred-terminal: endpoint re-delivers
-    PAUSED = 'PAUSED'  # deferred-terminal: re-deliver + pause listener for policy's pause_duration
 
 
 # Outcomes the endpoint re-delivers instead of finalizing.

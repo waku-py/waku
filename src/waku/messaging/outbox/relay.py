@@ -56,7 +56,7 @@ class OutboxRelayConfig:
     recovery_interval: timedelta = _DEFAULT_RECOVERY_INTERVAL
     retention: timedelta | None = None
     cleanup_interval: timedelta = _DEFAULT_CLEANUP_INTERVAL
-    stop_timeout: float = 10.0
+    stop_timeout: timedelta = timedelta(seconds=10)
 
 
 def build_relay_default_policy(config: OutboxRelayConfig) -> SendingFailurePolicy:

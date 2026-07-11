@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from waku.eventsourcing.contracts.stream import StreamId
 
 __all__ = [
+    'EMPTY_CHAIN',
     'ISnapshotMigration',
     'SnapshotMigrationChain',
     'migrate_snapshot_or_discard',
@@ -95,4 +96,4 @@ def migrate_snapshot_or_discard(
     )
 
 
-_EMPTY_CHAIN = SnapshotMigrationChain(())
+EMPTY_CHAIN = SnapshotMigrationChain(())

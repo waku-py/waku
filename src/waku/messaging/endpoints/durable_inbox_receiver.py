@@ -32,7 +32,8 @@ if TYPE_CHECKING:
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome
+    from waku.messaging.endpoints.executor import EndpointExecutor
+    from waku.messaging.endpoints.outcome import ExecutionOutcome
     from waku.messaging.partition import PartitionKeyExtractor
     from waku.messaging.pauser import PauseToken
 

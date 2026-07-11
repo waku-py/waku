@@ -14,7 +14,8 @@ from waku.di import object_
 from waku.messages import IEvent
 from waku.messaging import EndpointDefaults, MessagingConfig, MessagingExtension, MessagingModule
 from waku.messaging._identifiers import EndpointUri, HandlerDestination  # noqa: PLC2701
-from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
+from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionResult
+from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore  # noqa: PLC2701
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.handler import EventHandler

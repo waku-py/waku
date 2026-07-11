@@ -57,7 +57,7 @@ class DeadLetterConfig:
         poll_interval_step_seconds=1.0,
         poll_interval_jitter_factor=0.1,
     )
-    stop_timeout: float = 10.0
+    stop_timeout: timedelta = timedelta(seconds=10)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

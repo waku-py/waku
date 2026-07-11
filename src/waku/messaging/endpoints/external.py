@@ -37,6 +37,11 @@ class ExternalEndpoint(Endpoint):
         self._partition_by = partition_by
         self._observers = observers
 
+    @property
+    @override
+    def is_outbox_backed(self) -> bool:
+        return True
+
     @override
     async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None:
         group_id, sequence_number = await resolve_and_allocate(envelope, self._partition_by, scope)
@@ -56,11 +61,3 @@ class ExternalEndpoint(Endpoint):
         )
         await outbox_store.save_batch([message])
         await self._observers.sent(envelope, self._uri)
-
-    @override
-    async def start(self) -> None:
-        pass
-
-    @override
-    async def stop(self) -> None:
-        pass

@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 from typing_extensions import override
 
-from waku.messaging.errors.sqla.tables import dead_letter_table
+from waku.messaging.errors.sqla.tables import dead_letter_insert_values, dead_letter_table
 from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 from waku.messaging.inbox.sqla.tables import inbox_entries_table
@@ -85,17 +85,7 @@ class SqlAlchemyInboxStore(IInboxStore):
         # Delete only this handler's row; sibling fan-out rows for the same message_id continue processing.
         await self._session.execute(delete(_t).where(_t.c.id == entry_id).where(_t.c.destination == destination))
         await self._session.execute(
-            insert(dead_letter_table).values(
-                id=dead_letter.id,
-                message_type=dead_letter.message_type,
-                payload=dead_letter.payload,
-                destination=dead_letter.destination,
-                correlation_id=dead_letter.correlation_id,
-                causation_id=dead_letter.causation_id,
-                error_type=dead_letter.error_type,
-                error_message=dead_letter.error_message,
-                retry_count=dead_letter.retry_count,
-            ),
+            insert(dead_letter_table).values(**dead_letter_insert_values(dead_letter)),
         )
 
     @override

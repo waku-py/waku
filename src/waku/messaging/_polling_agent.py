@@ -14,6 +14,8 @@ from typing_extensions import override
 from waku._internal.adaptive_interval import AdaptiveInterval
 
 if TYPE_CHECKING:
+    from datetime import timedelta
+
     from waku._internal.polling import PollingConfig
 
 __all__ = [
@@ -101,7 +103,7 @@ class PollingAgent(ABC):
 
     placement: ClassVar[Placement]
 
-    def __init__(self, *, stop_timeout: float) -> None:
+    def __init__(self, *, stop_timeout: timedelta) -> None:
         self._stop_timeout = stop_timeout
         self._pace = self._make_pace()
         self._shutdown_event = anyio.Event()
@@ -125,10 +127,14 @@ class PollingAgent(ABC):
         if self._worker_task is None:
             return
         try:
-            with anyio.fail_after(self._stop_timeout):
+            with anyio.fail_after(self._stop_timeout.total_seconds()):
                 await self._worker_task
         except TimeoutError:
-            logger.warning('%s did not terminate within %.1fs, cancelling', type(self).__name__, self._stop_timeout)
+            logger.warning(
+                '%s did not terminate within %.1fs, cancelling',
+                type(self).__name__,
+                self._stop_timeout.total_seconds(),
+            )
             self._worker_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._worker_task

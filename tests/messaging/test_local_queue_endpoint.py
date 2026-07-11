@@ -28,8 +28,9 @@ from waku.messaging import (
 )
 from waku.messaging.circuit_breaker import CircuitBreakerConfig
 from waku.messaging.endpoints.base import local_queue
-from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
+from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionResult
 from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
+from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers
 from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
 from waku.messaging.router import route

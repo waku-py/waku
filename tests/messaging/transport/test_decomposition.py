@@ -179,6 +179,34 @@ class TestRebuildEnvelope:
         assert restored.expires_at == expires.astimezone(UTC)
 
     @staticmethod
+    def test_envelope_metadata_round_trips_all_fields() -> None:
+        registry = _make_registry(OrderPlaced)
+        codec = _make_codec()
+        scheduled = datetime(2026, 8, 1, 9, 30, tzinfo=UTC)
+        expires = datetime(2026, 8, 1, 18, 45, tzinfo=UTC)
+        env = _make_envelope(
+            message_version=7,
+            headers={'trace': 'abc'},
+            group_id='g-1',
+            scheduled_time=scheduled,
+            expires_at=expires,
+        )
+
+        restored = rebuild_envelope(encode_payload(env, codec), envelope_metadata_of(env), codec, registry)
+
+        assert restored.message_id == env.message_id
+        assert restored.correlation_id == env.correlation_id
+        assert restored.causation_id == env.causation_id
+        assert restored.message_type == env.message_type
+        assert restored.message_version == 7
+        assert restored.timestamp == env.timestamp.astimezone(UTC)
+        assert restored.headers == {'trace': 'abc'}
+        assert restored.group_id == 'g-1'
+        assert restored.payload == env.payload
+        assert restored.scheduled_time == scheduled
+        assert restored.expires_at == expires
+
+    @staticmethod
     def test_preserves_non_uuid_correlation_and_causation() -> None:
         registry = _make_registry(OrderPlaced)
         codec = _make_codec()

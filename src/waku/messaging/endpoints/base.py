@@ -154,6 +154,14 @@ class Endpoint(ABC):
         """
         return False
 
+    @property
+    def is_outbox_backed(self) -> bool:
+        """Whether dispatching to this endpoint joins the caller's transactional outbox scope.
+
+        A cascade write then commits atomically with the handler. Only ``ExternalEndpoint`` overrides.
+        """
+        return False
+
     @abstractmethod
     async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None:
         """Dispatch an envelope to this endpoint.
@@ -163,11 +171,11 @@ class Endpoint(ABC):
         """
         ...
 
-    @abstractmethod
-    async def start(self) -> None: ...
+    async def start(self) -> None:  # noqa: B027
+        """Start background processing. Default no-op; buffered/durable endpoints may override."""
 
-    @abstractmethod
-    async def stop(self) -> None: ...
+    async def stop(self) -> None:  # noqa: B027
+        """Stop background processing. Default no-op; buffered/durable endpoints may override."""
 
     async def pause(self) -> PauseToken | None:  # noqa: B027
         """Pause processing. Default no-op; buffered/durable endpoints may override."""

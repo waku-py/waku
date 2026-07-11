@@ -9,6 +9,7 @@ import pytest
 from typing_extensions import override
 
 from waku import module
+from waku._internal.transaction import TransactionDepth  # noqa: PLC2701
 from waku.di import object_
 from waku.exceptions import ImproperlyConfiguredError
 from waku.factory import ContainerConfig, WakuFactory
@@ -21,7 +22,7 @@ from waku.messaging import (
     MessagingModule,
     RequestHandler,
 )
-from waku.messaging.behaviors.transactional import TransactionalBehavior, _TransactionDepth  # noqa: PLC2701
+from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
@@ -41,7 +42,7 @@ class TestTransactionalBehavior:
     @staticmethod
     async def test_commits_on_success() -> None:
         uow = FakeUoW()
-        behavior = TransactionalBehavior(uow, _TransactionDepth())
+        behavior = TransactionalBehavior(uow, TransactionDepth())
 
         result = await behavior.handle('msg', call_next=_ok)
 
@@ -52,7 +53,7 @@ class TestTransactionalBehavior:
     @staticmethod
     async def test_rolls_back_on_handler_error() -> None:
         uow = FakeUoW()
-        behavior = TransactionalBehavior(uow, _TransactionDepth())
+        behavior = TransactionalBehavior(uow, TransactionDepth())
 
         with pytest.raises(ValueError, match='handler broke'):
             await behavior.handle('msg', call_next=_fail)
@@ -63,7 +64,7 @@ class TestTransactionalBehavior:
     @staticmethod
     async def test_rolls_back_on_commit_error() -> None:
         uow = FakeUoW(commit_error=RuntimeError('commit failed'))
-        behavior = TransactionalBehavior(uow, _TransactionDepth())
+        behavior = TransactionalBehavior(uow, TransactionDepth())
 
         with pytest.raises(RuntimeError, match='commit failed'):
             await behavior.handle('msg', call_next=_ok)
@@ -73,7 +74,7 @@ class TestTransactionalBehavior:
     @staticmethod
     async def test_logs_and_reraises_when_rollback_fails_after_handler_error(caplog: Any) -> None:
         uow = FakeUoW(rollback_error=RuntimeError('rollback exploded'))
-        behavior = TransactionalBehavior(uow, _TransactionDepth())
+        behavior = TransactionalBehavior(uow, TransactionDepth())
 
         with (
             caplog.at_level(logging.ERROR, logger='waku.messaging.behaviors.transactional'),
@@ -86,7 +87,7 @@ class TestTransactionalBehavior:
     @staticmethod
     async def test_logs_and_reraises_when_rollback_fails_after_commit_error(caplog: Any) -> None:
         uow = FakeUoW(commit_error=RuntimeError('commit boom'), rollback_error=OSError('rollback boom'))
-        behavior = TransactionalBehavior(uow, _TransactionDepth())
+        behavior = TransactionalBehavior(uow, TransactionDepth())
 
         with (
             caplog.at_level(logging.ERROR, logger='waku.messaging.behaviors.transactional'),
@@ -101,7 +102,7 @@ class TestNestingAwareTransactional:
     @staticmethod
     async def test_single_level_commits_once() -> None:
         uow = FakeUoW()
-        depth = _TransactionDepth()
+        depth = TransactionDepth()
         behavior = TransactionalBehavior(uow, depth)
 
         await behavior.handle('msg', call_next=_ok)
@@ -111,7 +112,7 @@ class TestNestingAwareTransactional:
     @staticmethod
     async def test_nested_behaviors_share_one_commit() -> None:
         uow = FakeUoW()
-        depth = _TransactionDepth()
+        depth = TransactionDepth()
         outer = TransactionalBehavior(uow, depth)
         inner = TransactionalBehavior(uow, depth)
 
@@ -126,7 +127,7 @@ class TestNestingAwareTransactional:
     @staticmethod
     async def test_inner_failure_rolls_back_once_at_outer() -> None:
         uow = FakeUoW()
-        depth = _TransactionDepth()
+        depth = TransactionDepth()
         outer = TransactionalBehavior(uow, depth)
         inner = TransactionalBehavior(uow, depth)
 
@@ -142,7 +143,7 @@ class TestNestingAwareTransactional:
     @staticmethod
     async def test_outer_commit_forced_rollback_when_caught_inner_failure() -> None:
         uow = FakeUoW()
-        depth = _TransactionDepth()
+        depth = TransactionDepth()
         outer = TransactionalBehavior(uow, depth)
         inner = TransactionalBehavior(uow, depth)
 

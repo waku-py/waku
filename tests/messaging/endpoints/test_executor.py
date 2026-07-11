@@ -23,7 +23,8 @@ from waku.messaging import (
     RequestHandler,
 )
 from waku.messaging.config import DeadLetterConfig
-from waku.messaging.endpoints.executor import EndpointExecutor, EndpointExecutorFactory, ExecutionOutcome
+from waku.messaging.endpoints.executor import EndpointExecutor, EndpointExecutorFactory
+from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.registry import ErrorPolicyRegistry

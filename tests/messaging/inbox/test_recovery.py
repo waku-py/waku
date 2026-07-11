@@ -55,7 +55,7 @@ class TestInboxRecoveryWorker:
             store=FakeInboxStore,
             stuck_threshold=timedelta(seconds=0),
             recovery_interval=timedelta(milliseconds=10),
-            stop_timeout=1.0,
+            stop_timeout=timedelta(seconds=1),
         )
         async with make_async_container(_RecoveryDepsProvider(store)) as container:
             worker = InboxRecoveryWorker(container=container, config=config)
@@ -68,7 +68,7 @@ class TestInboxRecoveryWorker:
 
     @staticmethod
     async def test_worker_can_be_stopped_when_never_started() -> None:
-        config = InboxConfig(store=FakeInboxStore, stop_timeout=0.1)
+        config = InboxConfig(store=FakeInboxStore, stop_timeout=timedelta(seconds=0.1))
         async with make_async_container(_RecoveryDepsProvider(FakeInboxStore())) as container:
             worker = InboxRecoveryWorker(container=container, config=config)
             await worker.stop()

@@ -6,6 +6,7 @@ from typing_extensions import override
 from waku._internal.clock import Now, utc_now
 from waku._internal.retort import default_retort
 from waku._internal.sentinel import MISSING
+from waku._internal.transaction import TransactionDepth
 from waku.di import (
     AnyOf,
     AsyncContainer,
@@ -28,7 +29,7 @@ from waku.extensions import (
     OnModuleConfigure,
     RegistryAggregator,
 )
-from waku.messaging.behaviors.transactional import TransactionalBehavior, _TransactionDepth
+from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.circuit_breaker.breaker import CircuitBreaker
 from waku.messaging.config import DeadLetterConfig, MessagingConfig
 from waku.messaging.context import MessageContext, get_message_context
@@ -85,7 +86,7 @@ from waku.messaging.pipeline.policies import (
     OutboxDrainPolicy,
     TransactionalPolicy,
     UserGlobalPolicy,
-    _config_requires_uow,
+    config_requires_uow,
 )
 from waku.messaging.pipeline.policy import BehaviorPlan, BehaviorPolicyExtension, IBehaviorPolicy, build_behavior_plan
 from waku.messaging.registry import MessageRegistry
@@ -134,7 +135,7 @@ class MessagingModule:
         providers: list[Provider] = [
             scoped(WithParents[IMessageBus], MessageBus),  # ty:ignore[not-subscriptable]
             scoped(AnyOf[IOutgoingMessages, IOutgoingMessagesFrames], OutgoingMessages),  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
-            scoped(_TransactionDepth),  # always registered: gating on config misses per-handler TransactionalBehavior
+            scoped(TransactionDepth),  # always registered: gating on config misses per-handler TransactionalBehavior
             object_(config_, provided_type=MessagingConfig),
             object_(utc_now, provided_type=Now),
             singleton(MessageTypeRegistry, _build_message_type_registry),
@@ -233,11 +234,18 @@ class MessagingExtension(OnModuleConfigure):
     def bind(self, *args: 'type[IMessage | MessageHandler[Any, Any]]') -> Self:
         if not args:
             return self
-        if issubclass(args[0], MessageHandler):
+        first: object = args[0]
+        if not isinstance(first, type):
+            msg = f'bind() expects a message or handler class as its first argument, got {first!r}'
+            raise ImproperlyConfiguredError(msg)
+        if issubclass(first, MessageHandler):
             for handler in cast('tuple[type[MessageHandler[Any, Any]], ...]', args):
                 self._registry.handler_map.bind(_infer_message_type(handler), handler)
             return self
-        message_type = args[0]
+        if not issubclass(first, IMessage):
+            msg = f'bind({first.__name__}, ...): first argument must be an IMessage or MessageHandler subclass'
+            raise ImproperlyConfiguredError(msg)
+        message_type = first
         handlers = cast('tuple[type[MessageHandler[Any, Any]], ...]', args[1:])
         if not handlers:
             msg = 'bind(message_type, ...) requires at least one handler type'
@@ -734,7 +742,7 @@ class _UnitOfWorkValidationExtension(OnContainerBuilt):
 
     async def _uow_required(self, app: 'WakuApplication') -> bool:
         # Durable infra or global TransactionalBehavior needs a UoW even without local handlers.
-        if _config_requires_uow(self._config):
+        if config_requires_uow(self._config):
             return True
         plan = await app.container.get(BehaviorPlan)
         registry = await app.container.get(MessageRegistry)

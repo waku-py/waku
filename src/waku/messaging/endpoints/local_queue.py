@@ -9,7 +9,8 @@ from typing_extensions import override
 
 from waku.messaging.circuit_breaker.breaker import CircuitBreaker, PassthroughCircuitBreaker
 from waku.messaging.endpoints.base import Endpoint
-from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES, ExecutionOutcome
+from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES
+from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.endpoints.worker import MemoryStreamWorker
 from waku.messaging.exceptions import RequeueBudgetExceededError
 

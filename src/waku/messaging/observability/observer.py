@@ -7,7 +7,7 @@ from typing import Any, Final
 
 from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.contracts.handler import HandlerType
-from waku.messaging.endpoints.executor import ExecutionOutcome
+from waku.messaging.endpoints.outcome import ExecutionOutcome
 
 __all__ = ['INVOKE_DESTINATION', 'IMessageObserver', 'MessageObservers', 'ObserverPlan']
 

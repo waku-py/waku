@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 
-from waku.messaging.errors.sqla.tables import dead_letter_table
+from waku.messaging.errors.sqla.tables import dead_letter_insert_values, dead_letter_table
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 from waku.messaging.outbox.sqla.tables import OUTBOX_IDEMPOTENCY_CONSTRAINT, outbox_messages_table
@@ -134,17 +134,7 @@ class SqlAlchemyOutboxStore(IOutboxStore):
             .values(status=OutboxStatus.DEAD_LETTERED.value, last_error=entry.error_message),
         )
         await self._session.execute(
-            insert(dead_letter_table).values(
-                id=entry.id,
-                message_type=entry.message_type,
-                payload=entry.payload,
-                destination=entry.destination,
-                correlation_id=entry.correlation_id,
-                causation_id=entry.causation_id,
-                error_type=entry.error_type,
-                error_message=entry.error_message,
-                retry_count=entry.retry_count,
-            ),
+            insert(dead_letter_table).values(**dead_letter_insert_values(entry)),
         )
 
     async def mark_failed(self, message_id: UUID, error: str, next_retry_at: datetime | None = None) -> None:

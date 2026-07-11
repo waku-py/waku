@@ -192,3 +192,16 @@ class TestBindInfersMessageType:
 
         with pytest.raises(ImproperlyConfiguredError, match='Cannot infer message type'):
             MessagingExtension().bind(_AnyHandler)
+
+    @staticmethod
+    def test_bind_rejects_non_class_first_argument() -> None:
+        with pytest.raises(ImproperlyConfiguredError, match='orders'):
+            MessagingExtension().bind('orders', _Handler)  # type: ignore[call-overload]
+
+    @staticmethod
+    def test_bind_rejects_non_message_first_argument() -> None:
+        class _NotAMessage:
+            pass
+
+        with pytest.raises(ImproperlyConfiguredError, match='_NotAMessage'):
+            MessagingExtension().bind(_NotAMessage, _Handler)  # type: ignore[arg-type]

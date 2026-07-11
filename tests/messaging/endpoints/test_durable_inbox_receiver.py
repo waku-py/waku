@@ -12,7 +12,8 @@ from typing_extensions import override
 from waku.messages import IEvent
 from waku.messaging.circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitState
 from waku.messaging.endpoints.durable_inbox_receiver import DurableInboxReceiver
-from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionOutcome, ExecutionResult
+from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionResult
+from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.interfaces import IInboxStore
