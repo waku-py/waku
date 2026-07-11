@@ -184,5 +184,5 @@ scoped(IUnitOfWork, MongoUnitOfWork)
 
 - **[Pipeline Behaviors](pipeline.md)** — defining, registering, and ordering behaviors
 - **[Routing & Endpoints](routing.md)** — route messages to background endpoints
-- **[Outbox & Transport](outbox.md)** — outbox uses UoW for transactional persistence
+- **[Outbox](outbox.md)** — outbox uses UoW for transactional persistence
 - **[Message Bus](index.md)** — setup, interfaces, and complete example

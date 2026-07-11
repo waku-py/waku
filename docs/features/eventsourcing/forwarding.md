@@ -288,5 +288,5 @@ commits — it drains as the local queue endpoint is worked (including on shutdo
 
 - **[Aggregates](aggregates.md)** — defining event-sourced aggregates and command handlers
 - **[Events](../messaging/events.md)** — event handlers, publishing, and cascading messages
-- **[Outbox & Transport](../messaging/outbox.md)** — durable forwarding to external brokers
+- **[Outbox](../messaging/outbox.md)** — durable forwarding to external brokers
 - **[Transactions](../messaging/transactions.md)** — the unit of work behind `same_transaction` forwarding

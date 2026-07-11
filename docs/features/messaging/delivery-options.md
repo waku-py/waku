@@ -101,4 +101,4 @@ rather than processed late.
 
 - **[Routing & Endpoints](routing.md)** — endpoint modes and how to make an endpoint durable
 - **[Message Context](context.md)** — how correlation and causation ids propagate by default
-- **[Outbox & Transport](outbox.md)** — durable delivery to external transports
+- **[Outbox](outbox.md)** — durable delivery to external transports

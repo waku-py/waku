@@ -17,6 +17,10 @@ directions: outgoing payload serialization and header projection, and incoming h
 into `EnvelopeMetadata`. Swapping the mapper lets a single transport interoperate with a foreign
 producer or consumer without touching the rest of the message bus.
 
+The transport factories themselves (`rabbit_transport`, `kafka_transport`), their disposition maps,
+and group-key ordering live on the per-broker pages — [Transport: RabbitMQ](transports/rabbitmq.md)
+and [Transport: Kafka](transports/kafka.md). This page is the mapper contract they share.
+
 ## Default wire format
 
 The built-in `DefaultKafkaEnvelopeMapper` and `DefaultRabbitEnvelopeMapper` implement
@@ -216,6 +220,8 @@ MessagingModule.register(
 
 ## Further reading
 
-- **[Outbox & Transport](outbox.md)** — transactional outbox, relay, and transport setup
-- **[Routing & Endpoints](routing.md)** — how messages are routed to transports
-- **[Dedicated Consumer](dedicated-consumer.md)** — running a consumer-only Waku node
+- **[Transport: RabbitMQ](transports/rabbitmq.md)** — RabbitMQ transport setup and disposition
+- **[Transport: Kafka](transports/kafka.md)** — Kafka transport setup, consumer group, and group-key ordering
+- **[Outbox](outbox.md)** — transactional outbox and relay
+- **[Routing & endpoints](routing.md)** — how messages are routed to transports
+- **[Dedicated consumer node](dedicated-consumer.md)** — running a consumer-only waku node

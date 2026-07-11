@@ -37,10 +37,6 @@ graph LR
     IPublisher -->|fan-out| H2[Event Handler B]
 ```
 
-!!! tip
-    `ISender`, `IPublisher`, and `IMessageBus` all resolve to the same message bus instance.
-    Inject only the interface you need — see [Interfaces](#interfaces) below.
-
 waku's messaging subsystem is inspired by [Wolverine](https://wolverine.netlify.app/) (.NET)
 and integrates with the module system, dependency injection, and extension lifecycle. The
 method semantics (`invoke` / `send` / `publish`), endpoint model, and error policy system all
@@ -95,55 +91,12 @@ uv add waku --extra faststream
 
 ---
 
-## Quick Start
+## Quick start
 
-Define a command, a handler, wire them into a module, and invoke:
-
-```python linenums="1"
-from dataclasses import dataclass
-
-from typing_extensions import override
-
-from waku import WakuFactory, module
-from waku.messaging import (
-    IRequest,
-    ISender,
-    MessagingExtension,
-    MessagingModule,
-    RequestHandler,
-)
-
-
-@dataclass(frozen=True, kw_only=True)
-class Greet(IRequest[str]):
-    name: str
-
-
-class GreetHandler(RequestHandler[Greet, str]):
-    @override
-    async def handle(self, request: Greet, /) -> str:
-        return f'Hello, {request.name}!'
-
-
-@module(
-    imports=[MessagingModule.register()],
-    extensions=[MessagingExtension().bind(Greet, GreetHandler)],
-)
-class AppModule:
-    pass
-
-
-async def main() -> None:
-    app = WakuFactory(AppModule).create()
-    async with app, app.container() as container:
-        sender = await container.get(ISender)
-        greeting = await sender.invoke(Greet(name='World'))
-        print(greeting)  # Hello, World!
-```
-
-That's it — register `MessagingModule` (no config needed for the simplest case), bind your
-message to a handler, and invoke. Read on for configuration, advanced dispatch methods, and
-the full feature set.
+For the smallest possible app — invoke a request, publish an event, no transports — see
+[waku as in-process mediator](../../mediator.md). The message types are covered in
+[Messages & contracts](contracts.md), and defining and binding handlers in
+[Handlers & registration](handlers.md).
 
 ---
 
@@ -164,34 +117,8 @@ class AppModule:
     pass
 ```
 
-### MessagingConfig
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `global_pipeline_behaviors` | `Sequence[type[IPipelineBehavior[Any, Any]]]` | `()` | Always-run behaviors composed (outer) around every handler |
-| `endpoints` | `Sequence[EndpointEntry]` | `()` | Message endpoints — local queues, external, listen (see [Routing](routing.md)) |
-| `routing` | `Sequence[RouteDescriptor \| ModuleRouteDescriptor]` | `()` | Route descriptors mapping message types to endpoint URIs |
-| `endpoint_defaults` | `EndpointDefaults` | `EndpointDefaults()` | Per-endpoint fallback knobs; each is shadowed by an explicit per-endpoint/handler value (see below) |
-| `dead_letter` | `DeadLetterConfig \| None` | `None` | Dead-letter store, retention, auto-replay (see [Error Handling](error-handling.md)) |
-| `outbox` | `OutboxConfig \| None` | `None` | Outbox store + relay (see [Outbox](outbox.md)) |
-| `inbox` | `InboxConfig \| None` | `None` | Durable inbox store + drainer for external listeners |
-| `message_identities` | `Mapping[type[IMessage], str \| MessageIdentity]` | `{}` | Third-party type-name overrides for types you can't annotate; default path is the ClassVar |
-| `audited_members` | `Mapping[type[IMessage], Sequence[str]]` | `{}` | Third-party audit-member overrides; names must be annotated fields |
-| `observers` | `Sequence[type[IMessageObserver]]` | `()` | Global message observers (fire on every message incl. `invoke()`), DI-constructed at app scope |
-| `transports` | `Mapping[str, TransportFactory]` | `{}` | Transport factories keyed by URI scheme; each invoked once at bootstrap |
-
-`endpoint_defaults` nests the per-endpoint fallback knobs, each shadowed by an explicit
-per-endpoint or per-handler setting:
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `mode` | `EndpointMode` | `EndpointMode.BUFFERED` | Fallback mode for `local_queue` entries without an explicit `mode`; `DURABLE` makes all local queues durable |
-| `error_policies` | `Sequence[ErrorPolicy]` | `()` | Fallback handler error policies; a handler's own `error_policies` shadow these per-exception |
-| `sending_failure_policies` | `Sequence[SendingFailurePolicy]` | `()` | Fallback send-failure policies; a destination's own shadow these per-exception |
-| `circuit_breaker` | `CircuitBreakerConfig \| None` | `None` | Fallback per-endpoint circuit breaker; an endpoint's own breaker shadows this |
-| `backpressure` | `BufferingLimits \| None` | `None` | Fallback in-memory watermark for inbound listeners; a listener's own `backpressure` shadows this |
-| `execution_timeout` | `timedelta \| None` | `timedelta(seconds=60)` | Default-on 60s per-handler deadline; `None` disables. Per-handler `execution_timeout` overrides |
-| `max_requeue_attempts` | `int` | `5` | Fallback requeue/pause budget for `local_queue` entries without an explicit value |
+`MessagingConfig` and its nested `EndpointDefaults` are documented field-by-field in the
+[Configuration reference](../../reference/configuration.md).
 
 Passing `None` (or no argument) to `MessagingModule.register()` uses the defaults:
 
@@ -451,6 +378,8 @@ async def main() -> None:
 
 | Topic                                  | Description                                          |
 |----------------------------------------|------------------------------------------------------|
+| [Messages & contracts](contracts.md)  | Message types, the envelope, and identity/versioning |
+| [Handlers & registration](handlers.md) | The handler hierarchy, binding, and per-handler config |
 | [Requests](requests.md)               | Commands, queries, and request handlers              |
 | [Events](events.md)                   | Event definitions, handlers, and publishers          |
 | [Pipeline Behaviors](pipeline.md)     | Cross-cutting middleware for request handling         |
@@ -458,7 +387,7 @@ async def main() -> None:
 | [Delivery Options & Scheduling](delivery-options.md) | Per-call metadata, scheduled send/publish, expiration |
 | [Error Handling](error-handling.md)   | Retry policies, dead letter queues, failure recovery |
 | [Resilience](resilience.md)           | Circuit breaker and backpressure for listeners       |
-| [Outbox & Transport](outbox.md)       | Transactional outbox, relay, and external transports |
+| [Outbox](outbox.md)                   | Transactional outbox, relay, and external transports |
 | [Message Context](context.md)         | Correlation tracking across message chains           |
 | [Transactions](transactions.md)       | Unit of work and transactional pipeline behavior     |
 

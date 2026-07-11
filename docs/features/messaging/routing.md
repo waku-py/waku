@@ -97,7 +97,7 @@ entry = external_endpoint('notifications')
 
 !!! warning "Required infrastructure"
     External endpoints require `outbox` in `MessagingConfig`. waku validates this at startup
-    and raises `ImproperlyConfiguredError` if missing. See [Outbox & Transport](outbox.md)
+    and raises `ImproperlyConfiguredError` if missing. See [Outbox](outbox.md)
     for the full setup.
 
 ---
@@ -326,7 +326,7 @@ class AppModule:
 - **[Delivery Options & Scheduling](delivery-options.md)** — per-call delivery metadata and scheduling
 - **[Error Handling](error-handling.md)** — retry policies and dead letter queues for endpoint workers
 - **[Resilience](resilience.md)** — circuit breaker and backpressure for endpoints
-- **[Outbox & Transport](outbox.md)** — transactional outbox and external transports
+- **[Outbox](outbox.md)** — transactional outbox and external transports
 - **[Message Bus](index.md)** — setup, interfaces, and dispatch methods
 - **[Message Context](context.md)** — correlation tracking across message chains
 - **[Pipeline Behaviors](pipeline.md)** — cross-cutting middleware for request handling

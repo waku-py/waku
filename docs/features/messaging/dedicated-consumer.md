@@ -124,7 +124,8 @@ process skeleton; the inbox wiring above is what makes it durable.
 
 ## Inbox store setup
 
-The inbox persists each consumed message before the handler runs, so a durable consumer needs three
+The inbox persists each consumed message before the handler runs. Its deduplication and per-group
+ordering model is covered in [Durable inbox & ordering](inbox.md); a durable consumer needs three
 things wired, mirroring the [outbox adapter](outbox.md#sqlalchemy-adapter):
 
 - **Bind the tables.** `bind_inbox_tables(metadata)` creates the `inbox_entries` table on your

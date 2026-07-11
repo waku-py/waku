@@ -85,8 +85,44 @@ config = MessagingConfig(
     the broker subscription. The breaker resumes on a timer, the watermark resumes on depth — and
     neither trigger lifts the other's pause. The listener resumes only once both are clear.
 
+## Sending failure policies
+
+Circuit breaker and backpressure protect the **inbound** listener. The outbound counterpart is a
+**sending failure policy**: when the outbox relay cannot hand a message to a transport, a
+`SendingFailurePolicy` decides how that send failure escalates. It is a disjoint domain from handler
+[error policies](error-handling.md) — applied by the poll-based relay, where `retry` reschedules to
+the next poll — and every chain **must end in an explicit terminal** (`discard` or
+`move_to_dead_letter`), because a retry-only chain would silently drop a persisted message on
+exhaustion.
+
+```python linenums="1"
+from waku.messaging import (
+    EndpointDefaults,
+    MessagingConfig,
+    SendingFailurePolicy,
+    external_endpoint,
+)
+
+config = MessagingConfig(
+    # Global fallback for every destination.
+    endpoint_defaults=EndpointDefaults(
+        sending_failure_policies=(SendingFailurePolicy.on_any_exception().move_to_dead_letter(),),
+    ),
+    endpoints=[
+        # A destination's own policies shadow the fallback per exception type.
+        external_endpoint(
+            'rabbitmq://orders',
+            sending_failure_policies=[
+                SendingFailurePolicy.on_exception(ConnectionError).retry(max_attempts=3).then_discard(),
+            ],
+        ),
+    ],
+)
+```
+
 ## Further reading
 
-- **[Error Handling](error-handling.md)** — per-message retry, dead letter, and replay
-- **[Routing & Endpoints](routing.md)** — endpoint types, modes, and where breakers attach
-- **[Dedicated Consumer](dedicated-consumer.md)** — a standalone listener process with full resilience
+- **[Runtime & delivery semantics](runtime.md)** — the backpressure/circuit-breaker interaction model
+- **[Error handling](error-handling.md)** — per-message retry, dead letter, and replay
+- **[Routing & endpoints](routing.md)** — endpoint types, modes, and where breakers attach
+- **[Dedicated consumer node](dedicated-consumer.md)** — a standalone listener process with full resilience

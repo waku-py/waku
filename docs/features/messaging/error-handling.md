@@ -144,6 +144,67 @@ implicit discard.
 
 ---
 
+## Execution timeout
+
+Every handler runs under a deadline. By default it is 60 seconds
+(`endpoint_defaults.execution_timeout`); a handler that overruns is cancelled and the attempt fails
+with `HandlerTimeoutError`, which escalates through the same error policy as any other failure —
+match it with `.on_exception(HandlerTimeoutError)` to retry or dead-letter a slow handler.
+
+```python linenums="1"
+from waku.messaging.exceptions import HandlerTimeoutError
+
+ErrorPolicy.on_exception(HandlerTimeoutError).retry(max_attempts=2).then_move_to_dead_letter()
+```
+
+Override the deadline per handler with the `execution_timeout` ClassVar: a `timedelta` sets its own,
+and `None` opts the handler out entirely.
+
+```python linenums="1"
+from datetime import timedelta
+
+from typing_extensions import override
+
+from waku.messaging import RequestHandler
+
+
+class GenerateReportHandler(RequestHandler[GenerateReport, Report]):
+    execution_timeout = timedelta(minutes=5)  # long job — override the 60s default
+
+    @override
+    async def handle(self, request: GenerateReport, /) -> Report:
+        ...
+```
+
+Change the app-wide default through `endpoint_defaults.execution_timeout` (see the
+[Configuration reference](../../reference/configuration.md#endpointdefaults)).
+
+---
+
+## Requeue budgets
+
+For durable and listener-backed endpoints a policy can **requeue** a failed message for redelivery
+instead of retrying it inline, or **pause the listener** before requeuing. Both are bounded by a
+requeue budget so a persistently failing message cannot loop forever:
+
+```python linenums="1"
+from datetime import timedelta
+
+from waku.messaging import ErrorPolicy
+
+# Retry inline twice, then hand the message back to the queue up to 3 times.
+ErrorPolicy.on_exception(ConnectionError).retry(max_attempts=2).then_requeue(max_attempts=3)
+
+# Or pause the listener for 30s on failure, bounded to 5 requeues.
+ErrorPolicy.on_any_exception().pause_processing(timedelta(seconds=30), max_attempts=5)
+```
+
+`requeue` and `pause_processing` are **terminal** actions — they end the chain. Their `max_attempts`
+is a **per-rule** budget; omit it and the endpoint falls back to
+`endpoint_defaults.max_requeue_attempts` (default 5), with a rule's own budget shadowing that fallback.
+
+---
+
 ## Exception Matching
 
 A policy targets a specific exception type or matches any exception. Add a `when=` predicate for
@@ -411,6 +472,6 @@ When a handler fails and no error policy matches the message type + exception co
 
 - **[Routing & Endpoints](routing.md)** — where error policies are applied (endpoint workers)
 - **[Resilience](resilience.md)** — circuit breaker and backpressure for failing or overwhelmed listeners
-- **[Outbox & Transport](outbox.md)** — transactional outbox with its own retry semantics
+- **[Outbox](outbox.md)** — transactional outbox with its own retry semantics
 - **[Transactions](transactions.md)** — unit of work and transactional pipeline behavior
 - **[Message Bus](index.md)** — setup, interfaces, and dispatch methods

@@ -244,82 +244,9 @@ framework — FastAPI, Litestar, or anything else — and you're done.
         uvicorn.run(app)
     ```
 
-=== "With module boundaries"
-
-    Modules control visibility. `InfrastructureModule` exports `IUserRepository` —
-    `UserModule` imports it. Swap the storage layer by changing one provider.
-
-    ```python title="app.py" linenums="1"
-    import asyncio
-    from typing import Protocol
-
-    from waku import WakuFactory, module
-    from waku.di import scoped, singleton
-
-
-    class IUserRepository(Protocol):
-        async def get(self, user_id: str) -> str | None: ...
-        async def save(self, user_id: str, name: str) -> None: ...
-
-
-    class InMemoryUserRepository(IUserRepository):
-        def __init__(self) -> None:
-            self._users: dict[str, str] = {}
-
-        async def get(self, user_id: str) -> str | None:
-            return self._users.get(user_id)
-
-        async def save(self, user_id: str, name: str) -> None:
-            self._users[user_id] = name
-
-
-    class UserService:
-        def __init__(self, repo: IUserRepository) -> None:
-            self._repo = repo
-
-        async def create_user(self, username: str) -> str:
-            user_id = f'user_{username}'
-            await self._repo.save(user_id, username)
-            return user_id
-
-
-    @module(
-        providers=[singleton(IUserRepository, InMemoryUserRepository)],  # (1)!
-        exports=[IUserRepository],  # (2)!
-    )
-    class InfrastructureModule:
-        pass
-
-
-    @module(
-        imports=[InfrastructureModule],  # (3)!
-        providers=[scoped(UserService)],
-    )
-    class UserModule:
-        pass
-
-
-    @module(imports=[UserModule])
-    class AppModule:
-        pass
-
-
-    async def main() -> None:
-        app = WakuFactory(AppModule).create()
-
-        async with app, app.container() as c:
-            user_service = await c.get(UserService)
-            user_id = await user_service.create_user('alice')
-            print(f'Created user with ID: {user_id}')
-
-
-    if __name__ == '__main__':
-        asyncio.run(main())
-    ```
-
-    1. `singleton(IUserRepository, InMemoryUserRepository)` — binds the interface to an implementation. Swap to a database-backed repository by changing this one provider.
-    2. Only the interface is exported — other modules depend on `IUserRepository`, never the concrete class.
-    3. `UserModule` imports `InfrastructureModule` to access the exported `IUserRepository`.
+For the full walkthrough — modules, boundaries, and framework integration — see
+[Getting Started](getting-started.md). For the smallest messaging app, see
+[waku as in-process mediator](mediator.md).
 
 ## Next steps
 

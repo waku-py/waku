@@ -1,15 +1,14 @@
 ---
-title: Outbox & Transport
-description: Transactional outbox pattern, external transports, envelope serialization, and outbox relay.
+title: Outbox
+description: The transactional outbox pattern — write-ahead persistence, envelope decomposition, and the relay.
 tags:
   - messaging
   - message-bus
   - outbox
-  - transport
   - guide
 ---
 
-# Outbox & Transport
+# Outbox
 
 When messages need to leave your process — to a message broker, another microservice, or any
 external system — you face the **dual-write problem**: if you commit a database transaction and
@@ -90,6 +89,8 @@ Transport factories are registered on `MessagingConfig.transports`, keyed by URI
 Outbox persistence concerns (`store`, `relay`) live in `OutboxConfig`:
 
 ```python linenums="1"
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from waku.messaging import (
     MessagingConfig,
     MessagingModule,
@@ -100,13 +101,18 @@ from waku.messaging import (
 from waku.messaging.outbox.sqla.store import SqlAlchemyOutboxStore
 from waku.messaging.transport.faststream import rabbit_transport
 
+
+def make_outbox_store(session: AsyncSession) -> SqlAlchemyOutboxStore:
+    return SqlAlchemyOutboxStore(session)
+
+
 MessagingModule.register(
     MessagingConfig(
         transports={'rabbitmq': rabbit_transport(url='amqp://guest:guest@localhost/')},  # (1)!
         endpoints=[external_endpoint('rabbitmq://notifications')],                        # (2)!
         routing=[route(OrderPlaced).to('rabbitmq://notifications')],                     # (3)!
         outbox=OutboxConfig(
-            store=SqlAlchemyOutboxStore,                                                  # (4)!
+            store=make_outbox_store,                                                      # (4)!
         ),
     ),
 )
@@ -116,7 +122,8 @@ MessagingModule.register(
    during startup to build the `FastStreamRabbitTransport`.
 2. Declare an external endpoint. The scheme (`rabbitmq`) must match a key in `transports`.
 3. Route a message type to that endpoint URI.
-4. Outbox store implementation — persists the serialized wire body to the database.
+4. `SqlAlchemyOutboxStore` imports `AsyncSession` only for typing, so the container cannot introspect
+   the bare class — pass a small factory (constructed per scope from your `AsyncSession`) instead.
 
 `OutboxConfig` requires `store`. The relay is enabled by default with sensible settings
 (see [Relay Configuration](#relay-configuration)).
@@ -191,34 +198,16 @@ outbox_tables = bind_outbox_tables(metadata)  # (1)!
 
 ## Transport
 
-`ITransport` (`ISender + IListener`) is the wire-adapter interface. It receives an already-encoded
-body (`dict[str, Any]`) and an `EnvelopeMetadata` struct carrying correlation headers — no serialization
-logic belongs here. The transport's only job is to put the bytes on the wire and activate consumers.
+The wire adapters that put outbox messages on a broker are documented per broker:
 
-The shipped adapter for RabbitMQ is `FastStreamRabbitTransport`, configured via the
-`rabbit_transport` factory:
+- **[Transport: RabbitMQ](transports/rabbitmq.md)** — `rabbit_transport`, publishing, listening, and disposition.
+- **[Transport: Kafka](transports/kafka.md)** — `kafka_transport`, group-key ordering, and the consumer group.
 
-```python linenums="1"
-from waku.messaging.transport.faststream import rabbit_transport
-
-transports = {
-    'rabbitmq': rabbit_transport(
-        url='amqp://guest:guest@localhost/',
-        prefetch_count=250,  # optional, default 250
-    ),
-}
-```
-
-`rabbit_transport(url, *, prefetch_count=250)` returns a deferred `TransportFactory` — a
-zero-argument callable. The framework invokes it once during DI bootstrap to construct the
-`FastStreamRabbitTransport`, which opens two RabbitMQ connections: one for publishing (outbox
-relay) and one for consuming (inbound listener).
-
-waku ships RabbitMQ and Kafka transports; see [Envelope Mapper](envelope-mapper.md) for Kafka
-setup and per-broker wire formats. To integrate a broker not yet shipped (NATS, etc.), implement
-`ITransport` from `waku.messaging.transport.interfaces` — the port accepts a pre-encoded
-`body: dict[str, Any]` and an `EnvelopeMetadata` instance and must not perform any envelope
-deserialization.
+Register a transport factory on `MessagingConfig.transports`, keyed by the URI scheme its endpoints
+use (e.g. `{'rabbitmq': rabbit_transport(url=...)}`). The framework invokes each factory once at
+bootstrap. To integrate a broker not yet shipped (NATS, etc.), implement `ITransport` from
+`waku.messaging.transport.interfaces` — it receives a pre-encoded `body: dict[str, Any]` and an
+`EnvelopeMetadata` instance and must not perform any envelope (de)serialization.
 
 ---
 
@@ -242,12 +231,10 @@ header layout, and Kafka/RabbitMQ examples.
 
 ### Message type resolution
 
-A message's wire type name comes from its **identity**: an explicit alias declared on the message
-via its `message_identity` ClassVar (a plain `str`, or a `MessageIdentity(name=..., version=...)`
-value) or supplied via `MessagingConfig.message_identities`, falling back to the fully-qualified
-Python name (e.g. `myapp.orders.events.OrderPlaced`). Renaming or moving a message class changes
-its fully-qualified name and breaks resolution of in-flight messages stored under the old name —
-pin an explicit identity for types you expect to refactor.
+The wire type name persisted with each message comes from its identity — the `message_identity`
+ClassVar, a `MessagingConfig.message_identities` override, or the fully-qualified Python name. See
+[Messages & contracts](contracts.md#message-identity-naming-and-versioning) for the resolution rules
+and why refactorable types should pin an explicit identity.
 
 ---
 
@@ -263,7 +250,7 @@ To customize relay behavior, pass a configured `OutboxRelayConfig`:
 from waku.messaging.outbox.relay import OutboxRelayConfig
 
 OutboxConfig(
-    store=SqlAlchemyOutboxStore,
+    store=make_outbox_store,
     relay=OutboxRelayConfig(
         batch_size=50,
         max_attempts=10,
@@ -331,10 +318,18 @@ When transport dispatch fails:
 An end-to-end setup with an external endpoint, SQLAlchemy outbox, and the RabbitMQ transport:
 
 ```python linenums="1"
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+
+from sqlalchemy import MetaData
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from typing_extensions import override
+
 from waku import module
-from waku.di import scoped
-from waku.uow import IUnitOfWork
+from waku.di import object_, scoped
+from waku.messages import IEvent
 from waku.messaging import (
+    EventHandler,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
@@ -344,26 +339,37 @@ from waku.messaging import (
 )
 from waku.messaging.outbox.relay import OutboxRelayConfig
 from waku.messaging.outbox.sqla.store import SqlAlchemyOutboxStore
+from waku.messaging.outbox.sqla.tables import bind_outbox_tables
 from waku.messaging.sqla.uow import SqlAlchemyUnitOfWork
 from waku.messaging.transport.faststream import rabbit_transport
+from waku.uow import IUnitOfWork
+
+DATABASE_URL = 'postgresql+psycopg://waku:waku@localhost:15432/waku_es'
 
 
-@module(
-    extensions=[
-        MessagingExtension().bind(OrderPlaced, SendNotification),
-    ],
-)
-class NotificationsModule:
-    pass
+@dataclass(frozen=True, slots=True)
+class OrderPlaced(IEvent):
+    order_id: str
 
 
-@module(
-    providers=[
-        scoped(IUnitOfWork, SqlAlchemyUnitOfWork),
-    ],
-)
-class InfraModule:
-    pass
+class SendNotification(EventHandler[OrderPlaced]):
+    @override
+    async def handle(self, event: OrderPlaced, /) -> None:
+        ...  # deliver the notification
+
+
+metadata = MetaData()
+bind_outbox_tables(metadata)                       # (1)!
+engine = create_async_engine(DATABASE_URL)
+
+
+async def create_session(engine_: AsyncEngine) -> AsyncIterator[AsyncSession]:
+    async with AsyncSession(engine_, expire_on_commit=False) as session:
+        yield session
+
+
+def make_outbox_store(session: AsyncSession) -> SqlAlchemyOutboxStore:  # (2)!
+    return SqlAlchemyOutboxStore(session)
 
 
 @module(
@@ -374,21 +380,27 @@ class InfraModule:
                 endpoints=[external_endpoint('rabbitmq://notifications')],
                 routing=[route(OrderPlaced).to('rabbitmq://notifications')],
                 outbox=OutboxConfig(
-                    store=SqlAlchemyOutboxStore,
-                    relay=OutboxRelayConfig(
-                        batch_size=50,
-                        max_attempts=3,
-                    ),
+                    store=make_outbox_store,
+                    relay=OutboxRelayConfig(batch_size=50, max_attempts=3),
                 ),
             ),
         ),
-        InfraModule,
-        NotificationsModule,
     ],
+    providers=[
+        object_(engine, provided_type=AsyncEngine),
+        scoped(AsyncSession, create_session),
+        scoped(IUnitOfWork, SqlAlchemyUnitOfWork),   # (3)!
+    ],
+    extensions=[MessagingExtension().bind(SendNotification)],
 )
 class AppModule:
     pass
 ```
+
+1. Binds the `outbox_messages` table to your `MetaData`; create it with a migration tool in production.
+2. `SqlAlchemyOutboxStore` imports `AsyncSession` only for typing, so the container cannot introspect
+   the bare class — pass a small factory (constructed per scope from the `AsyncSession` below) instead.
+3. The outbox row commits in the handler's transaction, so a unit of work is required.
 
 With this setup:
 
