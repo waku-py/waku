@@ -93,7 +93,7 @@ class TestListenerMapperOverrideWiring:
     async def test_per_route_mapper_override_reaches_subscribe() -> None:
         # The critical end-to-end wiring proof:
         # BrokerEndpointEntry.mapper → merge_broker_endpoints → registry.mapper_for
-        # → TransportLifecycleExtension._wire_listeners → RecordingTransport.subscribe(mapper=override).
+        # → TransportLifecycleExtension → ListeningAgent.start() → RecordingTransport.subscribe(mapper=override).
         # Observable via the 3rd element of the recording tuple — not mock internals.
         override_mapper = _MarkerMapper()
         transport = RecordingTransport()
@@ -136,7 +136,7 @@ class TestBidirectionalEndpointMapperInheritance:
     async def test_send_declared_mapper_reaches_listener_subscribe_on_bidirectional_uri() -> None:
         # Same URI declared as two fragments: external_endpoint (send, carries the mapper) + listen
         # (no mapper). merge_broker_endpoints combines them into one MergedBrokerEndpoint whose mapper
-        # comes from the send fragment; _wire_listeners then reads it via registry.mapper_for and
+        # comes from the send fragment; ListeningAgent.start() then reads it via registry.mapper_for and
         # passes it to subscribe. In the old parallel inbound/outbound model the listen side had its
         # own independent mapper field, which would be None here — this discriminates that.
         send_mapper = _MarkerMapper()

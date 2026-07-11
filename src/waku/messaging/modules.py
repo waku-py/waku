@@ -30,7 +30,6 @@ from waku.extensions import (
     RegistryAggregator,
 )
 from waku.messaging.behaviors.transactional import TransactionalBehavior
-from waku.messaging.circuit_breaker.breaker import CircuitBreaker
 from waku.messaging.config import DeadLetterConfig, MessagingConfig
 from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.contracts.factory import EnvelopeFactory
@@ -38,13 +37,13 @@ from waku.messaging.contracts.message import IMessage
 from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.dispatcher import MessageDispatcher
+from waku.messaging.endpoints._internal.listening_agent import create_listening_agent
 from waku.messaging.endpoints.base import (
     BrokerEndpointEntry,
     Endpoint,
     EndpointMode,
     LocalQueueEntry,
 )
-from waku.messaging.endpoints.durable_inbox_receiver import DurableInboxReceiver, build_durable_inbox_receiver
 from waku.messaging.endpoints.durable_local_queue import DurableLocalQueueEndpoint
 from waku.messaging.endpoints.executor import EndpointExecutorFactory
 from waku.messaging.endpoints.external import ExternalEndpoint
@@ -62,12 +61,9 @@ from waku.messaging.exceptions import HandlerAlreadyRegistered, MultipleHandlers
 from waku.messaging.handler import MessageHandler
 from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.impl import MessageBus
-from waku.messaging.inbox._internal.noop_backpressure import NoOpBackpressure
-from waku.messaging.inbox.backpressure import IListenerBackpressure, ListenerBackpressure
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.drainer import build_inbox_drainer
 from waku.messaging.inbox.interfaces import IInboxStore
-from waku.messaging.inbox.listener import InboundListener
 from waku.messaging.inbox.recovery import InboxRecoveryWorker
 from waku.messaging.inbox.scheduled import ScheduledPromotionWorker
 from waku.messaging.interfaces import IMessageBus
@@ -103,8 +99,7 @@ if TYPE_CHECKING:
     from waku.application import WakuApplication
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.endpoints.aspects import ListenAspect
-    from waku.messaging.transport.interfaces import Subscription
+    from waku.messaging.endpoints._internal.listening_agent import ListeningAgent
     from waku.modules import ModuleMetadata, ModuleType
 
 __all__ = [
@@ -283,10 +278,6 @@ def _effective_mode(entry: LocalQueueEntry, config: MessagingConfig) -> Endpoint
 
 def _resolve_circuit_breaker(entry: LocalQueueEntry, config: MessagingConfig) -> 'CircuitBreakerConfig | None':
     return entry.circuit_breaker if entry.circuit_breaker is not MISSING else config.endpoint_defaults.circuit_breaker  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows  # MISSING inherits default; None opts out
-
-
-def _resolve_inbound_circuit_breaker(listen: 'ListenAspect', config: MessagingConfig) -> 'CircuitBreakerConfig | None':
-    return listen.circuit_breaker if listen.circuit_breaker is not MISSING else config.endpoint_defaults.circuit_breaker  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows  # MISSING inherits default; None opts out
 
 
 def _resolve_max_requeue_attempts(entry: LocalQueueEntry, config: MessagingConfig) -> int:
@@ -852,13 +843,13 @@ class DeadLetterLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
 
 
 class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
-    """Starts registered transports and wires inbound listeners.  Registered after the relay — see extension ordering."""
+    """Starts registered transports and drives one listening agent per listen URI.  Registered after the relay — see extension ordering."""
 
-    __slots__ = ('_config', '_receivers', '_registry')
+    __slots__ = ('_agents', '_config', '_registry')
 
     def __init__(self, config: MessagingConfig) -> None:
         self._config = config
-        self._receivers: list[DurableInboxReceiver] = []
+        self._agents: dict[str, ListeningAgent] = {}
         self._registry: TransportRegistry | None = None
 
     @override
@@ -866,11 +857,11 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
         registry = await app.container.get(TransportRegistry)
         self._registry = registry
         # Subscribers must be registered before the broker starts (FastStream activates consumers at start()).
-        await self._wire_listeners(app, registry)
+        await self._start_agents(app, registry)
         for transport in registry.transports():
             await transport.start()
 
-    async def _wire_listeners(self, app: 'WakuApplication', registry: TransportRegistry) -> None:
+    async def _start_agents(self, app: 'WakuApplication', registry: TransportRegistry) -> None:
         inbox = self._config.inbox
         if inbox is None:
             return
@@ -882,73 +873,25 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
         for ep in merged:
             if ep.listen is None:
                 continue
-            uri = ep.uri
-            executor = factory.for_uri(uri)
-            max_requeue = (
-                self._config.endpoint_defaults.max_requeue_attempts
-                if ep.listen.max_requeue_attempts is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
-                else ep.listen.max_requeue_attempts
-            )
-            receiver = build_durable_inbox_receiver(
-                uri=uri,
+            agent = create_listening_agent(
+                ep,
                 container=app.container,
-                executor=executor,
-                inbox_owner_id=inbox.resolve_owner_id(),
-                keep_after_handled=inbox.keep_after_handled,
-                partition_by=ep.partition_by,
-                max_requeue_attempts=max_requeue,
-                circuit_breaker_config=None,
+                executor_factory=factory,
+                registry=registry,
+                codec=codec,
+                type_registry=type_registry,
+                message_registry=message_registry,
+                inbox=inbox,
+                config=self._config,
             )
-            listener = InboundListener(
-                codec=codec, type_registry=type_registry, registry=message_registry, receiver=receiver
-            )
-            queue = split_destination(uri, default_scheme=registry.default_scheme)[1]
-            subscription = registry.listener_for(uri).subscribe(
-                queue, listener.consume, mapper=registry.mapper_for(uri)
-            )
-            backpressure = self._wire_listener_backpressure(ep.listen, self._config, subscription, listener, receiver)
-            # start() last: the on_drain low-watermark hook needs the gate; nothing flows until transport.start().
-            await receiver.start(on_drain=backpressure.observe_depth)
-            self._receivers.append(receiver)
-
-    @staticmethod
-    def _wire_listener_backpressure(
-        listen: 'ListenAspect',
-        config: MessagingConfig,
-        subscription: 'Subscription',
-        listener: InboundListener,
-        receiver: DurableInboxReceiver,
-    ) -> IListenerBackpressure:
-        """Build the one listener gate; a no-op gate when neither a watermark nor an inbound circuit breaker exists.
-
-        CB-only, watermark-only, and both build the real ``ListenerBackpressure`` (the gate is the CB's pause
-        target in every case, and ``observe_depth`` no-ops when no watermark is set); with neither configured the
-        listener keeps its ``NoOpBackpressure`` default so ``observe_depth`` stays a safe unconditional call.
-        """
-        limits = listen.backpressure or config.endpoint_defaults.backpressure
-        cb_config = _resolve_inbound_circuit_breaker(listen, config)
-        if limits is None and cb_config is None:
-            noop = NoOpBackpressure()
-            listener.attach_backpressure(noop)
-            return noop
-        backpressure = ListenerBackpressure(subscription=subscription, limits=limits)
-        listener.attach_backpressure(backpressure)
-        if cb_config is not None:
-            # The inbound CB drives the listener gate (not processing) and uses its own monotonic clock — never the
-            # app's datetime Now, which the breaker's failure-rate window cannot do arithmetic with.
-            receiver.attach_circuit_breaker(
-                CircuitBreaker(
-                    config=cb_config,
-                    pause=backpressure.pause_listener,
-                    resume=backpressure.resume_listener,
-                ),
-            )
-        return backpressure
+            # start() subscribes and starts the receiver; nothing flows until transport.start().
+            await agent.start()
+            self._agents[ep.uri] = agent
 
     @override
     async def on_app_shutdown(self, app: 'WakuApplication') -> None:
-        for receiver in self._receivers:
-            await receiver.stop()
+        for agent in self._agents.values():
+            await agent.stop()
         if self._registry is not None:
             for transport in self._registry.transports():
                 await transport.stop()
