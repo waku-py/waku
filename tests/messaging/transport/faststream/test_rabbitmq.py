@@ -46,7 +46,37 @@ class TestFastStreamRabbitTransportSend:
             out.body,
             'q',
             headers=out.headers,
+            persist=True,
         )
+
+    @staticmethod
+    async def test_send_publishes_persistent_by_default(mocker: MockerFixture) -> None:
+        t = FastStreamRabbitTransport(url='amqp://x')
+        publish = mocker.patch.object(t._send_broker, 'publish', new_callable=mocker.AsyncMock)
+
+        await t.send({}, destination='q', metadata=_METADATA)
+
+        assert publish.await_args is not None
+        assert publish.await_args.kwargs['persist'] is True
+
+    @staticmethod
+    async def test_custom_mapper_can_opt_out_of_persistence(mocker: MockerFixture) -> None:
+        class _NonPersistentMapper(IRabbitEnvelopeMapper):
+            @override
+            def map_outgoing(self, payload: dict[str, Any], metadata: EnvelopeMetadata) -> RabbitOutgoing:
+                return RabbitOutgoing(body=payload, headers={}, persist=False)
+
+            @override
+            async def map_incoming(self, msg: Any) -> tuple[dict[str, Any], EnvelopeMetadata]:
+                raise NotImplementedError  # pragma: no cover
+
+        t = FastStreamRabbitTransport(url='amqp://x', mapper=_NonPersistentMapper())
+        publish = mocker.patch.object(t._send_broker, 'publish', new_callable=mocker.AsyncMock)
+
+        await t.send({}, destination='q', metadata=_METADATA)
+
+        assert publish.await_args is not None
+        assert publish.await_args.kwargs['persist'] is False
 
     @staticmethod
     async def test_send_group_id_as_header_when_set(mocker: MockerFixture) -> None:
@@ -373,6 +403,13 @@ class TestDefaultRabbitEnvelopeMapperOutgoing:
         assert out.body == {'order_id': 1}
         assert out.headers['message_id'] == 'mid-1'
         assert out.headers['content-type'] == WIRE_CONTENT_TYPE
+
+    @staticmethod
+    def test_default_rabbit_outgoing_persists() -> None:
+        mapper = DefaultRabbitEnvelopeMapper()
+        out = mapper.map_outgoing({}, _METADATA)
+
+        assert out.persist is True
 
     @staticmethod
     def test_map_outgoing_no_key_field_on_rabbit_outgoing() -> None:

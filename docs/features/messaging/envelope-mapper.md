@@ -78,6 +78,10 @@ broker capabilities the Wolverine wire format does not expose:
 | `priority` | `int \| None` | `priority` |
 | `expiration` | `int \| float \| datetime \| timedelta \| None` | `expiration` (seconds, or datetime/timedelta) |
 
+`RabbitOutgoing` also carries `persist: bool = True` — not a passthrough native but the durability
+flag, always forwarded to `publish`. `True` maps to AMQP `DeliveryMode.PERSISTENT`; set
+`persist=False` in a custom mapper for foreign interop or non-durable topics.
+
 ## Writing a custom mapper
 
 Subclass the broker-specific ABC and implement both abstract methods. The example below bridges a

@@ -35,6 +35,11 @@ and dispatched by the relay through this transport — you never publish to the 
 relay hands the transport an already-encoded body plus the envelope metadata; the transport puts it
 on the wire without re-serializing. See [Outbox](../outbox.md) for the endpoint and routing wiring.
 
+Every publish carries AMQP `DeliveryMode.PERSISTENT`, so a message in a durable queue survives a
+broker restart — required for the outbox's at-least-once guarantee, since the relay retires the
+outbox row as soon as the broker accepts the message. A custom
+[envelope mapper](../envelope-mapper.md) can opt out per message with `RabbitOutgoing(persist=False)`.
+
 ---
 
 ## Listening

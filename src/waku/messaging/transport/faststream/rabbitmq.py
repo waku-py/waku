@@ -44,10 +44,14 @@ __all__ = [
 class RabbitOutgoing:
     """Outgoing RabbitMQ message ready for ``RabbitBroker.publish``.
 
-    ``body`` and ``headers`` are always passed to ``RabbitBroker.publish``.
+    ``body``, ``headers``, and ``persist`` are always passed to ``RabbitBroker.publish``.
     The native fields below are **passthrough-only** — the default ``DefaultRabbitEnvelopeMapper`` leaves them
     ``None`` and they are omitted from the publish call.  A custom mapper may set them to reach AMQP message
     properties that the Wolverine wire format does not expose.
+
+    ``persist`` is **not** a passthrough native: it is the durability guarantee, on by default.  Every Waku
+    broker send is outbox-backed, so publishes are ``DeliveryMode.PERSISTENT`` unless a custom mapper opts out
+    with ``persist=False`` (foreign interop / non-durable topics).
 
     Native fields (verified against FastStream 0.7.1 ``RabbitBroker.publish`` signature):
         correlation_id: AMQP ``correlation-id`` property.  Distinct from the Waku envelope ``correlation_id``
@@ -60,6 +64,7 @@ class RabbitOutgoing:
 
     body: dict[str, Any]
     headers: dict[str, str]
+    persist: bool = True  # AMQP delivery mode: True -> PERSISTENT (survives broker restart in a durable queue)
     correlation_id: str | None = None
     reply_to: str | None = None
     priority: int | None = None
@@ -163,6 +168,7 @@ class FastStreamRabbitTransport(FastStreamTransportBase[RabbitMessage]):
             out.body,
             destination,
             headers=headers,
+            persist=out.persist,
             **extra,
         )
 
