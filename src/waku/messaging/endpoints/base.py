@@ -9,20 +9,18 @@ from typing import TYPE_CHECKING, Any, Final, TypeAlias
 from waku._internal.sentinel import MISSING
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable
 
     from waku.di import AsyncContainer
+    from waku.messages import IMessage
+    from waku.messaging._internal.pauser import PauseToken
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
-    from waku.messaging.contracts.message import IMessage
-    from waku.messaging.inbox.backpressure import BufferingLimits
+    from waku.messaging.endpoints._internal.aspects import ListenAspect, SendAspect
     from waku.messaging.observability.observer import IMessageObserver
     from waku.messaging.partition import PartitionKeyExtractor
-    from waku.messaging.pauser import PauseToken
-    from waku.messaging.sending.policy import SendingFailurePolicy
     from waku.messaging.transport.interfaces import IEnvelopeMapper
 
-from waku.messaging.endpoints.aspects import ListenAspect, SendAspect
 
 __all__ = [
     'DEFAULT_ENDPOINT_URI',
@@ -31,9 +29,6 @@ __all__ = [
     'EndpointEntry',
     'EndpointMode',
     'LocalQueueEntry',
-    'external_endpoint',
-    'listen',
-    'local_queue',
 ]
 
 DEFAULT_ENDPOINT_URI: Final[str] = '__default__'
@@ -69,71 +64,6 @@ class BrokerEndpointEntry:
 
 
 EndpointEntry: TypeAlias = LocalQueueEntry | BrokerEndpointEntry
-
-
-def listen(
-    uri: str,
-    *,
-    max_requeue_attempts: int | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
-    circuit_breaker: CircuitBreakerConfig | MISSING | None = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
-    backpressure: BufferingLimits | None = None,
-    mapper: IEnvelopeMapper[Any, Any] | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
-    partition_by: PartitionKeyExtractor | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
-    observers: Sequence[type[IMessageObserver]] = (),
-) -> BrokerEndpointEntry:
-    return BrokerEndpointEntry(
-        uri=uri,
-        mapper=mapper,
-        partition_by=partition_by,
-        listen=ListenAspect(
-            max_requeue_attempts=max_requeue_attempts,
-            circuit_breaker=circuit_breaker,
-            backpressure=backpressure,
-        ),
-        observers=tuple(dict.fromkeys(observers)),
-    )
-
-
-def local_queue(  # noqa: PLR0913 -- one keyword per LocalQueueEntry field
-    uri: str,
-    *,
-    mode: EndpointMode | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
-    max_parallel: int = 1,
-    stop_timeout: float = 5.0,
-    max_buffer_size: float = math.inf,
-    partition_by: Callable[[IMessage], str | None] | None = None,
-    circuit_breaker: CircuitBreakerConfig | MISSING | None = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
-    max_requeue_attempts: int | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
-    observers: Sequence[type[IMessageObserver]] = (),
-) -> LocalQueueEntry:
-    return LocalQueueEntry(
-        uri=uri,
-        mode=mode,
-        max_parallel=max_parallel,
-        stop_timeout=stop_timeout,
-        max_buffer_size=max_buffer_size,
-        partition_by=partition_by,
-        circuit_breaker=circuit_breaker,
-        max_requeue_attempts=max_requeue_attempts,
-        observers=tuple(dict.fromkeys(observers)),
-    )
-
-
-def external_endpoint(
-    uri: str,
-    *,
-    sending_failure_policies: Sequence[SendingFailurePolicy] = (),
-    mapper: IEnvelopeMapper[Any, Any] | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
-    partition_by: PartitionKeyExtractor | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
-    observers: Sequence[type[IMessageObserver]] = (),
-) -> BrokerEndpointEntry:
-    return BrokerEndpointEntry(
-        uri=uri,
-        mapper=mapper,
-        partition_by=partition_by,
-        send=SendAspect(sending_failure_policies=tuple(sending_failure_policies)),
-        observers=tuple(dict.fromkeys(observers)),
-    )
 
 
 class Endpoint(ABC):

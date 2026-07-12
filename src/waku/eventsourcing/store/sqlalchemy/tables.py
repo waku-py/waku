@@ -18,7 +18,6 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 
 __all__ = [
-    'IDEMPOTENCY_KEY_CONSTRAINT',
     'EventStoreTables',
     'bind_event_store_tables',
 ]

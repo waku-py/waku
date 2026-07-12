@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from waku import module
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import NoStream, StreamId
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.integrations.eventsourcing_messaging import EventSourcingMessagingModule
+from waku.messages import IMessage
 from waku.messaging.context import message_context_scope
-from waku.messaging.contracts.message import IMessage
-from waku.modules import module
 from waku.testing import create_test_app
 
 from tests.eventsourcing.domain import NoteCreated, NoteRepository
@@ -19,9 +19,9 @@ from tests.messaging.helpers import make_envelope
 if TYPE_CHECKING:
     from typing import Any
 
+    from waku import DynamicModule
     from waku.eventsourcing.contracts.event import EventMetadata
     from waku.messaging.contracts.envelope import MessageEnvelope
-    from waku.modules import DynamicModule
 
 
 class _Probe(IMessage):

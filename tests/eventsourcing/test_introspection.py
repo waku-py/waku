@@ -8,7 +8,7 @@ from typing import Generic, TypeVar
 import pytest
 from typing_extensions import TypeAliasType
 
-from waku.eventsourcing._introspection import resolve_generic_args  # noqa: PLC2701
+from waku.eventsourcing._internal.introspection import resolve_generic_args
 from waku.eventsourcing.decider.repository import DeciderRepository
 from waku.messages import IEvent
 

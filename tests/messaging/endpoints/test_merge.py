@@ -6,10 +6,11 @@ import pytest
 from typing_extensions import override
 
 from waku.exceptions import ImproperlyConfiguredError
-from waku.messaging.endpoints.aspects import ListenAspect, SendAspect
-from waku.messaging.endpoints.base import BrokerEndpointEntry, LocalQueueEntry, external_endpoint, listen
-from waku.messaging.endpoints.merge import merge_broker_endpoints
+from waku.messaging.endpoints._internal.aspects import ListenAspect, SendAspect
+from waku.messaging.endpoints._internal.merge import merge_broker_endpoints
+from waku.messaging.endpoints.base import BrokerEndpointEntry, LocalQueueEntry
 from waku.messaging.observability.observer import IMessageObserver
+from waku.messaging.router import external_endpoint, listen
 from waku.messaging.transport.interfaces import IEnvelopeMapper
 
 

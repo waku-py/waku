@@ -6,15 +6,15 @@ from typing import TYPE_CHECKING, Any
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
-from waku._internal.retort import default_retort  # noqa: PLC2701
+from waku._internal.retort import default_retort
 from waku.messages import IEvent
-from waku.messaging.endpoints.external import ExternalEndpoint
+from waku.messaging.endpoints._internal.external import ExternalEndpoint
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.partition import ISequenceAllocator
-from waku.messaging.transport.decomposition import encode_metadata, encode_payload
+from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
+from waku.serialization import UpcasterChain
 from waku.serialization.codec import PayloadCodec
-from waku.serialization.upcasting import UpcasterChain
 
 from tests.messaging.helpers import NOOP_OBSERVERS, RecordingAllocator, make_envelope, order_id_partition
 from tests.messaging.outbox.fake_store import FakeOutboxStore

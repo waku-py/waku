@@ -15,13 +15,10 @@ from waku.messaging import (
     Audit,
     CircuitBreakerConfig,
     EventHandler,
-    ExecutionOutcome,
     HandlerType,
     IMessageBus,
     IMessageObserver,
     InboxConfig,
-    InboxEntry,
-    InboxStatus,
     IRequest,
     MessageEnvelope,
     MessagingConfig,
@@ -32,11 +29,13 @@ from waku.messaging import (
     TransactionalBehavior,
     external_endpoint,
 )
-from waku.messaging._identifiers import EndpointUri  # noqa: PLC2701
-from waku.messaging.endpoints.base import EndpointMode, local_queue
-from waku.messaging.inbox._destination import handler_destination  # noqa: PLC2701
-from waku.messaging.router import route
-from waku.messaging.transport.decomposition import encode_metadata, encode_payload
+from waku.messaging._internal.identifiers import EndpointUri
+from waku.messaging.endpoints import ExecutionOutcome
+from waku.messaging.endpoints.base import EndpointMode
+from waku.messaging.inbox import InboxEntry, InboxStatus
+from waku.messaging.inbox._internal.destination import handler_destination
+from waku.messaging.router import local_queue, route
+from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork

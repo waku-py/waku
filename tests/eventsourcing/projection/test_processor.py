@@ -7,9 +7,9 @@ import pytest
 from typing_extensions import override
 
 from waku.eventsourcing.exceptions import ProjectionStoppedError
+from waku.eventsourcing.projection._internal.processor import ProjectionProcessor
 from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ProjectionErrorPolicy
-from waku.eventsourcing.projection.processor import ProjectionProcessor
 
 from tests.eventsourcing.projection.helpers import (
     RecordingProjection,

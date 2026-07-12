@@ -25,7 +25,7 @@ from waku.messaging.router import MessageRouter
 if TYPE_CHECKING:
     from datetime import timedelta
 
-    from waku.messaging.contracts.message import IMessage
+    from waku.messages import IMessage
     from waku.messaging.delivery import DeliveryOptions
     from waku.messaging.endpoints.base import Endpoint
 

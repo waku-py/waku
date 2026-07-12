@@ -7,11 +7,11 @@ from typing_extensions import override
 
 from waku.messages import IEvent
 from waku.messaging import EventHandler, MessagingExtension, MessagingModule
-from waku.messaging.contracts.factory import EnvelopeFactory
+from waku.messaging._internal.envelope_factory import EnvelopeFactory
+from waku.messaging.endpoints._internal.inline import InlineEndpoint
 from waku.messaging.endpoints.executor import EndpointExecutor
-from waku.messaging.endpoints.inline import InlineEndpoint
 from waku.messaging.observability.observer import MessageObservers
-from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
+from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
 from waku.testing import create_test_app
 
 from tests.messaging.helpers import NOOP_EVALUATOR

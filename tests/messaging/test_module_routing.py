@@ -16,8 +16,7 @@ from waku.messaging import (
     MessagingExtension,
     MessagingModule,
 )
-from waku.messaging.endpoints.base import local_queue
-from waku.messaging.router import route, route_module
+from waku.messaging.router import local_queue, route, route_module
 from waku.testing import create_test_app
 
 

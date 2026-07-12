@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from waku.exceptions import ImproperlyConfiguredError, WakuError
-from waku.serialization.exceptions import UpcasterChainError
 
 if TYPE_CHECKING:
     from waku.eventsourcing.contracts.stream import StreamId
@@ -28,7 +27,6 @@ __all__ = [
     'StreamNotFoundError',
     'StreamTooLargeError',
     'UnknownEventTypeError',
-    'UpcasterChainError',
 ]
 
 

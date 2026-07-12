@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from typing_extensions import override
 
+from waku import module
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, EventSourcingError
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
@@ -14,7 +15,6 @@ from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.integrations.eventsourcing_messaging import EventSourcedVoidCommandHandler
 from waku.messaging import IRequest, MessagingExtension, MessagingModule
 from waku.messaging.interfaces import IMessageBus
-from waku.modules import module
 from waku.testing import create_test_app
 
 from tests.eventsourcing.domain import Note, NoteCreated, NoteEdited, NoteRepository

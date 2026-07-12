@@ -6,13 +6,13 @@ from typing import Any
 from typing_extensions import override
 
 from waku.messaging import CallNext, IPipelineBehavior, IRequest, MessageT, RequestHandler, ResponseT
-from waku.messaging.behaviors.cascading import CascadingBehavior
-from waku.messaging.behaviors.outbox_cascading import DeferredCascadingBehavior, OutboxCascadingBehavior
+from waku.messaging._internal.cascading import CascadingBehavior
+from waku.messaging._internal.outbox_cascading import DeferredCascadingBehavior, OutboxCascadingBehavior
+from waku.messaging._internal.registry import MessageRegistry
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import MessagingConfig, OutboxConfig
-from waku.messaging.modules import _FRAMEWORK_POLICIES  # noqa: PLC2701
-from waku.messaging.pipeline.policy import build_behavior_plan
-from waku.messaging.registry import MessageRegistry
+from waku.messaging.modules import _FRAMEWORK_POLICIES
+from waku.messaging.pipeline._internal.plan import build_behavior_plan
 
 from tests.messaging.outbox.fake_store import FakeOutboxStore
 

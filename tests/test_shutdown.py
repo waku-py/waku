@@ -2,7 +2,7 @@ import anyio
 import anyio.lowlevel
 import pytest
 
-from waku._internal.shutdown import wait_for_shutdown  # noqa: PLC2701
+from waku._internal.shutdown import wait_for_shutdown
 
 
 async def test_wait_for_shutdown_falls_back_to_event_when_signals_unavailable(

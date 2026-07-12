@@ -99,9 +99,9 @@ exhaustion.
 from waku.messaging import (
     EndpointDefaults,
     MessagingConfig,
-    SendingFailurePolicy,
     external_endpoint,
 )
+from waku.messaging.sending import SendingFailurePolicy
 
 config = MessagingConfig(
     # Global fallback for every destination.

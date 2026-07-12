@@ -12,7 +12,7 @@ import anyio.lowlevel
 import pytest
 from typing_extensions import override
 
-from waku._internal.clock import utc_now  # noqa: PLC2701
+from waku._internal.clock import utc_now
 from waku.di import object_
 from waku.messaging import (
     EndpointDefaults,
@@ -30,7 +30,7 @@ from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.exceptions import HandlerTimeoutError
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers
-from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
+from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
@@ -170,7 +170,7 @@ async def test_retry_with_backoff_sleeps_for_the_policy_delay(monkeypatch: pytes
 
     # Pin jitter to a fixed value so the recorded delay is exact, not merely in-range.
     # Plain RETRY carries retry_delay=None (no sleep), keeping this test mutation-distinct.
-    monkeypatch.setattr('waku.messaging._escalation.calculate_backoff_with_jitter', lambda *_a, **_kw: 5.0)
+    monkeypatch.setattr('waku.messaging._internal.escalation.calculate_backoff_with_jitter', lambda *_a, **_kw: 5.0)
     evaluator = _evaluator_for(
         ErrorPolicy
         .on_any_exception()

@@ -17,8 +17,8 @@ from waku.messaging import (
     MessagingModule,
     RequestHandler,
 )
+from waku.messaging._internal.registry import MessageRegistry
 from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
-from waku.messaging.registry import MessageRegistry
 
 
 @dataclass(frozen=True, kw_only=True)

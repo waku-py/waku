@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from waku._internal.sentinel import MISSING  # noqa: PLC2701
-from waku.messaging.endpoints.aspects import ListenAspect, SendAspect
+from waku._internal.sentinel import MISSING
+from waku.messaging.endpoints._internal.aspects import ListenAspect, SendAspect
 
 
 class TestListenAspectDefaults:

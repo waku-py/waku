@@ -90,6 +90,7 @@ override-dependencies = ["click>=8.4.2"]
 # ----- Pytest settings -----
 [tool.pytest.ini_options]
 xfail_strict = true
+pythonpath = ["scripts"]
 norecursedirs = ".* docs examples site __pycache__"
 disable_test_id_escaping_and_forfeit_all_rights_to_community_support = true
 addopts = [
@@ -154,6 +155,69 @@ forbidden_modules = ["waku.messaging", "waku.eventsourcing"]
 # waku.serialization is the shared codec/versioning package; it depends only on waku.messages +
 # waku._internal + adaptix, so messaging and event sourcing can both source it without a back-edge.
 
+# `_internal` privacy boundary: the DOMAIN is the privacy unit (spec §2.3) — sibling subpackages inside a
+# domain may cross into each other's `_internal`; nobody outside the domain may. `waku._internal` (the
+# cross-domain substrate) is deliberately unprotected (open to all of waku).
+
+[[tool.importlinter.contracts]]
+name = "messaging _internal is private to waku.messaging"
+type = "protected"
+protected_modules = [
+  "waku.messaging._internal",
+  "waku.messaging.*._internal",
+]
+allowed_importers = ["waku.messaging"]
+
+[[tool.importlinter.contracts]]
+name = "eventsourcing _internal is private to waku.eventsourcing"
+type = "protected"
+protected_modules = [
+  "waku.eventsourcing._internal",
+  "waku.eventsourcing.*._internal",
+  "waku.eventsourcing.*.*._internal",
+]
+allowed_importers = ["waku.eventsourcing"]
+
+[[tool.importlinter.contracts]]
+name = "integration bridge _internal is private to the bridge"
+type = "protected"
+protected_modules = ["waku.integrations.eventsourcing_messaging._internal"]
+allowed_importers = ["waku.integrations.eventsourcing_messaging"]
+
+[[tool.importlinter.contracts]]
+name = "di _internal is package-private"
+type = "protected"
+protected_modules = ["waku.di._internal"]
+allowed_importers = ["waku.di"]
+
+# waku.modules is NOT self-contained: metadata.py/module.py define the module-system substrate
+# (Module/DynamicModule/module/ModuleMetadata/ModuleType) re-exported by the root facade per the
+# single-home resolution and consumed framework-wide, so only the registry machinery is protected.
+[[tool.importlinter.contracts]]
+name = "modules _internal registry machinery is package-private"
+type = "protected"
+protected_modules = [
+  "waku.modules._internal.metadata_registry",
+  "waku.modules._internal.registry",
+  "waku.modules._internal.registry_builder",
+]
+allowed_importers = ["waku.modules"]
+
+[[tool.importlinter.contracts]]
+name = "validation _internal is package-private"
+type = "protected"
+protected_modules = [
+  "waku.validation._internal",
+  "waku.validation.*._internal",
+]
+allowed_importers = ["waku.validation"]
+
+[[tool.importlinter.contracts]]
+name = "testing _internal is package-private"
+type = "protected"
+protected_modules = ["waku.testing._internal"]
+allowed_importers = ["waku.testing"]
+
 
 # ----- Ruff settings -----
 [tool.ruff]
@@ -196,6 +260,9 @@ pydocstyle = { convention = "google" }
 pylint = { max-args = 7 }
 
 [tool.ruff.lint.per-file-ignores]
+"scripts/*" = [
+  "INP001", # Standalone dev scripts, not a package (imported via pytest pythonpath)
+]
 "docs/code/*" = [
   "ARG001", # Unused function argument
   "ARG002", # Unused method argument
@@ -222,6 +289,7 @@ pylint = { max-args = 7 }
 "tests/*" = [
   "FBT001", # Boolean-typed positional argument in function definition
   "N806", # Variable in function should be lowercase
+  "PLC2701", # Private-name import: tests are the framework testing itself (sanctioned _internal audience)
   "PLR2004", # Magic value comparison
   "RUF069", # Unreliable floating point equality comparison
   "S101", # Usage of assert

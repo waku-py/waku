@@ -22,13 +22,12 @@ from waku.messaging import (
     TransactionalBehavior,
     external_endpoint,
 )
-from waku.messaging.endpoints.base import listen, local_queue
-from waku.messaging.endpoints.external import ExternalEndpoint
-from waku.messaging.endpoints.merge import MergedBrokerEndpoint
+from waku.messaging.endpoints._internal.external import ExternalEndpoint
+from waku.messaging.endpoints._internal.merge import MergedBrokerEndpoint
 from waku.messaging.inbox.config import InboxConfig
-from waku.messaging.router import MessageRouter, RoutingTable, route
+from waku.messaging.router import MessageRouter, RoutingTable, listen, local_queue, route
+from waku.messaging.transport._internal.registry import TransportRegistry
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper
-from waku.messaging.transport.registry import TransportRegistry
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 

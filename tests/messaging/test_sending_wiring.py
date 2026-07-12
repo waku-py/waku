@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from waku.messaging.config import MessagingConfig, OutboxConfig
-from waku.messaging.endpoints.base import external_endpoint
-from waku.messaging.endpoints.merge import merge_broker_endpoints
+from waku.messaging.endpoints._internal.merge import merge_broker_endpoints
 from waku.messaging.errors import RetryAction
-from waku.messaging.modules import _build_sending_failure_registry  # noqa: PLC2701
+from waku.messaging.modules import _build_sending_failure_registry
 from waku.messaging.outbox.interfaces import IOutboxStore
+from waku.messaging.router import external_endpoint
 from waku.messaging.sending.policy import SendingFailurePolicy
 
 

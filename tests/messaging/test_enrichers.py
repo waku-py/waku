@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from waku.eventsourcing.contracts.event import EventMetadata
 from waku.integrations.eventsourcing_messaging import CorrelationEnricher
+from waku.messages import IMessage
 from waku.messaging.context import message_context_scope
-from waku.messaging.contracts.message import IMessage
 
 from tests.messaging.helpers import make_envelope
 

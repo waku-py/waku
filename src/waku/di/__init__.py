@@ -18,7 +18,7 @@ from dishka import (
 )
 from dishka.provider import BaseProvider
 
-from waku.di._providers import (
+from waku.di._internal.providers import (
     activator,
     contextual,
     is_registered,

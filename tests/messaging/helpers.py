@@ -8,7 +8,7 @@ import anyio
 from dishka import Provider, Scope, provide
 from typing_extensions import override
 
-from waku._internal.retort import default_retort  # noqa: PLC2701
+from waku._internal.retort import default_retort
 from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
@@ -18,17 +18,17 @@ from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.relay import OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicyRegistry
+from waku.messaging.transport._internal.registry import TransportRegistry
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper, ITransport, Subscription
-from waku.messaging.transport.registry import TransportRegistry
+from waku.serialization import UpcasterChain
 from waku.serialization.codec import PayloadCodec
-from waku.serialization.upcasting import UpcasterChain
 from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from uuid import UUID
 
-    from waku.messaging.contracts.message import IMessage
+    from waku.messages import IMessage
     from waku.messaging.sending import SendingFailurePolicy
     from waku.messaging.transport.inbound import ConsumeCallback
 

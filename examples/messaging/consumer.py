@@ -8,21 +8,17 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
 from waku import WakuFactory, module
 from waku.messages import IEvent
-from waku.messaging import (
-    EventHandler,
-    IInboxStore,
-    InboxConfig,
-    MessagingConfig,
-    MessagingExtension,
-    MessagingModule,
-    listen,
-)
+from waku.messaging import EventHandler, InboxConfig, MessagingConfig, MessagingExtension, MessagingModule, listen
 from waku.messaging.transport.faststream.rabbitmq import rabbit_transport
+
+if TYPE_CHECKING:
+    from waku.messaging.inbox import IInboxStore
 
 
 @dataclass(frozen=True, slots=True)

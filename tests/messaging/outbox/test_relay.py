@@ -14,13 +14,13 @@ from typing_extensions import override
 
 from waku.messages import IEvent
 from waku.messaging import PollingConfig
-from waku.messaging._escalation import RetryAction, walk_stages  # noqa: PLC2701
+from waku.messaging._internal.escalation import RetryAction, walk_stages
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicy, SendingFailurePolicyRegistry
-from waku.messaging.transport.decomposition import encode_metadata, encode_payload, wire_metadata_from_entry
+from waku.messaging.transport._internal.wire import encode_metadata, encode_payload, wire_metadata_from_entry
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper, ITransport, Subscription
 
 from tests._wait import wait_until
@@ -534,7 +534,9 @@ class TestOutboxRelay:
     ) -> None:
         # Pin the jittered backoff (whose floor is 0) to a fixed delay so the RETRY_WITH_BACKOFF arm is
         # observably distinct from the no-delay RETRY arm — otherwise a "schedule now" regression passes.
-        monkeypatch.setattr('waku.messaging._escalation.calculate_backoff_with_jitter', lambda *_a, **_kw: 60.0)
+        monkeypatch.setattr(
+            'waku.messaging._internal.escalation.calculate_backoff_with_jitter', lambda *_a, **_kw: 60.0
+        )
         before = datetime.now(tz=UTC)
         store, msg = _make_pending_store()
         evaluator = make_relay_evaluator(

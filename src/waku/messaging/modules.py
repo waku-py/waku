@@ -29,27 +29,31 @@ from waku.extensions import (
     OnModuleConfigure,
     RegistryAggregator,
 )
+from waku.messages import IMessage
+from waku.messaging._internal.bus import MessageBus
+from waku.messaging._internal.dispatcher import MessageDispatcher
+from waku.messaging._internal.envelope_factory import EnvelopeFactory
+from waku.messaging._internal.identity import MessageTypeRegistry
+from waku.messaging._internal.registry import MessageRegistry
+from waku.messaging._internal.routing_builder import RoutingTableBuilder
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import DeadLetterConfig, MessagingConfig
 from waku.messaging.context import MessageContext, get_message_context
-from waku.messaging.contracts.factory import EnvelopeFactory
-from waku.messaging.contracts.message import IMessage
 from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.contracts.request import IRequest
-from waku.messaging.dispatcher import MessageDispatcher
+from waku.messaging.endpoints._internal.durable_local_queue import DurableLocalQueueEndpoint
+from waku.messaging.endpoints._internal.external import ExternalEndpoint
+from waku.messaging.endpoints._internal.inline import InlineEndpoint
 from waku.messaging.endpoints._internal.listening_agent import create_listening_agent
+from waku.messaging.endpoints._internal.local_queue import LocalQueueEndpoint
+from waku.messaging.endpoints._internal.merge import MergedBrokerEndpoint, merge_broker_endpoints
 from waku.messaging.endpoints.base import (
     BrokerEndpointEntry,
     Endpoint,
     EndpointMode,
     LocalQueueEntry,
 )
-from waku.messaging.endpoints.durable_local_queue import DurableLocalQueueEndpoint
 from waku.messaging.endpoints.executor import EndpointExecutorFactory
-from waku.messaging.endpoints.external import ExternalEndpoint
-from waku.messaging.endpoints.inline import InlineEndpoint
-from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
-from waku.messaging.endpoints.merge import MergedBrokerEndpoint, merge_broker_endpoints
 from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
@@ -59,13 +63,11 @@ from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.errors.worker import DeadLetterWorker
 from waku.messaging.exceptions import HandlerAlreadyRegistered, MultipleHandlersRegistered
 from waku.messaging.handler import MessageHandler
-from waku.messaging.identity import MessageTypeRegistry
-from waku.messaging.impl import MessageBus
+from waku.messaging.inbox._internal.drainer import build_inbox_drainer
+from waku.messaging.inbox._internal.recovery import InboxRecoveryWorker
+from waku.messaging.inbox._internal.scheduled import ScheduledPromotionWorker
 from waku.messaging.inbox.config import InboxConfig
-from waku.messaging.inbox.drainer import build_inbox_drainer
 from waku.messaging.inbox.interfaces import IInboxStore
-from waku.messaging.inbox.recovery import InboxRecoveryWorker
-from waku.messaging.inbox.scheduled import ScheduledPromotionWorker
 from waku.messaging.interfaces import IMessageBus
 from waku.messaging.observability.audit import AuditedMemberResolver
 from waku.messaging.observability.logging_observer import LoggingMessageObserver
@@ -74,8 +76,9 @@ from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.outgoing import IOutgoingMessages, IOutgoingMessagesFrames, OutgoingMessages
 from waku.messaging.partition import ISequenceAllocator
-from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
-from waku.messaging.pipeline.policies import (
+from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
+from waku.messaging.pipeline._internal.plan import BehaviorPlan, build_behavior_plan
+from waku.messaging.pipeline._internal.policies import (
     CascadingPolicy,
     DeferredCascadingPolicy,
     HandlerLocalPolicy,
@@ -84,15 +87,14 @@ from waku.messaging.pipeline.policies import (
     UserGlobalPolicy,
     config_requires_uow,
 )
-from waku.messaging.pipeline.policy import BehaviorPlan, BehaviorPolicyExtension, IBehaviorPolicy, build_behavior_plan
-from waku.messaging.registry import MessageRegistry
+from waku.messaging.pipeline.policy import BehaviorPolicyExtension, IBehaviorPolicy
 from waku.messaging.router import MessageRouter, RoutingTable
-from waku.messaging.routing_builder import RoutingTableBuilder
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicyRegistry
-from waku.messaging.transport.registry import TransportRegistry, resolve_default_scheme, split_destination
-from waku.modules import DynamicModule, ModuleMetadataRegistry, module
+from waku.messaging.transport._internal.registry import TransportRegistry, resolve_default_scheme, split_destination
+from waku.modules import ModuleMetadataRegistry
+from waku.modules._internal.metadata import DynamicModule, module
+from waku.serialization import UpcasterChain
 from waku.serialization.codec import PayloadCodec
-from waku.serialization.upcasting import UpcasterChain
 from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from waku.eventsourcing._stream_helpers import read_aggregate_stream  # noqa: PLC2701
+from waku.eventsourcing._internal.stream_helpers import read_aggregate_stream
 from waku.eventsourcing.contracts.event import StoredEvent
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import StreamNotFoundError, StreamTooLargeError

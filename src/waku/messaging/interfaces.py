@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Any, overload
 if TYPE_CHECKING:
     from datetime import datetime, timedelta
 
-    from waku.messages import IEvent
-    from waku.messaging.contracts.message import IMessage, ResponseT
+    from waku.messages import IEvent, IMessage
+    from waku.messaging.contracts.message import ResponseT
     from waku.messaging.contracts.request import IRequest
     from waku.messaging.delivery import DeliveryOptions
 

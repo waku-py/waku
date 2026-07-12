@@ -3,9 +3,9 @@ from typing import Protocol, TypeVar
 
 import pytest
 
-from waku import WakuApplication, WakuFactory
+from waku import Module, WakuApplication, WakuFactory
 from waku.di import AnyOf, Provider, Scope, contextual, provide, scoped, singleton
-from waku.modules import Module, ModuleType
+from waku.modules import ModuleType
 from waku.validation import ValidationExtension, ValidationRule
 from waku.validation.rules import DependenciesAccessibleRule, DependencyInaccessibleError
 

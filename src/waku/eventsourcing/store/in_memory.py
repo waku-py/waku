@@ -18,8 +18,8 @@ from waku.eventsourcing.exceptions import (
 )
 from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa: TC001  # Dishka needs runtime access
-from waku.eventsourcing.store._shared import enrich_metadata
-from waku.eventsourcing.store._version_check import check_expected_version
+from waku.eventsourcing.store._internal.shared import enrich_metadata
+from waku.eventsourcing.store._internal.version_check import check_expected_version
 from waku.eventsourcing.store.interfaces import IEventStore
 
 logger = logging.getLogger(__name__)

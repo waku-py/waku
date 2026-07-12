@@ -9,29 +9,29 @@ from typing_extensions import override
 
 from waku._internal.sentinel import MISSING
 from waku.exceptions import ImproperlyConfiguredError
-from waku.messaging.circuit_breaker.breaker import CircuitBreaker
-from waku.messaging.endpoints.durable_inbox_receiver import DurableInboxReceiver, build_durable_inbox_receiver
+from waku.messaging._internal.circuit_breaker import CircuitBreaker
+from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver, build_durable_inbox_receiver
+from waku.messaging.inbox._internal.listener import InboundListener
 from waku.messaging.inbox._internal.noop_backpressure import NoOpBackpressure
 from waku.messaging.inbox.backpressure import IListenerBackpressure, ListenerBackpressure
-from waku.messaging.inbox.listener import InboundListener
-from waku.messaging.transport.registry import split_destination
+from waku.messaging.transport._internal.registry import split_destination
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from dishka import AsyncContainer
 
+    from waku.messaging._internal.identity import MessageTypeRegistry
+    from waku.messaging._internal.pauser import PauseToken
+    from waku.messaging._internal.registry import MessageRegistry
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.config import MessagingConfig
-    from waku.messaging.endpoints.aspects import ListenAspect
+    from waku.messaging.endpoints._internal.aspects import ListenAspect
+    from waku.messaging.endpoints._internal.merge import MergedBrokerEndpoint
     from waku.messaging.endpoints.executor import EndpointExecutorFactory
-    from waku.messaging.endpoints.merge import MergedBrokerEndpoint
-    from waku.messaging.identity import MessageTypeRegistry
     from waku.messaging.inbox.backpressure import BufferingLimits
     from waku.messaging.inbox.config import InboxConfig
-    from waku.messaging.pauser import PauseToken
-    from waku.messaging.registry import MessageRegistry
-    from waku.messaging.transport.registry import TransportRegistry
+    from waku.messaging.transport._internal.registry import TransportRegistry
     from waku.serialization.codec import PayloadCodec
 
 __all__ = [

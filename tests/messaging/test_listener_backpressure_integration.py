@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 import anyio
 from typing_extensions import override
 
-from waku._internal.retort import default_retort  # noqa: PLC2701
+from waku._internal.retort import default_retort
 from waku.di import object_
 from waku.messages import IEvent
 from waku.messaging import (
@@ -25,16 +25,16 @@ from waku.messaging import (
     MessagingModule,
     TransactionalBehavior,
 )
-from waku.messaging.circuit_breaker import CircuitBreakerConfig
-from waku.messaging.endpoints.base import listen
+from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.backpressure import BufferingLimits
 from waku.messaging.inbox.models import InboxStatus
-from waku.messaging.transport.decomposition import encode_payload, envelope_metadata_of
+from waku.messaging.router import listen
+from waku.messaging.transport._internal.wire import encode_payload, envelope_metadata_of
 from waku.messaging.transport.inbound import ConsumeDisposition
 from waku.messaging.transport.interfaces import IEnvelopeMapper, ITransport, Subscription
+from waku.serialization import UpcasterChain
 from waku.serialization.codec import PayloadCodec
-from waku.serialization.upcasting import UpcasterChain
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 

@@ -16,9 +16,9 @@ from waku.messaging import (
     MessagingModule,
     ResponseT,
 )
-from waku.messaging.behaviors.cascading import CascadingBehavior
-from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
-from waku.messaging.pipeline.policy import BehaviorPlan
+from waku.messaging._internal.cascading import CascadingBehavior
+from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
+from waku.messaging.pipeline._internal.plan import BehaviorPlan
 from waku.testing import create_test_app
 
 

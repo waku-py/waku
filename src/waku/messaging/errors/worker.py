@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from typing_extensions import override
 
 from waku._internal.transaction import unit_of_work_scope
-from waku.messaging._polling_agent import AdaptivePace, Placement, PollingAgent
+from waku.messaging._internal.polling_agent import AdaptivePace, Placement, PollingAgent
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.errors.replay import ReplayExecutor
 

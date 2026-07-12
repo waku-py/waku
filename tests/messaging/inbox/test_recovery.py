@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku.messaging.inbox._internal.recovery import InboxRecoveryWorker
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.interfaces import IInboxStore
-from waku.messaging.inbox.recovery import InboxRecoveryWorker
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until

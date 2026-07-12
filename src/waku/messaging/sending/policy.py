@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from waku.messaging._escalation import EscalationChain
+from waku.messaging._internal.escalation import EscalationChain
 
 __all__ = [
     'SendingFailurePolicy',

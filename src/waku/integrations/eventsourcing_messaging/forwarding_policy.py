@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 
     from waku.messaging.config import MessagingConfig
     from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.registry import MessageRegistry
 
 __all__ = ['ForwardingPolicy']
 
@@ -31,7 +30,9 @@ class ForwardingPolicy(IBehaviorPolicy):
     def behaviors_for(
         self,
         handler: HandlerType,
-        registry: MessageRegistry,
+        # Contravariantly widened: the base declares messaging's internal MessageRegistry, which the
+        # bridge may not name (it consumes messaging only via facades/SPI); this policy never reads it.
+        registry: object,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]:
         if issubclass(handler, _ES_COMMAND_HANDLER_BASES):

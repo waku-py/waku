@@ -3,10 +3,10 @@ from uuid import UUID, uuid4
 
 from adaptix import loader
 
-from waku._internal.retort import default_retort  # noqa: PLC2701
+from waku._internal.retort import default_retort
 from waku.messages import MessageIdentity
+from waku.serialization import FnUpcaster, UpcasterChain
 from waku.serialization.codec import PayloadCodec
-from waku.serialization.upcasting import FnUpcaster, UpcasterChain
 
 
 @dataclass(frozen=True)

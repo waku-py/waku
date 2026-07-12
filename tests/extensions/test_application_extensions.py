@@ -1,6 +1,6 @@
 from pytest_mock import MockerFixture
 
-from waku import WakuApplication, WakuFactory
+from waku import Module, WakuApplication, WakuFactory
 from waku.extensions import (
     AfterApplicationInit,
     OnApplicationInit,
@@ -9,7 +9,7 @@ from waku.extensions import (
     OnModuleDestroy,
     OnModuleInit,
 )
-from waku.modules import Module, ModuleMetadata
+from waku.modules import ModuleMetadata
 
 from tests.module_utils import create_basic_module
 

@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore  # noqa: PLC2701
+from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore
 from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery
 
 _DISCARDING_LOGGER = 'waku.messaging.errors._internal.discarding_store'

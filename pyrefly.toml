@@ -2,7 +2,7 @@ project-includes = ["src", "tests"]
 project-excludes = [
   "**/__pycache__",
 ]
-search-path = ["src", "tests", "."]
+search-path = ["src", "tests", "scripts", "."]
 python-version = "3.11"
 
 permissive-ignores = true

@@ -16,8 +16,8 @@ from waku.extensions.registry import ExtensionRegistry
 from tests.module_utils import create_basic_module
 
 if TYPE_CHECKING:
-    from waku import WakuApplication
-    from waku.modules import Module, ModuleMetadata
+    from waku import Module, WakuApplication
+    from waku.modules import ModuleMetadata
 
 
 class OnApplicationInitExt(OnApplicationInit):

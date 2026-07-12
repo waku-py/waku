@@ -10,6 +10,10 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from datetime import datetime
 
+__all__ = [
+    'DeliveryOptions',
+]
+
 _ZERO = timedelta(0)
 
 

@@ -4,10 +4,10 @@ from datetime import timedelta
 
 import anyio.lowlevel
 
-from waku.messaging.circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitState
-from waku.messaging.circuit_breaker.breaker import PassthroughCircuitBreaker
+from waku.messaging._internal.circuit_breaker import CircuitBreaker, CircuitState, PassthroughCircuitBreaker
+from waku.messaging._internal.pauser import PauseRegistry, PauseToken
+from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
 from waku.messaging.endpoints.outcome import ExecutionOutcome
-from waku.messaging.pauser import PauseRegistry, PauseToken
 
 from tests._wait import ControllableSleep, wait_until
 

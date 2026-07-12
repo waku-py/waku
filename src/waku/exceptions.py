@@ -1,3 +1,9 @@
+__all__ = [
+    'ImproperlyConfiguredError',
+    'WakuError',
+]
+
+
 class WakuError(Exception):
     pass
 

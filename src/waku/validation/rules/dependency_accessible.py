@@ -11,8 +11,8 @@ from typing_extensions import override
 
 from waku.di import Scope
 from waku.validation import ValidationError, ValidationRule
-from waku.validation.rules._cache import LRUCache
-from waku.validation.rules._types_extractor import ModuleTypesExtractor
+from waku.validation.rules._internal.cache import LRUCache
+from waku.validation.rules._internal.types_extractor import ModuleTypesExtractor
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -21,8 +21,9 @@ if TYPE_CHECKING:
     from dishka.dependency_source import Factory
     from dishka.entities.key import DependencyKey
 
-    from waku.modules import Module, ModuleRegistry
-    from waku.validation._extension import ValidationContext
+    from waku.modules import ModuleRegistry
+    from waku.modules._internal.module import Module
+    from waku.validation._internal.extension import ValidationContext
 
 
 __all__ = [

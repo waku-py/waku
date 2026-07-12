@@ -12,19 +12,17 @@ from waku.extensions import OnModuleConfigure
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from waku.messaging._internal.registry import MessageRegistry
     from waku.messaging.config import MessagingConfig
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.contracts.pipeline import IPipelineBehavior
-    from waku.messaging.registry import MessageRegistry
     from waku.modules import ModuleMetadata
 
 __all__ = [
-    'BehaviorPlan',
     'BehaviorPolicyExtension',
     'IBehaviorPolicy',
     'Position',
     'PositionedBehavior',
-    'build_behavior_plan',
 ]
 
 
@@ -76,29 +74,3 @@ class BehaviorPolicyExtension(OnModuleConfigure):
     @override
     def on_module_configure(self, metadata: ModuleMetadata) -> None:
         """No-op marker: discovered passively via find_extensions, not at configure time."""
-
-
-@dataclass(frozen=True, slots=True)
-class BehaviorPlan:
-    """Memoized per-handler resolved behavior chain (outermost-first), built at registration."""
-
-    _plan: dict[HandlerType, tuple[type[IPipelineBehavior[Any, Any]], ...]]
-
-    def for_handler(self, handler: HandlerType) -> tuple[type[IPipelineBehavior[Any, Any]], ...]:
-        return self._plan.get(handler, ())
-
-
-def build_behavior_plan(
-    handlers: Sequence[HandlerType],
-    policies: Sequence[IBehaviorPolicy],
-    registry: MessageRegistry,
-    config: MessagingConfig,
-) -> BehaviorPlan:
-    plan: dict[HandlerType, tuple[type[IPipelineBehavior[Any, Any]], ...]] = {}
-    for handler in handlers:
-        positioned: list[PositionedBehavior] = []
-        for policy in policies:
-            positioned.extend(policy.behaviors_for(handler, registry, config))
-        positioned.sort(key=lambda item: item.sort_key)
-        plan[handler] = tuple(item.behavior for item in positioned)
-    return BehaviorPlan(plan)

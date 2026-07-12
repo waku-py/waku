@@ -4,11 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from waku.eventsourcing.contracts import (
-    EventEnvelope,
-    EventMetadata,
-    StreamId,
-)
+from waku.eventsourcing import EventEnvelope, EventMetadata, StreamId
 from waku.eventsourcing.exceptions import (
     AggregateNotFoundError,
     ConcurrencyConflictError,

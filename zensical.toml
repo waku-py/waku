@@ -67,6 +67,7 @@ nav = [
   { "Reference" = [
     { "API" = "reference.md" },
     { "Configuration" = "reference/configuration.md" },
+    { "Extension SPI" = "reference/extension-spi.md" },
   ] },
   { "Project" = [
     { "Contributing" = "contributing/contributing.md" },

@@ -8,7 +8,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from waku.application import WakuApplication
-    from waku.modules import Module, ModuleMetadata, ModuleMetadataRegistry, ModuleType
+    from waku.modules import ModuleMetadata, ModuleMetadataRegistry, ModuleType
+    from waku.modules._internal.module import Module
 
 __all__ = [
     'AfterApplicationInit',

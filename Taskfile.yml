@@ -109,10 +109,15 @@ tasks:
     cmds:
       - uv run pyrefly check {{.CLI_ARGS}}
 
+  visibility:
+    desc: Check module visibility (four-state doctrine, single-home exports)
+    deps: [ .uv-locked ]
+    cmd: uv run python scripts/check_visibility.py src/waku
+
   check:
     aliases: [ ci ]
     desc: Lint & typecheck python source files
-    deps: [ lint, typecheck ]
+    deps: [ lint, typecheck, visibility ]
 
   spellcheck:
     aliases: [ typos ]

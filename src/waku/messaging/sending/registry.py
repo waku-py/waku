@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from waku.messaging._escalation import best_match, validate_ends_with_terminal
+from waku.messaging._internal.escalation import best_match, validate_ends_with_terminal
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence

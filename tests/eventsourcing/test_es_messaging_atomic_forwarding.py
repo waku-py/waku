@@ -13,6 +13,7 @@ from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import override
 
+from waku import module
 from waku.di import scoped
 from waku.eventsourcing import ForwardDescriptor, forward
 from waku.eventsourcing.contracts.stream import StreamId
@@ -36,7 +37,6 @@ from waku.messaging import (
 )
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.sqla.uow import SqlAlchemyUnitOfWork
-from waku.modules import module
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 

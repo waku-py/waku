@@ -11,15 +11,16 @@ from dishka.exceptions import NoFactoryError
 
 from waku._internal.clock import utc_now
 from waku._internal.sentinel import MISSING
+from waku.messaging._internal.uow import NoOpUnitOfWork
 from waku.messaging.context import message_context_scope
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.errors.executor import FailureContext
 from waku.messaging.errors.policy import RetryAction
 from waku.messaging.exceptions import HandlerTimeoutError
-from waku.messaging.transport.decomposition import encode_metadata, encode_payload
+from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
-from waku.uow import IUnitOfWork, NoOpUnitOfWork
+from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.errors.executor import ErrorPolicyEvaluator, PolicyOutcome
     from waku.messaging.observability.observer import MessageObservers, ObserverPlan
-    from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
+    from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
 
 __all__ = [
     'EndpointExecutor',

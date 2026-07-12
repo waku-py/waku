@@ -83,7 +83,7 @@ imported modules already being initialized.
 
 ```python linenums="1"
 from waku.extensions import OnModuleInit
-from waku.modules import Module
+from waku import Module
 
 
 class WarmUpCache(OnModuleInit):
@@ -98,7 +98,7 @@ first), so a module's dependents are torn down before the module itself.
 
 ```python linenums="1"
 from waku.extensions import OnModuleDestroy
-from waku.modules import Module
+from waku import Module
 
 
 class GracefulShutdown(OnModuleDestroy):
@@ -387,7 +387,7 @@ from typing import Any
 from typing_extensions import override
 
 from waku.messaging import MessagingExtension
-from waku.messaging.registry import MessageRegistry
+from waku.messaging._internal.registry import MessageRegistry
 from waku.di import object_
 from waku.extensions import OnModuleRegistration
 from waku.modules import ModuleMetadataRegistry, ModuleType

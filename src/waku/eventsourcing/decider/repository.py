@@ -6,8 +6,8 @@ import typing
 import uuid
 from typing import ClassVar, Final, Generic, cast
 
-from waku.eventsourcing._introspection import is_abstract, is_type_alias, resolve_generic_args
-from waku.eventsourcing._stream_helpers import read_aggregate_stream
+from waku.eventsourcing._internal.introspection import is_abstract, is_type_alias, resolve_generic_args
+from waku.eventsourcing._internal.stream_helpers import read_aggregate_stream
 from waku.eventsourcing.contracts.aggregate import (  # Dishka needs runtime access
     CommandT,
     EventT,
@@ -19,8 +19,8 @@ from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
 from waku.eventsourcing.serialization.interfaces import (
     ISnapshotStateSerializer,  # noqa: TC001  # Dishka needs runtime access
 )
+from waku.eventsourcing.snapshot._internal.manager import SnapshotManager
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore  # noqa: TC001  # Dishka needs runtime access
-from waku.eventsourcing.snapshot.manager import SnapshotManager
 from waku.eventsourcing.snapshot.registry import SnapshotConfigRegistry  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Dishka needs runtime access
 

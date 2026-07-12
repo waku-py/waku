@@ -18,8 +18,8 @@ from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
 from waku.messaging.outbox.sqla.store import SqlAlchemyOutboxStore
 from waku.messaging.outbox.sqla.tables import bind_outbox_tables
 from waku.messaging.sqla.uow import SqlAlchemyUnitOfWork
+from waku.messaging.transport._internal.registry import TransportRegistry
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper, ITransport, Subscription
-from waku.messaging.transport.registry import TransportRegistry
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until

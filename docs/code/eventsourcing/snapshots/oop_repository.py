@@ -1,4 +1,5 @@
-from waku.eventsourcing.snapshot import Snapshot, SnapshotEventSourcedRepository
+from waku.eventsourcing.snapshot import Snapshot
+from waku.eventsourcing import SnapshotEventSourcedRepository
 
 from app.aggregate import BankAccount
 

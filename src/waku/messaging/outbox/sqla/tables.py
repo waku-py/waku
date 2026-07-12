@@ -20,7 +20,6 @@ from waku.messaging.outbox.models import OutboxStatus
 from waku.messaging.sqla.types import EnumFromValues
 
 __all__ = [
-    'OUTBOX_IDEMPOTENCY_CONSTRAINT',
     'OutboxTables',
     'bind_outbox_tables',
 ]

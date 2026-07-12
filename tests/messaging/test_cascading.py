@@ -266,7 +266,7 @@ class TestCascadingErrorIsolation:
             app.container() as container,
         ):
             bus = await container.get(IMessageBus)
-            with caplog.at_level(logging.ERROR, logger='waku.messaging.behaviors.cascading'):
+            with caplog.at_level(logging.ERROR, logger='waku.messaging._internal.cascading'):
                 order_id = await bus.invoke(_PlaceOrder(item='widget'))
 
             assert order_id == _OrderId(value='o-unrouted')

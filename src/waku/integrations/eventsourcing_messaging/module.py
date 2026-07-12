@@ -7,7 +7,7 @@ from waku.integrations.eventsourcing_messaging.correlation_enricher import Corre
 from waku.integrations.eventsourcing_messaging.forwarding_policy import ForwardingPolicy
 from waku.integrations.eventsourcing_messaging.session_identity import StoreSessionIdentityExtension
 from waku.messaging.pipeline.policy import BehaviorPolicyExtension
-from waku.modules import DynamicModule, module
+from waku.modules._internal.metadata import DynamicModule, module
 
 __all__ = ['EventSourcingMessagingModule']
 

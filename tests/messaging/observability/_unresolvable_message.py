@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from waku.messaging.contracts.message import IMessage
+from waku.messages import IMessage
 from waku.messaging.observability.audit import Audit
 
 

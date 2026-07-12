@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from typing import Annotated, get_args, get_origin, get_type_hints
 
 from waku.exceptions import ImproperlyConfiguredError
-from waku.messaging.contracts.message import IMessage
+from waku.messages import IMessage
 
-__all__ = ['Audit', 'AuditedMemberResolver']
+__all__ = ['Audit']
 
 logger = logging.getLogger(__name__)
 

@@ -23,7 +23,8 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from waku.di import AsyncContainer
-    from waku.modules import Module, ModuleRegistry
+    from waku.modules import ModuleRegistry
+    from waku.modules._internal.module import Module
 
 __all__ = ['WakuApplication']
 

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from waku.messaging._escalation import (  # noqa: PLC2701
+from waku.messaging._internal.escalation import (
     EscalationChain,
     RetryAction,
     RetryStage,

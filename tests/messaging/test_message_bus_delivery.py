@@ -8,10 +8,9 @@ from uuid import uuid4
 import pytest
 from typing_extensions import override
 
-from waku.messages import IEvent
+from waku.messages import IEvent, IMessage
 from waku.messaging import (
     DeliveryOptions,
-    IMessage,
     IMessageBus,
     IRequest,
     MessagingConfig,
@@ -19,16 +18,16 @@ from waku.messaging import (
     MessagingModule,
     RequestHandler,
 )
+from waku.messaging._internal.bus import MessageBus
+from waku.messaging._internal.dispatcher import MessageDispatcher
+from waku.messaging._internal.envelope_factory import EnvelopeFactory
 from waku.messaging.context import get_message_context, message_context_scope
-from waku.messaging.contracts.factory import EnvelopeFactory
-from waku.messaging.dispatcher import MessageDispatcher
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.exceptions import (
     ConflictingDeliveryOptionsError,
     DeliveryOptionNotApplicableError,
     SchedulingNotSupportedError,
 )
-from waku.messaging.impl import MessageBus
 from waku.messaging.router import MessageRouter
 from waku.testing import create_test_app
 

@@ -6,9 +6,8 @@ from typing import ClassVar
 import pytest
 
 from waku.exceptions import ImproperlyConfiguredError
-from waku.messages import MessageIdentity
-from waku.messaging.contracts.message import IMessage
-from waku.messaging.identity import MessageTypeRegistry, resolve_message_identity
+from waku.messages import IMessage, MessageIdentity
+from waku.messaging._internal.identity import MessageTypeRegistry, resolve_message_identity
 
 
 @dataclass(frozen=True, slots=True)

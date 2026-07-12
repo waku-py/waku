@@ -4,7 +4,8 @@ from typing import Any, Generic
 
 from typing_extensions import TypeVar
 
-from waku.messaging.contracts.message import IMessage, ResponseT
+from waku.messages import IMessage
+from waku.messaging.contracts.message import ResponseT
 
 __all__ = [
     'IRequest',

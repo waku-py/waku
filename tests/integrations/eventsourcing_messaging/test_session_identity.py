@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from waku import DynamicModule
 from waku.di import object_, scoped
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingModule
 from waku.eventsourcing.projection.interfaces import ICheckpointStore
@@ -23,7 +24,6 @@ from waku.integrations.eventsourcing_messaging import EventSourcingMessagingModu
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.sqla.store import SqlAlchemyOutboxStore
 from waku.messaging.sqla.uow import SqlAlchemyUnitOfWork, shared_session
-from waku.modules import DynamicModule
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 

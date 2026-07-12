@@ -10,14 +10,14 @@ from typing_extensions import override
 
 from waku.messages import IEvent
 from waku.messaging import PollingConfig
+from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.errors.worker import DeadLetterWorker
-from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.router import MessageRouter
-from waku.messaging.transport.decomposition import encode_metadata, encode_payload
+from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
 from waku.uow import IUnitOfWork
 

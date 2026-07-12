@@ -86,11 +86,11 @@ from datetime import timedelta
 from typing import Any
 
 from waku.messaging import (
-    ExecutionOutcome,
     HandlerType,
     IMessageObserver,
     MessageEnvelope,
 )
+from waku.messaging.endpoints import ExecutionOutcome
 
 
 class MetricsObserver(IMessageObserver):

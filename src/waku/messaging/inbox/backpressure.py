@@ -7,11 +7,15 @@ from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
-from waku.messaging.pauser import PauseRegistry
+from waku.messaging._internal.pauser import PauseRegistry
 
 if TYPE_CHECKING:
-    from waku.messaging.pauser import PauseToken
+    from waku.messaging._internal.pauser import PauseToken
     from waku.messaging.transport.interfaces import Subscription
+
+__all__ = [
+    'BufferingLimits',
+]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

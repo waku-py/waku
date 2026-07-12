@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from waku import module
 from waku.di import Scope, contextual
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.modules import (
@@ -20,8 +21,7 @@ from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
 from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
 from waku.messages import IEvent
-from waku.modules import module
-from waku.serialization.upcasting import rename_field
+from waku.serialization import rename_field
 from waku.testing import create_test_app
 
 from tests.eventsourcing.domain import Note, NoteCreated, NoteEdited, NoteRepository

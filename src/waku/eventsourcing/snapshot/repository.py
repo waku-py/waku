@@ -4,14 +4,14 @@ import abc
 import logging
 from typing import TYPE_CHECKING, ClassVar, Generic
 
-from waku.eventsourcing._stream_helpers import read_aggregate_stream
+from waku.eventsourcing._internal.stream_helpers import read_aggregate_stream
 from waku.eventsourcing.contracts.aggregate import AggregateT
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.interfaces import (
     ISnapshotStateSerializer,  # noqa: TC001  # Dishka needs runtime access
 )
+from waku.eventsourcing.snapshot._internal.manager import SnapshotManager
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStore  # noqa: TC001  # Dishka needs runtime access
-from waku.eventsourcing.snapshot.manager import SnapshotManager
 from waku.eventsourcing.snapshot.registry import SnapshotConfigRegistry  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Dishka needs runtime access
 

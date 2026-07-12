@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from waku.messaging._escalation import PolicyOutcome, walk_stages
+from waku.messaging._internal.escalation import PolicyOutcome, walk_stages
 
 if TYPE_CHECKING:
-    from waku.messaging.contracts.message import IMessage
+    from waku.messages import IMessage
     from waku.messaging.errors.registry import ErrorPolicyRegistry
     from waku.messaging.handler import MessageHandler
 

@@ -19,28 +19,28 @@ from waku.messaging import (
     MessagingModule,
     TransactionalBehavior,
 )
-from waku.messaging.circuit_breaker import CircuitBreakerConfig
-from waku.messaging.endpoints._internal.listening_agent import (  # noqa: PLC2701
+from waku.messaging._internal.identity import MessageTypeRegistry
+from waku.messaging._internal.registry import MessageRegistry
+from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
+from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
+from waku.messaging.endpoints._internal.listening_agent import (
     ListeningAgent,
     ListeningStatus,
     create_listening_agent,
 )
-from waku.messaging.endpoints.base import external_endpoint, listen
-from waku.messaging.endpoints.durable_inbox_receiver import DurableInboxReceiver
+from waku.messaging.endpoints._internal.merge import merge_broker_endpoints
 from waku.messaging.endpoints.executor import EndpointExecutor, EndpointExecutorFactory, ExecutionResult
-from waku.messaging.endpoints.merge import merge_broker_endpoints
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.handler import EventHandler
-from waku.messaging.identity import MessageTypeRegistry
+from waku.messaging.inbox._internal.listener import InboundListener
 from waku.messaging.inbox.backpressure import BufferingLimits
 from waku.messaging.inbox.interfaces import IInboxStore
-from waku.messaging.inbox.listener import InboundListener
 from waku.messaging.inbox.models import InboxStatus
-from waku.messaging.registry import MessageRegistry
-from waku.messaging.transport.decomposition import encode_payload, envelope_metadata_of
+from waku.messaging.router import external_endpoint, listen
+from waku.messaging.transport._internal.registry import TransportRegistry
+from waku.messaging.transport._internal.wire import encode_payload, envelope_metadata_of
 from waku.messaging.transport.inbound import ConsumeDisposition
 from waku.messaging.transport.interfaces import IEnvelopeMapper, ITransport, Subscription
-from waku.messaging.transport.registry import TransportRegistry
 from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
@@ -53,7 +53,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from waku.application import WakuApplication
-    from waku.messaging.endpoints.merge import MergedBrokerEndpoint
+    from waku.messaging.endpoints._internal.merge import MergedBrokerEndpoint
     from waku.messaging.transport.inbound import ConsumeCallback
     from waku.messaging.transport.interfaces import EnvelopeMetadata
 

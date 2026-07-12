@@ -38,7 +38,7 @@ from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
 from waku.messaging.partition import ISequenceAllocator
-from waku.messaging.transport.decomposition import encode_payload
+from waku.messaging.transport._internal.wire import encode_payload
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 

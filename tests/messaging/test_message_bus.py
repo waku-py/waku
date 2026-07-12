@@ -27,10 +27,10 @@ from waku.messaging import (
     ResponseT,
     TransactionalBehavior,
 )
+from waku.messaging._internal.registry import MessageRegistry
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import get_message_context
-from waku.messaging.endpoints.base import external_endpoint, listen, local_queue
-from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore  # noqa: PLC2701
+from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.replay import ReplayExecutor
@@ -41,8 +41,8 @@ from waku.messaging.exceptions import (
 )
 from waku.messaging.modules import DeadLetterLifecycleExtension
 from waku.messaging.partition import ISequenceAllocator
-from waku.messaging.pipeline.policy import BehaviorPlan
-from waku.messaging.registry import MessageRegistry
+from waku.messaging.pipeline._internal.plan import BehaviorPlan
+from waku.messaging.router import external_endpoint, listen, local_queue
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 

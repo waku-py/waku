@@ -9,7 +9,6 @@ from typing_extensions import override
 from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
-    ExecutionOutcome,
     IRequest,
     MessageEnvelope,
     MessagingConfig,
@@ -17,11 +16,12 @@ from waku.messaging import (
     MessagingModule,
     RequestHandler,
 )
-from waku.messaging.dispatcher import MessageDispatcher
+from waku.messaging._internal.dispatcher import MessageDispatcher
+from waku.messaging._internal.registry import MessageRegistry
+from waku.messaging.endpoints import ExecutionOutcome
 from waku.messaging.exceptions import HandlerNotFound
 from waku.messaging.observability.observer import INVOKE_DESTINATION, IMessageObserver, MessageObservers
-from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
-from waku.messaging.registry import MessageRegistry
+from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
 from waku.testing import create_test_app
 
 from tests.messaging.helpers import make_envelope

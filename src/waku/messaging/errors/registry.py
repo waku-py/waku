@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from waku.exceptions import ImproperlyConfiguredError
-from waku.messaging._escalation import best_match
+from waku.messaging._internal.escalation import best_match
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence

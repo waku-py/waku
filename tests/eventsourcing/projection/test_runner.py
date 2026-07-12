@@ -8,6 +8,7 @@ import anyio
 import pytest
 from typing_extensions import override
 
+from waku import module
 from waku.di import object_
 from waku.eventsourcing.projection.config import PollingConfig
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore, ProjectionErrorPolicy
@@ -17,7 +18,6 @@ from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.projection.runner import CatchUpProjectionRunner
 from waku.eventsourcing.store.interfaces import IEventReader, IEventStore
 from waku.factory import WakuFactory
-from waku.modules import module
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until

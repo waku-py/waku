@@ -5,7 +5,6 @@ from typing_extensions import TypeVar
 from waku.messages import IMessage
 
 __all__ = [
-    'IMessage',
     'MessageT',
     'ResponseT',
 ]

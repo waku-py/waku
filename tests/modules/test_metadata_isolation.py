@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from waku.modules import HasModuleMetadata, ModuleMetadata, ModuleType
-    from waku.modules._metadata_registry import ModuleMetadataRegistry
+    from waku.modules._internal.metadata_registry import ModuleMetadataRegistry
 
 
 class _AddProviderOnRegistration(OnModuleRegistration):

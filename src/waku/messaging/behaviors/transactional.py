@@ -9,6 +9,10 @@ from waku._internal.transaction import TransactionDepth  # noqa: TC001
 from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
 from waku.uow import IUnitOfWork  # noqa: TC001
 
+__all__ = [
+    'TransactionalBehavior',
+]
+
 logger = logging.getLogger(__name__)
 
 _T = TypeVar('_T')

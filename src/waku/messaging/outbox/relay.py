@@ -11,26 +11,25 @@ from typing_extensions import override
 
 from waku._internal.polling import PollingConfig
 from waku._internal.transaction import unit_of_work_scope
-from waku.messaging._escalation import RetryAction
-from waku.messaging._polling_agent import AdaptivePace, Placement, PollingAgent
+from waku.messaging._internal.escalation import RetryAction
+from waku.messaging._internal.polling_agent import AdaptivePace, Placement, PollingAgent
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.sending.evaluator import SendingFailureContext, SendingFailureEvaluator
 from waku.messaging.sending.policy import SendingFailurePolicy
-from waku.messaging.transport.decomposition import wire_metadata_from_entry
-from waku.messaging.transport.registry import TransportRegistry, split_destination
+from waku.messaging.transport._internal.registry import TransportRegistry, split_destination
+from waku.messaging.transport._internal.wire import wire_metadata_from_entry
 from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from dishka import AsyncContainer
 
-    from waku.messaging._escalation import PolicyOutcome
+    from waku.messaging._internal.escalation import PolicyOutcome
     from waku.messaging.outbox.models import OutboxMessage
 
 __all__ = [
     'OutboxRelay',
     'OutboxRelayConfig',
-    'build_relay_default_policy',
 ]
 
 logger = logging.getLogger(__name__)

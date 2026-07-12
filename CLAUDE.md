@@ -13,38 +13,55 @@ Waku is a modular, type-safe Python framework (3.11+) inspired by NestJS, built 
 
 ## Package Structure
 
+Every module under `src/waku` is in exactly one of four states — a facade `__init__` (has `__all__`),
+a structural `__init__` (empty), an `_internal/` module, or a leaf whose `__all__` names are re-exported
+by an ancestor facade. `scripts/check_visibility.py` (run by `task check`) enforces this plus single-home
+exports (one facade per symbol; `PollingConfig` is the one allowlisted dual-home) and zero underscore
+filenames/import-targets outside `_internal/`. Privacy boundary is the DOMAIN: sibling subpackages may
+reach into each other's `_internal`; import-linter `protected` contracts stop everyone else. Tests may
+import `_internal` freely (PLC2701 is per-file-ignored for `tests/**`).
+
 ```
 src/waku/
-├── uow.py           # IUnitOfWork protocol (general infrastructure concern)
-├── messaging/       # Messaging: IRequest, IEvent, Pipeline behaviors, MessageBus
-│   ├── contracts/   # IMessage, IRequest, IPipelineBehavior, HandlerType, MessageEnvelope, EnvelopeFactory
+├── uow.py           # IUnitOfWork protocol (general infrastructure concern; root facade surfaces it)
+├── exceptions.py    # WakuError, ImproperlyConfiguredError (root facade surfaces them)
+├── _internal/       # Cross-domain substrate (clock, polling, sentinel, transaction, retort)
+├── messages/        # Neutral kernel: IMessage, IEvent, MessageIdentity (single import home)
+├── serialization/   # PayloadCodec + upcasting toolkit (upcast, rename_field, …); upcasting/ is structural
+├── messaging/       # Messaging: IRequest, Pipeline behaviors, MessageBus
+│   ├── _internal/   # Machinery: bus (MessageBus), dispatcher, handler_map, identity, registry,
+│   │                # routing_builder, envelope_factory, escalation, circuit_breaker, cascading, pauser, uow
+│   ├── contracts/   # (structural) envelope.py, handler.py, message.py, pipeline.py, request.py
 │   ├── context.py   # MessageContext (ContextVar-based, correlation/causation propagation)
-│   ├── dispatcher.py # MessageDispatcher (handler/behavior resolution, no routing)
-│   ├── endpoints/   # Endpoint model (ABC, LocalQueueEndpoint, EndpointEntry)
+│   ├── endpoints/   # SPI facade: Endpoint model + EndpointExecutor; workers live in endpoints/_internal/
 │   ├── handler.py   # MessageHandler, RequestHandler, EventHandler (unified hierarchy)
-│   ├── handler_map.py # HandlerMap (unified message→handler registry)
-│   ├── behaviors/   # Pipeline behaviors (TransactionalBehavior)
-│   ├── pipeline/    # PipelineExecutor, behavior chain
-│   ├── router.py    # MessageRouter, RoutingTable, route()/route_module() helpers
-│   ├── transport/   # ITransport protocol (external transports)
-│   ├── sqla/        # SQLAlchemy adapters (SqlAlchemyUnitOfWork)
-│   ├── impl.py      # MessageBus (thin routing facade)
+│   ├── behaviors/   # (structural) transactional.py — TransactionalBehavior
+│   ├── pipeline/    # (structural) policy.py = IBehaviorPolicy SPI; executor/invoker/plan in _internal/
+│   ├── router.py    # Routing DSL: route()/route_module() + listen()/local_queue()/external_endpoint()
+│   ├── transport/   # SPI facade: ITransport, IEnvelopeMapper, EnvelopeMetadata; faststream/ adapters
+│   ├── errors/      # SPI facade: ErrorPolicy, IDeadLetterStore, DeadLetterWorker, replay (+ sqla/)
+│   ├── inbox/       # SPI facade: IInboxStore, InboxEntry/InboxStatus (+ sqla/; workers in _internal/)
+│   ├── outbox/      # SPI facade: IOutboxStore, OutboxRelay(Config) (+ sqla/)
+│   ├── sending/     # SPI facade: SendingFailurePolicy machinery
+│   ├── sqla/        # SQLAlchemy adapters (SqlAlchemyUnitOfWork, shared_session)
 │   ├── interfaces.py # IMessageBus, ISender, IPublisher
-│   └── modules.py   # MessagingModule, MessagingConfig, MessagingExtension, EndpointLifecycleExtension
+│   └── modules.py   # MessagingModule, MessagingConfig, MessagingExtension
 ├── di/              # DI helpers wrapping dishka (scoped, singleton, transient, etc.)
-├── eventsourcing/   # Event sourcing extension
-│   ├── contracts/   # Aggregate, Event envelope, Stream primitives
-│   ├── decider/     # Decider pattern (functional event sourcing)
-│   ├── projection/  # Read model projections (with SQLAlchemy adapter)
-│   ├── serialization/ # Event serialization (adaptix-based)
-│   ├── snapshot/    # Aggregate snapshots (with SQLAlchemy adapter)
-│   ├── store/       # Event store (with SQLAlchemy adapter)
-│   ├── upcasting/   # Event schema migration/upcasting
-│   ├── handler.py   # EventSourcedCommandHandler
+├── eventsourcing/   # Event sourcing extension (top facade = user API incl. projections/decider/repository)
+│   ├── contracts/   # (structural) aggregate.py, event.py, stream.py — exported via top facade
+│   ├── decider/     # (structural) repository.py — DeciderRepository et al. exported via top facade
+│   ├── projection/  # SPI facade: ICheckpointStore, PollingConfig; processor/gap_tracker in _internal/
+│   ├── serialization/ # SPI facade: event/snapshot serializers (adaptix-based)
+│   ├── snapshot/    # SPI facade: ISnapshotStore, strategies, migration (+ sqlalchemy/)
+│   ├── store/       # SPI facade: IEventStore (+ sqlalchemy/)
+│   ├── testing/     # AggregateSpec, DeciderSpec, wait_for_projection helpers
 │   ├── modules.py   # EventSourcingModule, EventSourcingConfig
 │   └── repository.py # EventSourcedRepository
+├── integrations/
+│   └── eventsourcing_messaging/ # ES<->messaging bridge: EventSourcedCommandHandler, forwarding, enrichers
 ├── extensions/      # Lifecycle hooks and extension registry
-├── modules/         # Module system (@module decorator, DynamicModule, registry)
+├── modules/         # Module-system SPI (ModuleType, registries); Module/DynamicModule/module live on waku
+├── testing/         # override(), create_test_app()
 └── validation/      # Module validation rules
 ```
 

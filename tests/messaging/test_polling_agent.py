@@ -4,7 +4,7 @@ import anyio
 from typing_extensions import override
 
 from waku.messaging import PollingConfig
-from waku.messaging._polling_agent import (  # noqa: PLC2701
+from waku.messaging._internal.polling_agent import (
     AdaptivePace,
     FixedPace,
     Placement,

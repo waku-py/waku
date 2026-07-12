@@ -13,7 +13,7 @@ from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.sqlalchemy.store import SqlAlchemyEventStore
 from waku.eventsourcing.store.sqlalchemy.tables import EventStoreTables, bind_event_store_tables
 from waku.messages import IEvent
-from waku.serialization.upcasting import UpcasterChain, rename_field
+from waku.serialization import UpcasterChain, rename_field
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession

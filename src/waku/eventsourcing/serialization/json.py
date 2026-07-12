@@ -4,11 +4,11 @@ from typing import TYPE_CHECKING, Any
 
 from typing_extensions import override
 
-from waku.eventsourcing.serialization._retort import es_default_retort, validate_dataclass_instance
+from waku.eventsourcing.serialization._internal.retort import es_default_retort, validate_dataclass_instance
 from waku.eventsourcing.serialization.interfaces import IEventSerializer, ISnapshotStateSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa: TC001  # Dishka needs runtime access
+from waku.serialization import UpcasterChain
 from waku.serialization.codec import PayloadCodec
-from waku.serialization.upcasting import UpcasterChain
 
 if TYPE_CHECKING:
     from waku.eventsourcing.contracts.aggregate import StateT

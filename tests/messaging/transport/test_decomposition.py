@@ -7,22 +7,22 @@ from uuid import uuid4
 
 import pytest
 
-from waku._internal.retort import default_retort  # noqa: PLC2701
+from waku._internal.retort import default_retort
 from waku.messages import IEvent
+from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.errors.dead_letter import DeadLetterEntry
-from waku.messaging.identity import MessageTypeRegistry
 from waku.messaging.inbox.models import InboxEntry
 from waku.messaging.outbox.models import OutboxMessage
-from waku.messaging.transport.decomposition import (
+from waku.messaging.transport._internal.wire import (
     encode_payload,
     envelope_metadata_of,
     rebuild_envelope,
     wire_metadata_from_entry,
 )
 from waku.messaging.transport.interfaces import EnvelopeMetadata
+from waku.serialization import UpcasterChain, upcast
 from waku.serialization.codec import PayloadCodec
-from waku.serialization.upcasting import UpcasterChain, upcast
 
 
 @dataclass(frozen=True, slots=True)

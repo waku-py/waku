@@ -9,7 +9,7 @@ import pytest
 from typing_extensions import override
 
 from waku import module
-from waku._internal.transaction import TransactionDepth  # noqa: PLC2701
+from waku._internal.transaction import TransactionDepth
 from waku.di import object_
 from waku.exceptions import ImproperlyConfiguredError
 from waku.factory import ContainerConfig, WakuFactory

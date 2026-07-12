@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import anyio.lowlevel
 
-from waku.messaging.pauser import PauseRegistry, TimedPauser
+from waku.messaging._internal.pauser import PauseRegistry, TimedPauser
 
 from tests._wait import ControllableSleep, wait_until
 

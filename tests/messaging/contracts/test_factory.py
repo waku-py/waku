@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from waku.messaging.contracts.factory import EnvelopeFactory
-from waku.messaging.contracts.message import IMessage
-from waku.messaging.identity import MessageTypeRegistry
+from waku.messages import IMessage
+from waku.messaging._internal.envelope_factory import EnvelopeFactory
+from waku.messaging._internal.identity import MessageTypeRegistry
 
 
 class SampleMessage(IMessage):

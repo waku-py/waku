@@ -3,11 +3,11 @@ from typing import NewType, Protocol
 import pytest
 from dishka import Marker
 
-from waku import module
+from waku import Module, module
 from waku.di import Scope, contextual, scoped, singleton
 from waku.exceptions import ImproperlyConfiguredError
 from waku.extensions import OnModuleConfigure, OnModuleDestroy, OnModuleInit
-from waku.modules import Module, ModuleMetadata
+from waku.modules import ModuleMetadata
 from waku.testing import create_test_app
 
 TestValue = NewType('TestValue', str)

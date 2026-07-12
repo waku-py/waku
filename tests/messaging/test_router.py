@@ -4,7 +4,7 @@ from typing import Any
 
 from typing_extensions import override
 
-from waku.messaging.contracts.message import IMessage
+from waku.messages import IMessage
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.router import (
     MessageRouter,

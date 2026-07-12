@@ -44,7 +44,8 @@ failure escalates:
 from collections.abc import Sequence
 from typing import ClassVar
 
-from waku.messaging import ErrorPolicy, RequestHandler
+from waku.messaging import RequestHandler
+from waku.messaging.errors import ErrorPolicy
 
 
 class PlaceOrderHandler(RequestHandler[PlaceOrder, None]):
@@ -190,7 +191,7 @@ requeue budget so a persistently failing message cannot loop forever:
 ```python linenums="1"
 from datetime import timedelta
 
-from waku.messaging import ErrorPolicy
+from waku.messaging.errors import ErrorPolicy
 
 # Retry inline twice, then hand the message back to the queue up to 3 times.
 ErrorPolicy.on_exception(ConnectionError).retry(max_attempts=2).then_requeue(max_attempts=3)
@@ -211,7 +212,7 @@ A policy targets a specific exception type or matches any exception. Add a `when
 conditional matching:
 
 ```python linenums="1"
-from waku.messaging import ErrorPolicy
+from waku.messaging.errors import ErrorPolicy
 
 policies = (
     # Specific exception — retries connection errors only
@@ -292,10 +293,10 @@ letter store via `dead_letter`:
 from waku.messaging import (
     DeadLetterConfig,
     EndpointDefaults,
-    ErrorPolicy,
     MessagingConfig,
     MessagingModule,
 )
+from waku.messaging.errors import ErrorPolicy
 
 MessagingModule.register(
     MessagingConfig(

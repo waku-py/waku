@@ -4,22 +4,16 @@ import math
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
-from waku._internal.sentinel import MISSING  # noqa: PLC2701
-from waku.messaging.circuit_breaker import CircuitBreakerConfig
-from waku.messaging.endpoints.base import (
-    BrokerEndpointEntry,
-    EndpointMode,
-    LocalQueueEntry,
-    external_endpoint,
-    listen,
-    local_queue,
-)
+from waku._internal.sentinel import MISSING
+from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
+from waku.messaging.endpoints.base import BrokerEndpointEntry, EndpointMode, LocalQueueEntry
 from waku.messaging.inbox.backpressure import BufferingLimits
 from waku.messaging.observability.observer import IMessageObserver
+from waku.messaging.router import external_endpoint, listen, local_queue
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper
 
 if TYPE_CHECKING:
-    from waku.messaging.contracts.message import IMessage
+    from waku.messages import IMessage
 
 
 class _ObserverA(IMessageObserver):

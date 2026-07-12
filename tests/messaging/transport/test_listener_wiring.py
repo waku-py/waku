@@ -16,9 +16,10 @@ from waku.messaging import (
     OutboxConfig,
     TransactionalBehavior,
 )
-from waku.messaging.endpoints.base import BrokerEndpointEntry, external_endpoint, listen
+from waku.messaging.endpoints.base import BrokerEndpointEntry
 from waku.messaging.handler import EventHandler
-from waku.messaging.transport.decomposition import encode_payload, envelope_metadata_of
+from waku.messaging.router import external_endpoint, listen
+from waku.messaging.transport._internal.wire import encode_payload, envelope_metadata_of
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper
 from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app

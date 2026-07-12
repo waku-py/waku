@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from typing_extensions import override
 
+from waku import module
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate, IDecider
 from waku.eventsourcing.contracts.event import EventMetadata, IMetadataEnricher
 from waku.eventsourcing.decider.repository import DeciderRepository
@@ -16,7 +17,6 @@ from waku.eventsourcing.exceptions import (
     RegistryFrozenError,
     SnapshotConfigNotFoundError,
     SnapshotMigrationChainError,
-    UpcasterChainError,
 )
 from waku.eventsourcing.modules import (
     EventSourcingConfig,
@@ -46,8 +46,8 @@ from waku.eventsourcing.snapshot.strategy import EventCountStrategy
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.messages import IEvent
-from waku.modules import module
-from waku.serialization.upcasting import UpcasterChain, add_field, rename_field
+from waku.serialization import UpcasterChain, add_field, rename_field
+from waku.serialization.exceptions import UpcasterChainError
 from waku.testing import create_test_app
 
 if TYPE_CHECKING:

@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING, Any
 import anyio
 from anyio.lowlevel import checkpoint
 
+from waku.messages import IMessage
 from waku.messaging.contracts.envelope import MessageEnvelope
-from waku.messaging.contracts.message import IMessage
-from waku.messaging.endpoints.worker import MemoryStreamWorker
+from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
 
 from tests.messaging.helpers import make_envelope
 
@@ -178,7 +178,7 @@ class TestMemoryStreamWorkerErrorIsolation:
             processed.set()
 
         worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=0.5)
-        with caplog.at_level(logging.ERROR, logger='waku.messaging.endpoints.worker'):
+        with caplog.at_level(logging.ERROR, logger='waku.messaging.endpoints._internal.worker'):
             await worker.start(flaky_handler)
             await worker.send(make_envelope(_Ping(tag='boom')))
             await worker.send(make_envelope(_Ping(tag='ok')))

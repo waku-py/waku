@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self
 
-from waku.messaging._escalation import (
+from waku.messaging._internal.escalation import (
     DEFERRED_TERMINAL_ACTIONS,
     ActionBuilder,
     EscalationChain,
@@ -20,8 +20,6 @@ __all__ = [
     'ErrorPolicy',
     'RetryAction',
     'RetryStage',
-    'policies_have_deferred_terminal',
-    'policies_need_dead_letter',
 ]
 
 

@@ -9,7 +9,7 @@ from typing_extensions import override
 from waku.messages import IEvent
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.handler import EventHandler
-from waku.messaging.inbox._destination import handler_destination  # noqa: PLC2701
+from waku.messaging.inbox._internal.destination import handler_destination
 from waku.messaging.inbox.models import InboxEntry
 
 if TYPE_CHECKING:

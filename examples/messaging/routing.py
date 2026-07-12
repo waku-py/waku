@@ -25,8 +25,7 @@ from waku.messaging import (
     MessagingModule,
     RequestHandler,
 )
-from waku.messaging.endpoints.base import local_queue
-from waku.messaging.router import route, route_module
+from waku.messaging.router import local_queue, route, route_module
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger(__name__)

@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import pytest
 
-from waku.messaging.circuit_breaker import CircuitBreakerConfig
+from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
 
 
 def test_defaults_are_wolverine_aligned() -> None:

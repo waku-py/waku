@@ -11,6 +11,12 @@ if TYPE_CHECKING:
 
     from waku.messaging.contracts.envelope import MessageEnvelope
 
+__all__ = [
+    'MessageContext',
+    'get_message_context',
+    'try_get_message_context',
+]
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MessageContext:

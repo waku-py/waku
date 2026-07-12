@@ -13,7 +13,7 @@ from waku.di import object_
 from waku.extensions import DEFAULT_EXTENSIONS
 from waku.factory import WakuFactory
 from waku.messaging import InboxConfig, MessagingConfig, MessagingModule, TransactionalBehavior
-from waku.messaging.endpoints.base import listen
+from waku.messaging.router import listen
 from waku.messaging.transport.faststream.rabbitmq import FastStreamRabbitTransport
 from waku.uow import IUnitOfWork
 

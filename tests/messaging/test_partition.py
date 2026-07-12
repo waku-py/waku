@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 from waku.messages import IEvent
-from waku.messaging._identifiers import GroupId  # noqa: PLC2701
-from waku.messaging.partition import ISequenceAllocator, resolve_and_allocate, resolve_group_id
+from waku.messaging._internal.identifiers import GroupId
+from waku.messaging._internal.partition import resolve_and_allocate, resolve_group_id
+from waku.messaging.partition import ISequenceAllocator
 
 from tests.messaging.helpers import make_envelope
 

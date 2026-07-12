@@ -8,10 +8,10 @@ from typing_extensions import override
 
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IEvent
+from waku.messaging._internal.handler_map import HandlerMap
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.exceptions import HandlerAlreadyRegistered, MapFrozenError
 from waku.messaging.handler import EventHandler, MessageHandler, RequestHandler
-from waku.messaging.handler_map import HandlerMap
 from waku.messaging.modules import MessagingExtension
 
 

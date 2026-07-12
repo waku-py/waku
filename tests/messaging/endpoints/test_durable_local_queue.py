@@ -9,10 +9,10 @@ import anyio.lowlevel
 from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
-from waku._internal.clock import utc_now  # noqa: PLC2701
+from waku._internal.clock import utc_now
 from waku.messages import IEvent
-from waku.messaging.circuit_breaker import CircuitBreakerConfig
-from waku.messaging.endpoints.durable_local_queue import DurableLocalQueueEndpoint
+from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
+from waku.messaging.endpoints._internal.durable_local_queue import DurableLocalQueueEndpoint
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionResult
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors.dead_letter import IDeadLetterStore
@@ -21,7 +21,7 @@ from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers
 from waku.messaging.partition import ISequenceAllocator
-from waku.messaging.transport.decomposition import encode_payload
+from waku.messaging.transport._internal.wire import encode_payload
 from waku.serialization.codec import PayloadCodec
 from waku.uow import IUnitOfWork
 
@@ -39,9 +39,9 @@ from tests.messaging.inbox.fake_store import FakeInboxStore
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from waku.messages import IMessage
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.contracts.message import IMessage
     from waku.messaging.partition import PartitionKeyExtractor
 
 

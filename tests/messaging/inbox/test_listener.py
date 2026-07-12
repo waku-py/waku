@@ -8,24 +8,24 @@ from typing import ClassVar
 from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
-from waku._internal.retort import default_retort  # noqa: PLC2701
+from waku._internal.retort import default_retort
 from waku.messages import IEvent
-from waku.messaging.endpoints.durable_inbox_receiver import DurableInboxReceiver
+from waku.messaging._internal.identity import MessageTypeRegistry
+from waku.messaging._internal.registry import MessageRegistry
+from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionResult
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.handler import EventHandler
-from waku.messaging.identity import MessageTypeRegistry
+from waku.messaging.inbox._internal.listener import InboundListener
 from waku.messaging.inbox.backpressure import BufferingLimits, ListenerBackpressure
 from waku.messaging.inbox.interfaces import IInboxStore
-from waku.messaging.inbox.listener import InboundListener
 from waku.messaging.partition import ISequenceAllocator
-from waku.messaging.registry import MessageRegistry
-from waku.messaging.transport.decomposition import encode_payload, envelope_metadata_of
+from waku.messaging.transport._internal.wire import encode_payload, envelope_metadata_of
 from waku.messaging.transport.inbound import ConsumeDisposition
 from waku.messaging.transport.interfaces import EnvelopeMetadata, Subscription
+from waku.serialization import UpcasterChain
 from waku.serialization.codec import PayloadCodec
-from waku.serialization.upcasting import UpcasterChain
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until

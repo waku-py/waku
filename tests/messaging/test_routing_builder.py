@@ -11,15 +11,15 @@ from waku.messaging.contracts.request import IRequest
 from waku.messaging.endpoints.base import LocalQueueEntry
 
 if TYPE_CHECKING:
+    from waku.messages import IMessage
     from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.contracts.message import IMessage
 
 from waku.exceptions import ImproperlyConfiguredError
-from waku.messaging.endpoints.base import DEFAULT_ENDPOINT_URI, EndpointEntry, local_queue
+from waku.messaging._internal.registry import MessageRegistry
+from waku.messaging._internal.routing_builder import ModuleRoutingMap, RoutingTableBuilder
+from waku.messaging.endpoints.base import DEFAULT_ENDPOINT_URI, EndpointEntry
 from waku.messaging.handler import EventHandler, RequestHandler
-from waku.messaging.registry import MessageRegistry
-from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor
-from waku.messaging.routing_builder import ModuleRoutingMap, RoutingTableBuilder
+from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor, local_queue
 
 
 class _TestEvent(IEvent): ...

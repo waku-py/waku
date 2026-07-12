@@ -23,7 +23,6 @@ if TYPE_CHECKING:
 __all__ = [
     'DeadLetterTables',
     'bind_dead_letter_tables',
-    'dead_letter_insert_values',
 ]
 
 _internal_metadata = MetaData()

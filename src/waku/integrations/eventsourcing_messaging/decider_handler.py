@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, ClassVar, Generic
 
 from typing_extensions import override
 
-from waku.eventsourcing._retry import execute_with_optimistic_retry
 from waku.eventsourcing.contracts.aggregate import (
     CommandT,
     EventT,
@@ -15,6 +14,7 @@ from waku.eventsourcing.contracts.aggregate import (
     StateT,
 )
 from waku.eventsourcing.decider.repository import DeciderRepository  # noqa: TC001  # Dishka needs runtime access
+from waku.integrations.eventsourcing_messaging._internal.retry import execute_with_optimistic_retry
 from waku.messaging.contracts.message import ResponseT
 from waku.messaging.contracts.request import RequestT
 from waku.messaging.handler import RequestHandler

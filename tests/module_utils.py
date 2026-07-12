@@ -3,9 +3,9 @@
 from collections.abc import Sequence
 from typing import Any
 
-from waku import module
+from waku import DynamicModule, module
 from waku.extensions import ModuleExtension
-from waku.modules import DynamicModule, ModuleType
+from waku.modules import ModuleType
 
 
 def create_basic_module(

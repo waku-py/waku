@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import pytest
 
+from waku.messages import IMessage
 from waku.messaging.context import (
     get_message_context,
     message_context_scope,
     try_get_message_context,
 )
-from waku.messaging.contracts.message import IMessage
 
 from tests.messaging.helpers import make_envelope
 

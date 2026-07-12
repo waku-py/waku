@@ -14,15 +14,15 @@ from waku.messages import IEvent
 from waku.messaging import EventHandler, MessagingConfig, MessagingExtension, MessagingModule
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import MessageContext, get_message_context
+from waku.messaging.endpoints._internal.local_queue import LocalQueueEndpoint
 from waku.messaging.endpoints.executor import EndpointExecutor
-from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.exceptions import RequeueBudgetExceededError
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers
-from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
+from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 

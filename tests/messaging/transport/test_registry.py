@@ -6,8 +6,8 @@ import pytest
 from typing_extensions import override
 
 from waku.exceptions import ImproperlyConfiguredError
+from waku.messaging.transport._internal.registry import TransportRegistry, resolve_default_scheme, split_destination
 from waku.messaging.transport.interfaces import IEnvelopeMapper, ITransport
-from waku.messaging.transport.registry import TransportRegistry, resolve_default_scheme, split_destination
 
 from tests.messaging.helpers import StubSubscription
 

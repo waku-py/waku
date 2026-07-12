@@ -9,7 +9,7 @@ pytest.importorskip('faststream.kafka')
 
 from faststream.kafka import KafkaBroker, TestKafkaBroker
 
-from waku._internal.retort import default_retort  # noqa: PLC2701
+from waku._internal.retort import default_retort
 from waku.di import object_
 from waku.messages import IEvent
 from waku.messaging import (
@@ -19,14 +19,14 @@ from waku.messaging import (
     MessagingModule,
     TransactionalBehavior,
 )
-from waku.messaging.endpoints.base import listen
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.partition import ISequenceAllocator
-from waku.messaging.transport.decomposition import encode_payload, envelope_metadata_of
+from waku.messaging.router import listen
+from waku.messaging.transport._internal.wire import encode_payload, envelope_metadata_of
 from waku.messaging.transport.faststream.kafka import DefaultKafkaEnvelopeMapper, FastStreamKafkaTransport
+from waku.serialization import UpcasterChain
 from waku.serialization.codec import PayloadCodec
-from waku.serialization.upcasting import UpcasterChain
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 

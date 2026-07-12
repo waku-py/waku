@@ -6,13 +6,13 @@ from typing import Any
 from typing_extensions import override
 
 from waku.messaging import CallNext, IPipelineBehavior, IRequest, MessageT, RequestHandler, ResponseT
+from waku.messaging._internal.registry import MessageRegistry
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import DeadLetterConfig, MessagingConfig, OutboxConfig
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.inbox.config import InboxConfig
-from waku.messaging.modules import _FRAMEWORK_POLICIES  # noqa: PLC2701
-from waku.messaging.pipeline.policy import build_behavior_plan
-from waku.messaging.registry import MessageRegistry
+from waku.messaging.modules import _FRAMEWORK_POLICIES
+from waku.messaging.pipeline._internal.plan import build_behavior_plan
 
 from tests.messaging.helpers import RecordingDeadLetterStore
 from tests.messaging.inbox.fake_store import FakeInboxStore

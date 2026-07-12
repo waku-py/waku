@@ -5,7 +5,7 @@ import enum
 from abc import ABC
 from typing import TYPE_CHECKING
 
-from waku.eventsourcing._introspection import is_abstract
+from waku.eventsourcing._internal.introspection import is_abstract
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

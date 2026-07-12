@@ -5,8 +5,8 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, ClassVar, Generic
 
-from waku.eventsourcing._introspection import is_abstract, resolve_generic_args
-from waku.eventsourcing._stream_helpers import read_aggregate_stream
+from waku.eventsourcing._internal.introspection import is_abstract, resolve_generic_args
+from waku.eventsourcing._internal.stream_helpers import read_aggregate_stream
 from waku.eventsourcing.contracts.aggregate import AggregateT
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId

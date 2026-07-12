@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Self, TypeAlias
 from typing_extensions import override
 
 from waku.di import Provider, WithParents, is_registered, many, object_, scoped
-from waku.eventsourcing._introspection import resolve_generic_args
+from waku.eventsourcing._internal.introspection import resolve_generic_args
 from waku.eventsourcing.contracts.aggregate import IDecider
 from waku.eventsourcing.contracts.event import IMetadataEnricher
 from waku.eventsourcing.decider.repository import DeciderRepository
@@ -17,7 +17,6 @@ from waku.eventsourcing.exceptions import (
     RegistryFrozenError,
     SnapshotMigrationChainError,
     UnknownEventTypeError,
-    UpcasterChainError,
 )
 from waku.eventsourcing.forwarding import (
     AppendedEventsCollector,
@@ -42,7 +41,8 @@ from waku.eventsourcing.snapshot.registry import SnapshotConfig, SnapshotConfigR
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.exceptions import ImproperlyConfiguredError
 from waku.extensions import OnContainerBuilt, OnModuleConfigure, RegistryAggregator
-from waku.modules import DynamicModule, ModuleMetadataRegistry, module
+from waku.modules._internal.metadata import DynamicModule, module
+from waku.serialization.exceptions import UpcasterChainError
 from waku.serialization.upcasting.chain import UpcasterChain
 
 if TYPE_CHECKING:
@@ -54,7 +54,7 @@ if TYPE_CHECKING:
     from waku.eventsourcing.snapshot.interfaces import ISnapshotStrategy
     from waku.eventsourcing.snapshot.migration import ISnapshotMigration
     from waku.messages import IEvent
-    from waku.modules import ModuleMetadata, ModuleType
+    from waku.modules import ModuleMetadata, ModuleMetadataRegistry, ModuleType
     from waku.serialization.upcasting.interfaces import IPayloadUpcaster
 
 

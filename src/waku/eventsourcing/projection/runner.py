@@ -9,9 +9,9 @@ import anyio
 from waku._internal.adaptive_interval import AdaptiveInterval
 from waku._internal.shutdown import wait_for_shutdown
 from waku.eventsourcing.exceptions import ProjectionError
+from waku.eventsourcing.projection._internal.processor import CycleOutcome, ProjectionProcessor
 from waku.eventsourcing.projection.config import PollingConfig
 from waku.eventsourcing.projection.interfaces import ICheckpointStore
-from waku.eventsourcing.projection.processor import CycleOutcome, ProjectionProcessor
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.store.interfaces import IEventReader
 from waku.uow import IUnitOfWork
@@ -22,10 +22,10 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from waku.di import AsyncContainer
+    from waku.eventsourcing.projection._internal.processor import SkipRequest
     from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
     from waku.eventsourcing.projection.interfaces import ICatchUpProjection
     from waku.eventsourcing.projection.lock.interfaces import IProjectionLock
-    from waku.eventsourcing.projection.processor import SkipRequest
 
 __all__ = ['CatchUpProjectionRunner']
 

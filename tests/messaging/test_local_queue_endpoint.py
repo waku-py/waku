@@ -26,14 +26,13 @@ from waku.messaging import (
     MessagingModule,
     RequestHandler,
 )
-from waku.messaging.circuit_breaker import CircuitBreakerConfig
-from waku.messaging.endpoints.base import local_queue
+from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
+from waku.messaging.endpoints._internal.local_queue import LocalQueueEndpoint
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionResult
-from waku.messaging.endpoints.local_queue import LocalQueueEndpoint
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers
-from waku.messaging.pipeline.invoker import HandlerPipelineInvoker
-from waku.messaging.router import route
+from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
+from waku.messaging.router import local_queue, route
 from waku.testing import create_test_app
 
 from tests._wait import wait_until
@@ -86,7 +85,7 @@ class TestLocalQueueLifecycle:
         await stopped_endpoint.stop()
 
         envelope = make_envelope(_IEvent())
-        with caplog.at_level(logging.WARNING, logger='waku.messaging.endpoints.local_queue'):
+        with caplog.at_level(logging.WARNING, logger='waku.messaging.endpoints._internal.local_queue'):
             await stopped_endpoint.dispatch(envelope, mocker.Mock(spec_set=AsyncContainer))
 
         assert 'Message dropped' in caplog.text
@@ -111,7 +110,7 @@ class TestLocalQueueLifecycle:
             routing=[route(SlowEvent).to('slow-q')],
         )
 
-        with caplog.at_level(logging.WARNING, logger='waku.messaging.endpoints.worker'):
+        with caplog.at_level(logging.WARNING, logger='waku.messaging.endpoints._internal.worker'):
             async with (
                 create_test_app(
                     imports=[MessagingModule.register(config)],

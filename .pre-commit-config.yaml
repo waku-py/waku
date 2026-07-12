@@ -73,6 +73,15 @@ repos:
         fail_fast: true
         stages: [ pre-commit, pre-push, manual ]
 
+      - id: visibility
+        name: Check module visibility
+        entry: task visibility
+        types: [ python ]
+        language: system
+        pass_filenames: false
+        fail_fast: true
+        stages: [ pre-commit, pre-push, manual ]
+
       - id: typecheck-mypy
         name: Run type checking with MyPy
         entry: env MYPY_PRETTY=0 task typecheck

@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 
 from waku.messages import IEvent
-from waku.eventsourcing import EventType, add_field, rename_field
+from waku.eventsourcing import EventType
+from waku.serialization import add_field, rename_field
 
 
 @dataclass(frozen=True, kw_only=True)

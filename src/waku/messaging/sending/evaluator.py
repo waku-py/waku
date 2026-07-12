@@ -3,13 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from waku.messaging._escalation import PolicyOutcome, walk_stages
+from waku.messaging._internal.escalation import PolicyOutcome, walk_stages
 
 if TYPE_CHECKING:
     from waku.messaging.sending.registry import SendingFailurePolicyRegistry
 
 __all__ = [
-    'PolicyOutcome',
     'SendingFailureContext',
     'SendingFailureEvaluator',
 ]

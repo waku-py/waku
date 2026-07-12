@@ -5,7 +5,7 @@ from typing import Annotated
 import pytest
 
 from waku.exceptions import ImproperlyConfiguredError
-from waku.messaging.contracts.message import IMessage
+from waku.messages import IMessage
 from waku.messaging.observability.audit import Audit, AuditedMemberResolver
 
 from tests.messaging.observability._unresolvable_message import Bad

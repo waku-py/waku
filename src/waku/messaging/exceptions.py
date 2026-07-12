@@ -8,19 +8,21 @@ if TYPE_CHECKING:
     from datetime import timedelta
     from uuid import UUID
 
+    from waku.messages import IMessage
     from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.contracts.message import IMessage
 
 __all__ = [
+    'ConflictingDeliveryOptionsError',
+    'DeliveryOptionNotApplicableError',
     'HandlerAlreadyRegistered',
     'HandlerNotFound',
     'HandlerTimeoutError',
-    'ImproperlyConfiguredError',
     'MapFrozenError',
     'MessagingError',
     'MultipleHandlersRegistered',
     'NoRouteError',
     'RequeueBudgetExceededError',
+    'SchedulingNotSupportedError',
 ]
 
 

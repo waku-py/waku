@@ -1,6 +1,7 @@
 from typing import Any
 
-from waku.eventsourcing.snapshot import ISnapshotMigration, Snapshot, SnapshotEventSourcedRepository
+from waku.eventsourcing.snapshot import ISnapshotMigration, Snapshot
+from waku.eventsourcing import SnapshotEventSourcedRepository
 
 from app.aggregate import BankAccount
 

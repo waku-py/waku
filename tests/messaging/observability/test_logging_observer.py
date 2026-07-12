@@ -6,9 +6,9 @@ from uuid import uuid4
 
 import pytest
 
+from waku.messages import IMessage
 from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.contracts.handler import HandlerType
-from waku.messaging.contracts.message import IMessage
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.observability.audit import Audit, AuditedMemberResolver
 from waku.messaging.observability.logging_observer import LoggingMessageObserver

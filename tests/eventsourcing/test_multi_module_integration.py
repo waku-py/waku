@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from waku import module
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule, EventType
 from waku.eventsourcing.projection.interfaces import IProjection
@@ -10,8 +11,7 @@ from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.messages import IEvent
-from waku.modules import module
-from waku.serialization.upcasting import UpcasterChain, rename_field
+from waku.serialization import UpcasterChain, rename_field
 from waku.testing import create_test_app
 
 if TYPE_CHECKING:
