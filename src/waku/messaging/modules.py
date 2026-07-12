@@ -32,6 +32,7 @@ from waku.extensions import (
 )
 from waku.messages import IMessage
 from waku.messaging._internal.bus import MessageBus
+from waku.messaging._internal.dispatch import IEndpointDispatch
 from waku.messaging._internal.dispatcher import MessageDispatcher
 from waku.messaging._internal.envelope_factory import EnvelopeFactory
 from waku.messaging._internal.identity import MessageTypeRegistry
@@ -130,6 +131,7 @@ class MessagingModule:
         cls._validate_config(config_)
         providers: list[Provider] = [
             scoped(WithParents[IMessageBus], MessageBus),  # ty:ignore[not-subscriptable]
+            _endpoint_dispatch_alias(),
             scoped(AnyOf[IOutgoingMessages, IOutgoingMessagesFrames], OutgoingMessages),  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
             scoped(TransactionDepth),  # always registered: gating on config misses per-handler TransactionalBehavior
             object_(config_, provided_type=MessagingConfig),
@@ -480,6 +482,14 @@ def _build_message_observers(plan: ObserverPlan) -> MessageObservers:
 
 def _create_envelope_codec() -> PayloadCodec:
     return PayloadCodec(default_retort, UpcasterChain({}))
+
+
+def _endpoint_dispatch_alias() -> Provider:
+    # An alias, not a second factory: IEndpointDispatch must resolve to the SAME scoped MessageBus
+    # instance as IMessageBus (aliases share the scope cache; a second provider would build a second bus).
+    provider_ = Provider(scope=Scope.REQUEST)
+    provider_.alias(IMessageBus, provides=IEndpointDispatch)
+    return provider_
 
 
 def _build_router(

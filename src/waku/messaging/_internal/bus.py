@@ -8,6 +8,7 @@ from typing_extensions import override
 from waku._internal.clock import Now, utc_now  # Now stays runtime: dishka introspects __init__
 from waku.di import AsyncContainer  # noqa: TC001
 from waku.messages import IEvent
+from waku.messaging._internal.dispatch import IEndpointDispatch
 from waku.messaging._internal.dispatcher import MessageDispatcher  # noqa: TC001
 from waku.messaging._internal.envelope_factory import EnvelopeFactory  # noqa: TC001
 from waku.messaging.context import message_context_scope, try_get_message_context
@@ -63,7 +64,7 @@ def _reject_unschedulable(envelope: MessageEnvelope[Any], endpoints: Sequence[En
             raise SchedulingNotSupportedError(endpoint.uri)
 
 
-class MessageBus(IMessageBus):
+class MessageBus(IMessageBus, IEndpointDispatch):
     __slots__ = ('_container', '_dispatcher', '_envelope_factory', '_now', '_router')
 
     def __init__(
@@ -120,6 +121,16 @@ class MessageBus(IMessageBus):
             return
         endpoints = self._router.resolve(type(message))
         _reject_unschedulable(envelope, endpoints)  # fan-out is fail-loud: ANY non-durable subscriber raises
+        for endpoint in endpoints:
+            await endpoint.dispatch(envelope, self._container)
+
+    @override
+    async def dispatch_to(self, message: IMessage, endpoints: Sequence[Endpoint]) -> None:
+        # Destination-dispatch seam for the cascading behaviors: NO route resolution — the caller
+        # already partitioned the endpoint set — but the same context-propagated envelope as send/publish.
+        if not endpoints:
+            return
+        envelope = self._create_envelope(message)
         for endpoint in endpoints:
             await endpoint.dispatch(envelope, self._container)
 

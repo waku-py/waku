@@ -46,12 +46,13 @@ class IOutgoingMessagesFrames(Protocol):
     """Framework-internal frame lifecycle + deferred-bucket API.
 
     Consumed by ``CascadingBehavior`` (push/pop/discard around pipeline dispatch,
-    no-outbox path) and by the per-destination outbox family (M2b.1):
-    ``OutboxCascadingBehavior`` (inner) calls ``drain_current_frame`` to flush
-    durable-destined cascades into the outbox pre-commit and ``defer`` to stage
-    non-durable-destined ones; ``DeferredCascadingBehavior`` (outer) calls
-    ``drain_deferred`` to flush the staged non-durable cascades post-commit. NOT
-    exported from ``waku.messaging`` — handler authors must not depend on this.
+    no-outbox path) and by the per-destination outbox family:
+    ``OutboxCascadingBehavior`` (inner) calls ``drain_current_frame``, dispatches
+    each cascade's outbox-backed destinations pre-commit, and calls ``defer`` for
+    cascades that also (or only) resolve to non-durable destinations;
+    ``DeferredCascadingBehavior`` (outer) calls ``drain_deferred`` to flush those
+    non-durable legs post-commit. NOT exported from ``waku.messaging`` — handler
+    authors must not depend on this.
     """
 
     def push_frame(self) -> None: ...
@@ -117,14 +118,16 @@ class OutgoingMessages(IOutgoingMessages, IOutgoingMessagesFrames):
         return drained
 
     def defer(self, messages: Sequence[PendingMessage], /) -> None:
-        """Stage non-durable-destined cascades for post-commit flush.
+        """Stage cascades with non-durable destinations for post-commit flush.
 
-        Called by ``OutboxCascadingBehavior`` (M2b.1, inner/in-tx) for cascades
-        whose destination endpoint is NOT durable. The deferred bucket is a flat
-        list (not a frame stack): it is drained ONCE post-commit by
-        ``DeferredCascadingBehavior`` (outer), so no per-level nesting is needed.
-        Disjoint from the outbox writes the inner behavior performs for durable
-        destinations — guaranteeing no message is both written and deferred.
+        Called by ``OutboxCascadingBehavior`` (inner/in-tx) for each cascade whose
+        resolved destinations include at least one non-durable endpoint. The
+        deferred bucket is a flat list (not a frame stack): it is drained ONCE
+        post-commit by ``DeferredCascadingBehavior`` (outer), which re-partitions
+        and dispatches ONLY the non-durable subset. Durable and non-durable
+        destination subsets are disjoint per message, so no ENDPOINT is served
+        twice — a mixed-durability cascade legitimately appears both in the outbox
+        (durable leg) and here (non-durable leg).
         """
         self._deferred.extend(messages)
 
