@@ -24,6 +24,7 @@ from waku.messaging import (
 from waku.messaging.durability import IInboxStore
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.models import InboxStatus
+from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.router import listen
 from waku.messaging.transport._internal.wire import encode_payload, envelope_metadata_of
 from waku.messaging.transport.faststream.rabbitmq import DefaultRabbitEnvelopeMapper, FastStreamRabbitTransport
@@ -33,7 +34,7 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, make_envelope
+from tests.messaging.helpers import FakeUoW, RecordingAllocator, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -75,7 +76,11 @@ class TestInboundIntegration:
             create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
+                providers=[
+                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(inbox, provided_type=IInboxStore),
+                    object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                ],
             ),
         ):
             await transport._listen_broker.publish(out.body, 'orders', headers=headers)  # noqa: SLF001

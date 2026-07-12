@@ -23,13 +23,14 @@ from waku.messaging.durability import IInboxStore
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
+from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, make_envelope
+from tests.messaging.helpers import FakeUoW, RecordingAllocator, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -59,7 +60,11 @@ async def test_abandoned_row_is_drained_and_handled() -> None:
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_RecordingHandler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(inbox, provided_type=IInboxStore),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+            ],
         ) as app,
         app.container() as scope,
     ):

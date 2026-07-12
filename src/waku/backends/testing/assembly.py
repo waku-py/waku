@@ -18,6 +18,7 @@ from waku.messaging.config import MessagingConfig
 from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore, IOutboxStore
 from waku.messaging.modules import MessagingModule
 from waku.messaging.outbox.models import OutboxMessage
+from waku.messaging.partition import ISequenceAllocator
 from waku.modules._internal.metadata import DynamicModule, module
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
@@ -117,6 +118,12 @@ class BackendAssemblyContract:
             assert durability.dead_letters is await scope.get(IDeadLetterStore)
             assert event_store.snapshots is await scope.get(ISnapshotStore)
             assert event_store.checkpoints is await scope.get(ICheckpointStore)
+
+    async def test_sequence_allocator_resolves_in_scope(self, app: WakuApplication) -> None:
+        # Presence is part of assembly: the allocator is REQUIRED backend equipment for the inbox
+        # subsystem (resolved unconditionally by the promotion worker once inbox is active).
+        async with app.container() as scope:
+            assert isinstance(await scope.get(ISequenceAllocator), ISequenceAllocator)
 
     async def test_append_and_forward_roll_back_together(self, app: WakuApplication) -> None:
         if not self.supports_rollback:

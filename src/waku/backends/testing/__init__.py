@@ -11,6 +11,7 @@ from waku.backends.testing.event_store import (
 )
 from waku.backends.testing.inbox import InboxStoreContract
 from waku.backends.testing.outbox import OutboxStoreContract
+from waku.backends.testing.sequence import SequenceAllocatorContract
 from waku.backends.testing.snapshot import SnapshotStoreContract
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
     'OrderCreated',
     'OrderShipped',
     'OutboxStoreContract',
+    'SequenceAllocatorContract',
     'SnapshotStoreContract',
     'make_envelope',
 ]

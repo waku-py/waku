@@ -146,10 +146,11 @@ Ordering is **per group**, not global:
 - A message with **no** group key is processed in parallel with **no ordering guarantee**.
 
 Sequence allocation goes through `ISequenceAllocator`
-(`waku.messaging.partition.ISequenceAllocator`), which you provide — it must allocate the next number
-in the same transaction as the row insert so the sequence is co-committed. Ordering therefore holds
-across pods sharing one database, not just within a single process. The mechanics and configuration
-live on [Durable inbox & ordering](inbox.md).
+(`waku.messaging.partition.ISequenceAllocator`), provided by your
+[durability backend](../../fundamentals/backends.md) — it allocates the next number in the same
+transaction as the row insert so the sequence is co-committed. Ordering therefore holds across pods
+sharing one database, not just within a single process. The mechanics and configuration live on
+[Durable inbox & ordering](inbox.md).
 
 ---
 

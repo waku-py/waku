@@ -15,6 +15,7 @@ from waku.messages import IEvent
 from waku.messaging import (
     HandlerMap,
     InboxConfig,
+    ISequenceAllocator,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
@@ -46,7 +47,7 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, make_codec, make_envelope
+from tests.messaging.helpers import FakeUoW, RecordingAllocator, make_codec, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
@@ -470,7 +471,11 @@ class TestCreateListeningAgent:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_FlowHandler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(inbox, provided_type=IInboxStore),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+            ],
         ) as app:
             merged = merge_broker_endpoints([listen(_URI, max_requeue_attempts=3)], inbox_configured=True)[0]
             agent = await _factory_agent(app, config, transport, merged)
@@ -499,7 +504,11 @@ class TestCreateListeningAgent:
         )
         async with create_test_app(
             imports=[MessagingModule.register(config)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), scoped(IInboxStore, FakeInboxStore)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                scoped(IInboxStore, FakeInboxStore),
+            ],
         ) as app:
             merged = merge_broker_endpoints([external_endpoint(_URI)], inbox_configured=True)[0]
             with pytest.raises(ImproperlyConfiguredError, match='declares no listen aspect'):
@@ -525,7 +534,11 @@ class TestCreateListeningAgent:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_FlowHandler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(inbox, provided_type=IInboxStore),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+            ],
         ) as app:
             codec = await app.container.get(PayloadCodec)
             envelope = make_envelope(_OrderPlaced(order_id='ext-1'))

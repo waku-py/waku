@@ -143,7 +143,11 @@ class TestDurableInboxIntegration:
             create_test_app(
                 imports=[MessagingModule.register(_durable_config())],
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
+                providers=[
+                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(inbox, provided_type=IInboxStore),
+                    object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                ],
             ) as app,
             app.container() as container,
         ):
@@ -164,7 +168,11 @@ class TestDurableInboxIntegration:
             create_test_app(
                 imports=[MessagingModule.register(_durable_config())],
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
+                providers=[
+                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(inbox, provided_type=IInboxStore),
+                    object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                ],
             ) as app,
             app.container() as container,
         ):
@@ -190,7 +198,11 @@ class TestDurableInboxIntegration:
                 extensions=[
                     MessagingExtension().bind(_RecordingHandler, _SecondRecordingHandler),
                 ],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
+                providers=[
+                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(inbox, provided_type=IInboxStore),
+                    object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                ],
             ) as app,
             app.container() as container,
         ):
@@ -217,6 +229,7 @@ class TestDurableInboxIntegration:
                 providers=[
                     object_(FakeUoW(), provided_type=IUnitOfWork),
                     object_(inbox, provided_type=IInboxStore),
+                    object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     scoped(IDeadLetterStore, FailingDeadLetterStore),
                 ],
             ) as app,
@@ -244,7 +257,11 @@ class TestDurableInboxIntegration:
             create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
+                providers=[
+                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(inbox, provided_type=IInboxStore),
+                    object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                ],
             ) as app,
             app.container() as container,
         ):
@@ -272,7 +289,11 @@ class TestDurableInboxIntegration:
             create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
+                providers=[
+                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(inbox, provided_type=IInboxStore),
+                    object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                ],
             ) as app,
             app.container() as container,
         ):
@@ -366,6 +387,7 @@ class TestDurableInboxIntegration:
                 object_(FakeUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(dlq, provided_type=IDeadLetterStore),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
             ],
         ) as app:
             codec = await app.container.get(PayloadCodec)
@@ -409,6 +431,7 @@ class TestDurableInboxIntegration:
                 object_(FakeUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(dlq, provided_type=IDeadLetterStore),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
             ],
         ) as app:
             codec = await app.container.get(PayloadCodec)
@@ -461,6 +484,7 @@ class TestDurableInboxIntegration:
             providers=[
                 object_(FakeUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 singleton(_EndpointSink),
             ],
         ) as app:
@@ -531,11 +555,12 @@ class TestDurableInboxIntegration:
         assert _RecordingHandler.observed == ['sched-1']
 
     @staticmethod
-    async def test_scheduled_poll_promotes_keyless_row_without_an_allocator() -> None:
-        # A durable endpoint with no partition_by registers no ISequenceAllocator. A keyless scheduled
-        # message must still promote and drain — the poll must not stall on a missing allocator.
+    async def test_scheduled_poll_promotes_keyless_row_without_invoking_the_allocator() -> None:
+        # Keyless scheduled messages (group_id=None) promote and drain without ever calling
+        # allocate — the backend-provided allocator is resolved each tick but stays un-invoked.
         _RecordingHandler.observed = []
         inbox = FakeInboxStore()
+        allocator = RecordingAllocator()
         config = MessagingConfig(
             endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0)],
             routing=[route(_OrderPlaced).to('orders')],
@@ -552,7 +577,8 @@ class TestDurableInboxIntegration:
             providers=[
                 object_(FakeUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
-            ],  # deliberately no ISequenceAllocator
+                object_(allocator, provided_type=ISequenceAllocator),
+            ],
         ) as app:
             codec = await app.container.get(PayloadCodec)
             envelope = make_envelope(_OrderPlaced(order_id='keyless-sched'))
@@ -573,3 +599,4 @@ class TestDurableInboxIntegration:
             await wait_until(lambda: _RecordingHandler.observed == ['keyless-sched'])
 
         assert _RecordingHandler.observed == ['keyless-sched']
+        assert allocator.calls == []

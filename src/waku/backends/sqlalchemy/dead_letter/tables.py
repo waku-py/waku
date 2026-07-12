@@ -14,8 +14,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 
+from waku.backends.sqlalchemy.column_types import EnumFromValues
 from waku.messaging.errors.dead_letter import DeadLetterStatus
-from waku.messaging.sqla.types import EnumFromValues
 
 if TYPE_CHECKING:
     from waku.messaging.errors.dead_letter import DeadLetterEntry

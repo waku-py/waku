@@ -24,12 +24,13 @@ from waku.messaging.inbox._internal.drainer import InboxDrainer, build_inbox_dra
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
+from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, RecordingDeadLetterStore, make_codec, make_envelope
+from tests.messaging.helpers import FakeUoW, RecordingAllocator, RecordingDeadLetterStore, make_codec, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
@@ -429,7 +430,11 @@ async def test_build_inbox_drainer_executor_enforces_config_deadline() -> None:
     async with create_test_app(
         imports=[MessagingModule.register(config)],
         extensions=[MessagingExtension().bind(_DrainCheckpointHandler)],
-        providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(fake_inbox, provided_type=IInboxStore)],
+        providers=[
+            object_(FakeUoW(), provided_type=IUnitOfWork),
+            object_(fake_inbox, provided_type=IInboxStore),
+            object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+        ],
     ) as app:
         codec = await app.container.get(PayloadCodec)
         envelope = make_envelope(_DrainSignal(ref='r-1'))

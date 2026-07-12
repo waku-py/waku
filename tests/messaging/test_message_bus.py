@@ -571,7 +571,11 @@ class TestMessagingConfigValidation:
         )
         async with create_test_app(
             imports=[MessagingModule.register(config)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(inbox, provided_type=IInboxStore),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+            ],
         ):
             pass
 

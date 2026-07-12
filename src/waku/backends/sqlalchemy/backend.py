@@ -19,6 +19,8 @@ from waku.backends.sqlalchemy.inbox.store import SqlAlchemyInboxStore
 from waku.backends.sqlalchemy.inbox.tables import bind_inbox_tables
 from waku.backends.sqlalchemy.outbox.store import SqlAlchemyOutboxStore
 from waku.backends.sqlalchemy.outbox.tables import bind_outbox_tables
+from waku.backends.sqlalchemy.sequence.allocator import SqlAlchemySequenceAllocator
+from waku.backends.sqlalchemy.sequence.tables import bind_sequence_tables
 from waku.backends.sqlalchemy.snapshot.store import SqlAlchemySnapshotStore
 from waku.backends.sqlalchemy.snapshot.tables import bind_snapshot_tables
 from waku.backends.sqlalchemy.uow import SqlAlchemyUnitOfWork
@@ -39,6 +41,7 @@ from waku.messaging.durability import (
     IInboxStore,
     IOutboxStore,
 )
+from waku.messaging.partition import ISequenceAllocator
 from waku.modules import ModuleMetadataRegistry
 from waku.modules._internal.metadata import DynamicModule, ModuleType, module
 from waku.serialization.upcasting.chain import UpcasterChain
@@ -79,6 +82,7 @@ class _SqlAlchemyBackendWiring(OnModuleRegistration):
             bind_outbox_tables(self._metadata)
             bind_inbox_tables(self._metadata)
             bind_dead_letter_tables(self._metadata)
+            bind_sequence_tables(self._metadata)
         if EventSourcingConfig in provided:
             self._event_tables = bind_event_store_tables(self._metadata)
             self._snapshots_table = bind_snapshot_tables(self._metadata)
@@ -156,6 +160,7 @@ class SqlAlchemyBackend:
                 scoped(IOutboxStore, SqlAlchemyOutboxStore),
                 scoped(IInboxStore, SqlAlchemyInboxStore),
                 scoped(IDeadLetterStore, SqlAlchemyDeadLetterStore),
+                scoped(ISequenceAllocator, SqlAlchemySequenceAllocator),
                 # The two composites are the only gated providers (gate budget = 2).
                 scoped(IDurabilityStore, DefaultDurabilityStore, when=Has(MessagingConfig)),
                 scoped(IEventStore, wiring.build_event_store, when=Has(EventSourcingConfig)),

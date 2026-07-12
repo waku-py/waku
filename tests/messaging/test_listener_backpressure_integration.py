@@ -20,6 +20,7 @@ from waku.di import object_
 from waku.messages import IEvent
 from waku.messaging import (
     InboxConfig,
+    ISequenceAllocator,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
@@ -40,7 +41,7 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, make_envelope
+from tests.messaging.helpers import FakeUoW, RecordingAllocator, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
@@ -137,7 +138,11 @@ async def test_watermark_pauses_then_resumes_listener_end_to_end() -> None:
     async with create_test_app(
         imports=[MessagingModule.register(config)],
         extensions=[MessagingExtension().bind(_BlockingHandler)],
-        providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
+        providers=[
+            object_(FakeUoW(), provided_type=IUnitOfWork),
+            object_(inbox, provided_type=IInboxStore),
+            object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+        ],
     ):
         for i in range(3):
             env = make_envelope(_OrderPlaced(order_id=f'o-{i}'))
@@ -179,7 +184,11 @@ async def test_circuit_breaker_pauses_then_resumes_listener_after_pause_time() -
     async with create_test_app(
         imports=[MessagingModule.register(config)],
         extensions=[MessagingExtension().bind(_FailingHandler)],
-        providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
+        providers=[
+            object_(FakeUoW(), provided_type=IUnitOfWork),
+            object_(inbox, provided_type=IInboxStore),
+            object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+        ],
     ):
         env = make_envelope(_OrderPlaced(order_id='o-1'))
         await transport.deliver(encode_payload(env, codec), envelope_metadata_of(env))

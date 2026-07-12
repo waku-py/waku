@@ -28,7 +28,6 @@ SPI_FACADES: tuple[tuple[str, str], ...] = (
     ('waku.messaging.inbox', 'Durable inbox models.'),
     ('waku.messaging.errors', 'Error policies, dead-letter models, replay, and the DLQ worker.'),
     ('waku.messaging.sending', 'Sending-failure policies applied by the outbox relay.'),
-    ('waku.messaging.sqla', 'Shared SQLAlchemy plumbing: sequences and column types.'),
     ('waku.eventsourcing.store', 'Event store contracts (with snapshot/checkpoint facets); in-memory reference store.'),
     ('waku.eventsourcing.snapshot', 'Snapshot model, strategy, and migration contracts.'),
     ('waku.eventsourcing.projection', 'Projection contracts and polling configuration.'),

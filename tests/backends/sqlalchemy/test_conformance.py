@@ -21,6 +21,7 @@ from waku.backends.sqlalchemy import (
     bind_event_store_tables,
     bind_inbox_tables,
     bind_outbox_tables,
+    bind_sequence_tables,
     bind_snapshot_tables,
 )
 from waku.backends.testing import (
@@ -30,10 +31,13 @@ from waku.backends.testing import (
     EventStoreContract,
     InboxStoreContract,
     OutboxStoreContract,
+    SequenceAllocatorContract,
     SnapshotStoreContract,
 )
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.serialization.upcasting.chain import UpcasterChain
+
+from tests.backends.sqlalchemy.conftest import pg_session_for
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -53,19 +57,16 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 async def conformance_pg_session(pg_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
-    metadata = MetaData()
-    bind_outbox_tables(metadata)
-    bind_inbox_tables(metadata)
-    bind_dead_letter_tables(metadata)
-    bind_event_store_tables(metadata)
-    bind_snapshot_tables(metadata)
-    bind_checkpoint_tables(metadata)
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(metadata.create_all)
-    async with AsyncSession(pg_engine, expire_on_commit=False) as session, session.begin():
+    async with pg_session_for(
+        pg_engine,
+        bind_outbox_tables,
+        bind_inbox_tables,
+        bind_dead_letter_tables,
+        bind_event_store_tables,
+        bind_snapshot_tables,
+        bind_checkpoint_tables,
+    ) as session:
         yield session
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(metadata.drop_all)
 
 
 class TestSqlAlchemyBackendAssembly(BackendAssemblyContract):
@@ -93,6 +94,33 @@ class TestSqlAlchemyBackendAssembly(BackendAssemblyContract):
         bind_event_store_tables(metadata)
         bind_snapshot_tables(metadata)
         bind_checkpoint_tables(metadata)
+        async with pg_engine.begin() as conn:
+            await conn.run_sync(metadata.create_all)
+        yield
+        async with pg_engine.begin() as conn:
+            await conn.run_sync(metadata.drop_all)
+
+
+class TestSqlAlchemySequenceConformance(SequenceAllocatorContract):
+    @pytest.fixture
+    @override
+    def backend_module(self, request: pytest.FixtureRequest) -> DynamicModule:
+        pg_engine: AsyncEngine = request.getfixturevalue('pg_engine')
+
+        async def _session_factory() -> AsyncIterator[AsyncSession]:
+            session = AsyncSession(pg_engine, expire_on_commit=False)
+            try:
+                yield session
+            finally:
+                await session.close()
+
+        return SqlAlchemyBackend.register(session_factory=_session_factory)
+
+    @pytest.fixture(autouse=True)
+    @staticmethod
+    async def _provisioned_schema(pg_engine: AsyncEngine) -> AsyncIterator[None]:
+        metadata = MetaData()
+        bind_sequence_tables(metadata)
         async with pg_engine.begin() as conn:
             await conn.run_sync(metadata.create_all)
         yield

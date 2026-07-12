@@ -13,13 +13,14 @@ from waku.messaging.durability import IInboxStore
 from waku.messaging.inbox.backpressure import BufferingLimits
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.modules import MessagingModule
+from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.router import listen
 from waku.messaging.transport.inbound import ConsumeCallback
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper, ITransport, Subscription
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, StubSubscription
+from tests.messaging.helpers import FakeUoW, RecordingAllocator, StubSubscription
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -98,7 +99,11 @@ async def test_consumer_boots_with_backpressure_and_circuit_breaker() -> None:
     )
     async with create_test_app(
         imports=[MessagingModule.register(config)],
-        providers=[object_(FakeUoW(), provided_type=IUnitOfWork), scoped(IInboxStore, FakeInboxStore)],
+        providers=[
+            object_(FakeUoW(), provided_type=IUnitOfWork),
+            object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+            scoped(IInboxStore, FakeInboxStore),
+        ],
     ):
         pass  # wiring builds the listener gate + inbound breaker without error
 

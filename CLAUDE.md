@@ -44,7 +44,6 @@ src/waku/
 │   ├── inbox/       # SPI facade: IInboxStore, InboxEntry/InboxStatus (+ sqla/; workers in _internal/)
 │   ├── outbox/      # SPI facade: IOutboxStore, OutboxRelay(Config) (+ sqla/)
 │   ├── sending/     # SPI facade: SendingFailurePolicy machinery
-│   ├── sqla/        # SQLAlchemy adapters (SqlAlchemyUnitOfWork, shared_session)
 │   ├── interfaces.py # IMessageBus, ISender, IPublisher
 │   └── modules.py   # MessagingModule, MessagingConfig, MessagingExtension
 ├── di/              # DI helpers wrapping dishka (scoped, singleton, transient, etc.)
@@ -58,6 +57,8 @@ src/waku/
 │   ├── testing/     # AggregateSpec, DeciderSpec, wait_for_projection helpers
 │   ├── modules.py   # EventSourcingModule, EventSourcingConfig
 │   └── repository.py # EventSourcedRepository
+├── backends/        # Durability backends: sqlalchemy/ (stores, uow, sequence/, column_types.py),
+│                    # memory/, testing/ (conformance kit) — one backend module per app
 ├── integrations/
 │   └── eventsourcing_messaging/ # ES<->messaging bridge: EventSourcedCommandHandler, forwarding, enrichers
 ├── extensions/      # Lifecycle hooks and extension registry

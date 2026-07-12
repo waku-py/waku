@@ -7,8 +7,8 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 from typing_extensions import override
 
+from waku.backends.sqlalchemy.sequence.tables import message_sequences_table
 from waku.messaging.partition import ISequenceAllocator
-from waku.messaging.sqla.tables import message_sequences_table
 
 __all__ = ['SqlAlchemySequenceAllocator']
 

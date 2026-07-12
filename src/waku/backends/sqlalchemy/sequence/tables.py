@@ -5,9 +5,8 @@ from dataclasses import dataclass
 from sqlalchemy import BigInteger, Column, MetaData, Table, Text
 
 __all__ = [
-    'MessagingTables',
-    'bind_message_sequences_table',
-    'message_sequences_table',
+    'SequenceTables',
+    'bind_sequence_tables',
 ]
 
 _internal_metadata = MetaData()
@@ -24,14 +23,14 @@ message_sequences_table = Table(
 
 
 @dataclass(frozen=True, slots=True)
-class MessagingTables:
+class SequenceTables:
     sequences: Table
 
 
-def bind_message_sequences_table(metadata: MetaData) -> MessagingTables:
+def bind_sequence_tables(metadata: MetaData) -> SequenceTables:
     sequences = (
         metadata.tables[message_sequences_table.name]
         if message_sequences_table.name in metadata.tables
         else message_sequences_table.to_metadata(metadata)
     )
-    return MessagingTables(sequences=sequences)
+    return SequenceTables(sequences=sequences)

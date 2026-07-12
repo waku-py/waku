@@ -4,32 +4,24 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import MetaData, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from waku.backends.sqlalchemy.outbox.store import SqlAlchemyOutboxStore
 from waku.backends.sqlalchemy.outbox.tables import bind_outbox_tables, outbox_messages_table
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 
+from tests.backends.sqlalchemy.conftest import pg_session_for
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from sqlalchemy.ext.asyncio import AsyncEngine
+    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 
 @pytest.fixture
 async def pg_session(pg_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
-    metadata = MetaData()
-    bind_outbox_tables(metadata)
-
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(metadata.create_all)
-
-    async with AsyncSession(pg_engine, expire_on_commit=False) as session, session.begin():
+    async with pg_session_for(pg_engine, bind_outbox_tables) as session:
         yield session
-
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(metadata.drop_all)
 
 
 def _make_message(**overrides: object) -> OutboxMessage:

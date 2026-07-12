@@ -35,6 +35,7 @@ from waku.messaging.endpoints import ExecutionOutcome
 from waku.messaging.endpoints.base import EndpointMode
 from waku.messaging.inbox import InboxEntry, InboxStatus
 from waku.messaging.inbox.destination import handler_destination
+from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.router import local_queue, route
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
@@ -42,7 +43,7 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, RecordingTransport, make_envelope
+from tests.messaging.helpers import FakeUoW, RecordingAllocator, RecordingTransport, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import FakeOutboxStore
 
@@ -305,7 +306,11 @@ async def test_durable_and_drainer_paths_fire_executing_and_executed(caplog: pyt
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_DurableHandler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(inbox, provided_type=IInboxStore),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+            ],
         ) as app,
         app.container() as container,
     ):

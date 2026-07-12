@@ -11,6 +11,7 @@ from waku.messages import IEvent
 from waku.messaging import (
     IMessageObserver,
     InboxConfig,
+    ISequenceAllocator,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
@@ -28,7 +29,7 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, RecordingTransport, make_envelope
+from tests.messaging.helpers import FakeUoW, RecordingAllocator, RecordingTransport, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
@@ -106,6 +107,7 @@ class TestListenerMapperOverrideWiring:
             imports=[MessagingModule.register(config)],
             providers=[
                 object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IOutboxStore, InMemoryOutboxStore),
                 scoped(IInboxStore, FakeInboxStore),
             ],
@@ -130,6 +132,7 @@ class TestListenerMapperOverrideWiring:
             imports=[MessagingModule.register(config)],
             providers=[
                 object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IOutboxStore, InMemoryOutboxStore),
                 scoped(IInboxStore, FakeInboxStore),
             ],
@@ -166,6 +169,7 @@ class TestBidirectionalEndpointMapperInheritance:
             imports=[MessagingModule.register(config)],
             providers=[
                 object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IOutboxStore, InMemoryOutboxStore),
                 scoped(IInboxStore, FakeInboxStore),
             ],
@@ -196,6 +200,7 @@ class TestListenerObserverWiring:
             providers=[
                 object_(FakeUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 singleton(_EndpointSink),
             ],
         ) as app:

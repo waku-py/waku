@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.backends.memory._internal.inbox import InMemoryInboxStore
 from waku.backends.memory._internal.outbox import InMemoryOutboxStore
+from waku.backends.memory._internal.sequence import InMemorySequenceAllocator
 from waku.backends.memory._internal.uow import InMemoryUnitOfWork
 from waku.di import Has, scoped, singleton
 from waku.eventsourcing.contracts.event import IMetadataEnricher
@@ -24,6 +25,7 @@ from waku.messaging.durability import (
     IInboxStore,
     IOutboxStore,
 )
+from waku.messaging.partition import ISequenceAllocator
 from waku.modules._internal.metadata import DynamicModule, module
 from waku.uow import IUnitOfWork
 
@@ -63,6 +65,7 @@ class MemoryBackend:
                 singleton(IOutboxStore, InMemoryOutboxStore),
                 singleton(IInboxStore, InMemoryInboxStore),
                 singleton(IDeadLetterStore, InMemoryDeadLetterStore),
+                singleton(ISequenceAllocator, InMemorySequenceAllocator),
                 singleton(ISnapshotStore, InMemorySnapshotStore),
                 singleton(ICheckpointStore, InMemoryCheckpointStore),
                 # The two composites are the only gated providers (gate budget = 2).

@@ -16,6 +16,7 @@ from waku.backends.testing import (
     EventStoreContract,
     InboxStoreContract,
     OutboxStoreContract,
+    SequenceAllocatorContract,
     SnapshotStoreContract,
 )
 from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
@@ -39,6 +40,15 @@ if TYPE_CHECKING:
 
 
 class TestMemoryBackendAssembly(BackendAssemblyContract):
+    supports_rollback: ClassVar[bool] = False
+
+    @pytest.fixture
+    @override
+    def backend_module(self) -> DynamicModule:
+        return MemoryBackend.register()
+
+
+class TestMemorySequenceConformance(SequenceAllocatorContract):
     supports_rollback: ClassVar[bool] = False
 
     @pytest.fixture

@@ -146,3 +146,18 @@ async def test_append_and_forward_commit_together(assembled_app: WakuApplication
         assert await event_store.stream_exists(stream_id) is True
         fetched = await outbox.fetch_head_of_queue(batch_size=10)
         assert [m.id for m in fetched] == [message.id]
+
+
+async def test_register_with_metadata_binds_the_sequences_table_when_messaging_is_active() -> None:
+    metadata = MetaData()
+
+    def _session_factory() -> AsyncSession:  # pragma: no cover - never resolved
+        return AsyncSession()
+
+    async with create_test_app(
+        imports=[
+            MessagingModule.register(MessagingConfig()),
+            SqlAlchemyBackend.register(session_factory=_session_factory, metadata=metadata),
+        ],
+    ):
+        assert 'message_sequences' in metadata.tables

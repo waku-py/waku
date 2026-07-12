@@ -14,12 +14,13 @@ from waku.extensions import DEFAULT_EXTENSIONS
 from waku.factory import WakuFactory
 from waku.messaging import InboxConfig, MessagingConfig, MessagingModule, TransactionalBehavior
 from waku.messaging.durability import IInboxStore
+from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.router import listen
 from waku.messaging.transport.faststream.rabbitmq import FastStreamRabbitTransport
 from waku.uow import IUnitOfWork
 
 from tests._lifecycle import LifecycleRecorder
-from tests.messaging.helpers import FakeUoW
+from tests.messaging.helpers import FakeUoW, RecordingAllocator
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -34,7 +35,11 @@ async def test_consumer_only_app_run_drives_graceful_shutdown() -> None:
 
     @module(
         imports=[MessagingModule.register(config)],
-        providers=[object_(FakeUoW(), provided_type=IUnitOfWork), scoped(IInboxStore, FakeInboxStore)],
+        providers=[
+            object_(FakeUoW(), provided_type=IUnitOfWork),
+            object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+            scoped(IInboxStore, FakeInboxStore),
+        ],
     )
     class _ConsumerModule:
         pass

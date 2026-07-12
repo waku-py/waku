@@ -28,13 +28,14 @@ from waku.messaging import (
 from waku.messaging.durability import IInboxStore, IOutboxStore
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.models import InboxStatus
+from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.router import listen
 from waku.messaging.transport.faststream.rabbitmq import FastStreamRabbitTransport
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW
+from tests.messaging.helpers import FakeUoW, RecordingAllocator
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -78,6 +79,7 @@ class TestTransportCollectionIntegration:
                     object_(FakeUoW(), provided_type=IUnitOfWork),
                     object_(outbox, provided_type=IOutboxStore),
                     object_(inbox, provided_type=IInboxStore),
+                    object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 ],
             ) as app,
             app.container() as c,

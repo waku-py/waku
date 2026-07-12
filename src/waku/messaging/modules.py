@@ -151,7 +151,6 @@ class MessagingModule:
             HandlerMapAggregator(config_),
             EndpointLifecycleExtension(),
             _UnitOfWorkValidationExtension(config_),
-            _SequenceAllocatorValidationExtension(config_),
         ]
         if config_.outbox is not None:
             extensions.append(OutboxRelayLifecycleExtension(config_.outbox.relay))
@@ -622,6 +621,7 @@ class HandlerMapAggregator(RegistryAggregator['MessagingExtension', HandlerMap])
 
         provided = provided_type_hints(registry)
         self._require_store_providers(provided)
+        self._require_sequence_allocator_when_active(provided)
         dead_letter_store_provided = IDeadLetterStore in provided
 
         if (
@@ -674,6 +674,22 @@ class HandlerMapAggregator(RegistryAggregator['MessagingExtension', HandlerMap])
                     'from waku.backends.sqlalchemy, in your root module imports.'
                 )
                 raise ImproperlyConfiguredError(msg)
+
+    def _require_sequence_allocator_when_active(self, provided: 'frozenset[Any]') -> None:
+        # The allocator's CONSUMER activation condition, not just the user's partition intent: the
+        # ScheduledPromotionWorker resolves ISequenceAllocator every tick once inbox is active, and
+        # partition_by endpoints consume it on the outbox path. Conforming backends provide it
+        # unconditionally (R4), so only allocator-less manual assembly fails — at registration.
+        if not (_requires_sequence_allocator(self._config) or self._config.inbox is not None):
+            return
+        if ISequenceAllocator in provided:
+            return
+        msg = (
+            'the durable inbox/partition subsystem is active but no module provides ISequenceAllocator. '
+            'Import a durability backend, e.g. SqlAlchemyBackend.register(session_factory=...) '
+            'from waku.backends.sqlalchemy, in your root module imports.'
+        )
+        raise ImproperlyConfiguredError(msg)
 
     @staticmethod
     def _validate_request_handler_counts(registry: HandlerMap) -> None:
@@ -770,33 +786,6 @@ class _UnitOfWorkValidationExtension(OnContainerBuilt):
             any(issubclass(behavior, TransactionalBehavior) for behavior in plan.for_handler(handler_type))
             for handler_type in registry.handler_types()
         )
-
-
-class _SequenceAllocatorValidationExtension(OnContainerBuilt):
-    """Fail fast when ``partition_by`` is declared without ``ISequenceAllocator``.
-
-    Auto-registration would couple every config to ``AsyncSession``; a startup error is cleaner.
-    Note: cascade-propagated ``envelope.group_id`` is undetectable statically.
-    """
-
-    __slots__ = ('_config',)
-
-    def __init__(self, config: MessagingConfig) -> None:
-        self._config = config
-
-    @override
-    async def on_container_built(self, app: 'WakuApplication') -> None:
-        if not _requires_sequence_allocator(self._config):
-            return
-        async with app.container() as scope:  # is_registered: pure presence check; allocator is scoped
-            has_allocator = await is_registered(scope, ISequenceAllocator)
-        if not has_allocator:
-            msg = (
-                'partition_by requires ISequenceAllocator but it is not registered. '
-                'Register it in your infrastructure module: '
-                'scoped(SqlAlchemySequenceAllocator, provided_type=ISequenceAllocator)'
-            )
-            raise ImproperlyConfiguredError(msg)
 
 
 class OutboxRelayLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):

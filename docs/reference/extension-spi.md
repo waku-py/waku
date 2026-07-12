@@ -116,17 +116,6 @@ Sending-failure policies applied by the outbox relay.
 `SendingFailurePolicy` ·
 `SendingFailurePolicyRegistry`
 
-## `waku.messaging.sqla`
-
-Shared SQLAlchemy plumbing: sequences and column types.
-
-`EnumFromKeys` ·
-`EnumFromValues` ·
-`MessagingTables` ·
-`SqlAlchemySequenceAllocator` ·
-`bind_message_sequences_table` ·
-`message_sequences_table`
-
 ## `waku.eventsourcing.store`
 
 Event store contracts (with snapshot/checkpoint facets); in-memory reference store.
@@ -208,15 +197,18 @@ Payload codec and the upcasting toolkit.
 SQLAlchemy durability backend: entry point, store adapters, tables.
 
 `DeadLetterTables` ·
+`EnumFromValues` ·
 `EventStoreTables` ·
 `InboxTables` ·
 `OutboxTables` ·
+`SequenceTables` ·
 `SqlAlchemyBackend` ·
 `SqlAlchemyCheckpointStore` ·
 `SqlAlchemyDeadLetterStore` ·
 `SqlAlchemyEventStore` ·
 `SqlAlchemyInboxStore` ·
 `SqlAlchemyOutboxStore` ·
+`SqlAlchemySequenceAllocator` ·
 `SqlAlchemySnapshotStore` ·
 `SqlAlchemyUnitOfWork` ·
 `bind_checkpoint_tables` ·
@@ -224,6 +216,7 @@ SQLAlchemy durability backend: entry point, store adapters, tables.
 `bind_event_store_tables` ·
 `bind_inbox_tables` ·
 `bind_outbox_tables` ·
+`bind_sequence_tables` ·
 `bind_snapshot_tables` ·
 `make_sqlalchemy_checkpoint_store` ·
 `make_sqlalchemy_event_store` ·
@@ -249,6 +242,7 @@ Backend-author conformance kit: assembly and facet contract suites.
 `OrderCreated` ·
 `OrderShipped` ·
 `OutboxStoreContract` ·
+`SequenceAllocatorContract` ·
 `SnapshotStoreContract` ·
 `make_envelope`
 

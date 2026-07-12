@@ -15,8 +15,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 
+from waku.backends.sqlalchemy.column_types import EnumFromValues
 from waku.messaging.inbox.models import InboxStatus
-from waku.messaging.sqla.types import EnumFromValues
 
 __all__ = [
     'InboxTables',

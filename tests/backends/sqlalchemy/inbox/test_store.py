@@ -12,6 +12,8 @@ from waku.backends.sqlalchemy.inbox.store import SqlAlchemyInboxStore
 from waku.backends.sqlalchemy.inbox.tables import bind_inbox_tables
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 
+from tests.backends.sqlalchemy.conftest import pg_session_for
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
@@ -20,17 +22,8 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 async def pg_session(pg_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
-    metadata = MetaData()
-    bind_inbox_tables(metadata)
-
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(metadata.create_all)
-
-    async with AsyncSession(pg_engine, expire_on_commit=False) as session, session.begin():
+    async with pg_session_for(pg_engine, bind_inbox_tables) as session:
         yield session
-
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(metadata.drop_all)
 
 
 def _make_entry(**overrides: object) -> InboxEntry:

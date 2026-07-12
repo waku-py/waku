@@ -28,8 +28,8 @@ from waku.uow import IUnitOfWork
 ```
 
 The protocol defines two methods — `commit()` and `rollback()`. waku provides the interface;
-you provide an implementation. Any class satisfying the protocol can serve as the unit of work
-for `TransactionalBehavior`.
+the implementation comes from your durability backend (or your own provider in a backendless
+app). Any class satisfying the protocol can serve as the unit of work for `TransactionalBehavior`.
 
 ---
 

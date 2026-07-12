@@ -17,12 +17,20 @@ from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.inbox.config import InboxConfig
+from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.router import MessageRouter, external_endpoint, listen
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, RecordingDeadLetterStore, RecordingTransport, make_codec, make_envelope
+from tests.messaging.helpers import (
+    FakeUoW,
+    RecordingAllocator,
+    RecordingDeadLetterStore,
+    RecordingTransport,
+    make_codec,
+    make_envelope,
+)
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import FakeOutboxStore
 
@@ -172,6 +180,7 @@ async def test_replay_bidirectional_endpoint_dispatches() -> None:
                 object_(FakeUoW(), provided_type=IUnitOfWork),
                 object_(inbox_store, provided_type=IInboxStore),
                 object_(dlq_store, provided_type=IDeadLetterStore),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IOutboxStore, FakeOutboxStore),
             ],
         ) as app,
