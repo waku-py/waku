@@ -62,6 +62,20 @@ class SnapshotStoreContract:
         assert loaded.version == 10
         assert loaded.state == {'total': 250}
 
+    async def test_upsert_updates_state_type_across_variant_switch(self, snapshot_store: ISnapshotStore) -> None:
+        stream_id = StreamId.for_aggregate('Account', '1')
+        active = Snapshot(stream_id=stream_id, state={'owner': 'dex', 'balance': 100}, version=5, state_type='Active')
+        await snapshot_store.save(active)
+
+        closed = Snapshot(stream_id=stream_id, state={'owner': 'dex'}, version=10, state_type='Closed')
+        await snapshot_store.save(closed)
+
+        loaded = await snapshot_store.load(stream_id)
+
+        assert loaded is not None
+        assert loaded.state_type == 'Closed'
+        assert loaded.version == 10
+
     async def test_save_and_load_preserves_schema_version(self, snapshot_store: ISnapshotStore) -> None:
         snapshot = Snapshot(
             stream_id=StreamId.for_aggregate('Order', '1'),

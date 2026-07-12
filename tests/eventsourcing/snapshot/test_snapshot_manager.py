@@ -48,7 +48,7 @@ def _make_manager(
     return SnapshotManager(
         store=snapshot_store,
         config=config,
-        state_type_name=state_type_name,
+        valid_state_types=frozenset({state_type_name}),
     )
 
 
@@ -99,6 +99,52 @@ async def test_load_snapshot_raises_on_type_mismatch(
 
     with pytest.raises(SnapshotTypeMismatchError, match='WrongType'):
         await manager.load_snapshot(stream_id, 'agg-1')
+
+
+async def test_load_snapshot_accepts_any_family_member(
+    snapshot_store: AsyncMock,
+    stream_id: StreamId,
+) -> None:
+    snapshot = Snapshot(
+        stream_id=stream_id,
+        state={'owner': 'dex'},
+        version=5,
+        state_type='Active',
+    )
+    snapshot_store.load.return_value = snapshot
+    manager = SnapshotManager(
+        store=snapshot_store,
+        config=SnapshotConfig(strategy=EventCountStrategy(threshold=3)),
+        valid_state_types=frozenset({'NotCreated', 'Active'}),
+    )
+
+    result = await manager.load_snapshot(stream_id, 'agg-1')
+
+    assert result is snapshot
+
+
+async def test_load_snapshot_mismatch_renders_family_in_expected_type(
+    snapshot_store: AsyncMock,
+    stream_id: StreamId,
+) -> None:
+    snapshot = Snapshot(
+        stream_id=stream_id,
+        state={'owner': 'dex'},
+        version=5,
+        state_type='Bogus',
+    )
+    snapshot_store.load.return_value = snapshot
+    manager = SnapshotManager(
+        store=snapshot_store,
+        config=SnapshotConfig(strategy=EventCountStrategy(threshold=3)),
+        valid_state_types=frozenset({'NotCreated', 'Active'}),
+    )
+
+    with pytest.raises(SnapshotTypeMismatchError) as exc_info:
+        await manager.load_snapshot(stream_id, 'agg-1')
+
+    assert exc_info.value.expected_type == 'Active | NotCreated'
+    assert exc_info.value.actual_type == 'Bogus'
 
 
 class V1ToV2Migration(ISnapshotMigration):
@@ -255,7 +301,7 @@ async def test_save_snapshot_persists_and_tracks(
 ) -> None:
     manager = _make_manager(snapshot_store, schema_version=2)
 
-    await manager.save_snapshot(stream_id, 'agg-1', {'key': 'value'}, version=7)
+    await manager.save_snapshot(stream_id, 'agg-1', {'key': 'value'}, version=7, state_type_name='TestAggregate')
 
     snapshot_store.save.assert_called_once()
     saved: Snapshot = snapshot_store.save.call_args[0][0]
@@ -272,7 +318,7 @@ async def test_save_snapshot_updates_tracked_version(
 ) -> None:
     manager = _make_manager(snapshot_store, threshold=3)
 
-    await manager.save_snapshot(stream_id, 'agg-1', {'key': 'value'}, version=5)
+    await manager.save_snapshot(stream_id, 'agg-1', {'key': 'value'}, version=5, state_type_name='TestAggregate')
 
     assert not manager.should_save('agg-1', 6)
     assert not manager.should_save('agg-1', 7)

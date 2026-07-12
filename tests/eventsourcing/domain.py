@@ -109,3 +109,77 @@ class CounterDecider(IDecider[CounterState, Increment, Incremented]):
     @override
     def evolve(self, state: CounterState, event: Incremented) -> CounterState:
         return CounterState(value=state.value + event.amount)
+
+
+@dataclass(frozen=True)
+class AccountClosed(IEvent):
+    pass
+
+
+@dataclass(frozen=True)
+class NotCreated:
+    pass
+
+
+@dataclass(frozen=True)
+class Active:
+    owner: str
+    balance: int = 0
+
+
+@dataclass(frozen=True)
+class Closed:
+    owner: str
+
+
+BankAccountState = NotCreated | Active | Closed
+
+
+@dataclass(frozen=True)
+class OpenAccount:
+    owner: str
+
+
+@dataclass(frozen=True)
+class Deposit:
+    amount: int
+
+
+@dataclass(frozen=True)
+class CloseAccount:
+    pass
+
+
+BankCommand = OpenAccount | Deposit | CloseAccount
+BankEvent = AccountOpened | MoneyDeposited | AccountClosed
+
+
+class BankAccountDecider(IDecider[BankAccountState, BankCommand, BankEvent]):
+    @override
+    def initial_state(self) -> BankAccountState:
+        return NotCreated()
+
+    @override
+    def decide(self, command: BankCommand, state: BankAccountState) -> list[BankEvent]:
+        match (command, state):
+            case (OpenAccount(owner=owner), NotCreated()):
+                return [AccountOpened(name=owner)]
+            case (Deposit(amount=amount), Active()):
+                return [MoneyDeposited(amount=amount)]
+            case (CloseAccount(), Active()):
+                return [AccountClosed()]
+            case _:
+                msg = f'Cannot {type(command).__name__} while {type(state).__name__}'
+                raise ValueError(msg)
+
+    @override
+    def evolve(self, state: BankAccountState, event: BankEvent) -> BankAccountState:
+        match (event, state):
+            case (AccountOpened(name=name), NotCreated()):
+                return Active(owner=name)
+            case (MoneyDeposited(amount=amount), Active(owner=owner, balance=balance)):
+                return Active(owner=owner, balance=balance + amount)
+            case (AccountClosed(), Active(owner=owner)):
+                return Closed(owner=owner)
+            case _:
+                return state

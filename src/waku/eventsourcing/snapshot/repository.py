@@ -38,11 +38,12 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
     ) -> None:
         super().__init__(event_store)
         self._state_serializer = state_serializer
+        self._state_type_name: str = self.snapshot_state_type or self.aggregate_name
         config = snapshot_config_registry.get(self.aggregate_name)
         self._snapshot_manager = SnapshotManager(
             store=snapshot_store,
             config=config,
-            state_type_name=self.snapshot_state_type or self.aggregate_name,
+            valid_state_types=frozenset({self._state_type_name}),
         )
 
     async def load(self, aggregate_id: str) -> AggregateT:
@@ -82,7 +83,13 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
             stream_id = self._stream_id(aggregate_id)
             state_obj = self._snapshot_state(aggregate)
             state_data = self._state_serializer.serialize(state_obj)
-            await self._snapshot_manager.save_snapshot(stream_id, aggregate_id, state_data, new_version)
+            await self._snapshot_manager.save_snapshot(
+                stream_id,
+                aggregate_id,
+                state_data,
+                new_version,
+                state_type_name=self._state_type_name,
+            )
 
         return new_version, events
 
