@@ -6,7 +6,7 @@ from datetime import timedelta
 import pytest
 from typing_extensions import override
 
-from waku.di import is_registered, object_
+from waku.di import is_registered, object_, scoped
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IEvent
 from waku.messaging import (
@@ -30,8 +30,8 @@ from waku.messaging import (
 from waku.messaging._internal.registry import MessageRegistry
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import get_message_context
+from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
 from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore
-from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.exceptions import (
@@ -415,22 +415,25 @@ class TestMessagingConfigValidation:
     @staticmethod
     async def test_dead_letter_store_without_uow_raises_at_startup() -> None:
         config = MessagingConfig(
-            dead_letter=DeadLetterConfig(store=RecordingDeadLetterStore),
+            dead_letter=DeadLetterConfig(),
         )
         with pytest.raises(ImproperlyConfiguredError, match='IUnitOfWork is required'):
-            async with create_test_app(imports=[MessagingModule.register(config)]):
+            async with create_test_app(
+                imports=[MessagingModule.register(config)],
+                providers=[scoped(IDeadLetterStore, RecordingDeadLetterStore)],
+            ):
                 pass  # pragma: no cover
 
     @staticmethod
     async def test_durable_outbox_without_explicit_transactional_behavior_boots() -> None:
         config = MessagingConfig(
-            outbox=OutboxConfig(store=FakeOutboxStore),
+            outbox=OutboxConfig(),
             transports={'test': RecordingTransport},
         )
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_CommandHandler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), scoped(IOutboxStore, FakeOutboxStore)],
         ) as app:
             plan = await app.container.get(BehaviorPlan)
             registry = await app.container.get(MessageRegistry)
@@ -440,18 +443,21 @@ class TestMessagingConfigValidation:
 
     @staticmethod
     def test_dead_letter_config_defaults() -> None:
-        config = DeadLetterConfig(store=RecordingDeadLetterStore)
+        config = DeadLetterConfig()
         assert config.auto_replay_enabled is False
         assert config.max_replay_count == 3
         assert config.retention is None
 
     @staticmethod
     async def test_dead_letter_config_registers_store_and_replay_executor() -> None:
-        config = MessagingConfig(dead_letter=DeadLetterConfig(store=RecordingDeadLetterStore))
+        config = MessagingConfig(dead_letter=DeadLetterConfig())
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[
+                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    scoped(IDeadLetterStore, RecordingDeadLetterStore),
+                ],
             ) as app,
             app.container() as scope,
         ):
@@ -471,14 +477,14 @@ class TestMessagingConfigValidation:
     async def test_partition_by_without_allocator_raises_at_startup() -> None:
         config = MessagingConfig(
             endpoints=[external_endpoint('ext://orders', partition_by=order_id_partition)],
-            outbox=OutboxConfig(store=FakeOutboxStore),
+            outbox=OutboxConfig(),
             transports={'ext': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
         with pytest.raises(ImproperlyConfiguredError, match='ISequenceAllocator'):
             async with create_test_app(
                 imports=[MessagingModule.register(config)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), scoped(IOutboxStore, FakeOutboxStore)],
             ):
                 pass  # pragma: no cover
 
@@ -503,7 +509,7 @@ class TestMessagingConfigValidation:
         inbox = FakeInboxStore()
         config = MessagingConfig(
             endpoints=[local_queue('q://orders', mode=EndpointMode.DURABLE, partition_by=order_id_partition)],
-            inbox=InboxConfig(store=lambda: inbox),
+            inbox=InboxConfig(),
             global_pipeline_behaviors=[TransactionalBehavior],
         )
         async with create_test_app(
@@ -511,6 +517,7 @@ class TestMessagingConfigValidation:
             providers=[
                 object_(FakeUoW(), provided_type=IUnitOfWork),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                object_(inbox, provided_type=IInboxStore),
             ],
         ):
             pass
@@ -521,7 +528,7 @@ class TestMessagingConfigValidation:
         # so the (separate) allocator-presence guard is satisfied too.
         config = MessagingConfig(
             endpoints=[external_endpoint('ext://orders', partition_by=order_id_partition)],
-            outbox=OutboxConfig(store=FakeOutboxStore),
+            outbox=OutboxConfig(),
             transports={'ext': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
@@ -530,16 +537,16 @@ class TestMessagingConfigValidation:
             providers=[
                 object_(FakeUoW(), provided_type=IUnitOfWork),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                scoped(IOutboxStore, FakeOutboxStore),
             ],
         ):
             pass
 
     @staticmethod
     def test_local_broker_uri_collision_raises() -> None:
-        inbox = FakeInboxStore()
         config = MessagingConfig(
             endpoints=[local_queue('orders'), listen('orders')],
-            inbox=InboxConfig(store=lambda: inbox),
+            inbox=InboxConfig(),
             transports={'orders': RecordingTransport},
         )
         with pytest.raises(ImproperlyConfiguredError, match='must not share a URI'):
@@ -558,31 +565,34 @@ class TestMessagingConfigValidation:
         inbox = FakeInboxStore()
         config = MessagingConfig(
             endpoints=[local_queue('local://orders'), listen('rabbitmq://orders')],
-            inbox=InboxConfig(store=lambda: inbox),
+            inbox=InboxConfig(),
             transports={'rabbitmq': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
         async with create_test_app(
             imports=[MessagingModule.register(config)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
         ):
             pass
 
     @staticmethod
     async def test_dead_letter_worker_starts_when_auto_replay_enabled() -> None:
         config = MessagingConfig(
-            dead_letter=DeadLetterConfig(store=RecordingDeadLetterStore, auto_replay_enabled=True),
+            dead_letter=DeadLetterConfig(auto_replay_enabled=True),
         )
         async with create_test_app(
             imports=[MessagingModule.register(config)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                scoped(IDeadLetterStore, RecordingDeadLetterStore),
+            ],
         ):
             pass  # the lifecycle hooks start + stop the worker without error
 
     @staticmethod
     def test_no_dead_letter_worker_when_store_only() -> None:
         dynamic = MessagingModule.register(
-            MessagingConfig(dead_letter=DeadLetterConfig(store=RecordingDeadLetterStore)),
+            MessagingConfig(dead_letter=DeadLetterConfig()),
         )
         assert not any(isinstance(ext, DeadLetterLifecycleExtension) for ext in dynamic.extensions)
 
@@ -590,7 +600,7 @@ class TestMessagingConfigValidation:
     def test_dead_letter_worker_when_retention_set() -> None:
         dynamic = MessagingModule.register(
             MessagingConfig(
-                dead_letter=DeadLetterConfig(store=RecordingDeadLetterStore, retention=timedelta(days=30)),
+                dead_letter=DeadLetterConfig(retention=timedelta(days=30)),
             ),
         )
         assert any(isinstance(ext, DeadLetterLifecycleExtension) for ext in dynamic.extensions)

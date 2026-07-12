@@ -8,9 +8,9 @@ import pytest
 from sqlalchemy import MetaData, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from waku.backends.sqlalchemy.dead_letter.store import SqlAlchemyDeadLetterStore
+from waku.backends.sqlalchemy.dead_letter.tables import bind_dead_letter_tables
 from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, DeadLetterStatus
-from waku.messaging.errors.sqla.store import SqlAlchemyDeadLetterStore
-from waku.messaging.errors.sqla.tables import bind_dead_letter_tables
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

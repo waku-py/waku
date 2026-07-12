@@ -4,11 +4,12 @@ import pytest
 from typing_extensions import override
 
 from waku._internal.sentinel import MISSING
-from waku.di import object_
+from waku.di import object_, scoped
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IMessage
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
 from waku.messaging.config import MessagingConfig
+from waku.messaging.durability import IInboxStore
 from waku.messaging.inbox.backpressure import BufferingLimits
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.modules import MessagingModule
@@ -84,7 +85,6 @@ def test_listen_carries_backpressure_and_circuit_breaker() -> None:
 
 
 async def test_consumer_boots_with_backpressure_and_circuit_breaker() -> None:
-    inbox = FakeInboxStore()
     config = MessagingConfig(
         endpoints=[
             listen(
@@ -93,26 +93,25 @@ async def test_consumer_boots_with_backpressure_and_circuit_breaker() -> None:
                 circuit_breaker=CircuitBreakerConfig(minimum_throughput=1),
             ),
         ],
-        inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+        inbox=InboxConfig(owner_id='test-node:1'),
         transports={'rabbitmq': _StubTransport},
     )
     async with create_test_app(
         imports=[MessagingModule.register(config)],
-        providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+        providers=[object_(FakeUoW(), provided_type=IUnitOfWork), scoped(IInboxStore, FakeInboxStore)],
     ):
         pass  # wiring builds the listener gate + inbound breaker without error
 
 
 async def test_inbound_partition_by_without_allocator_raises_at_startup() -> None:
-    inbox = FakeInboxStore()
     config = MessagingConfig(
         endpoints=[listen('orders', partition_by=_partition_key)],
-        inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+        inbox=InboxConfig(owner_id='test-node:1'),
         transports={'rabbitmq': _StubTransport},
     )
     with pytest.raises(ImproperlyConfiguredError, match='ISequenceAllocator'):
         async with create_test_app(
             imports=[MessagingModule.register(config)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), scoped(IInboxStore, FakeInboxStore)],
         ):
             pass  # pragma: no cover

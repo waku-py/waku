@@ -21,6 +21,7 @@ from waku.messaging import (
     MessagingModule,
     TransactionalBehavior,
 )
+from waku.messaging.durability import IInboxStore
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.router import listen
@@ -57,7 +58,7 @@ class TestInboundIntegration:
 
         config = MessagingConfig(
             endpoints=[listen('rabbitmq://orders')],
-            inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+            inbox=InboxConfig(owner_id='test-node:1'),
             transports={'rabbitmq': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
@@ -74,7 +75,7 @@ class TestInboundIntegration:
             create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
             ),
         ):
             await transport._listen_broker.publish(out.body, 'orders', headers=headers)  # noqa: SLF001

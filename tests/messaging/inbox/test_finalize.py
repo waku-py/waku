@@ -7,9 +7,9 @@ import pytest
 from dishka import Provider, Scope, make_async_container, provide
 
 from waku.messaging._internal.identifiers import EndpointUri, HandlerDestination
+from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.inbox._internal.finalize import apply_inbox_outcome
-from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 from waku.uow import IUnitOfWork
 

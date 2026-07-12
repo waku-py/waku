@@ -5,14 +5,14 @@ from typing import TYPE_CHECKING
 import pytest
 from sqlalchemy import MetaData
 
+from waku.backends.sqlalchemy.snapshot.store import SqlAlchemySnapshotStore
+from waku.backends.sqlalchemy.snapshot.tables import bind_snapshot_tables
 from waku.eventsourcing.snapshot.in_memory import InMemorySnapshotStore
-from waku.eventsourcing.snapshot.sqlalchemy.store import SqlAlchemySnapshotStore
-from waku.eventsourcing.snapshot.sqlalchemy.tables import bind_snapshot_tables
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from waku.eventsourcing.snapshot.interfaces import ISnapshotStore
+    from waku.eventsourcing.store.interfaces import ISnapshotStore
 
 
 @pytest.fixture(params=['in_memory', 'sqlalchemy'])

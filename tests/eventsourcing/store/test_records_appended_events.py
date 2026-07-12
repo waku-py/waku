@@ -4,12 +4,12 @@ from typing import TYPE_CHECKING, cast
 
 from sqlalchemy import MetaData
 
+from waku.backends.sqlalchemy.event_store.store import SqlAlchemyEventStore
+from waku.backends.sqlalchemy.event_store.tables import bind_event_store_tables
 from waku.eventsourcing.forwarding import AppendedEventsCollector
 from waku.eventsourcing.serialization.interfaces import IEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
-from waku.eventsourcing.store.sqlalchemy.store import SqlAlchemyEventStore
-from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
 from waku.serialization.upcasting.chain import UpcasterChain
 
 if TYPE_CHECKING:

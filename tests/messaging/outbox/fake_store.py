@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
-from waku.messaging.outbox.interfaces import IOutboxStore
+from waku.messaging.durability import IOutboxStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

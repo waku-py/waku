@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing_extensions import override
 
 from waku import WakuFactory, module
+from waku.backends.memory import MemoryBackend
 from waku.eventsourcing import (
     EventSourcedAggregate,
     EventSourcedRepository,
@@ -25,7 +26,6 @@ from waku.eventsourcing import (
     EventSourcingExtension,
     EventSourcingModule,
 )
-from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.integrations.eventsourcing_messaging import EventSourcedCommandHandler, EventSourcingMessagingModule
 from waku.messages import IEvent
 from waku.messaging import (
@@ -184,7 +184,8 @@ class BankModule:
 @module(
     imports=[
         BankModule,
-        EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore)),
+        EventSourcingModule.register(EventSourcingConfig()),
+        MemoryBackend.register(),
         EventSourcingMessagingModule.register(),
         MessagingModule.register(),
     ],

@@ -7,11 +7,12 @@ from uuid import UUID, uuid4
 
 from typing_extensions import override
 
-from waku.di import object_
+from waku.di import object_, scoped
 from waku.messages import IEvent
 from waku.messaging import EventHandler, MessagingConfig, MessagingExtension, MessagingModule
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging.config import DeadLetterConfig, OutboxConfig
+from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.errors.replay import ReplayExecutor
@@ -157,9 +158,9 @@ async def test_replay_bidirectional_endpoint_dispatches() -> None:
     inbox_store = FakeInboxStore()
     config = MessagingConfig(
         endpoints=[external_endpoint('rabbitmq://orders'), listen('rabbitmq://orders')],
-        outbox=OutboxConfig(store=FakeOutboxStore),
-        inbox=InboxConfig(store=lambda: inbox_store, owner_id='test-node:1'),
-        dead_letter=DeadLetterConfig(store=lambda: dlq_store),
+        outbox=OutboxConfig(),
+        inbox=InboxConfig(owner_id='test-node:1'),
+        dead_letter=DeadLetterConfig(),
         transports={'rabbitmq': RecordingTransport},
     )
 
@@ -167,7 +168,12 @@ async def test_replay_bidirectional_endpoint_dispatches() -> None:
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_DlqEventHandler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(inbox_store, provided_type=IInboxStore),
+                object_(dlq_store, provided_type=IDeadLetterStore),
+                scoped(IOutboxStore, FakeOutboxStore),
+            ],
         ) as app,
         app.container() as scope,
     ):

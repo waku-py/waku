@@ -9,7 +9,7 @@ import anyio
 import pytest
 from typing_extensions import override
 
-from waku.di import object_, singleton
+from waku.di import object_, scoped, singleton
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IEvent
 from waku.messaging import (
@@ -25,11 +25,12 @@ from waku.messaging import (
 )
 from waku.messaging._internal.identifiers import EndpointUri
 from waku.messaging.config import DeadLetterConfig
+from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.endpoints.base import EndpointMode
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox import InboxStatus
-from waku.messaging.inbox._internal.destination import handler_destination
+from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.inbox.models import InboxEntry
 from waku.messaging.router import local_queue, route
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
@@ -104,11 +105,11 @@ class _EndpointOnlyObserver(IMessageObserver):
 
 # Inbox-only config (no outbox, no dead_letter_store): also exercises that PayloadCodec is
 # registered for inbox-only setups (the durable endpoint encodes the payload before persisting).
-def _durable_config(inbox: FakeInboxStore) -> MessagingConfig:
+def _durable_config() -> MessagingConfig:
     return MessagingConfig(
         endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0, max_buffer_size=math.inf)],
         routing=[route(_OrderPlaced).to('orders')],
-        inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+        inbox=InboxConfig(owner_id='test-node:1'),
         global_pipeline_behaviors=[TransactionalBehavior],
     )
 
@@ -122,13 +123,13 @@ class _FailingOrderHandler(EventHandler[_OrderPlaced]):
 
 # DLQ-failure config: the handler always fails (-> move_to_dead_letter), but the dead-letter store is
 # unavailable (save raises). Exercises ERR-2 — a failed durable DLQ write must keep the inbox row.
-def _dlq_failing_config(inbox: FakeInboxStore) -> MessagingConfig:
+def _dlq_failing_config() -> MessagingConfig:
     return MessagingConfig(
         endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0, max_buffer_size=math.inf)],
         routing=[route(_OrderPlaced).to('orders')],
-        inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+        inbox=InboxConfig(owner_id='test-node:1'),
         endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
-        dead_letter=DeadLetterConfig(store=FailingDeadLetterStore),
+        dead_letter=DeadLetterConfig(),
         global_pipeline_behaviors=[TransactionalBehavior],
     )
 
@@ -140,9 +141,9 @@ class TestDurableInboxIntegration:
         inbox = FakeInboxStore()
         async with (
             create_test_app(
-                imports=[MessagingModule.register(_durable_config(inbox))],
+                imports=[MessagingModule.register(_durable_config())],
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
             ) as app,
             app.container() as container,
         ):
@@ -161,9 +162,9 @@ class TestDurableInboxIntegration:
         inbox = FakeInboxStore()
         async with (
             create_test_app(
-                imports=[MessagingModule.register(_durable_config(inbox))],
+                imports=[MessagingModule.register(_durable_config())],
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
             ) as app,
             app.container() as container,
         ):
@@ -185,11 +186,11 @@ class TestDurableInboxIntegration:
 
         async with (
             create_test_app(
-                imports=[MessagingModule.register(_durable_config(inbox))],
+                imports=[MessagingModule.register(_durable_config())],
                 extensions=[
                     MessagingExtension().bind(_RecordingHandler, _SecondRecordingHandler),
                 ],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
             ) as app,
             app.container() as container,
         ):
@@ -211,9 +212,13 @@ class TestDurableInboxIntegration:
         inbox = FakeInboxStore()
         async with (
             create_test_app(
-                imports=[MessagingModule.register(_dlq_failing_config(inbox))],
+                imports=[MessagingModule.register(_dlq_failing_config())],
                 extensions=[MessagingExtension().bind(_FailingOrderHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[
+                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(inbox, provided_type=IInboxStore),
+                    scoped(IDeadLetterStore, FailingDeadLetterStore),
+                ],
             ) as app,
             app.container() as container,
         ):
@@ -231,7 +236,7 @@ class TestDurableInboxIntegration:
         config = MessagingConfig(
             endpoints=[local_queue('orders', stop_timeout=1.0)],  # mode unset -> inherits the global default
             routing=[route(_OrderPlaced).to('orders')],
-            inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+            inbox=InboxConfig(owner_id='test-node:1'),
             global_pipeline_behaviors=[TransactionalBehavior],
             endpoint_defaults=EndpointDefaults(mode=EndpointMode.DURABLE),
         )
@@ -239,7 +244,7 @@ class TestDurableInboxIntegration:
             create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
             ) as app,
             app.container() as container,
         ):
@@ -259,7 +264,7 @@ class TestDurableInboxIntegration:
         config = MessagingConfig(
             endpoints=[local_queue('orders', mode=EndpointMode.BUFFERED, stop_timeout=1.0)],
             routing=[route(_OrderPlaced).to('orders')],
-            inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+            inbox=InboxConfig(owner_id='test-node:1'),
             global_pipeline_behaviors=[TransactionalBehavior],
             endpoint_defaults=EndpointDefaults(mode=EndpointMode.DURABLE),
         )
@@ -267,7 +272,7 @@ class TestDurableInboxIntegration:
             create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
             ) as app,
             app.container() as container,
         ):
@@ -339,8 +344,8 @@ class TestDurableInboxIntegration:
         config = MessagingConfig(
             endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0)],
             routing=[route(_OrderPlaced).to('orders')],
-            inbox=InboxConfig(store=lambda: inbox, owner_id='node-a:1', recovery_interval=timedelta(seconds=0.01)),
-            dead_letter=DeadLetterConfig(store=lambda: dlq),
+            inbox=InboxConfig(owner_id='node-a:1', recovery_interval=timedelta(seconds=0.01)),
+            dead_letter=DeadLetterConfig(),
             endpoint_defaults=EndpointDefaults(
                 error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
                 execution_timeout=timedelta(seconds=0.01),
@@ -357,7 +362,11 @@ class TestDurableInboxIntegration:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_BlockingHandler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(inbox, provided_type=IInboxStore),
+                object_(dlq, provided_type=IDeadLetterStore),
+            ],
         ) as app:
             codec = await app.container.get(PayloadCodec)
             envelope = make_envelope(_OrderPlaced(order_id='rec-1'))
@@ -389,14 +398,18 @@ class TestDurableInboxIntegration:
         config = MessagingConfig(
             endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0)],
             routing=[route(_OrderPlaced).to('orders')],
-            inbox=InboxConfig(store=lambda: inbox, owner_id='node-a:1', recovery_interval=timedelta(seconds=0.01)),
-            dead_letter=DeadLetterConfig(store=lambda: dlq),
+            inbox=InboxConfig(owner_id='node-a:1', recovery_interval=timedelta(seconds=0.01)),
+            dead_letter=DeadLetterConfig(),
             global_pipeline_behaviors=[TransactionalBehavior],
         )
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_RecordingHandler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(inbox, provided_type=IInboxStore),
+                object_(dlq, provided_type=IDeadLetterStore),
+            ],
         ) as app:
             codec = await app.container.get(PayloadCodec)
             envelope = make_envelope(
@@ -439,13 +452,17 @@ class TestDurableInboxIntegration:
                 )
             ],
             routing=[route(_OrderPlaced).to('orders')],
-            inbox=InboxConfig(store=lambda: inbox, owner_id='node-a:1', recovery_interval=timedelta(seconds=0.01)),
+            inbox=InboxConfig(owner_id='node-a:1', recovery_interval=timedelta(seconds=0.01)),
             global_pipeline_behaviors=[TransactionalBehavior],
         )
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_RecordingHandler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), singleton(_EndpointSink)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(inbox, provided_type=IInboxStore),
+                singleton(_EndpointSink),
+            ],
         ) as app:
             sink = await app.container.get(_EndpointSink)
             codec = await app.container.get(PayloadCodec)
@@ -478,7 +495,6 @@ class TestDurableInboxIntegration:
             endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0)],
             routing=[route(_OrderPlaced).to('orders')],
             inbox=InboxConfig(
-                store=lambda: inbox,
                 owner_id='node-a:1',
                 recovery_interval=timedelta(seconds=0.01),
                 scheduled_poll_interval=timedelta(seconds=0.01),
@@ -490,6 +506,7 @@ class TestDurableInboxIntegration:
             extensions=[MessagingExtension().bind(_RecordingHandler)],
             providers=[
                 object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
             ],
         ) as app:
@@ -523,7 +540,6 @@ class TestDurableInboxIntegration:
             endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0)],
             routing=[route(_OrderPlaced).to('orders')],
             inbox=InboxConfig(
-                store=lambda: inbox,
                 owner_id='node-a:1',
                 recovery_interval=timedelta(seconds=0.01),
                 scheduled_poll_interval=timedelta(seconds=0.01),
@@ -533,7 +549,10 @@ class TestDurableInboxIntegration:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_RecordingHandler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],  # deliberately no ISequenceAllocator
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(inbox, provided_type=IInboxStore),
+            ],  # deliberately no ISequenceAllocator
         ) as app:
             codec = await app.container.get(PayloadCodec)
             envelope = make_envelope(_OrderPlaced(order_id='keyless-sched'))

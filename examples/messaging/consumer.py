@@ -10,15 +10,17 @@ import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from typing_extensions import override
 
 from waku import WakuFactory, module
+from waku.backends.sqlalchemy import SqlAlchemyBackend
 from waku.messages import IEvent
 from waku.messaging import EventHandler, InboxConfig, MessagingConfig, MessagingExtension, MessagingModule, listen
 from waku.messaging.transport.faststream.rabbitmq import rabbit_transport
 
 if TYPE_CHECKING:
-    from waku.messaging.inbox import IInboxStore
+    from collections.abc import AsyncIterator
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,10 +39,15 @@ class OrderPlacedHandler(EventHandler[OrderPlaced]):
         print(f'handling order {message.order_id}')
 
 
-def build_inbox_store() -> IInboxStore:
-    """Supply your ``IInboxStore`` here — e.g. the SQLAlchemy adapter wired to your session factory."""
-    msg = 'Supply your IInboxStore — e.g. the SQLAlchemy adapter wired to a session factory.'
-    raise NotImplementedError(msg)
+def create_session() -> AsyncIterator[AsyncSession]:
+    """Supply the consumer's scoped ``AsyncSession`` — the backend builds every durable store over it."""
+    engine = create_async_engine('postgresql+psycopg://postgres:postgres@localhost:5432/postgres')
+    return _session(engine)
+
+
+async def _session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        yield session  # noqa: ASYNC119
 
 
 def build_config() -> MessagingConfig:
@@ -48,12 +55,15 @@ def build_config() -> MessagingConfig:
     return MessagingConfig(
         endpoints=[listen('rabbitmq://orders')],
         transports={'rabbitmq': rabbit_transport(url='amqp://guest:guest@localhost/')},
-        inbox=InboxConfig(store=build_inbox_store),
+        inbox=InboxConfig(),
     )
 
 
 @module(
-    imports=[MessagingModule.register(build_config())],
+    imports=[
+        MessagingModule.register(build_config()),
+        SqlAlchemyBackend.register(session_factory=create_session),
+    ],
     extensions=[MessagingExtension().bind(OrderPlacedHandler)],
 )
 class ConsumerModule:

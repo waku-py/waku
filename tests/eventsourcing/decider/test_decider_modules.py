@@ -8,9 +8,9 @@ import pytest
 from typing_extensions import override
 
 from waku import module
+from waku.backends.memory import MemoryBackend
 from waku.eventsourcing.decider.repository import DeciderRepository
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
-from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.integrations.eventsourcing_messaging import DeciderVoidCommandHandler
 from waku.messaging import IRequest, MessagingExtension, MessagingModule
 from waku.messaging.interfaces import IMessageBus
@@ -39,7 +39,8 @@ class IncrementCounterHandler(DeciderVoidCommandHandler[IncrementCounter, Counte
 async def test_bind_decider_integrates_with_di_and_message_bus() -> None:
     @module(
         imports=[
-            EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore)),
+            EventSourcingModule.register(EventSourcingConfig()),
+            MemoryBackend.register(),
             MessagingModule.register(),
         ],
         extensions=[
@@ -78,7 +79,7 @@ async def test_bind_decider_resolves_repository_parametrized_with_pep695_type_al
         aggregate_name = 'AliasCounter'
 
     @module(
-        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
+        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()],
         extensions=[
             EventSourcingExtension().bind_decider(
                 repository=AliasCounterRepository,

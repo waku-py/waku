@@ -6,9 +6,9 @@ import pytest
 from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from waku.messaging.errors.dead_letter import IDeadLetterStore
-from waku.messaging.errors.sqla.store import SqlAlchemyDeadLetterStore
-from waku.messaging.errors.sqla.tables import bind_dead_letter_tables
+from waku.backends.sqlalchemy.dead_letter.store import SqlAlchemyDeadLetterStore
+from waku.backends.sqlalchemy.dead_letter.tables import bind_dead_letter_tables
+from waku.messaging.durability import IDeadLetterStore
 
 from tests.messaging.errors.fake_store import FakeDeadLetterStore
 

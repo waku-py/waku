@@ -5,17 +5,18 @@ from typing import cast
 
 import pytest
 from sqlalchemy import MetaData
-from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002  # dishka introspects the session factory return type
+from sqlalchemy.ext.asyncio import AsyncSession  # dishka introspects the session factory return type
 
+from waku.backends.memory import MemoryBackend
+from waku.backends.sqlalchemy.event_store.store import make_sqlalchemy_event_store
+from waku.backends.sqlalchemy.event_store.tables import bind_event_store_tables
+from waku.di import scoped
 from waku.eventsourcing import forward
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingModule
-from waku.eventsourcing.store.in_memory import InMemoryEventStore
-from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
-from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
+from waku.eventsourcing.store.interfaces import IEventStore
 from waku.exceptions import ImproperlyConfiguredError
 from waku.integrations.eventsourcing_messaging import EventSourcingMessagingModule
 from waku.messages import IEvent
-from waku.messaging.sqla.uow import shared_session
 from waku.testing import create_test_app
 
 
@@ -34,8 +35,9 @@ async def test_forwarding_without_bridge_raises() -> None:
         async with create_test_app(
             imports=[
                 EventSourcingModule.register(
-                    EventSourcingConfig(store=InMemoryEventStore, forwarding=[forward(_Ping).same_transaction()]),
+                    EventSourcingConfig(forwarding=[forward(_Ping).same_transaction()]),
                 ),
+                MemoryBackend.register(),
             ],
         ):
             pass  # pragma: no cover
@@ -46,9 +48,10 @@ async def test_forwarding_with_non_recording_store_raises() -> None:
         async with create_test_app(
             imports=[
                 EventSourcingModule.register(
-                    EventSourcingConfig(store=InMemoryEventStore, forwarding=[forward(_Ping).same_transaction()]),
+                    EventSourcingConfig(forwarding=[forward(_Ping).same_transaction()]),
                 ),
                 EventSourcingMessagingModule.register(),
+                MemoryBackend.register(),
             ],
         ):
             pass  # pragma: no cover
@@ -60,19 +63,21 @@ async def test_forwarding_with_recording_store_and_bridge_boots() -> None:
         imports=[
             EventSourcingModule.register(
                 EventSourcingConfig(
-                    store=make_sqlalchemy_event_store(tables),
                     forwarding=[forward(_Ping).same_transaction()],
                 ),
             ),
             EventSourcingMessagingModule.register(),
         ],
-        providers=[*shared_session(_fake_session)],
+        providers=[
+            scoped(AsyncSession, _fake_session),
+            scoped(IEventStore, make_sqlalchemy_event_store(tables)),
+        ],
     ):
         pass
 
 
 async def test_empty_forwarding_skips_validation() -> None:
     async with create_test_app(
-        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))],
+        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()],
     ):
         pass

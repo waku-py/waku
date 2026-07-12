@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Self, TypeAlias
 
 from typing_extensions import override
 
+from waku._internal.provider_scan import provided_type_hints
 from waku.di import Provider, WithParents, is_registered, many, object_, scoped
 from waku.eventsourcing._internal.introspection import resolve_generic_args
 from waku.eventsourcing.contracts.aggregate import IDecider
@@ -27,7 +28,6 @@ from waku.eventsourcing.forwarding import (
 from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
 from waku.eventsourcing.projection.interfaces import (
     ICatchUpProjection,
-    ICheckpointStore,
     IProjection,
     ProjectionErrorPolicy,
 )
@@ -35,7 +35,6 @@ from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.serialization.interfaces import IEventSerializer, ISnapshotStateSerializer
 from waku.eventsourcing.serialization.json import JsonEventSerializer, JsonSnapshotStateSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
-from waku.eventsourcing.snapshot.interfaces import ISnapshotStore
 from waku.eventsourcing.snapshot.migration import SnapshotMigrationChain
 from waku.eventsourcing.snapshot.registry import SnapshotConfig, SnapshotConfigRegistry
 from waku.eventsourcing.store.interfaces import IEventStore
@@ -106,11 +105,8 @@ class DeciderBinding:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EventSourcingConfig:
-    store: type[IEventStore] | Callable[..., IEventStore]
     event_serializer: type[IEventSerializer] | Callable[..., IEventSerializer] | None = None
-    snapshot_store: type[ISnapshotStore] | Callable[..., ISnapshotStore] | None = None
     snapshot_state_serializer: type[ISnapshotStateSerializer] | Callable[..., ISnapshotStateSerializer] | None = None
-    checkpoint_store: type[ICheckpointStore] | Callable[..., ICheckpointStore] | None = None
     enrichers: Sequence[type[IMetadataEnricher]] = ()
     forwarding: Sequence[ForwardDescriptor] = ()
 
@@ -196,7 +192,9 @@ class EventSourcingModule:
     @classmethod
     def register(cls, config: EventSourcingConfig, /) -> DynamicModule:
         providers: list[Provider] = [
-            scoped(IEventStore, config.store),
+            # Anchor type for backend gating (`when=Has(EventSourcingConfig)`) and registration-time scans;
+            # symmetric with MessagingModule's object_(config_, provided_type=MessagingConfig).
+            object_(config, provided_type=EventSourcingConfig),
             # Scoped per command: the event store records appended events into it, EventForwardingBehavior
             # drains them. Always registered (cheap holder) — the store factory injects it by keyword.
             scoped(IAppendedEvents, AppendedEventsCollector),
@@ -209,16 +207,10 @@ class EventSourcingModule:
         else:
             providers.append(scoped(IEventSerializer, JsonEventSerializer))
 
-        if config.snapshot_store is not None:
-            providers.append(scoped(ISnapshotStore, config.snapshot_store))
-
         if config.snapshot_state_serializer is not None:
             providers.append(scoped(ISnapshotStateSerializer, config.snapshot_state_serializer))
         else:
             providers.append(scoped(ISnapshotStateSerializer, JsonSnapshotStateSerializer))
-
-        if config.checkpoint_store is not None:
-            providers.append(scoped(ICheckpointStore, config.checkpoint_store))
 
         providers.append(many(IMetadataEnricher, *config.enrichers))
 
@@ -388,6 +380,16 @@ class EventSourcingRegistryAggregator(RegistryAggregator['EventSourcingExtension
         for name, repo_names in self._aggregate_names.items():
             if len(repo_names) > 1:
                 raise DuplicateAggregateNameError(name, repo_names)
+
+        # Fail-loud BEFORE container build: the event store is backend-provided (or an explicit
+        # provider override); dishka's eager GraphMissingFactoryError is only the backstop.
+        if IEventStore not in provided_type_hints(registry):
+            msg = (
+                'EventSourcingModule is registered but no module provides IEventStore. '
+                'Import a durability backend, e.g. SqlAlchemyBackend.register(session_factory=...) '
+                'from waku.backends.sqlalchemy, in your root module imports.'
+            )
+            raise ImproperlyConfiguredError(msg)
 
         for provider in aggregated.collector_providers():
             registry.add_provider(owning_module, provider)

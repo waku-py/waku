@@ -6,10 +6,10 @@ import pytest
 from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from waku.messaging.errors.sqla.tables import bind_dead_letter_tables
-from waku.messaging.inbox.interfaces import IInboxStore
-from waku.messaging.inbox.sqla.store import SqlAlchemyInboxStore
-from waku.messaging.inbox.sqla.tables import bind_inbox_tables
+from waku.backends.sqlalchemy.dead_letter.tables import bind_dead_letter_tables
+from waku.backends.sqlalchemy.inbox.store import SqlAlchemyInboxStore
+from waku.backends.sqlalchemy.inbox.tables import bind_inbox_tables
+from waku.messaging.durability import IInboxStore
 
 from tests.messaging.inbox.fake_store import FakeInboxStore
 

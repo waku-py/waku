@@ -13,7 +13,7 @@ import pytest
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
-from waku.di import object_
+from waku.di import object_, scoped
 from waku.messaging import (
     EndpointDefaults,
     IRequest,
@@ -23,6 +23,7 @@ from waku.messaging import (
     RequestHandler,
 )
 from waku.messaging.config import DeadLetterConfig
+from waku.messaging.durability import IDeadLetterStore
 from waku.messaging.endpoints.executor import EndpointExecutor, EndpointExecutorFactory
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
@@ -303,13 +304,13 @@ class TestEndpointExecutorDeadLetter:
 
         config = MessagingConfig(
             endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
-            dead_letter=DeadLetterConfig(store=lambda: dl_store),
+            dead_letter=DeadLetterConfig(),
         )
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(handler)],
-            providers=[object_(uow, provided_type=IUnitOfWork)],
+            providers=[object_(uow, provided_type=IUnitOfWork), object_(dl_store, provided_type=IDeadLetterStore)],
         ) as app:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
             executor = await _make_executor(app, evaluator)
@@ -329,13 +330,16 @@ class TestEndpointExecutorDeadLetter:
 
         config = MessagingConfig(
             endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
-            dead_letter=DeadLetterConfig(store=lambda: dl_store),
+            dead_letter=DeadLetterConfig(),
         )
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(handler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(dl_store, provided_type=IDeadLetterStore),
+            ],
         ) as app:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
             executor = await _make_executor(app, evaluator)
@@ -353,14 +357,17 @@ class TestEndpointExecutorDeadLetter:
 
         config = MessagingConfig(
             endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
-            dead_letter=DeadLetterConfig(store=FailingDeadLetterStore),
+            dead_letter=DeadLetterConfig(),
         )
 
         with caplog.at_level(logging.ERROR, logger='waku.messaging.endpoints.executor'):
             async with create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(handler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[
+                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    scoped(IDeadLetterStore, FailingDeadLetterStore),
+                ],
             ) as app:
                 evaluator = await app.container.get(ErrorPolicyEvaluator)
                 executor = await _make_executor(app, evaluator)
@@ -453,14 +460,17 @@ class TestHandlerExecutionTimeout:
 
         config = MessagingConfig(
             endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
-            dead_letter=DeadLetterConfig(store=lambda: dl_store),
+            dead_letter=DeadLetterConfig(),
         )
         observer, recorded = _make_observer()
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_BlockingHandler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(dl_store, provided_type=IDeadLetterStore),
+            ],
         ) as app:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
             executor = await _make_executor(app, evaluator)

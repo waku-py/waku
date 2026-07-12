@@ -13,8 +13,9 @@ from waku._internal.clock import utc_now
 from waku._internal.sentinel import MISSING
 from waku.messaging._internal.uow import NoOpUnitOfWork
 from waku.messaging.context import message_context_scope
+from waku.messaging.durability import IDeadLetterStore
 from waku.messaging.endpoints.outcome import ExecutionOutcome
-from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
+from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.errors.executor import FailureContext
 from waku.messaging.errors.policy import RetryAction
 from waku.messaging.exceptions import HandlerTimeoutError

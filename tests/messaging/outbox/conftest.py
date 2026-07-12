@@ -6,12 +6,11 @@ import pytest
 from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from waku.messaging.errors.sqla.tables import bind_dead_letter_tables
-from waku.messaging.outbox.interfaces import IOutboxStore
-from waku.messaging.outbox.sqla.store import SqlAlchemyOutboxStore
-from waku.messaging.outbox.sqla.tables import bind_outbox_tables
-
-from tests.messaging.outbox.in_memory_store import InMemoryOutboxStore
+from waku.backends.memory._internal.outbox import InMemoryOutboxStore
+from waku.backends.sqlalchemy.dead_letter.tables import bind_dead_letter_tables
+from waku.backends.sqlalchemy.outbox.store import SqlAlchemyOutboxStore
+from waku.backends.sqlalchemy.outbox.tables import bind_outbox_tables
+from waku.messaging.durability import IOutboxStore
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

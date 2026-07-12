@@ -9,8 +9,8 @@ from waku.eventsourcing.snapshot.migration import migrate_snapshot_or_discard
 
 if TYPE_CHECKING:
     from waku.eventsourcing.contracts.stream import StreamId
-    from waku.eventsourcing.snapshot.interfaces import ISnapshotStore
     from waku.eventsourcing.snapshot.registry import SnapshotConfig
+    from waku.eventsourcing.store.interfaces import ISnapshotStore
 
 logger = logging.getLogger(__name__)
 

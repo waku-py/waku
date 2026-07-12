@@ -14,8 +14,6 @@ from waku.messaging.config import MessagingConfig, OutboxConfig
 from waku.messaging.modules import _FRAMEWORK_POLICIES
 from waku.messaging.pipeline._internal.plan import build_behavior_plan
 
-from tests.messaging.outbox.fake_store import FakeOutboxStore
-
 
 @dataclass(frozen=True, slots=True)
 class _Cmd(IRequest[None]):
@@ -58,7 +56,7 @@ def test_plan_for_no_outbox_handler_matches_legacy_global_then_local() -> None:
 def test_plan_for_outbox_handler_matches_legacy_chain() -> None:
     config = MessagingConfig(
         global_pipeline_behaviors=(TransactionalBehavior,),
-        outbox=OutboxConfig(store=FakeOutboxStore),
+        outbox=OutboxConfig(),
     )
     plan = build_behavior_plan([_Handler], _FRAMEWORK_POLICIES, MessageRegistry(), config)
     assert plan.for_handler(_Handler) == (

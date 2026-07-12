@@ -9,18 +9,16 @@ from waku.messaging.endpoints.base import EndpointMode
 from waku.messaging.outbox.relay import OutboxRelayConfig
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Mapping, Sequence
 
     from waku.messages import IMessage, MessageIdentity
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.pipeline import IPipelineBehavior
     from waku.messaging.endpoints.base import EndpointEntry
-    from waku.messaging.errors.dead_letter import IDeadLetterStore
     from waku.messaging.errors.policy import ErrorPolicy
     from waku.messaging.inbox.backpressure import BufferingLimits
     from waku.messaging.inbox.config import InboxConfig
     from waku.messaging.observability.observer import IMessageObserver
-    from waku.messaging.outbox.interfaces import IOutboxStore
     from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor
     from waku.messaging.sending.policy import SendingFailurePolicy
     from waku.messaging.transport.interfaces import TransportFactory
@@ -35,13 +33,11 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OutboxConfig:
-    store: type[IOutboxStore] | Callable[..., IOutboxStore]
     relay: OutboxRelayConfig = OutboxRelayConfig()  # noqa: RUF009
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DeadLetterConfig:
-    store: type[IDeadLetterStore] | Callable[..., IDeadLetterStore]
     auto_replay_enabled: bool = False
     """Opt-in: when True, a 1-per-DC worker auto-replays dead letters. Off by default (manual replay)."""
     max_replay_count: int = 3

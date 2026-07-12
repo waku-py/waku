@@ -7,6 +7,7 @@ import pytest
 from typing_extensions import override
 
 from waku import module
+from waku.backends.memory import MemoryBackend
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, EventSourcingError
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
@@ -196,7 +197,8 @@ async def test_non_concurrency_error_not_retried(mocker: MockerFixture) -> None:
 async def test_event_sourced_command_handler_creates_and_persists_aggregate() -> None:
     @module(
         imports=[
-            EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore)),
+            EventSourcingModule.register(EventSourcingConfig()),
+            MemoryBackend.register(),
             MessagingModule.register(),
         ],
         extensions=[

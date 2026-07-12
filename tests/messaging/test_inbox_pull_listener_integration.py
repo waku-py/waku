@@ -19,8 +19,9 @@ from waku.messaging import (
     route,
 )
 from waku.messaging._internal.identifiers import EndpointUri
-from waku.messaging.inbox._internal.destination import handler_destination
+from waku.messaging.durability import IInboxStore
 from waku.messaging.inbox.config import InboxConfig
+from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
@@ -51,14 +52,14 @@ async def test_abandoned_row_is_drained_and_handled() -> None:
     config = MessagingConfig(
         endpoints=[local_queue('local://orders', mode=EndpointMode.DURABLE)],
         routing=[route(_OrderPlaced).to('local://orders')],
-        inbox=InboxConfig(store=lambda: inbox, recovery_interval=timedelta(seconds=0.01)),
+        inbox=InboxConfig(recovery_interval=timedelta(seconds=0.01)),
         global_pipeline_behaviors=[TransactionalBehavior],
     )
     async with (
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_RecordingHandler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
         ) as app,
         app.container() as scope,
     ):

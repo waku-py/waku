@@ -12,12 +12,10 @@ if TYPE_CHECKING:
     from typing import ClassVar
 
     from waku.eventsourcing.contracts.event import StoredEvent
-    from waku.eventsourcing.projection.checkpoint import Checkpoint
     from waku.messages import IEvent
 
 __all__ = [
     'ICatchUpProjection',
-    'ICheckpointStore',
     'IProjection',
     'ProjectionErrorPolicy',
 ]
@@ -62,11 +60,3 @@ class ICatchUpProjection(IProjection, ABC):
 
     async def teardown(self) -> None:
         pass
-
-
-class ICheckpointStore(abc.ABC):
-    @abc.abstractmethod
-    async def load(self, projection_name: str, /) -> Checkpoint | None: ...
-
-    @abc.abstractmethod
-    async def save(self, checkpoint: Checkpoint, /) -> None: ...

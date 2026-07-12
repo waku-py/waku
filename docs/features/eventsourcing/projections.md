@@ -373,20 +373,11 @@ Built-in implementations:
 - `InMemoryCheckpointStore` — dictionary-backed, suitable for single-process deployments and testing
 - `SqlAlchemyCheckpointStore` — PostgreSQL-backed via SQLAlchemy async session (requires `waku[sqla]`)
 
-Configure the checkpoint store through `EventSourcingConfig`:
-
-```python linenums="1"
-from waku.eventsourcing import EventSourcingConfig
-from waku.eventsourcing.projection.sqlalchemy import make_sqlalchemy_checkpoint_store
-
-es_config = EventSourcingConfig(
-    checkpoint_store=make_sqlalchemy_checkpoint_store(checkpoints_table),
-)
-```
-
-`make_sqlalchemy_checkpoint_store()` works the same way as `make_sqlalchemy_event_store()` — it
-returns a factory that dishka uses to construct the store with its `AsyncSession` dependency
-injected automatically.
+The checkpoint store comes from the imported
+[durability backend](../../fundamentals/backends.md): the memory backend provides
+`InMemoryCheckpointStore`, the SQLAlchemy backend provides `SqlAlchemyCheckpointStore` over its
+scoped `AsyncSession`. To substitute your own, register a provider for `ICheckpointStore` (from
+`waku.eventsourcing.store`) — an explicit provider override.
 
 ## Table Schema Reference
 

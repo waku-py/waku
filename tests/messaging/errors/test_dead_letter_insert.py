@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from waku.backends.sqlalchemy.dead_letter.tables import dead_letter_insert_values
 from waku.messaging.errors.dead_letter import DeadLetterEntry
-from waku.messaging.errors.sqla.tables import dead_letter_insert_values
 
 
 def test_dead_letter_insert_values_returns_only_the_nine_persisted_columns() -> None:

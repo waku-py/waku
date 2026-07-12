@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from waku.eventsourcing.contracts.stream import StreamId  # noqa: TC001  # used as dict key type
-from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, Snapshot
+from waku.eventsourcing.store.interfaces import ISnapshotStore
+
+if TYPE_CHECKING:
+    from waku.eventsourcing.snapshot.interfaces import Snapshot
 
 __all__ = ['InMemorySnapshotStore']
 

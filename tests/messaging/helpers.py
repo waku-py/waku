@@ -10,11 +10,11 @@ from typing_extensions import override
 
 from waku._internal.retort import default_retort
 from waku.messaging.contracts.envelope import MessageEnvelope
-from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, IDeadLetterStore
+from waku.messaging.durability import IDeadLetterStore, IOutboxStore
+from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.observability.observer import MessageObservers
-from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.relay import OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicyRegistry

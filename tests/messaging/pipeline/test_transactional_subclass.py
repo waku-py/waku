@@ -15,8 +15,6 @@ from waku.messaging.config import MessagingConfig, OutboxConfig
 from waku.messaging.modules import _FRAMEWORK_POLICIES
 from waku.messaging.pipeline._internal.plan import build_behavior_plan
 
-from tests.messaging.outbox.fake_store import FakeOutboxStore
-
 
 @dataclass(frozen=True, slots=True)
 class _Cmd(IRequest[None]):
@@ -122,14 +120,14 @@ def test_grandchild_wins_over_parent_and_base() -> None:
 
 
 def test_subclass_declared_under_outbox_config_installs_subclass_not_base() -> None:
-    config = MessagingConfig(outbox=OutboxConfig(store=FakeOutboxStore))
+    config = MessagingConfig(outbox=OutboxConfig())
     chain = _plan_for(_HandlerDeclaresSubclassOnly, config)
     assert chain[:3] == (DeferredCascadingBehavior, _AuditTxn, OutboxCascadingBehavior)
     assert TransactionalBehavior not in chain
 
 
 def test_bare_handler_under_outbox_config_installs_base() -> None:
-    config = MessagingConfig(outbox=OutboxConfig(store=FakeOutboxStore))
+    config = MessagingConfig(outbox=OutboxConfig())
     chain = _plan_for(_PlainHandler, config)
     assert chain.count(TransactionalBehavior) == 1
     assert _AuditTxn not in chain

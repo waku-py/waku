@@ -11,12 +11,12 @@ from typing_extensions import override
 from waku import module
 from waku.di import object_
 from waku.eventsourcing.projection.config import PollingConfig
-from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore, ProjectionErrorPolicy
+from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ProjectionErrorPolicy
 from waku.eventsourcing.projection.lock.in_memory import InMemoryProjectionLock
 from waku.eventsourcing.projection.lock.interfaces import IProjectionLock
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.projection.runner import CatchUpProjectionRunner
-from waku.eventsourcing.store.interfaces import IEventReader, IEventStore
+from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventReader, IEventStore
 from waku.factory import WakuFactory
 from waku.uow import IUnitOfWork
 

@@ -38,31 +38,15 @@ for `TransactionalBehavior`.
 !!! info "Requires `waku[sqla]`"
     Install the SQLAlchemy extra: `uv add waku --extra sqla`
 
-`SqlAlchemyUnitOfWork` wraps an `AsyncSession` and delegates `commit()` / `rollback()` to it:
+`SqlAlchemyUnitOfWork` wraps an `AsyncSession` and delegates `commit()` / `rollback()` to it.
+The [SQLAlchemy backend](../../fundamentals/backends.md) registers it automatically over the same
+scoped session every durable store uses:
 
 ```python linenums="1"
-from waku.messaging.sqla.uow import SqlAlchemyUnitOfWork
+from waku.backends.sqlalchemy import SqlAlchemyBackend
+
+# imports=[..., SqlAlchemyBackend.register(session_factory=create_session)]
 ```
-
-Register it in your infrastructure module, mapping the implementation to `IUnitOfWork`:
-
-```python linenums="1"
-from waku import module
-from waku.di import scoped
-from waku.uow import IUnitOfWork
-from waku.messaging.sqla.uow import SqlAlchemyUnitOfWork
-
-
-@module(
-    providers=[
-        scoped(IUnitOfWork, SqlAlchemyUnitOfWork),
-    ],
-)
-class InfraModule: ...
-```
-
-`SqlAlchemyUnitOfWork` receives the `AsyncSession` via dependency injection, so make sure you
-have a session provider registered in one of your modules.
 
 ---
 
@@ -119,33 +103,23 @@ MessagingModule.register(
 
 ## Wiring Example
 
-A complete setup with SQLAlchemy session, unit of work, and `TransactionalBehavior`:
+A complete setup with the SQLAlchemy backend and `TransactionalBehavior`:
 
 ```python linenums="1"
 from waku import module
-from waku.di import scoped
-from waku.uow import IUnitOfWork
+from waku.backends.sqlalchemy import SqlAlchemyBackend
 from waku.messaging import MessagingConfig, MessagingModule
-from waku.messaging.sqla.uow import SqlAlchemyUnitOfWork
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 
 
 @module(
-    providers=[
-        scoped(IUnitOfWork, SqlAlchemyUnitOfWork),
-    ],
-)
-class InfraModule: ...
-
-
-@module(
     imports=[
-        InfraModule,
         MessagingModule.register(
             MessagingConfig(
                 global_pipeline_behaviors=[TransactionalBehavior],
             ),
         ),
+        SqlAlchemyBackend.register(session_factory=create_session),
     ],
 )
 class AppModule: ...

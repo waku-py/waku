@@ -1,4 +1,4 @@
-from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, DeadLetterStatus, IDeadLetterStore
+from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, DeadLetterStatus
 from waku.messaging.errors.executor import ErrorPolicyEvaluator, FailureContext, PolicyOutcome
 from waku.messaging.errors.policy import ErrorPolicy, RetryAction, RetryStage
 from waku.messaging.errors.registry import DuplicateErrorPolicyError, ErrorPolicyRegistry
@@ -15,7 +15,6 @@ __all__ = [
     'ErrorPolicyEvaluator',
     'ErrorPolicyRegistry',
     'FailureContext',
-    'IDeadLetterStore',
     'PolicyOutcome',
     'ReplayExecutor',
     'RetryAction',

@@ -9,7 +9,7 @@ import pytest
 from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
-from waku.di import object_
+from waku.di import object_, scoped
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IEvent
 from waku.messaging import (
@@ -22,6 +22,7 @@ from waku.messaging import (
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging._internal.registry import MessageRegistry
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
+from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
 from waku.messaging.endpoints._internal.listening_agent import (
     ListeningAgent,
@@ -34,7 +35,6 @@ from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox._internal.listener import InboundListener
 from waku.messaging.inbox.backpressure import BufferingLimits
-from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.router import external_endpoint, listen
 from waku.messaging.transport._internal.registry import TransportRegistry
@@ -464,13 +464,13 @@ class TestCreateListeningAgent:
         inbox = FakeInboxStore()
         transport = _SpyTransport()
         config = MessagingConfig(
-            inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+            inbox=InboxConfig(owner_id='test-node:1'),
             global_pipeline_behaviors=[TransactionalBehavior],
         )
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_FlowHandler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
         ) as app:
             merged = merge_broker_endpoints([listen(_URI, max_requeue_attempts=3)], inbox_configured=True)[0]
             agent = await _factory_agent(app, config, transport, merged)
@@ -492,15 +492,14 @@ class TestCreateListeningAgent:
 
     @staticmethod
     async def test_factory_rejects_endpoint_without_listen_aspect() -> None:
-        inbox = FakeInboxStore()
         transport = _SpyTransport()
         config = MessagingConfig(
-            inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+            inbox=InboxConfig(owner_id='test-node:1'),
             global_pipeline_behaviors=[TransactionalBehavior],
         )
         async with create_test_app(
             imports=[MessagingModule.register(config)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), scoped(IInboxStore, FakeInboxStore)],
         ) as app:
             merged = merge_broker_endpoints([external_endpoint(_URI)], inbox_configured=True)[0]
             with pytest.raises(ImproperlyConfiguredError, match='declares no listen aspect'):
@@ -519,14 +518,14 @@ class TestCreateListeningAgent:
         transport = _SpyTransport()
         config = MessagingConfig(
             endpoints=[listen(_URI)],
-            inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+            inbox=InboxConfig(owner_id='test-node:1'),
             transports={'test': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_FlowHandler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
         ) as app:
             codec = await app.container.get(PayloadCodec)
             envelope = make_envelope(_OrderPlaced(order_id='ext-1'))

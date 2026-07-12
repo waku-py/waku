@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku.messaging.durability import IInboxStore
 from waku.messaging.inbox._internal.recovery import InboxRecoveryWorker
 from waku.messaging.inbox.config import InboxConfig
-from waku.messaging.inbox.interfaces import IInboxStore
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
@@ -52,7 +52,6 @@ class TestInboxRecoveryWorker:
     async def test_worker_invokes_recover_stale_and_cleanup_each_tick() -> None:
         store = _TickCountingStore()
         config = InboxConfig(
-            store=FakeInboxStore,
             stuck_threshold=timedelta(seconds=0),
             recovery_interval=timedelta(milliseconds=10),
             stop_timeout=timedelta(seconds=1),
@@ -68,7 +67,7 @@ class TestInboxRecoveryWorker:
 
     @staticmethod
     async def test_worker_can_be_stopped_when_never_started() -> None:
-        config = InboxConfig(store=FakeInboxStore, stop_timeout=timedelta(seconds=0.1))
+        config = InboxConfig(stop_timeout=timedelta(seconds=0.1))
         async with make_async_container(_RecoveryDepsProvider(FakeInboxStore())) as container:
             worker = InboxRecoveryWorker(container=container, config=config)
             await worker.stop()
@@ -113,7 +112,7 @@ class _OrderDrainer:
 
 
 def _config() -> InboxConfig:
-    return InboxConfig(store=FakeInboxStore, recovery_interval=timedelta(seconds=0.01))
+    return InboxConfig(recovery_interval=timedelta(seconds=0.01))
 
 
 async def test_worker_drains_each_tick() -> None:

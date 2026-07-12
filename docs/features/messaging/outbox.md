@@ -89,8 +89,7 @@ Transport factories are registered on `MessagingConfig.transports`, keyed by URI
 Outbox persistence concerns (`store`, `relay`) live in `OutboxConfig`:
 
 ```python linenums="1"
-from sqlalchemy.ext.asyncio import AsyncSession
-
+from waku.backends.sqlalchemy import SqlAlchemyBackend
 from waku.messaging import (
     MessagingConfig,
     MessagingModule,
@@ -98,35 +97,32 @@ from waku.messaging import (
     external_endpoint,
     route,
 )
-from waku.messaging.outbox.sqla.store import SqlAlchemyOutboxStore
 from waku.messaging.transport.faststream import rabbit_transport
 
-
-def make_outbox_store(session: AsyncSession) -> SqlAlchemyOutboxStore:
-    return SqlAlchemyOutboxStore(session)
-
-
-MessagingModule.register(
-    MessagingConfig(
-        transports={'rabbitmq': rabbit_transport(url='amqp://guest:guest@localhost/')},  # (1)!
-        endpoints=[external_endpoint('rabbitmq://notifications')],                        # (2)!
-        routing=[route(OrderPlaced).to('rabbitmq://notifications')],                     # (3)!
-        outbox=OutboxConfig(
-            store=make_outbox_store,                                                      # (4)!
-        ),
-    ),
-)
+# in your root module:
+# imports=[
+#     MessagingModule.register(
+#         MessagingConfig(
+#             transports={'rabbitmq': rabbit_transport(url='amqp://guest:guest@localhost/')},  # (1)!
+#             endpoints=[external_endpoint('rabbitmq://notifications')],                        # (2)!
+#             routing=[route(OrderPlaced).to('rabbitmq://notifications')],                     # (3)!
+#             outbox=OutboxConfig(),                                                            # (4)!
+#         ),
+#     ),
+#     SqlAlchemyBackend.register(session_factory=create_session),                              # (5)!
+# ]
 ```
 
 1. Register a transport factory keyed by scheme. The framework calls `rabbit_transport(...)` once
    during startup to build the `FastStreamRabbitTransport`.
 2. Declare an external endpoint. The scheme (`rabbitmq`) must match a key in `transports`.
 3. Route a message type to that endpoint URI.
-4. `SqlAlchemyOutboxStore` imports `AsyncSession` only for typing, so the container cannot introspect
-   the bare class — pass a small factory (constructed per scope from your `AsyncSession`) instead.
+4. `OutboxConfig` carries relay tuning only; the store comes from the backend.
+5. The [durability backend](../../fundamentals/backends.md) provides `SqlAlchemyOutboxStore` (and
+   every other durable store) over one scoped `AsyncSession`.
 
-`OutboxConfig` requires `store`. The relay is enabled by default with sensible settings
-(see [Relay Configuration](#relay-configuration)).
+The relay is enabled by default with sensible settings (see
+[Relay Configuration](#relay-configuration)).
 
 !!! warning "Validation"
     waku validates at startup that every `external_endpoint` in `endpoints` has a corresponding
@@ -170,18 +166,12 @@ stateDiagram-v2
 
 ### SQLAlchemy Adapter
 
-waku ships with a PostgreSQL-optimized SQLAlchemy adapter:
-
-```python linenums="1"
-from waku.messaging.outbox.sqla.store import SqlAlchemyOutboxStore
-from waku.messaging.outbox.sqla.tables import OutboxTables, bind_outbox_tables
-```
-
-Bind the outbox tables to your metadata and use `SqlAlchemyOutboxStore` as the `outbox_store`:
+The [SQLAlchemy backend](../../fundamentals/backends.md#sqlalchemy-backend) provides the
+PostgreSQL-optimized `SqlAlchemyOutboxStore`. For your DDL, bind the outbox tables to your metadata:
 
 ```python linenums="1"
 from sqlalchemy import MetaData
-from waku.messaging.outbox.sqla.tables import bind_outbox_tables
+from waku.backends.sqlalchemy import bind_outbox_tables
 
 metadata = MetaData()
 outbox_tables = bind_outbox_tables(metadata)  # (1)!
@@ -250,7 +240,6 @@ To customize relay behavior, pass a configured `OutboxRelayConfig`:
 from waku.messaging.outbox.relay import OutboxRelayConfig
 
 OutboxConfig(
-    store=make_outbox_store,
     relay=OutboxRelayConfig(
         batch_size=50,
         max_attempts=10,
@@ -337,12 +326,9 @@ from waku.messaging import (
     external_endpoint,
     route,
 )
+from waku.backends.sqlalchemy import SqlAlchemyBackend
 from waku.messaging.outbox.relay import OutboxRelayConfig
-from waku.messaging.outbox.sqla.store import SqlAlchemyOutboxStore
-from waku.messaging.outbox.sqla.tables import bind_outbox_tables
-from waku.messaging.sqla.uow import SqlAlchemyUnitOfWork
 from waku.messaging.transport.faststream import rabbit_transport
-from waku.uow import IUnitOfWork
 
 DATABASE_URL = 'postgresql+psycopg://waku:waku@localhost:15432/waku_es'
 
@@ -358,18 +344,13 @@ class SendNotification(EventHandler[OrderPlaced]):
         ...  # deliver the notification
 
 
-metadata = MetaData()
-bind_outbox_tables(metadata)                       # (1)!
+metadata = MetaData()                              # (1)!
 engine = create_async_engine(DATABASE_URL)
 
 
 async def create_session(engine_: AsyncEngine) -> AsyncIterator[AsyncSession]:
     async with AsyncSession(engine_, expire_on_commit=False) as session:
         yield session
-
-
-def make_outbox_store(session: AsyncSession) -> SqlAlchemyOutboxStore:  # (2)!
-    return SqlAlchemyOutboxStore(session)
 
 
 @module(
@@ -380,16 +361,14 @@ def make_outbox_store(session: AsyncSession) -> SqlAlchemyOutboxStore:  # (2)!
                 endpoints=[external_endpoint('rabbitmq://notifications')],
                 routing=[route(OrderPlaced).to('rabbitmq://notifications')],
                 outbox=OutboxConfig(
-                    store=make_outbox_store,
                     relay=OutboxRelayConfig(batch_size=50, max_attempts=3),
                 ),
             ),
         ),
+        SqlAlchemyBackend.register(session_factory=create_session, metadata=metadata),  # (2)!
     ],
     providers=[
         object_(engine, provided_type=AsyncEngine),
-        scoped(AsyncSession, create_session),
-        scoped(IUnitOfWork, SqlAlchemyUnitOfWork),   # (3)!
     ],
     extensions=[MessagingExtension().bind(SendNotification)],
 )
@@ -397,10 +376,10 @@ class AppModule:
     pass
 ```
 
-1. Binds the `outbox_messages` table to your `MetaData`; create it with a migration tool in production.
-2. `SqlAlchemyOutboxStore` imports `AsyncSession` only for typing, so the container cannot introspect
-   the bare class — pass a small factory (constructed per scope from the `AsyncSession` below) instead.
-3. The outbox row commits in the handler's transaction, so a unit of work is required.
+1. The backend binds the active subsystems' tables into this `MetaData`; create them with a
+   migration tool in production.
+2. The backend provides the outbox store, the scoped `AsyncSession`, and the `IUnitOfWork` the
+   handler's transaction commits through.
 
 With this setup:
 

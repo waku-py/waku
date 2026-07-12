@@ -12,8 +12,9 @@ from waku.messages import IEvent
 from waku.messaging import PollingConfig
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging.config import DeadLetterConfig
+from waku.messaging.durability import IDeadLetterStore
 from waku.messaging.endpoints.base import Endpoint
-from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
+from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.errors.worker import DeadLetterWorker
 from waku.messaging.router import MessageRouter
@@ -155,7 +156,6 @@ async def test_worker_replays_claimed_entries_and_commits() -> None:
     worker = DeadLetterWorker(
         container=container,
         config=DeadLetterConfig(
-            store=RecordingDeadLetterStore,
             auto_replay_enabled=True,
             polling=PollingConfig(poll_interval_min_seconds=0.01),
         ),
@@ -180,7 +180,6 @@ async def test_worker_does_not_claim_when_auto_replay_disabled() -> None:
     worker = DeadLetterWorker(
         container=container,
         config=DeadLetterConfig(
-            store=RecordingDeadLetterStore,
             auto_replay_enabled=False,
             retention=timedelta(days=30),
             cleanup_interval=timedelta(0),
@@ -202,7 +201,6 @@ async def test_worker_purges_when_retention_set() -> None:
     worker = DeadLetterWorker(
         container=container,
         config=DeadLetterConfig(
-            store=RecordingDeadLetterStore,
             auto_replay_enabled=False,
             retention=timedelta(days=30),
             cleanup_interval=timedelta(0),
@@ -226,7 +224,6 @@ async def test_worker_does_not_purge_when_retention_none() -> None:
     worker = DeadLetterWorker(
         container=container,
         config=DeadLetterConfig(
-            store=RecordingDeadLetterStore,
             auto_replay_enabled=True,
             retention=None,
             polling=PollingConfig(poll_interval_min_seconds=0.01),

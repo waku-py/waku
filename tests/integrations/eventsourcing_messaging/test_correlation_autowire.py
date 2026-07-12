@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from waku import module
+from waku.backends.memory import MemoryBackend
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import NoStream, StreamId
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
-from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.integrations.eventsourcing_messaging import EventSourcingMessagingModule
 from waku.messages import IMessage
@@ -45,7 +45,8 @@ async def _append_within_context(bridge: DynamicModule) -> tuple[EventMetadata, 
     async with (
         create_test_app(
             imports=[
-                EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore)),
+                EventSourcingModule.register(EventSourcingConfig()),
+                MemoryBackend.register(),
                 bridge,
                 _note_binding_module(),
             ],

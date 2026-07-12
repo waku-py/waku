@@ -16,7 +16,8 @@ from waku.messaging import (
     RequestHandler,
 )
 from waku.messaging.config import DeadLetterConfig
-from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, DeadLetterStatus, IDeadLetterStore
+from waku.messaging.durability import IDeadLetterStore
+from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, DeadLetterStatus
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.testing import create_test_app
@@ -96,14 +97,17 @@ async def test_dead_letter_then_replay_reprocesses_message() -> None:
     dl_store = _DictDeadLetterStore()
     config = MessagingConfig(
         endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
-        dead_letter=DeadLetterConfig(store=lambda: dl_store),
+        dead_letter=DeadLetterConfig(),
     )
 
     async with (
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_ChargeHandler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(dl_store, provided_type=IDeadLetterStore),
+            ],
         ) as app,
         app.container() as scope,
     ):

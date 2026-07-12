@@ -11,9 +11,8 @@ from waku._internal.shutdown import wait_for_shutdown
 from waku.eventsourcing.exceptions import ProjectionError
 from waku.eventsourcing.projection._internal.processor import CycleOutcome, ProjectionProcessor
 from waku.eventsourcing.projection.config import PollingConfig
-from waku.eventsourcing.projection.interfaces import ICheckpointStore
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
-from waku.eventsourcing.store.interfaces import IEventReader
+from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventReader
 from waku.uow import IUnitOfWork
 
 _DEFAULT_POLLING: Final = PollingConfig()

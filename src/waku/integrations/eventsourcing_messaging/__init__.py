@@ -10,7 +10,6 @@ from waku.integrations.eventsourcing_messaging.handler import (
     EventSourcedVoidCommandHandler,
 )
 from waku.integrations.eventsourcing_messaging.module import EventSourcingMessagingModule
-from waku.integrations.eventsourcing_messaging.session_identity import StoreSessionIdentityExtension
 
 __all__ = [
     'CorrelationEnricher',
@@ -21,5 +20,4 @@ __all__ = [
     'EventSourcedVoidCommandHandler',
     'EventSourcingMessagingModule',
     'ForwardingPolicy',
-    'StoreSessionIdentityExtension',
 ]

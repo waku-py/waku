@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING, Any
 
 from typing_extensions import override
 
-from waku.di import object_, singleton
+from waku.backends.memory._internal.outbox import InMemoryOutboxStore
+from waku.di import object_, scoped, singleton
 from waku.messages import IEvent
 from waku.messaging import (
     IMessageObserver,
@@ -16,6 +17,7 @@ from waku.messaging import (
     OutboxConfig,
     TransactionalBehavior,
 )
+from waku.messaging.durability import IInboxStore, IOutboxStore
 from waku.messaging.endpoints.base import BrokerEndpointEntry
 from waku.messaging.handler import EventHandler
 from waku.messaging.router import external_endpoint, listen
@@ -28,7 +30,6 @@ from waku.uow import IUnitOfWork
 from tests._wait import wait_until
 from tests.messaging.helpers import FakeUoW, RecordingTransport, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
-from tests.messaging.outbox.in_memory_store import InMemoryOutboxStore
 
 if TYPE_CHECKING:
     from datetime import timedelta
@@ -80,10 +81,10 @@ class _MarkerMapper(IEnvelopeMapper[Any, Any]):
         raise NotImplementedError  # pragma: no cover
 
 
-def _config(transport: RecordingTransport, *, inbox: FakeInboxStore, entry: BrokerEndpointEntry) -> MessagingConfig:
+def _config(transport: RecordingTransport, *, entry: BrokerEndpointEntry) -> MessagingConfig:
     return MessagingConfig(
         endpoints=[entry],
-        inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+        inbox=InboxConfig(owner_id='test-node:1'),
         transports={'test': lambda: transport},
         global_pipeline_behaviors=[TransactionalBehavior],
     )
@@ -98,12 +99,16 @@ class TestListenerMapperOverrideWiring:
         # Observable via the 3rd element of the recording tuple — not mock internals.
         override_mapper = _MarkerMapper()
         transport = RecordingTransport()
-        inbox = FakeInboxStore()
-        config = _config(transport, inbox=inbox, entry=listen('test://orders', mapper=override_mapper))
+        FakeInboxStore()
+        config = _config(transport, entry=listen('test://orders', mapper=override_mapper))
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                scoped(IOutboxStore, InMemoryOutboxStore),
+                scoped(IInboxStore, FakeInboxStore),
+            ],
         ):
             pass
 
@@ -118,12 +123,16 @@ class TestListenerMapperOverrideWiring:
         # No BrokerEndpointEntry.mapper configured → registry.mapper_for returns None
         # → subscribe(mapper=None).
         transport = RecordingTransport()
-        inbox = FakeInboxStore()
-        config = _config(transport, inbox=inbox, entry=listen('test://orders'))
+        FakeInboxStore()
+        config = _config(transport, entry=listen('test://orders'))
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                scoped(IOutboxStore, InMemoryOutboxStore),
+                scoped(IInboxStore, FakeInboxStore),
+            ],
         ):
             pass
 
@@ -142,22 +151,24 @@ class TestBidirectionalEndpointMapperInheritance:
         # own independent mapper field, which would be None here — this discriminates that.
         send_mapper = _MarkerMapper()
         transport = RecordingTransport()
-        outbox = InMemoryOutboxStore()
-        inbox = FakeInboxStore()
         config = MessagingConfig(
             endpoints=[
                 external_endpoint('test://orders', mapper=send_mapper),
                 listen('test://orders'),
             ],
-            outbox=OutboxConfig(store=lambda: outbox),
-            inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+            outbox=OutboxConfig(),
+            inbox=InboxConfig(owner_id='test-node:1'),
             transports={'test': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                scoped(IOutboxStore, InMemoryOutboxStore),
+                scoped(IInboxStore, FakeInboxStore),
+            ],
         ):
             pass
 
@@ -177,12 +188,16 @@ class TestListenerObserverWiring:
 
         transport = RecordingTransport()
         inbox = FakeInboxStore()
-        config = _config(transport, inbox=inbox, entry=listen('test://orders', observers=(_EndpointOnlyObserver,)))
+        config = _config(transport, entry=listen('test://orders', observers=(_EndpointOnlyObserver,)))
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_RecordingHandler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), singleton(_EndpointSink)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(inbox, provided_type=IInboxStore),
+                singleton(_EndpointSink),
+            ],
         ) as app:
             sink = await app.container.get(_EndpointSink)
             codec = await app.container.get(PayloadCodec)

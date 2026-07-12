@@ -10,12 +10,32 @@ if TYPE_CHECKING:
 
     from waku.eventsourcing.contracts.event import EventEnvelope, StoredEvent
     from waku.eventsourcing.contracts.stream import ExpectedVersion, StreamId
+    from waku.eventsourcing.projection.checkpoint import Checkpoint
+    from waku.eventsourcing.snapshot.interfaces import Snapshot
 
 __all__ = [
+    'ICheckpointStore',
     'IEventReader',
     'IEventStore',
     'IEventWriter',
+    'ISnapshotStore',
 ]
+
+
+class ISnapshotStore(abc.ABC):
+    @abc.abstractmethod
+    async def load(self, stream_id: StreamId, /) -> Snapshot | None: ...
+
+    @abc.abstractmethod
+    async def save(self, snapshot: Snapshot, /) -> None: ...
+
+
+class ICheckpointStore(abc.ABC):
+    @abc.abstractmethod
+    async def load(self, projection_name: str, /) -> Checkpoint | None: ...
+
+    @abc.abstractmethod
+    async def save(self, checkpoint: Checkpoint, /) -> None: ...
 
 
 class IEventReader(abc.ABC):
@@ -98,4 +118,17 @@ class IEventWriter(abc.ABC):
 
 
 class IEventStore(IEventReader, IEventWriter, abc.ABC):
-    pass
+    """Cohesive per-backend event-sourcing store: append/read stay primary; snapshots/checkpoints are facets.
+
+    A backend assembles the facets over its single scoped resource, so a facet port resolved from the
+    same scope IS the corresponding facet of this object. Projection LOCKS are deliberately excluded —
+    coordination, not durability.
+    """
+
+    @property
+    @abc.abstractmethod
+    def snapshots(self) -> ISnapshotStore: ...
+
+    @property
+    @abc.abstractmethod
+    def checkpoints(self) -> ICheckpointStore: ...

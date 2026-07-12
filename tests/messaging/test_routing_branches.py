@@ -7,7 +7,7 @@ import pytest
 from typing_extensions import override
 
 from waku import module
-from waku.di import object_
+from waku.di import Provider, object_, scoped
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IEvent
 from waku.messaging import (
@@ -22,6 +22,7 @@ from waku.messaging import (
     TransactionalBehavior,
     external_endpoint,
 )
+from waku.messaging.durability import IInboxStore, IOutboxStore
 from waku.messaging.endpoints._internal.external import ExternalEndpoint
 from waku.messaging.endpoints._internal.merge import MergedBrokerEndpoint
 from waku.messaging.inbox.config import InboxConfig
@@ -47,13 +48,17 @@ class _DummyNotifHandler(EventHandler[_Notif]):
         pass
 
 
+def _store_providers() -> tuple[Provider, ...]:
+    return (scoped(IOutboxStore, FakeOutboxStore), scoped(IInboxStore, FakeInboxStore))
+
+
 class TestRoutingBranches:
     @staticmethod
     async def test_external_endpoint_is_created() -> None:
         config = MessagingConfig(
             endpoints=[local_queue('local-q'), external_endpoint('ext://bus')],
             routing=[route(_Notif).to('ext://bus')],
-            outbox=OutboxConfig(store=FakeOutboxStore),
+            outbox=OutboxConfig(),
             transports={'ext': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
@@ -62,7 +67,7 @@ class TestRoutingBranches:
             create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_DummyNotifHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), *_store_providers()],
             ) as app,
             app.container() as container,
         ):
@@ -150,7 +155,7 @@ class TestMergedEndpointRegistryProjection:
         override_mapper = _MarkerMapper()
         config = MessagingConfig(
             endpoints=[external_endpoint('rabbitmq://orders', mapper=override_mapper)],
-            outbox=OutboxConfig(store=FakeOutboxStore),
+            outbox=OutboxConfig(),
             transports={'rabbitmq': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
@@ -158,7 +163,7 @@ class TestMergedEndpointRegistryProjection:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), *_store_providers()],
             ) as app,
             app.container() as container,
         ):
@@ -173,7 +178,7 @@ class TestMergedEndpointSendRouting:
         config = MessagingConfig(
             endpoints=[external_endpoint('rabbitmq://orders')],
             routing=[route(_Notif).to('rabbitmq://orders')],
-            outbox=OutboxConfig(store=FakeOutboxStore),
+            outbox=OutboxConfig(),
             transports={'rabbitmq': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
@@ -182,7 +187,7 @@ class TestMergedEndpointSendRouting:
             create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_DummyNotifHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), *_store_providers()],
             ) as app,
             app.container() as container,
         ):
@@ -200,11 +205,10 @@ class TestMergedEndpointSendRouting:
 class TestMergedEndpointListenOnlyRouting:
     @staticmethod
     async def test_route_to_listen_only_endpoint_raises() -> None:
-        inbox = FakeInboxStore()
         config = MessagingConfig(
             endpoints=[listen('rabbitmq://orders')],
             routing=[route(_Notif).to('rabbitmq://orders')],
-            inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+            inbox=InboxConfig(owner_id='test-node:1'),
             transports={'rabbitmq': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
@@ -213,6 +217,6 @@ class TestMergedEndpointListenOnlyRouting:
             async with create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_DummyNotifHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), *_store_providers()],
             ):
                 pass  # pragma: no cover

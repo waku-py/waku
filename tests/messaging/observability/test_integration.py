@@ -8,7 +8,7 @@ import anyio.lowlevel
 import pytest
 from typing_extensions import override
 
-from waku.di import Scope, many, object_, singleton
+from waku.di import Scope, many, object_, scoped, singleton
 from waku.messages import IEvent
 from waku.messaging import (
     INVOKE_DESTINATION,
@@ -30,10 +30,11 @@ from waku.messaging import (
     external_endpoint,
 )
 from waku.messaging._internal.identifiers import EndpointUri
+from waku.messaging.durability import IInboxStore, IOutboxStore
 from waku.messaging.endpoints import ExecutionOutcome
 from waku.messaging.endpoints.base import EndpointMode
 from waku.messaging.inbox import InboxEntry, InboxStatus
-from waku.messaging.inbox._internal.destination import handler_destination
+from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.router import local_queue, route
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
@@ -297,14 +298,14 @@ async def test_durable_and_drainer_paths_fire_executing_and_executed(caplog: pyt
     config = MessagingConfig(
         endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0)],
         routing=[route(_Ordered).to('orders')],
-        inbox=InboxConfig(store=lambda: inbox, owner_id='node-a:1', recovery_interval=timedelta(seconds=0.01)),
+        inbox=InboxConfig(owner_id='node-a:1', recovery_interval=timedelta(seconds=0.01)),
         global_pipeline_behaviors=[TransactionalBehavior],
     )
     async with (
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_DurableHandler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
         ) as app,
         app.container() as container,
     ):
@@ -524,7 +525,7 @@ async def test_external_endpoint_declared_observer_fires_on_sent() -> None:
     config = MessagingConfig(
         endpoints=[external_endpoint('test://events', observers=(_EndpointOnlyObserver,))],
         routing=[route(_Ordered).to('test://events')],
-        outbox=OutboxConfig(store=FakeOutboxStore),
+        outbox=OutboxConfig(),
         transports={'test': RecordingTransport},
         global_pipeline_behaviors=[TransactionalBehavior],
     )
@@ -534,6 +535,7 @@ async def test_external_endpoint_declared_observer_fires_on_sent() -> None:
             extensions=[MessagingExtension().bind(_OrderedHandler)],
             providers=[
                 object_(FakeUoW(), provided_type=IUnitOfWork),
+                scoped(IOutboxStore, FakeOutboxStore),
                 singleton(_EndpointSink),
             ],
         ) as app,

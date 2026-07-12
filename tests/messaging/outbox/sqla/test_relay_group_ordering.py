@@ -11,13 +11,13 @@ from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import override
 
-from waku.messaging.errors.sqla.tables import bind_dead_letter_tables
-from waku.messaging.outbox.interfaces import IOutboxStore
+from waku.backends.sqlalchemy.dead_letter.tables import bind_dead_letter_tables
+from waku.backends.sqlalchemy.outbox.store import SqlAlchemyOutboxStore
+from waku.backends.sqlalchemy.outbox.tables import bind_outbox_tables
+from waku.backends.sqlalchemy.uow import SqlAlchemyUnitOfWork
+from waku.messaging.durability import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
-from waku.messaging.outbox.sqla.store import SqlAlchemyOutboxStore
-from waku.messaging.outbox.sqla.tables import bind_outbox_tables
-from waku.messaging.sqla.uow import SqlAlchemyUnitOfWork
 from waku.messaging.transport._internal.registry import TransportRegistry
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper, ITransport, Subscription
 from waku.uow import IUnitOfWork

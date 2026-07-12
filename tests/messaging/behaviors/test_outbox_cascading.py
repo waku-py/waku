@@ -25,6 +25,7 @@ from waku.messaging import (
     local_queue,
     route,
 )
+from waku.messaging.durability import IOutboxStore
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
@@ -66,11 +67,11 @@ class _FailingOutboxStore(FakeOutboxStore):
         raise ConnectionError(msg)
 
 
-def _config(outbox_store: FakeOutboxStore) -> MessagingConfig:
+def _config() -> MessagingConfig:
     return MessagingConfig(
         endpoints=[external_endpoint('ext://shipped'), local_queue('local://logged')],
         routing=[route(_OrderShipped).to('ext://shipped'), route(_OrderLogged).to('local://logged')],
-        outbox=OutboxConfig(store=lambda: outbox_store),
+        outbox=OutboxConfig(),
         transports={'ext': RecordingTransport},
         global_pipeline_behaviors=[TransactionalBehavior],
     )
@@ -97,11 +98,11 @@ class TestOutboxCascadingPerDestination:
 
         async with (
             create_test_app(
-                imports=[MessagingModule.register(_config(outbox))],
+                imports=[MessagingModule.register(_config())],
                 extensions=[
                     MessagingExtension().bind(PlaceOrderHandler).bind(_NoopShippedHandler).bind(LoggedHandler),
                 ],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(outbox, provided_type=IOutboxStore)],
             ) as app,
             app.container() as container,
         ):
@@ -134,11 +135,11 @@ class TestOutboxCascadingPerDestination:
 
         async with (
             create_test_app(
-                imports=[MessagingModule.register(_config(outbox))],
+                imports=[MessagingModule.register(_config())],
                 extensions=[
                     MessagingExtension().bind(PlaceOrderHandler).bind(_NoopShippedHandler).bind(LoggedHandler),
                 ],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(outbox, provided_type=IOutboxStore)],
             ) as app,
             app.container() as container,
         ):
@@ -174,11 +175,11 @@ class TestOutboxCascadingPerDestination:
 
         async with (
             create_test_app(
-                imports=[MessagingModule.register(_config(outbox))],
+                imports=[MessagingModule.register(_config())],
                 extensions=[
                     MessagingExtension().bind(FailingHandler).bind(_NoopShippedHandler).bind(LoggedHandler),
                 ],
-                providers=[object_(uow, provided_type=IUnitOfWork)],
+                providers=[object_(uow, provided_type=IUnitOfWork), object_(outbox, provided_type=IOutboxStore)],
             ) as app,
             app.container() as container,
         ):
@@ -212,11 +213,11 @@ class TestOutboxCascadingPerDestination:
 
         async with (
             create_test_app(
-                imports=[MessagingModule.register(_config(outbox))],
+                imports=[MessagingModule.register(_config())],
                 extensions=[
                     MessagingExtension().bind(PlaceOrderHandler).bind(_NoopShippedHandler).bind(LoggedHandler),
                 ],
-                providers=[object_(uow, provided_type=IUnitOfWork)],
+                providers=[object_(uow, provided_type=IUnitOfWork), object_(outbox, provided_type=IOutboxStore)],
             ) as app,
             app.container() as container,
         ):

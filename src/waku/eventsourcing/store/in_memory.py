@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, assert_never
 
 import anyio
+from typing_extensions import override
 
 from waku.eventsourcing.contracts.event import EventEnvelope, IMetadataEnricher, StoredEvent
 from waku.eventsourcing.contracts.stream import StreamPosition
@@ -18,14 +19,16 @@ from waku.eventsourcing.exceptions import (
 )
 from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa: TC001  # Dishka needs runtime access
-from waku.eventsourcing.store._internal.shared import enrich_metadata
-from waku.eventsourcing.store._internal.version_check import check_expected_version
+from waku.eventsourcing.store.enrichment import enrich_metadata
 from waku.eventsourcing.store.interfaces import IEventStore
+from waku.eventsourcing.store.version_check import check_expected_version
+from waku.exceptions import ImproperlyConfiguredError
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from waku.eventsourcing.contracts.stream import ExpectedVersion, StreamId
+    from waku.eventsourcing.store.interfaces import ICheckpointStore, ISnapshotStore
 
 __all__ = ['InMemoryEventStore']
 
@@ -36,8 +39,13 @@ class InMemoryEventStore(IEventStore):
         registry: EventTypeRegistry,
         projections: Sequence[IProjection] = (),
         enrichers: Sequence[IMetadataEnricher] = (),
+        *,
+        snapshots: ISnapshotStore | None = None,
+        checkpoints: ICheckpointStore | None = None,
     ) -> None:
         self._registry = registry
+        self._snapshots = snapshots
+        self._checkpoints = checkpoints
         self._streams: dict[str, list[StoredEvent]] = {}
         self._idempotency_keys: dict[str, set[str]] = {}
         self._deleted_streams: set[str] = set()
@@ -45,6 +53,25 @@ class InMemoryEventStore(IEventStore):
         self._lock = anyio.Lock()
         self._projections = projections
         self._enrichers = enrichers
+
+    @property
+    @override
+    def snapshots(self) -> ISnapshotStore:
+        if self._snapshots is None:
+            msg = 'InMemoryEventStore was constructed without a snapshots facet; pass snapshots= or wire MemoryBackend'
+            raise ImproperlyConfiguredError(msg)
+        return self._snapshots
+
+    @property
+    @override
+    def checkpoints(self) -> ICheckpointStore:
+        if self._checkpoints is None:
+            msg = (
+                'InMemoryEventStore was constructed without a checkpoints facet; '
+                'pass checkpoints= or wire MemoryBackend'
+            )
+            raise ImproperlyConfiguredError(msg)
+        return self._checkpoints
 
     async def read_stream(
         self,

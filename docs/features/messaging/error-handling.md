@@ -249,9 +249,11 @@ The **dead letter store** captures messages that could not be processed. Each en
 original message payload, error details, and correlation context:
 
 ```python linenums="1"
-from waku.messaging.errors import DeadLetterEntry, IDeadLetterStore
+from waku.messaging.durability import IDeadLetterStore
+from waku.messaging.errors import DeadLetterEntry
 ```
 
+The store itself comes from the imported [durability backend](../../fundamentals/backends.md).
 `IDeadLetterStore` is an ABC. Its core operations:
 
 | Method                              | Returns                  | Description                              |
@@ -307,25 +309,30 @@ MessagingModule.register(
                     .then_move_to_dead_letter(),
             ),
         ),
-        dead_letter=DeadLetterConfig(store=MyDeadLetterStore),    # (1)!
+        dead_letter=DeadLetterConfig(),    # (1)!
     ),
 )
 ```
 
-1. `DeadLetterConfig.store` is any class implementing `IDeadLetterStore`, or a factory callable.
+1. `DeadLetterConfig` carries retention/replay/worker knobs; the store comes from the backend.
 
 A handler's own `error_policies` shadow `endpoint_defaults.error_policies` per exception.
 
+With a backend imported, dead letters persist to the backend's DLQ table even when `dead_letter`
+config is absent — the config gates only the worker features (auto-replay, retention purge).
+
 !!! warning "Validation"
-    waku validates at startup that when any error policy escalates to the `DEAD_LETTER` action, a
-    `dead_letter` config is present. Missing it raises `ImproperlyConfiguredError`:
-    *error policies with DEAD_LETTER action require dead_letter in MessagingConfig*.
+    waku validates at startup that when any error policy escalates to the `DEAD_LETTER` action,
+    either a `dead_letter` config or a backend-provided store is present. Missing both raises
+    `ImproperlyConfiguredError`: *error policies with DEAD_LETTER action require dead_letter in
+    MessagingConfig or a backend module*.
 
 ---
 
 ## Custom Dead Letter Store
 
-Implement `IDeadLetterStore` for your storage backend:
+Implement `IDeadLetterStore` and register it as an explicit provider override
+(`scoped(IDeadLetterStore, PostgresDeadLetterStore)`) — your module then owns that port:
 
 ```python linenums="1"
 from collections.abc import Sequence
@@ -337,7 +344,8 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import override
 
-from waku.messaging.errors import DeadLetterEntry, IDeadLetterStore
+from waku.messaging.durability import IDeadLetterStore
+from waku.messaging.errors import DeadLetterEntry
 
 
 class PostgresDeadLetterStore(IDeadLetterStore):
@@ -421,7 +429,6 @@ from datetime import timedelta
 from waku.messaging import DeadLetterConfig
 
 DeadLetterConfig(
-    store=MyDeadLetterStore,
     auto_replay_enabled=True,   # off by default — manual replay only
     max_replay_count=3,         # re-injection attempts before an entry is left REPLAY_FAILED
     retention=timedelta(days=7),

@@ -15,15 +15,14 @@ from waku.messages import IEvent
 from waku.messaging import EndpointDefaults, MessagingConfig, MessagingExtension, MessagingModule
 from waku.messaging._internal.identifiers import EndpointUri, HandlerDestination
 from waku.messaging._internal.identity import MessageTypeRegistry
+from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionResult
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore
-from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.handler import EventHandler
-from waku.messaging.inbox._internal.destination import handler_destination
 from waku.messaging.inbox._internal.drainer import InboxDrainer, build_inbox_drainer
 from waku.messaging.inbox.config import InboxConfig
-from waku.messaging.inbox.interfaces import IInboxStore
+from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
@@ -422,7 +421,7 @@ class _DrainCheckpointHandler(EventHandler[_DrainSignal]):
 
 async def test_build_inbox_drainer_executor_enforces_config_deadline() -> None:
     fake_inbox = FakeInboxStore()
-    inbox_config = InboxConfig(store=lambda: fake_inbox)
+    inbox_config = InboxConfig()
     config = MessagingConfig(
         endpoint_defaults=EndpointDefaults(execution_timeout=timedelta()),
         inbox=inbox_config,
@@ -430,7 +429,7 @@ async def test_build_inbox_drainer_executor_enforces_config_deadline() -> None:
     async with create_test_app(
         imports=[MessagingModule.register(config)],
         extensions=[MessagingExtension().bind(_DrainCheckpointHandler)],
-        providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+        providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(fake_inbox, provided_type=IInboxStore)],
     ) as app:
         codec = await app.container.get(PayloadCodec)
         envelope = make_envelope(_DrainSignal(ref='r-1'))

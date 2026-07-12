@@ -6,7 +6,7 @@ from typing import ClassVar
 from typing_extensions import override
 
 from waku import module
-from waku.di import object_
+from waku.di import object_, scoped
 from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
@@ -19,7 +19,7 @@ from waku.messaging import (
     external_endpoint,
     route,
 )
-from waku.messaging.outbox.interfaces import IOutboxStore
+from waku.messaging.durability import IOutboxStore
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
@@ -46,7 +46,7 @@ class TestBusOutboxIntegration:
         config = MessagingConfig(
             endpoints=[external_endpoint('test://events')],
             routing=[route(_OrderPlaced).to('test://events')],
-            outbox=OutboxConfig(store=FakeOutboxStore),
+            outbox=OutboxConfig(),
             transports={'test': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
@@ -58,7 +58,7 @@ class TestBusOutboxIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config), TestModule],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), scoped(IOutboxStore, FakeOutboxStore)],
             ) as app,
             app.container() as c,
         ):
@@ -75,7 +75,7 @@ class TestBusOutboxIntegration:
         config = MessagingConfig(
             endpoints=[external_endpoint('test://events')],
             routing=[route(_OrderPlaced).to('test://events')],
-            outbox=OutboxConfig(store=FakeOutboxStore),
+            outbox=OutboxConfig(),
             transports={'test': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
@@ -87,7 +87,7 @@ class TestBusOutboxIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config), TestModule],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), scoped(IOutboxStore, FakeOutboxStore)],
             ) as app,
             app.container() as c,
         ):

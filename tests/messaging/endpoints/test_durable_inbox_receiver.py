@@ -13,12 +13,11 @@ from waku.messages import IEvent
 from waku.messaging._internal.circuit_breaker import CircuitBreaker, CircuitState
 from waku.messaging._internal.pauser import PauseToken
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
+from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionResult
 from waku.messaging.endpoints.outcome import ExecutionOutcome
-from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.handler import EventHandler
-from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.partition import ISequenceAllocator
 from waku.serialization.codec import PayloadCodec

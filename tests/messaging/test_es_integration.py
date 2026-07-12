@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from typing_extensions import override
 
 from waku import module
+from waku.backends.memory import MemoryBackend
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
-from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import IEventStore
 from waku.integrations.eventsourcing_messaging import CorrelationEnricher, EventSourcedVoidCommandHandler
 from waku.messaging import IRequest, MessagingExtension, MessagingModule
@@ -58,10 +58,10 @@ class TestESBusIntegration:
                     MessagingModule.register(),
                     EventSourcingModule.register(
                         EventSourcingConfig(
-                            store=InMemoryEventStore,
                             enrichers=[CorrelationEnricher],
                         ),
                     ),
+                    MemoryBackend.register(),
                     TestModule,
                 ],
             ) as app,

@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING
 from waku._internal.transaction import unit_of_work_scope
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging._internal.registry import MessageRegistry
+from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES, EndpointExecutorFactory
-from waku.messaging.errors.dead_letter import DeadLetterEntry, IDeadLetterStore
-from waku.messaging.inbox._internal.destination import handler_destination
+from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.inbox._internal.finalize import apply_inbox_outcome
-from waku.messaging.inbox.interfaces import IInboxStore
+from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.transport._internal.wire import rebuild_envelope, wire_metadata_from_entry
 from waku.serialization.codec import PayloadCodec
 

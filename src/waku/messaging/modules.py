@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Self, TypeAlias, assert_never, cast, get_
 from typing_extensions import override
 
 from waku._internal.clock import Now, utc_now
+from waku._internal.provider_scan import provided_type_hints
 from waku._internal.retort import default_retort
 from waku._internal.sentinel import MISSING
 from waku._internal.transaction import TransactionDepth
@@ -41,6 +42,7 @@ from waku.messaging.config import DeadLetterConfig, MessagingConfig
 from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.contracts.request import IRequest
+from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
 from waku.messaging.endpoints._internal.durable_local_queue import DurableLocalQueueEndpoint
 from waku.messaging.endpoints._internal.external import ExternalEndpoint
 from waku.messaging.endpoints._internal.inline import InlineEndpoint
@@ -55,7 +57,6 @@ from waku.messaging.endpoints.base import (
 )
 from waku.messaging.endpoints.executor import EndpointExecutorFactory
 from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore
-from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import policies_have_deferred_terminal, policies_need_dead_letter
 from waku.messaging.errors.registry import ErrorPolicyRegistry
@@ -67,12 +68,10 @@ from waku.messaging.inbox._internal.drainer import build_inbox_drainer
 from waku.messaging.inbox._internal.recovery import InboxRecoveryWorker
 from waku.messaging.inbox._internal.scheduled import ScheduledPromotionWorker
 from waku.messaging.inbox.config import InboxConfig
-from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.interfaces import IMessageBus
 from waku.messaging.observability.audit import AuditedMemberResolver
 from waku.messaging.observability.logging_observer import LoggingMessageObserver
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers, ObserverPlan
-from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.outgoing import IOutgoingMessages, IOutgoingMessagesFrames, OutgoingMessages
 from waku.messaging.partition import ISequenceAllocator
@@ -190,21 +189,16 @@ class MessagingModule:
 
     @staticmethod
     def _infrastructure_providers(config: MessagingConfig) -> _HandlerProviders:
+        # Store ports are backend-provided (or explicit provider overrides); the aggregator's
+        # registration-time scan fail-louds when a durable sub-config has no store provider and
+        # contributes the discarding DLQ fallback when nothing provides IDeadLetterStore.
         providers: list[Provider] = []
         if config.transports:
             providers.append(singleton(TransportRegistry, _build_transport_registry))
-        if config.outbox is not None:
-            providers.append(scoped(IOutboxStore, config.outbox.store))
         if config.dead_letter is not None:
-            providers.extend((scoped(IDeadLetterStore, config.dead_letter.store), scoped(ReplayExecutor)))
-        else:
-            # Always-present null fallback so consumers never branch on the store's absence.
-            providers.append(scoped(IDeadLetterStore, DiscardingDeadLetterStore))
+            providers.append(scoped(ReplayExecutor))
         if config.inbox is not None:
-            providers.extend((
-                scoped(IInboxStore, config.inbox.store),
-                object_(config.inbox, provided_type=InboxConfig),
-            ))
+            providers.append(object_(config.inbox, provided_type=InboxConfig))
         return tuple(providers)
 
 
@@ -626,9 +620,23 @@ class MessageRegistryAggregator(RegistryAggregator['MessagingExtension', Message
         registry.add_provider(owning_module, object_(routing_table))
         registry.add_provider(owning_module, singleton(MessageRouter, _build_router))
 
-        if _requires_dead_letter_store(aggregated, self._config) and self._config.dead_letter is None:
-            msg = 'error policies with DEAD_LETTER action require dead_letter in MessagingConfig'
+        provided = provided_type_hints(registry)
+        self._require_store_providers(provided)
+        dead_letter_store_provided = IDeadLetterStore in provided
+
+        if (
+            _requires_dead_letter_store(aggregated, self._config)
+            and self._config.dead_letter is None
+            and not dead_letter_store_provided
+        ):
+            msg = 'error policies with DEAD_LETTER action require dead_letter in MessagingConfig or a backend module'
             raise ImproperlyConfiguredError(msg)
+
+        if not dead_letter_store_provided:
+            # Discarding fallback only for the no-backend app: consumers never branch on the store's
+            # absence, and a backend-provided real store must not be shadowed (two providers for one
+            # port fail the build). With a backend present, dead letters persist even without config.
+            registry.add_provider(owning_module, scoped(IDeadLetterStore, DiscardingDeadLetterStore))
 
         handler_policies = {
             handler_type: handler_type.error_policies
@@ -648,6 +656,24 @@ class MessageRegistryAggregator(RegistryAggregator['MessagingExtension', Message
         sending_registry = _build_sending_failure_registry(merged, self._config)
         registry.add_provider(owning_module, object_(sending_registry))
         registry.add_provider(owning_module, object_(SendingFailureEvaluator(registry=sending_registry)))
+
+    def _require_store_providers(self, provided: 'frozenset[Any]') -> None:
+        # Fail-loud BEFORE container build: dishka's eager GraphMissingFactoryError is only the
+        # backstop, never the user-facing surface. Per durable sub-config, some module (a backend,
+        # or an explicit provider override) must provide the store port.
+        required: list[tuple[object | None, type, str]] = [
+            (self._config.outbox, IOutboxStore, 'outbox'),
+            (self._config.inbox, IInboxStore, 'inbox'),
+            (self._config.dead_letter, IDeadLetterStore, 'dead_letter'),
+        ]
+        for sub_config, port, name in required:
+            if sub_config is not None and port not in provided:
+                msg = (
+                    f'{name} is configured in MessagingConfig but no module provides {port.__name__}. '
+                    'Import a durability backend, e.g. SqlAlchemyBackend.register(session_factory=...) '
+                    'from waku.backends.sqlalchemy, in your root module imports.'
+                )
+                raise ImproperlyConfiguredError(msg)
 
     @staticmethod
     def _validate_request_handler_counts(registry: MessageRegistry) -> None:
@@ -728,8 +754,9 @@ class _UnitOfWorkValidationExtension(OnContainerBuilt):
             has_uow = await is_registered(scope, IUnitOfWork)
         if not has_uow:
             msg = (
-                'IUnitOfWork is required but not registered. '
-                'Register it in your infrastructure module: scoped(IUnitOfWork, SqlAlchemyUnitOfWork)'
+                'IUnitOfWork is required but not registered. Import a durability backend, e.g. '
+                'SqlAlchemyBackend.register(session_factory=...), or register your own: '
+                'scoped(IUnitOfWork, MyUnitOfWork)'
             )
             raise ImproperlyConfiguredError(msg)
 

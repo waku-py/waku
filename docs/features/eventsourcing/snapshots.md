@@ -268,17 +268,18 @@ applies here.
 
 ## Configuration
 
-Register the snapshot store and serializer through `EventSourcingConfig`:
+The snapshot store comes from the imported
+[durability backend](../../fundamentals/backends.md) (memory: `InMemorySnapshotStore`; SQLAlchemy:
+`SqlAlchemySnapshotStore` over the backend's scoped session). The serializer stays in config:
 
 ```python
 EventSourcingConfig(
-    snapshot_store=SqlAlchemySnapshotStore,  # class or factory callable
     snapshot_state_serializer=JsonSnapshotStateSerializer,
 )
 ```
 
-You can pass a factory callable instead of a class when the store requires
-additional constructor arguments (e.g., `snapshot_store=make_sqlalchemy_snapshot_store(table)`).
+To substitute your own store, register a provider for `ISnapshotStore` (from
+`waku.eventsourcing.store`) — an explicit provider override.
 
 ## Table Schema Reference
 
@@ -294,7 +295,7 @@ additional constructor arguments (e.g., `snapshot_store=make_sqlalchemy_snapshot
 | `created_at` | `TIMESTAMP WITH TIME ZONE` | default `now()` | First snapshot time |
 | `updated_at` | `TIMESTAMP WITH TIME ZONE` | default `now()`, auto-update | Last snapshot update time |
 
-Bind with `bind_snapshot_tables(metadata)` from `waku.eventsourcing.snapshot.sqlalchemy`.
+Bind with `bind_snapshot_tables(metadata)` from `waku.backends.sqlalchemy`.
 
 ## Further reading
 

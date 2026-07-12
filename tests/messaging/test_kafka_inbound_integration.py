@@ -19,6 +19,7 @@ from waku.messaging import (
     MessagingModule,
     TransactionalBehavior,
 )
+from waku.messaging.durability import IInboxStore
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.partition import ISequenceAllocator
@@ -57,7 +58,7 @@ class TestKafkaInboundIntegration:
 
         config = MessagingConfig(
             endpoints=[listen('kafka://orders')],
-            inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+            inbox=InboxConfig(owner_id='test-node:1'),
             transports={'kafka': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
@@ -73,6 +74,7 @@ class TestKafkaInboundIntegration:
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
                 providers=[
+                    object_(inbox, provided_type=IInboxStore),
                     object_(FakeUoW(), provided_type=IUnitOfWork),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 ],

@@ -10,9 +10,8 @@ from waku.eventsourcing.contracts.aggregate import AggregateT, CommandT, EventT,
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from waku.eventsourcing.projection.interfaces import ICheckpointStore
     from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
-    from waku.eventsourcing.store.interfaces import IEventReader
+    from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventReader
     from waku.messages import IEvent
 
 __all__ = ['AggregateSpec', 'DeciderSpec', 'wait_for_all_projections', 'wait_for_projection']

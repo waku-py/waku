@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
-from waku.messaging.errors.dead_letter import IDeadLetterStore
+from waku.messaging.durability import IDeadLetterStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -18,13 +18,15 @@ logger = logging.getLogger(__name__)
 
 
 class DiscardingDeadLetterStore(IDeadLetterStore):
-    """Null ``IDeadLetterStore`` registered as the fallback when ``dead_letter`` is unconfigured.
+    """Null ``IDeadLetterStore`` contributed as the fallback when no module provides a real store.
 
     Keeps ``IDeadLetterStore`` always resolvable so consumers never branch on its absence: ``save``
     warns that the terminal failure was not persisted and drops it, and the read/replay methods are
     the truthful behavior of a store that persists nothing (empty sequences, no-op mutations,
-    ``purge`` -> 0, ``fetch_one`` -> ``KeyError``). Fail-loud stays config-based (a ``DEAD_LETTER``
-    policy without ``dead_letter`` still raises at startup), so this never masks an explicit demand.
+    ``purge`` -> 0, ``fetch_one`` -> ``KeyError``). Fail-loud is config-OR-backend based (a
+    ``DEAD_LETTER`` policy without ``dead_letter`` config AND without a backend-provided store still
+    raises at startup), so this never masks an explicit demand; with a backend present the real
+    store wins and dead letters persist even without ``dead_letter`` config.
     """
 
     __slots__ = ()

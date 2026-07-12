@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from waku.di import AsyncContainer  # noqa: TC001
 from waku.messaging._internal.identity import MessageTypeRegistry  # noqa: TC001
-from waku.messaging.errors.dead_letter import IDeadLetterStore  # noqa: TC001
+from waku.messaging.durability import IDeadLetterStore  # noqa: TC001
 from waku.messaging.router import MessageRouter  # noqa: TC001
 from waku.messaging.transport._internal.wire import rebuild_envelope, wire_metadata_from_entry
 from waku.serialization.codec import PayloadCodec  # noqa: TC001

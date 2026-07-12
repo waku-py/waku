@@ -12,14 +12,13 @@ from waku._internal.retort import default_retort
 from waku.messages import IEvent
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging._internal.registry import MessageRegistry
+from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionResult
 from waku.messaging.endpoints.outcome import ExecutionOutcome
-from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox._internal.listener import InboundListener
 from waku.messaging.inbox.backpressure import BufferingLimits, ListenerBackpressure
-from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.transport._internal.wire import encode_payload, envelope_metadata_of
 from waku.messaging.transport.inbound import ConsumeDisposition

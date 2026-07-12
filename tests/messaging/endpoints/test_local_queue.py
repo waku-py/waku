@@ -14,6 +14,7 @@ from waku.messages import IEvent
 from waku.messaging import EventHandler, MessagingConfig, MessagingExtension, MessagingModule
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import MessageContext, get_message_context
+from waku.messaging.durability import IDeadLetterStore
 from waku.messaging.endpoints._internal.local_queue import LocalQueueEndpoint
 from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.outcome import ExecutionOutcome
@@ -343,8 +344,11 @@ class TestLocalQueueRequeue:
         spy = _TerminalSpy()
 
         async with create_test_app(
-            imports=[MessagingModule.register(MessagingConfig(dead_letter=DeadLetterConfig(store=lambda: dl_store)))],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            imports=[MessagingModule.register(MessagingConfig(dead_letter=DeadLetterConfig()))],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(dl_store, provided_type=IDeadLetterStore),
+            ],
             extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
         ) as app:
             endpoint = await _make_endpoint_with_requeue(
@@ -400,8 +404,12 @@ class TestLocalQueueRequeue:
         _AlwaysFailingHandler.call_count = 0
         dl_store = RecordingDeadLetterStore()
         spy = _TerminalSpy()
-        config = MessagingConfig(dead_letter=DeadLetterConfig(store=lambda: dl_store)) if configured else None
-        providers = [object_(FakeUoW(), provided_type=IUnitOfWork)] if configured else []
+        config = MessagingConfig(dead_letter=DeadLetterConfig()) if configured else None
+        providers = (
+            [object_(FakeUoW(), provided_type=IUnitOfWork), object_(dl_store, provided_type=IDeadLetterStore)]
+            if configured
+            else []
+        )
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
@@ -429,8 +437,11 @@ class TestLocalQueueRequeue:
         spy = _TerminalSpy()
 
         async with create_test_app(
-            imports=[MessagingModule.register(MessagingConfig(dead_letter=DeadLetterConfig(store=lambda: dl_store)))],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+            imports=[MessagingModule.register(MessagingConfig(dead_letter=DeadLetterConfig()))],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(dl_store, provided_type=IDeadLetterStore),
+            ],
             extensions=[MessagingExtension().bind(_BudgetTwoHandler)],
         ) as app:
             endpoint = await _make_endpoint_with_requeue(

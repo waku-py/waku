@@ -14,13 +14,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import override
 
 from waku import module
+from waku.backends.sqlalchemy.event_store.store import make_sqlalchemy_event_store
+from waku.backends.sqlalchemy.event_store.tables import bind_event_store_tables
+from waku.backends.sqlalchemy.uow import SqlAlchemyUnitOfWork
 from waku.di import scoped
 from waku.eventsourcing import ForwardDescriptor, forward
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
 from waku.eventsourcing.store.interfaces import IEventStore
-from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
-from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
 from waku.integrations.eventsourcing_messaging import EventSourcedVoidCommandHandler, EventSourcingMessagingModule
 from waku.messages import IEvent
 from waku.messaging import (
@@ -35,8 +36,7 @@ from waku.messaging import (
     external_endpoint,
     route,
 )
-from waku.messaging.outbox.interfaces import IOutboxStore
-from waku.messaging.sqla.uow import SqlAlchemyUnitOfWork
+from waku.messaging.durability import IOutboxStore
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
@@ -152,12 +152,12 @@ async def _forwarding_app(
         finally:
             await session.close()
 
-    es_config = EventSourcingConfig(store=make_sqlalchemy_event_store(es_tables), forwarding=forwarding)
+    es_config = EventSourcingConfig(forwarding=forwarding)
     es_ext = EventSourcingExtension().bind_aggregate(repository=NoteRepository, event_types=[NoteCreated, NoteEdited])
     msg_config = MessagingConfig(
         endpoints=[external_endpoint('test://notes')],
         routing=routing,
-        outbox=OutboxConfig(store=FakeOutboxStore),
+        outbox=OutboxConfig(),
         transports={'test': RecordingTransport},
         global_pipeline_behaviors=[TransactionalBehavior],
     )
@@ -180,6 +180,8 @@ async def _forwarding_app(
                 providers=[
                     scoped(AsyncSession, _session_factory),
                     scoped(IUnitOfWork, SqlAlchemyUnitOfWork),
+                    scoped(IEventStore, make_sqlalchemy_event_store(es_tables)),
+                    scoped(IOutboxStore, FakeOutboxStore),
                 ],
             ) as app,
             app.container() as container,

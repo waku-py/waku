@@ -10,13 +10,13 @@ from waku._internal.transaction import unit_of_work_scope
 from waku.messaging._internal.circuit_breaker import CircuitBreaker, PassthroughCircuitBreaker
 from waku.messaging._internal.identifiers import EndpointUri
 from waku.messaging._internal.partition import resolve_and_allocate
+from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
 from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.exceptions import RequeueBudgetExceededError
-from waku.messaging.inbox._internal.destination import handler_destination
 from waku.messaging.inbox._internal.finalize import apply_inbox_outcome
-from waku.messaging.inbox.interfaces import IInboxStore
+from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.inbox.models import InboxEntry
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec

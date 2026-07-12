@@ -15,11 +15,12 @@ from waku.eventsourcing.decider.repository import SnapshotDeciderRepository
 from waku.eventsourcing.exceptions import SnapshotTypeMismatchError
 from waku.eventsourcing.serialization.json import JsonSnapshotStateSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
-from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, Snapshot
+from waku.eventsourcing.snapshot.interfaces import Snapshot
 from waku.eventsourcing.snapshot.migration import ISnapshotMigration, SnapshotMigrationChain
 from waku.eventsourcing.snapshot.registry import SnapshotConfig, SnapshotConfigRegistry
 from waku.eventsourcing.snapshot.strategy import EventCountStrategy
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
+from waku.eventsourcing.store.interfaces import ISnapshotStore
 
 from tests.eventsourcing.domain import CounterDecider, CounterState, Increment, Incremented
 

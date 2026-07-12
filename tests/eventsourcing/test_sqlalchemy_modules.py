@@ -7,7 +7,9 @@ from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waku import module
-from waku.di import Scope, contextual
+from waku.backends.sqlalchemy.event_store.store import make_sqlalchemy_event_store
+from waku.backends.sqlalchemy.event_store.tables import bind_event_store_tables
+from waku.di import Scope, contextual, scoped
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.modules import (
     EventSourcingConfig,
@@ -18,8 +20,7 @@ from waku.eventsourcing.modules import (
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
-from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
-from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
+from waku.eventsourcing.store.interfaces import IEventStore
 from waku.messages import IEvent
 from waku.serialization import rename_field
 from waku.testing import create_test_app
@@ -72,7 +73,6 @@ async def test_postgres_module_wiring_end_to_end(pg_engine: AsyncEngine) -> None
     )
 
     config = EventSourcingConfig(
-        store=make_sqlalchemy_event_store(tables),
         event_serializer=JsonEventSerializer,
     )
 
@@ -88,7 +88,10 @@ async def test_postgres_module_wiring_end_to_end(pg_engine: AsyncEngine) -> None
         session.begin(),
         create_test_app(
             imports=[NoteModule],
-            providers=[contextual(AsyncSession, scope=Scope.APP)],
+            providers=[
+                contextual(AsyncSession, scope=Scope.APP),
+                scoped(IEventStore, make_sqlalchemy_event_store(tables)),
+            ],
             context={AsyncSession: session},
         ) as app,
         app.container() as container,
@@ -124,7 +127,6 @@ async def test_upcasting_end_to_end_through_di(pg_engine: AsyncEngine) -> None:
         event_types=[NoteCreated],
     )
     config_v1 = EventSourcingConfig(
-        store=make_sqlalchemy_event_store(tables),
         event_serializer=JsonEventSerializer,
     )
 
@@ -140,7 +142,10 @@ async def test_upcasting_end_to_end_through_di(pg_engine: AsyncEngine) -> None:
         session.begin(),
         create_test_app(
             imports=[NoteModuleV1],
-            providers=[contextual(AsyncSession, scope=Scope.APP)],
+            providers=[
+                contextual(AsyncSession, scope=Scope.APP),
+                scoped(IEventStore, make_sqlalchemy_event_store(tables)),
+            ],
             context={AsyncSession: session},
         ) as app,
         app.container() as container,
@@ -164,7 +169,6 @@ async def test_upcasting_end_to_end_through_di(pg_engine: AsyncEngine) -> None:
         ],
     )
     config_v2 = EventSourcingConfig(
-        store=make_sqlalchemy_event_store(tables),
         event_serializer=JsonEventSerializer,
     )
 
@@ -180,7 +184,10 @@ async def test_upcasting_end_to_end_through_di(pg_engine: AsyncEngine) -> None:
         session.begin(),
         create_test_app(
             imports=[NoteModuleV2],
-            providers=[contextual(AsyncSession, scope=Scope.APP)],
+            providers=[
+                contextual(AsyncSession, scope=Scope.APP),
+                scoped(IEventStore, make_sqlalchemy_event_store(tables)),
+            ],
             context={AsyncSession: session},
         ) as app,
         app.container() as container,

@@ -5,9 +5,9 @@ from typing import TYPE_CHECKING
 import pytest
 from sqlalchemy import MetaData
 
+from waku.backends.sqlalchemy.checkpoint.store import SqlAlchemyCheckpointStore
+from waku.backends.sqlalchemy.checkpoint.tables import bind_checkpoint_tables
 from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
-from waku.eventsourcing.projection.sqlalchemy.store import SqlAlchemyCheckpointStore
-from waku.eventsourcing.projection.sqlalchemy.tables import bind_checkpoint_tables
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
@@ -16,7 +16,7 @@ from tests.eventsourcing.projection.helpers import OtherEvent, SampleEvent
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from waku.eventsourcing.projection.interfaces import ICheckpointStore
+    from waku.eventsourcing.store.interfaces import ICheckpointStore
 
 
 @pytest.fixture

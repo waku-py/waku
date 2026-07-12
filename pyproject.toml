@@ -155,9 +155,26 @@ forbidden_modules = ["waku.messaging", "waku.eventsourcing"]
 # waku.serialization is the shared codec/versioning package; it depends only on waku.messages +
 # waku._internal + adaptix, so messaging and event sourcing can both source it without a back-edge.
 
+[[tool.importlinter.contracts]]
+name = "Durability backends are inward-only"
+type = "forbidden"
+source_modules = ["waku.messaging", "waku.eventsourcing", "waku.integrations"]
+forbidden_modules = ["waku.backends"]
+# waku.backends assembles both domains' store objects over one resource — the sole both-importer
+# besides the ES<->messaging bridge. Domains (and the bridge) NEVER import a backend; the backend
+# is chosen by the APP via imports=[SqlAlchemyBackend.register(...)].
+
 # `_internal` privacy boundary: the DOMAIN is the privacy unit (spec §2.3) — sibling subpackages inside a
 # domain may cross into each other's `_internal`; nobody outside the domain may. `waku._internal` (the
 # cross-domain substrate) is deliberately unprotected (open to all of waku).
+
+[[tool.importlinter.contracts]]
+name = "backends _internal is private to waku.backends"
+type = "protected"
+protected_modules = [
+  "waku.backends.*._internal",
+]
+allowed_importers = ["waku.backends"]
 
 [[tool.importlinter.contracts]]
 name = "messaging _internal is private to waku.messaging"
@@ -285,6 +302,12 @@ pylint = { max-args = 7 }
   "SIM117", # Multiple with-statements should be combined
   "T201", # `print` found
   "TRY400", # Use `logging.exception` instead of `logging.error
+]
+"src/waku/backends/testing/*" = [
+  "PLR0904", # Too many public methods: a contract base IS a collection of test methods
+  "PLR2004", # Magic value comparison: contract assertions state literal expectations
+  "PLR6301", # Method could be a function: pytest collects contract methods off instances
+  "S101", # Usage of assert: shipped pytest contract suites assert by design
 ]
 "tests/*" = [
   "FBT001", # Boolean-typed positional argument in function definition

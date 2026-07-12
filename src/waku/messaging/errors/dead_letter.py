@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import abc
 import enum
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
     from datetime import datetime
     from uuid import UUID
 
@@ -15,7 +13,6 @@ __all__ = [
     'DeadLetterEntry',
     'DeadLetterQuery',
     'DeadLetterStatus',
-    'IDeadLetterStore',
 ]
 
 
@@ -97,59 +94,3 @@ class DeadLetterEntry:
             metadata_=metadata,
             group_id=group_id,
         )
-
-
-class IDeadLetterStore(abc.ABC):
-    """Persistence seam for dead-lettered messages, including the replay lifecycle.
-
-    Replay contract (this interface defines it; the executor/triggers/poller are out of scope):
-    a replayer reconstructs a ``MessageEnvelope`` from a stored entry via
-    ``rebuild_envelope(entry.payload, wire_metadata_from_entry(entry), codec, type_registry)``,
-    re-injects it to ``entry.destination`` for reprocessing, then records the outcome
-    (``mark_replayed`` / ``mark_replay_failed``). Replay re-enters the normal pipeline, so it is
-    **at-least-once**; idempotency leans on the inbox ``(message_id, destination)`` dedup.
-    ``delete`` / ``purge`` remain the terminal-cleanup seam.
-    """
-
-    @abc.abstractmethod
-    async def save(self, entry: DeadLetterEntry) -> None: ...
-
-    @abc.abstractmethod
-    async def fetch(self, batch_size: int = 100) -> Sequence[DeadLetterEntry]: ...
-
-    @abc.abstractmethod
-    async def fetch_one(self, entry_id: UUID) -> DeadLetterEntry: ...
-
-    @abc.abstractmethod
-    async def query(self, filters: DeadLetterQuery) -> Sequence[DeadLetterEntry]:
-        """List/filter dead-letter entries for admin/operations, newest-first.
-
-        Read-only seam — does not claim or mutate. Distinct from ``fetch`` (oldest-first, no filter).
-        """
-        ...
-
-    @abc.abstractmethod
-    async def claim_replayable(self, batch_size: int, max_replay_count: int) -> Sequence[DeadLetterEntry]:
-        """Claim entries eligible for an auto-replay attempt, oldest-first, with row locks.
-
-        Returns PENDING entries plus REPLAY_FAILED entries under ``max_replay_count``, locking each via
-        ``FOR UPDATE SKIP LOCKED`` so concurrent 1-per-DC pollers never double-claim. The caller holds
-        the lock until it commits/rolls back; stores never commit.
-        """
-        ...
-
-    @abc.abstractmethod
-    async def mark_replayed(self, entry_id: UUID) -> None:
-        """Transition an entry to REPLAYED after a successful re-injection."""
-        ...
-
-    @abc.abstractmethod
-    async def mark_replay_failed(self, entry_id: UUID, error: str) -> None:
-        """Transition an entry to REPLAY_FAILED, bump ``replay_count``, and keep the row."""
-        ...
-
-    @abc.abstractmethod
-    async def delete(self, entry_id: UUID) -> None: ...
-
-    @abc.abstractmethod
-    async def purge(self, older_than: datetime) -> int: ...

@@ -10,7 +10,8 @@ from dishka import make_async_container
 from typing_extensions import override
 
 from waku import module
-from waku.di import object_
+from waku.backends.memory._internal.outbox import InMemoryOutboxStore
+from waku.di import object_, scoped
 from waku.messages import IEvent
 from waku.messaging import (
     EndpointDefaults,
@@ -32,9 +33,9 @@ from waku.messaging import (
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import message_context_scope
 from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
+from waku.messaging.durability import IDeadLetterStore, IOutboxStore
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.errors.policy import ErrorPolicy
-from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
 from waku.messaging.partition import ISequenceAllocator
@@ -54,7 +55,6 @@ from tests.messaging.helpers import (
     make_relay_evaluator,
     order_id_partition,
 )
-from tests.messaging.outbox.in_memory_store import InMemoryOutboxStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +99,7 @@ class TestEndToEndOutboxFlow:
         config = MessagingConfig(
             endpoints=[external_endpoint('test://notifications')],
             routing=[route(_OrderPlaced).to('test://notifications')],
-            outbox=OutboxConfig(store=InMemoryOutboxStore),
+            outbox=OutboxConfig(),
             transports={'test': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
@@ -111,7 +111,7 @@ class TestEndToEndOutboxFlow:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config), TestModule],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), scoped(IOutboxStore, InMemoryOutboxStore)],
             ) as app,
             app.container() as c,
         ):
@@ -152,14 +152,17 @@ class TestErrorPolicyIntegration:
 
         config = MessagingConfig(
             endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
-            dead_letter=DeadLetterConfig(store=lambda: dl_store),
+            dead_letter=DeadLetterConfig(),
         )
 
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[
+                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(dl_store, provided_type=IDeadLetterStore),
+                ],
             ) as app,
             app.container() as c,
         ):
@@ -183,7 +186,6 @@ class TestOutboxRelayLifecycleIntegration:
             endpoints=[external_endpoint('test://notifications')],
             routing=[route(_OrderPlaced).to('test://notifications')],
             outbox=OutboxConfig(
-                store=lambda: outbox,
                 relay=OutboxRelayConfig(
                     polling=PollingConfig(poll_interval_min_seconds=0.01), recovery_interval=timedelta(hours=1)
                 ),
@@ -199,7 +201,7 @@ class TestOutboxRelayLifecycleIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config), TestModule],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(outbox, provided_type=IOutboxStore)],
             ) as app,
             app.container() as c,
         ):
@@ -222,7 +224,7 @@ class TestMessageIdentityPropagation:
         config = MessagingConfig(
             endpoints=[external_endpoint('test://orders')],
             routing=[route(_OrderPlaced).to('test://orders')],
-            outbox=OutboxConfig(store=lambda: store),
+            outbox=OutboxConfig(),
             transports={'test': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
             message_identities={_OrderPlaced: 'order-placed'},
@@ -232,7 +234,10 @@ class TestMessageIdentityPropagation:
             create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_OrderPlacedHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[
+                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(store, provided_type=IOutboxStore),
+                ],
             ) as app,
             app.container() as c,
         ):
@@ -250,7 +255,7 @@ class TestMessageIdentityPropagation:
         config = MessagingConfig(
             endpoints=[external_endpoint('test://orders')],
             routing=[route(_OrderPlaced).to('test://orders')],
-            outbox=OutboxConfig(store=lambda: store),
+            outbox=OutboxConfig(),
             transports={'test': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
@@ -259,7 +264,10 @@ class TestMessageIdentityPropagation:
             create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_OrderPlacedHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[
+                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(store, provided_type=IOutboxStore),
+                ],
             ) as app,
             app.container() as c,
         ):
@@ -458,7 +466,7 @@ class TestGroupIdPropagation:
         config = MessagingConfig(
             endpoints=[external_endpoint('test://shipped')],
             routing=[route(_OrderShipped).to('test://shipped')],
-            outbox=OutboxConfig(store=lambda: outbox),
+            outbox=OutboxConfig(),
             transports={'test': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
@@ -477,6 +485,7 @@ class TestGroupIdPropagation:
                 providers=[
                     object_(FakeUoW(), provided_type=IUnitOfWork),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                    object_(outbox, provided_type=IOutboxStore),
                 ],
             ) as app,
             app.container() as c,
@@ -500,7 +509,6 @@ class TestPartitionOrderingEndToEnd:
             endpoints=[external_endpoint('test://orders', partition_by=order_id_partition)],
             routing=[route(_OrderPlaced).to('test://orders')],
             outbox=OutboxConfig(
-                store=lambda: outbox,
                 relay=OutboxRelayConfig(
                     polling=PollingConfig(poll_interval_min_seconds=0.01), recovery_interval=timedelta(hours=1)
                 ),
@@ -519,6 +527,7 @@ class TestPartitionOrderingEndToEnd:
                 providers=[
                     object_(FakeUoW(), provided_type=IUnitOfWork),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                    object_(outbox, provided_type=IOutboxStore),
                 ],
             ) as app,
             app.container() as c,
@@ -552,7 +561,6 @@ class TestMultiDestinationFanOut:
             endpoints=[external_endpoint('ta://events'), external_endpoint('tb://events')],
             routing=[route(_OrderPlaced).to('ta://events'), route(_OrderPlaced).to('tb://events')],
             outbox=OutboxConfig(
-                store=lambda: outbox,
                 relay=OutboxRelayConfig(
                     polling=PollingConfig(poll_interval_min_seconds=0.01), recovery_interval=timedelta(hours=1)
                 ),
@@ -571,6 +579,7 @@ class TestMultiDestinationFanOut:
                 providers=[
                     object_(FakeUoW(), provided_type=IUnitOfWork),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                    object_(outbox, provided_type=IOutboxStore),
                 ],
             ) as app,
             app.container() as c,

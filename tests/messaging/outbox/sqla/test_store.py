@@ -7,9 +7,9 @@ import pytest
 from sqlalchemy import MetaData, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from waku.backends.sqlalchemy.outbox.store import SqlAlchemyOutboxStore
+from waku.backends.sqlalchemy.outbox.tables import bind_outbox_tables, outbox_messages_table
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
-from waku.messaging.outbox.sqla.store import SqlAlchemyOutboxStore
-from waku.messaging.outbox.sqla.tables import bind_outbox_tables, outbox_messages_table
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

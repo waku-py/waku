@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from waku.eventsourcing.projection.interfaces import ICheckpointStore
+from waku.eventsourcing.store.interfaces import ICheckpointStore
 
 if TYPE_CHECKING:
     from waku.eventsourcing.projection.checkpoint import Checkpoint

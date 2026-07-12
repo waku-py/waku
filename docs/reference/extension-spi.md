@@ -62,43 +62,36 @@ The endpoint model and executor animated by routing.
 `ExecutionResult` ·
 `LocalQueueEntry`
 
+## `waku.messaging.durability`
+
+Messaging store-port contracts and the durability store composite.
+
+`DefaultDurabilityStore` ·
+`IDeadLetterStore` ·
+`IDurabilityStore` ·
+`IInboxStore` ·
+`IOutboxStore`
+
 ## `waku.messaging.outbox`
 
-Transactional outbox store contract, models, and relay.
+Outbox models and the relay.
 
-`IOutboxStore` ·
 `OutboxMessage` ·
 `OutboxRelay` ·
 `OutboxRelayConfig` ·
 `OutboxStatus`
 
-## `waku.messaging.outbox.sqla`
-
-SQLAlchemy outbox adapter.
-
-`OutboxTables` ·
-`SqlAlchemyOutboxStore` ·
-`bind_outbox_tables`
-
 ## `waku.messaging.inbox`
 
-Durable inbox store contract and models.
+Durable inbox models.
 
-`IInboxStore` ·
 `InboxEntry` ·
-`InboxStatus`
-
-## `waku.messaging.inbox.sqla`
-
-SQLAlchemy inbox adapter.
-
-`InboxTables` ·
-`SqlAlchemyInboxStore` ·
-`bind_inbox_tables`
+`InboxStatus` ·
+`handler_destination`
 
 ## `waku.messaging.errors`
 
-Error policies, dead-letter store contract, replay, and the DLQ worker.
+Error policies, dead-letter models, replay, and the DLQ worker.
 
 `DeadLetterEntry` ·
 `DeadLetterQuery` ·
@@ -109,19 +102,10 @@ Error policies, dead-letter store contract, replay, and the DLQ worker.
 `ErrorPolicyEvaluator` ·
 `ErrorPolicyRegistry` ·
 `FailureContext` ·
-`IDeadLetterStore` ·
 `PolicyOutcome` ·
 `ReplayExecutor` ·
 `RetryAction` ·
 `RetryStage`
-
-## `waku.messaging.errors.sqla`
-
-SQLAlchemy dead-letter store adapter.
-
-`DeadLetterTables` ·
-`SqlAlchemyDeadLetterStore` ·
-`bind_dead_letter_tables`
 
 ## `waku.messaging.sending`
 
@@ -134,42 +118,34 @@ Sending-failure policies applied by the outbox relay.
 
 ## `waku.messaging.sqla`
 
-Shared SQLAlchemy plumbing: unit of work, sequences, column types.
+Shared SQLAlchemy plumbing: sequences and column types.
 
 `EnumFromKeys` ·
 `EnumFromValues` ·
 `MessagingTables` ·
 `SqlAlchemySequenceAllocator` ·
-`SqlAlchemyUnitOfWork` ·
 `bind_message_sequences_table` ·
-`message_sequences_table` ·
-`shared_session`
+`message_sequences_table`
 
 ## `waku.eventsourcing.store`
 
-Event store contracts and the in-memory reference store.
+Event store contracts (with snapshot/checkpoint facets); in-memory reference store.
 
+`ICheckpointStore` ·
 `IEventReader` ·
 `IEventStore` ·
 `IEventWriter` ·
-`InMemoryEventStore`
-
-## `waku.eventsourcing.store.sqlalchemy`
-
-SQLAlchemy event store adapter.
-
-`EventStoreTables` ·
-`SqlAlchemyEventStore` ·
-`bind_event_store_tables` ·
-`make_sqlalchemy_event_store`
+`ISnapshotStore` ·
+`InMemoryEventStore` ·
+`check_expected_version` ·
+`enrich_metadata`
 
 ## `waku.eventsourcing.snapshot`
 
-Snapshot store, strategy, and migration contracts.
+Snapshot model, strategy, and migration contracts.
 
 `EventCountStrategy` ·
 `ISnapshotMigration` ·
-`ISnapshotStore` ·
 `ISnapshotStrategy` ·
 `InMemorySnapshotStore` ·
 `Snapshot` ·
@@ -177,20 +153,11 @@ Snapshot store, strategy, and migration contracts.
 `SnapshotConfigRegistry` ·
 `SnapshotMigrationChain`
 
-## `waku.eventsourcing.snapshot.sqlalchemy`
-
-SQLAlchemy snapshot adapter.
-
-`SqlAlchemySnapshotStore` ·
-`bind_snapshot_tables` ·
-`make_sqlalchemy_snapshot_store`
-
 ## `waku.eventsourcing.projection`
 
-Checkpoint store contract and projection polling configuration.
+Projection contracts and polling configuration.
 
 `Checkpoint` ·
-`ICheckpointStore` ·
 `InMemoryCheckpointStore` ·
 `LeaseConfig` ·
 `PollingConfig`
@@ -209,14 +176,6 @@ Postgres advisory/lease projection locks.
 `PostgresAdvisoryProjectionLock` ·
 `PostgresLeaseProjectionLock` ·
 `bind_lease_tables`
-
-## `waku.eventsourcing.projection.sqlalchemy`
-
-SQLAlchemy checkpoint store adapter.
-
-`SqlAlchemyCheckpointStore` ·
-`bind_checkpoint_tables` ·
-`make_sqlalchemy_checkpoint_store`
 
 ## `waku.eventsourcing.serialization`
 
@@ -243,6 +202,55 @@ Payload codec and the upcasting toolkit.
 `remove_field` ·
 `rename_field` ·
 `upcast`
+
+## `waku.backends.sqlalchemy`
+
+SQLAlchemy durability backend: entry point, store adapters, tables.
+
+`DeadLetterTables` ·
+`EventStoreTables` ·
+`InboxTables` ·
+`OutboxTables` ·
+`SqlAlchemyBackend` ·
+`SqlAlchemyCheckpointStore` ·
+`SqlAlchemyDeadLetterStore` ·
+`SqlAlchemyEventStore` ·
+`SqlAlchemyInboxStore` ·
+`SqlAlchemyOutboxStore` ·
+`SqlAlchemySnapshotStore` ·
+`SqlAlchemyUnitOfWork` ·
+`bind_checkpoint_tables` ·
+`bind_dead_letter_tables` ·
+`bind_event_store_tables` ·
+`bind_inbox_tables` ·
+`bind_outbox_tables` ·
+`bind_snapshot_tables` ·
+`make_sqlalchemy_checkpoint_store` ·
+`make_sqlalchemy_event_store` ·
+`make_sqlalchemy_snapshot_store`
+
+## `waku.backends.memory`
+
+In-memory durability backend (whole-app wiring stub).
+
+`MemoryBackend`
+
+## `waku.backends.testing`
+
+Backend-author conformance kit: assembly and facet contract suites.
+
+`BackendAssemblyContract` ·
+`CheckpointStoreContract` ·
+`DeadLetterStoreContract` ·
+`EventStoreContract` ·
+`EventStoreFactory` ·
+`InboxStoreContract` ·
+`ItemAdded` ·
+`OrderCreated` ·
+`OrderShipped` ·
+`OutboxStoreContract` ·
+`SnapshotStoreContract` ·
+`make_envelope`
 
 ## `waku.extensions`
 

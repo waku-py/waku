@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from sqlalchemy import MetaData
 
+from waku.backends.sqlalchemy.checkpoint.tables import bind_checkpoint_tables
+from waku.backends.sqlalchemy.event_store.tables import bind_event_store_tables
+from waku.backends.sqlalchemy.snapshot.tables import bind_snapshot_tables
 from waku.eventsourcing.projection.lock.sqlalchemy.tables import bind_lease_tables
-from waku.eventsourcing.projection.sqlalchemy.tables import bind_checkpoint_tables
-from waku.eventsourcing.snapshot.sqlalchemy.tables import bind_snapshot_tables
-from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
 
 
 def test_bind_event_store_tables() -> None:

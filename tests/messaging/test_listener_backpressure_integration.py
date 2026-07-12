@@ -26,6 +26,7 @@ from waku.messaging import (
     TransactionalBehavior,
 )
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
+from waku.messaging.durability import IInboxStore
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.backpressure import BufferingLimits
 from waku.messaging.inbox.models import InboxStatus
@@ -106,10 +107,10 @@ class _InProcessTransport(ITransport):
         return await self._on_message(payload, metadata)
 
 
-def _config(transport: _InProcessTransport, *, inbox: FakeInboxStore, listener: BrokerEndpointEntry) -> MessagingConfig:
+def _config(transport: _InProcessTransport, *, listener: BrokerEndpointEntry) -> MessagingConfig:
     return MessagingConfig(
         endpoints=[listener],
-        inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+        inbox=InboxConfig(owner_id='test-node:1'),
         transports={'rabbitmq': lambda: transport},
         global_pipeline_behaviors=[TransactionalBehavior],
     )
@@ -130,14 +131,13 @@ async def test_watermark_pauses_then_resumes_listener_end_to_end() -> None:
     transport = _InProcessTransport()
     config = _config(
         transport,
-        inbox=inbox,
         listener=listen('rabbitmq://orders', backpressure=BufferingLimits(high=2, low=0)),
     )
 
     async with create_test_app(
         imports=[MessagingModule.register(config)],
         extensions=[MessagingExtension().bind(_BlockingHandler)],
-        providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+        providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
     ):
         for i in range(3):
             env = make_envelope(_OrderPlaced(order_id=f'o-{i}'))
@@ -170,7 +170,6 @@ async def test_circuit_breaker_pauses_then_resumes_listener_after_pause_time() -
     transport = _InProcessTransport()
     config = _config(
         transport,
-        inbox=inbox,
         listener=listen(
             'rabbitmq://orders',
             circuit_breaker=CircuitBreakerConfig(minimum_throughput=1, pause_time=timedelta(milliseconds=50)),
@@ -180,7 +179,7 @@ async def test_circuit_breaker_pauses_then_resumes_listener_after_pause_time() -
     async with create_test_app(
         imports=[MessagingModule.register(config)],
         extensions=[MessagingExtension().bind(_FailingHandler)],
-        providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+        providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(inbox, provided_type=IInboxStore)],
     ):
         env = make_envelope(_OrderPlaced(order_id='o-1'))
         await transport.deliver(encode_payload(env, codec), envelope_metadata_of(env))

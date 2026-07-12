@@ -42,7 +42,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 from typing_extensions import override
 
 from waku import WakuFactory, module
-from waku.di import object_, scoped
+from waku.backends.sqlalchemy import SqlAlchemyBackend
+from waku.di import object_
 from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
@@ -52,11 +53,7 @@ from waku.messaging import (
     MessagingModule,
     listen,
 )
-from waku.messaging.inbox.sqla.store import SqlAlchemyInboxStore
-from waku.messaging.inbox.sqla.tables import bind_inbox_tables
-from waku.messaging.sqla.uow import SqlAlchemyUnitOfWork
 from waku.messaging.transport.faststream import rabbit_transport
-from waku.uow import IUnitOfWork
 
 DATABASE_URL = 'postgresql+psycopg://waku:waku@localhost:15432/waku_es'
 
@@ -72,8 +69,7 @@ class OrderPlacedHandler(EventHandler[OrderPlaced]):
         print(f'handling order {message.order_id}')
 
 
-metadata = MetaData()
-bind_inbox_tables(metadata)                        # (1)!
+metadata = MetaData()                              # (1)!
 engine = create_async_engine(DATABASE_URL)
 
 
@@ -86,16 +82,17 @@ def build_config() -> MessagingConfig:
     return MessagingConfig(
         endpoints=[listen('rabbitmq://orders')],
         transports={'rabbitmq': rabbit_transport(url='amqp://guest:guest@localhost/')},
-        inbox=InboxConfig(store=SqlAlchemyInboxStore),  # (2)!
+        inbox=InboxConfig(),  # (2)!
     )
 
 
 @module(
-    imports=[MessagingModule.register(build_config())],
+    imports=[
+        MessagingModule.register(build_config()),
+        SqlAlchemyBackend.register(session_factory=create_session, metadata=metadata),  # (3)!
+    ],
     providers=[
         object_(engine, provided_type=AsyncEngine),
-        scoped(AsyncSession, create_session),
-        scoped(IUnitOfWork, SqlAlchemyUnitOfWork),   # (3)!
     ],
     extensions=[MessagingExtension().bind(OrderPlacedHandler)],
 )
@@ -114,9 +111,11 @@ if __name__ == '__main__':
     asyncio.run(main())
 ```
 
-1. Binds the `inbox_entries` table to your metadata (see [Inbox store setup](#inbox-store-setup)).
-2. `SqlAlchemyInboxStore` is DI-constructed per scope from the `AsyncSession` registered below.
-3. The durable inbox commits through a unit of work — this provider is required (see the warning below).
+1. The backend binds the `inbox_entries` table (and the other active tables) into this metadata
+   (see [Inbox store setup](#inbox-store-setup)).
+2. `InboxConfig` carries the drainer/dedup knobs; the store comes from the backend.
+3. The [durability backend](../../fundamentals/backends.md) provides `SqlAlchemyInboxStore`, the
+   scoped `AsyncSession`, and the `IUnitOfWork` the durable path commits through.
 
 Handlers bind by message *type* (`MessagingExtension().bind(...)`), not by the queue they arrive
 on — the same routing as the rest of the message bus. `examples/messaging/consumer.py` shows the
@@ -125,21 +124,12 @@ process skeleton; the inbox wiring above is what makes it durable.
 ## Inbox store setup
 
 The inbox persists each consumed message before the handler runs. Its deduplication and per-group
-ordering model is covered in [Durable inbox & ordering](inbox.md); a durable consumer needs three
-things wired, mirroring the [outbox adapter](outbox.md#sqlalchemy-adapter):
-
-- **Bind the tables.** `bind_inbox_tables(metadata)` creates the `inbox_entries` table on your
-  `MetaData`. Create it with `metadata.create_all` in development, or a migration tool in production.
-- **Register the store.** `InboxConfig(store=SqlAlchemyInboxStore)` — the adapter is constructed per
-  scope from the `AsyncSession` you provide.
-- **Register a unit of work.** The durable path commits the inbox row in the handler's transaction, so
-  it resolves `IUnitOfWork` at runtime.
-
-!!! warning "A durable consumer requires `IUnitOfWork`"
-    Without a registered unit of work, startup fails with `ImproperlyConfiguredError`: *IUnitOfWork is
-    required but not registered. Register it in your infrastructure module: scoped(IUnitOfWork,
-    SqlAlchemyUnitOfWork)*. The inbox tables must also exist before the consumer starts — create them
-    with a migration tool in production.
+ordering model is covered in [Durable inbox & ordering](inbox.md). The
+[SQLAlchemy backend](../../fundamentals/backends.md) wires everything a durable consumer needs —
+the inbox store, the scoped session, and the unit of work the durable path commits through. Your
+only jobs are the `InboxConfig` knobs and the DDL: create the `inbox_entries` table (bound into the
+`metadata` you pass to `register`, or via `bind_inbox_tables` from `waku.backends.sqlalchemy`) with
+a migration tool in production before the consumer starts.
 
 ## What `run()` does
 

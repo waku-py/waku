@@ -12,12 +12,11 @@ from typing_extensions import override
 from waku._internal.clock import utc_now
 from waku.messages import IEvent
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
+from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.endpoints._internal.durable_local_queue import DurableLocalQueueEndpoint
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionResult
 from waku.messaging.endpoints.outcome import ExecutionOutcome
-from waku.messaging.errors.dead_letter import IDeadLetterStore
 from waku.messaging.handler import EventHandler
-from waku.messaging.inbox.interfaces import IInboxStore
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers
 from waku.messaging.partition import ISequenceAllocator

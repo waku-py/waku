@@ -14,10 +14,6 @@ from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.modules import _FRAMEWORK_POLICIES
 from waku.messaging.pipeline._internal.plan import build_behavior_plan
 
-from tests.messaging.helpers import RecordingDeadLetterStore
-from tests.messaging.inbox.fake_store import FakeInboxStore
-from tests.messaging.outbox.fake_store import FakeOutboxStore
-
 
 @dataclass(frozen=True, slots=True)
 class _Cmd(IRequest[None]):
@@ -60,23 +56,23 @@ def _plan_for(handler: type[RequestHandler[_Cmd, None]], config: MessagingConfig
 def test_outbox_handler_keeps_transactional() -> None:
     config = MessagingConfig(
         global_pipeline_behaviors=(TransactionalBehavior,),
-        outbox=OutboxConfig(store=FakeOutboxStore),
+        outbox=OutboxConfig(),
     )
     assert TransactionalBehavior in _plan_for(_PlainHandler, config)
 
 
 def test_dead_letter_only_config_attaches_transactional_to_all_handlers() -> None:
-    config = MessagingConfig(dead_letter=DeadLetterConfig(store=RecordingDeadLetterStore))
+    config = MessagingConfig(dead_letter=DeadLetterConfig())
     assert TransactionalBehavior in _plan_for(_PlainHandler, config)
 
 
 def test_inbox_config_attaches_transactional_to_all_handlers() -> None:
-    config = MessagingConfig(inbox=InboxConfig(store=FakeInboxStore))
+    config = MessagingConfig(inbox=InboxConfig())
     assert TransactionalBehavior in _plan_for(_PlainHandler, config)
 
 
 def test_local_transactional_under_durable_config_attaches_exactly_once() -> None:
-    config = MessagingConfig(outbox=OutboxConfig(store=FakeOutboxStore))
+    config = MessagingConfig(outbox=OutboxConfig())
     assert _plan_for(_HandlerWithTransactionalLocal, config).count(TransactionalBehavior) == 1
 
 

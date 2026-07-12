@@ -15,8 +15,8 @@ from typing_extensions import override
 from waku.messages import IEvent
 from waku.messaging import PollingConfig
 from waku.messaging._internal.escalation import RetryAction, walk_stages
+from waku.messaging.durability import IOutboxStore
 from waku.messaging.errors.dead_letter import DeadLetterEntry
-from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicy, SendingFailurePolicyRegistry

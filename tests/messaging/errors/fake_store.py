@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
-from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterStatus, IDeadLetterStore
+from waku.messaging.durability import IDeadLetterStore
+from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterStatus
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

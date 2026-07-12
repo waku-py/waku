@@ -1,8 +1,8 @@
-from waku.messaging.inbox.interfaces import IInboxStore
+from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 
 __all__ = [
-    'IInboxStore',
     'InboxEntry',
     'InboxStatus',
+    'handler_destination',
 ]

@@ -10,7 +10,7 @@ from waku._internal.transaction import unit_of_work_scope
 from waku.di import is_registered
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging._internal.polling_agent import FixedPace, Placement, PollingAgent
-from waku.messaging.inbox.interfaces import IInboxStore
+from waku.messaging.durability import IInboxStore
 from waku.messaging.partition import ISequenceAllocator
 
 if TYPE_CHECKING:

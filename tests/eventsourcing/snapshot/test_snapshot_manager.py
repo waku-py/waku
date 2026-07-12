@@ -8,10 +8,11 @@ from typing_extensions import override
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import SnapshotTypeMismatchError
 from waku.eventsourcing.snapshot._internal.manager import SnapshotManager
-from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, Snapshot
+from waku.eventsourcing.snapshot.interfaces import Snapshot
 from waku.eventsourcing.snapshot.migration import ISnapshotMigration, SnapshotMigrationChain
 from waku.eventsourcing.snapshot.registry import SnapshotConfig
 from waku.eventsourcing.snapshot.strategy import EventCountStrategy
+from waku.eventsourcing.store.interfaces import ISnapshotStore
 
 if TYPE_CHECKING:
     from unittest.mock import AsyncMock

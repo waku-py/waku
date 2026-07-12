@@ -5,7 +5,6 @@ from waku.eventsourcing.contracts.event import IMetadataEnricher
 from waku.eventsourcing.forwarding import ForwardingConsumer
 from waku.integrations.eventsourcing_messaging.correlation_enricher import CorrelationEnricher
 from waku.integrations.eventsourcing_messaging.forwarding_policy import ForwardingPolicy
-from waku.integrations.eventsourcing_messaging.session_identity import StoreSessionIdentityExtension
 from waku.messaging.pipeline.policy import BehaviorPolicyExtension
 from waku.modules._internal.metadata import DynamicModule, module
 
@@ -32,7 +31,6 @@ class EventSourcingMessagingModule:
             parent_module=cls,
             providers=providers,
             extensions=[
-                StoreSessionIdentityExtension(),
                 BehaviorPolicyExtension(ForwardingPolicy()),
             ],
             is_global=True,

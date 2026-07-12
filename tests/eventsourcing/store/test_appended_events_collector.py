@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING
 import pytest
 from sqlalchemy import MetaData
 
+from waku.backends.sqlalchemy.event_store.store import SqlAlchemyEventStore
+from waku.backends.sqlalchemy.event_store.tables import bind_event_store_tables
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
 from waku.eventsourcing.exceptions import ConcurrencyConflictError
 from waku.eventsourcing.forwarding import AppendedEventsCollector
 from waku.eventsourcing.serialization.json import JsonEventSerializer
-from waku.eventsourcing.store.sqlalchemy.store import SqlAlchemyEventStore
-from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
 from waku.serialization.upcasting.chain import UpcasterChain
 
 from tests.eventsourcing.store.domain import ItemAdded, OrderCreated, make_envelope

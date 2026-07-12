@@ -16,8 +16,8 @@ if TYPE_CHECKING:
 
     from waku.eventsourcing.contracts.event import StoredEvent
     from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
-    from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ICheckpointStore
-    from waku.eventsourcing.store.interfaces import IEventReader
+    from waku.eventsourcing.projection.interfaces import ICatchUpProjection
+    from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventReader
 
 __all__ = [
     'CycleOutcome',

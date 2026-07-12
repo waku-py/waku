@@ -8,9 +8,9 @@ from typing_extensions import override
 
 from waku._internal.retort import default_retort
 from waku.messages import IEvent
+from waku.messaging.durability import IOutboxStore
 from waku.messaging.endpoints._internal.external import ExternalEndpoint
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers
-from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization import UpcasterChain

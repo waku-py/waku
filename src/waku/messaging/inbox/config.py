@@ -4,12 +4,6 @@ import os
 import socket
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from waku.messaging.inbox.interfaces import IInboxStore
 
 __all__ = [
     'InboxConfig',
@@ -18,7 +12,6 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class InboxConfig:
-    store: type[IInboxStore] | Callable[..., IInboxStore]
     keep_after_handled: timedelta = timedelta(minutes=5)
     stuck_threshold: timedelta = timedelta(minutes=5)
     batch_size: int = 100

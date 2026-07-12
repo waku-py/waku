@@ -6,8 +6,8 @@ from uuid import uuid4
 from typing_extensions import override
 
 from waku.messaging._internal.partition import resolve_and_allocate
+from waku.messaging.durability import IOutboxStore
 from waku.messaging.endpoints.base import Endpoint
-from waku.messaging.outbox.interfaces import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec

@@ -11,6 +11,7 @@ faststream_rabbit = pytest.importorskip('faststream.rabbit')
 from faststream.rabbit import TestRabbitBroker
 
 from waku import module
+from waku.backends.memory._internal.outbox import InMemoryOutboxStore
 from waku.di import object_
 from waku.messages import IEvent
 from waku.messaging import (
@@ -24,6 +25,7 @@ from waku.messaging import (
     external_endpoint,
     route,
 )
+from waku.messaging.durability import IInboxStore, IOutboxStore
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.router import listen
@@ -34,7 +36,6 @@ from waku.uow import IUnitOfWork
 from tests._wait import wait_until
 from tests.messaging.helpers import FakeUoW
 from tests.messaging.inbox.fake_store import FakeInboxStore
-from tests.messaging.outbox.in_memory_store import InMemoryOutboxStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,8 +60,8 @@ class TestTransportCollectionIntegration:
         config = MessagingConfig(
             endpoints=[external_endpoint('rabbitmq://orders'), listen('rabbitmq://orders')],
             routing=[route(_OrderPlaced).to('rabbitmq://orders')],
-            outbox=OutboxConfig(store=lambda: outbox),
-            inbox=InboxConfig(store=lambda: inbox, owner_id='test-node:1'),
+            outbox=OutboxConfig(),
+            inbox=InboxConfig(owner_id='test-node:1'),
             transports={'rabbitmq': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
@@ -73,7 +74,11 @@ class TestTransportCollectionIntegration:
             TestRabbitBroker(transport._send_broker, transport._listen_broker),  # noqa: SLF001
             create_test_app(
                 imports=[MessagingModule.register(config), TestModule],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork)],
+                providers=[
+                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(outbox, provided_type=IOutboxStore),
+                    object_(inbox, provided_type=IInboxStore),
+                ],
             ) as app,
             app.container() as c,
         ):

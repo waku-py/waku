@@ -26,9 +26,9 @@ and `MessagingModule.register(MessagingConfig())` are equivalent.
 | `endpoints` | `Sequence[EndpointEntry]` | `()` | Message endpoints — local queues, external, listen (see [Routing](../features/messaging/routing.md)) |
 | `routing` | `Sequence[RouteDescriptor \| ModuleRouteDescriptor]` | `()` | Route descriptors mapping message types to endpoint URIs |
 | `endpoint_defaults` | `EndpointDefaults` | `EndpointDefaults()` | Per-endpoint fallback knobs; each is shadowed by an explicit per-endpoint/handler value (see below) |
-| `dead_letter` | `DeadLetterConfig \| None` | `None` | Dead-letter store, retention, auto-replay (see [Error handling](../features/messaging/error-handling.md)) |
-| `outbox` | `OutboxConfig \| None` | `None` | Outbox store + relay (see [Outbox](../features/messaging/outbox.md)) |
-| `inbox` | `InboxConfig \| None` | `None` | Durable inbox store + drainer for external listeners (see [Durable inbox](../features/messaging/inbox.md)) |
+| `dead_letter` | `DeadLetterConfig \| None` | `None` | Dead-letter retention, auto-replay, worker cadence (see [Error handling](../features/messaging/error-handling.md)) |
+| `outbox` | `OutboxConfig \| None` | `None` | Outbox relay tuning (see [Outbox](../features/messaging/outbox.md)) |
+| `inbox` | `InboxConfig \| None` | `None` | Durable inbox knobs for external listeners (see [Durable inbox](../features/messaging/inbox.md)) |
 | `message_identities` | `Mapping[type[IMessage], str \| MessageIdentity]` | `{}` | Third-party type-name overrides for types you can't annotate; default path is the ClassVar |
 | `audited_members` | `Mapping[type[IMessage], Sequence[str]]` | `{}` | Third-party audit-member overrides; names must be annotated fields (see [Observability](../features/messaging/observability.md)) |
 | `observers` | `Sequence[type[IMessageObserver]]` | `()` | Global message observers (fire on every message incl. `invoke()`), DI-constructed at app scope |
@@ -53,15 +53,13 @@ per-endpoint or per-handler value.
 
 ## EventSourcingConfig
 
-Passed to `EventSourcingModule.register(...)`. Only `store` is required.
+Passed to `EventSourcingModule.register(...)`. Every field has a default; the stores come from the
+imported [durability backend](../fundamentals/backends.md), not from config.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `store` | `type[IEventStore] \| Callable[..., IEventStore]` | *(required)* | The event store adapter (see [Event store & streams](../features/eventsourcing/event-store.md)) |
 | `event_serializer` | `type[IEventSerializer] \| Callable[..., IEventSerializer] \| None` | `None` | Event (de)serializer; `None` uses the default adaptix codec + upcaster chain |
-| `snapshot_store` | `type[ISnapshotStore] \| Callable[..., ISnapshotStore] \| None` | `None` | Snapshot store adapter (see [Snapshots](../features/eventsourcing/snapshots.md)) |
 | `snapshot_state_serializer` | `type[ISnapshotStateSerializer] \| Callable[..., ISnapshotStateSerializer] \| None` | `None` | Serializer for snapshot state; `None` uses the default |
-| `checkpoint_store` | `type[ICheckpointStore] \| Callable[..., ICheckpointStore] \| None` | `None` | Checkpoint store for catch-up projections (see [Projections](../features/eventsourcing/projections.md)) |
 | `enrichers` | `Sequence[type[IMetadataEnricher]]` | `()` | Metadata enrichers applied to appended events |
 | `forwarding` | `Sequence[ForwardDescriptor]` | `()` | `forward(...)` rules bridging event-store appends onto the message bus (see [Messaging integration](../features/eventsourcing/forwarding.md)) |
 

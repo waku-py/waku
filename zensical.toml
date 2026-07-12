@@ -26,6 +26,7 @@ nav = [
     { "Extension system" = "advanced/extensions/index.md" },
     { "Custom extensions" = "advanced/extensions/custom-extensions.md" },
     { "Startup validation" = "features/validation.md" },
+    { "Durability backends" = "fundamentals/backends.md" },
     { "Framework integrations" = "fundamentals/integrations.md" },
     { "Testing applications" = "fundamentals/testing.md" },
   ] },

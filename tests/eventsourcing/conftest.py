@@ -6,10 +6,10 @@ import pytest
 from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from waku.backends.sqlalchemy.checkpoint.tables import bind_checkpoint_tables
+from waku.backends.sqlalchemy.event_store.tables import bind_event_store_tables
+from waku.backends.sqlalchemy.snapshot.tables import bind_snapshot_tables
 from waku.eventsourcing.projection.lock.sqlalchemy.tables import bind_lease_tables
-from waku.eventsourcing.projection.sqlalchemy.tables import bind_checkpoint_tables
-from waku.eventsourcing.snapshot.sqlalchemy.tables import bind_snapshot_tables
-from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

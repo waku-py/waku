@@ -31,12 +31,12 @@ from waku.messaging import MessagingModule
     imports=[
         EventSourcingModule.register(  # (1)!
             EventSourcingConfig(
-                store=make_sqlalchemy_event_store(tables),
                 forwarding=[forward(AccountOpened).transformed_to(to_integration_event)],
             ),
         ),
         MessagingModule.register(),           # (2)!
         EventSourcingMessagingModule.register(),  # (3)!
+        SqlAlchemyBackend.register(session_factory=create_session),  # (4)!
     ],
 )
 class AppModule:
@@ -46,6 +46,7 @@ class AppModule:
 1. Event-sourcing config, including the `forwarding` rules.
 2. The message bus the events are forwarded onto.
 3. The bridge that actually wires forwarding — without it, the rules do nothing.
+4. The [durability backend](../../fundamentals/backends.md) providing the recording event store.
 
 !!! warning "The bridge is required — misconfiguration is fail-loud"
     `forwarding=[...]` only takes effect through `EventSourcingMessagingModule.register()`. Configure
@@ -86,14 +87,13 @@ def to_integration_event(stored: StoredEvent) -> AccountOpenedIntegration:
 
 
 config = EventSourcingConfig(
-    store=make_sqlalchemy_event_store(tables),
     forwarding=[forward(AccountOpened).transformed_to(to_integration_event)],
 )
 ```
 
 !!! danger "Forwarding requires a recording store"
-    Only a store that records appended events feeds forwarding. `make_sqlalchemy_event_store` records;
-    `InMemoryEventStore` does not. Configuring forwarding against a non-recording store raises
+    Only a store that records appended events feeds forwarding. The SQLAlchemy backend's
+    `SqlAlchemyEventStore` records; `InMemoryEventStore` (the memory backend) does not. Configuring forwarding against a non-recording store raises
     `ImproperlyConfiguredError` at startup naming the store type: *forwarding=[...] is configured
     against InMemoryEventStore, which does not record appended events...*. A custom store opts in by
     overriding `IEventWriter.records_appended_events` (default `False`) to `True`.
@@ -123,9 +123,8 @@ from waku.eventsourcing import (
     EventSourcingModule,
     forward,
 )
+from waku.backends.sqlalchemy import SqlAlchemyBackend
 from waku.eventsourcing.contracts.event import StoredEvent
-from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
-from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
 from waku.integrations.eventsourcing_messaging import (
     EventSourcedCommandHandler,
     EventSourcingMessagingModule,
@@ -211,7 +210,6 @@ class AccountOpenedIntegrationHandler(EventHandler[AccountOpenedIntegration]):
 
 
 metadata = MetaData()
-tables = bind_event_store_tables(metadata)
 engine = create_async_engine(DATABASE_URL)
 
 
@@ -240,16 +238,15 @@ class BankModule:
         BankModule,
         EventSourcingModule.register(
             EventSourcingConfig(
-                store=make_sqlalchemy_event_store(tables),
                 forwarding=[forward(AccountOpened).transformed_to(to_integration_event)],
             ),
         ),
         MessagingModule.register(),
         EventSourcingMessagingModule.register(),
+        SqlAlchemyBackend.register(session_factory=create_session, metadata=metadata),
     ],
     providers=[
         object_(engine, provided_type=AsyncEngine),
-        scoped(AsyncSession, create_session),
     ],
 )
 class AppModule:

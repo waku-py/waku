@@ -9,7 +9,7 @@ from waku.messaging.inbox.models import InboxEntry, InboxStatus
 from tests.messaging.helpers import RecordingAllocator
 
 if TYPE_CHECKING:
-    from waku.messaging.inbox.interfaces import IInboxStore
+    from waku.messaging.durability import IInboxStore
 
 # Contract shared by every IInboxStore over the `inbox_store` fixture (fake | sqlalchemy): promotion
 # claims due SCHEDULED rows, allocates a per-group sequence at promotion (keyless stays None), and

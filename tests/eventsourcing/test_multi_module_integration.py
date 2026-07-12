@@ -4,12 +4,12 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from waku import module
+from waku.backends.memory import MemoryBackend
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule, EventType
 from waku.eventsourcing.projection.interfaces import IProjection
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
-from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.messages import IEvent
 from waku.serialization import UpcasterChain, rename_field
 from waku.testing import create_test_app
@@ -119,7 +119,7 @@ def _create_modules() -> tuple[type, type]:
     )
 
     @module(
-        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))], extensions=[orders_ext]
+        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()], extensions=[orders_ext]
     )
     class OrdersModule:
         pass

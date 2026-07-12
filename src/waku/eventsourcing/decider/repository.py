@@ -20,9 +20,11 @@ from waku.eventsourcing.serialization.interfaces import (
     ISnapshotStateSerializer,  # noqa: TC001  # Dishka needs runtime access
 )
 from waku.eventsourcing.snapshot._internal.manager import SnapshotManager
-from waku.eventsourcing.snapshot.interfaces import ISnapshotStore  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.snapshot.registry import SnapshotConfigRegistry  # noqa: TC001  # Dishka needs runtime access
-from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Dishka needs runtime access
+from waku.eventsourcing.store.interfaces import (
+    IEventStore,  # noqa: TC001  # Dishka needs runtime access
+    ISnapshotStore,  # noqa: TC001  # Dishka needs runtime access
+)
 
 __all__ = [
     'DeciderRepository',
