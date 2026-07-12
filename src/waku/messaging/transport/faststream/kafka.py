@@ -242,6 +242,8 @@ def kafka_transport(
     *,
     consumer_group: str,
     auto_offset_reset: Literal['latest', 'earliest', 'none'] = 'latest',
+    acks: Literal[0, 1, -1, 'all'] = 'all',
+    enable_idempotence: bool = False,
     mapper: IKafkaEnvelopeMapper | None = None,
 ) -> TransportFactory:
     """Return a deferred factory for ``FastStreamKafkaTransport`` (not yet started).
@@ -253,6 +255,13 @@ def kafka_transport(
         consumer_group: Kafka consumer ``group.id`` shared by all subscribers (competing consumers across
             pods) — distinct from the per-message ``group_id`` partition key.
         auto_offset_reset: Where a fresh consumer group starts reading.
+        acks: Producer acknowledgement level. Defaults to ``'all'`` (wait for all in-sync replicas) because
+            the outbox relay retires a row as soon as the broker acknowledges the publish — a leader-only
+            ack (``acks=1``, aiokafka's own default) would void at-least-once on leader failover.
+        enable_idempotence: Enable the idempotent producer (producer→broker de-duplication under retries).
+            Opt-in: not required for at-least-once, and not transactional exactly-once. Requires
+            ``acks='all'``/``-1``; aiokafka rejects other values at producer construction, which surfaces
+            as a ``ValueError`` when the transport starts.
         mapper: Envelope mapper; defaults to ``DefaultKafkaEnvelopeMapper``.
     """
 
@@ -260,7 +269,7 @@ def kafka_transport(
     # builds its own KafkaBroker — binding one eagerly via partial would share a single broker across calls.
     def _factory() -> ITransport:
         return FastStreamKafkaTransport(
-            broker=KafkaBroker(url),
+            broker=KafkaBroker(url, acks=acks, enable_idempotence=enable_idempotence),
             consumer_group=consumer_group,
             auto_offset_reset=auto_offset_reset,
             mapper=mapper,

@@ -361,6 +361,41 @@ class TestKafkaTransportFactory:
         transport = factory()
         assert isinstance(transport, FastStreamKafkaTransport)
 
+    @staticmethod
+    def test_factory_builds_the_broker_with_acks_all_by_default(mocker: MockerFixture) -> None:
+        broker_cls = mocker.patch('waku.messaging.transport.faststream.kafka.KafkaBroker')
+
+        kafka_transport('localhost:9092', consumer_group='svc')()
+
+        broker_cls.assert_called_once_with('localhost:9092', acks='all', enable_idempotence=False)
+
+    @staticmethod
+    def test_factory_forwards_an_explicit_acks_value(mocker: MockerFixture) -> None:
+        broker_cls = mocker.patch('waku.messaging.transport.faststream.kafka.KafkaBroker')
+
+        kafka_transport('localhost:9092', consumer_group='svc', acks=1)()
+
+        broker_cls.assert_called_once_with('localhost:9092', acks=1, enable_idempotence=False)
+
+    @staticmethod
+    def test_factory_forwards_enable_idempotence(mocker: MockerFixture) -> None:
+        broker_cls = mocker.patch('waku.messaging.transport.faststream.kafka.KafkaBroker')
+
+        kafka_transport('localhost:9092', consumer_group='svc', enable_idempotence=True)()
+
+        broker_cls.assert_called_once_with('localhost:9092', acks='all', enable_idempotence=True)
+
+    @staticmethod
+    async def test_conflicting_acks_and_idempotence_raise_at_transport_start() -> None:
+        # aiokafka rejects acks!=all with enable_idempotence=True at producer construction, which FastStream
+        # defers to broker connect — so the guard surfaces at transport.start(), before any network I/O.
+        # URL is a closed local port so a regression fails fast (connection refused) instead of hanging.
+        factory = kafka_transport('127.0.0.1:1', consumer_group='svc', acks=1, enable_idempotence=True)
+        transport = factory()
+
+        with pytest.raises(ValueError, match='not supported if enable_idempotence'):
+            await transport.start()
+
 
 class TestDefaultKafkaEnvelopeMapperOutgoing:
     @staticmethod

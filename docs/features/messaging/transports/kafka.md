@@ -13,7 +13,7 @@ tags:
 The Kafka transport is a FastStream-backed wire adapter on the same model as the
 [RabbitMQ transport](rabbitmq.md). You register it on `MessagingConfig.transports` keyed by the
 `kafka` scheme. The factory is `kafka_transport(url, *, consumer_group, auto_offset_reset='latest',
-mapper=None)`; it is imported from the broker module:
+acks='all', enable_idempotence=False, mapper=None)`; it is imported from the broker module:
 
 ```python linenums="1"
 from waku.messaging import MessagingConfig
@@ -32,6 +32,16 @@ Messages routed to a `kafka://…` [external endpoint](../routing.md) are persis
 dispatched by the relay through this transport. The relay forwards the pre-encoded body and metadata;
 the transport publishes without re-serializing. See [Outbox](../outbox.md) for the endpoint and
 routing wiring.
+
+The producer defaults to `acks='all'`, so a publish is acknowledged only after every in-sync replica
+has the record — required for the outbox's at-least-once guarantee, since the relay retires the
+outbox row as soon as the broker acknowledges the publish. (aiokafka's own default is `acks=1`: a
+leader crash before replication would silently lose an already-retired message.) This only holds when
+the topic has replication factor ≥ 2 and `min.insync.replicas` ≥ 2 — on a single-replica topic
+`acks='all'` degrades to a leader-only ack. Pass `acks=1` to restore leader-only acknowledgement.
+`enable_idempotence=True` opts into producer→broker de-duplication under retries; it requires
+`acks='all'` and is not transactional exactly-once. For full producer control, build your own
+`KafkaBroker` and pass it to `FastStreamKafkaTransport(broker=...)`.
 
 ---
 
