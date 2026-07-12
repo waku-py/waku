@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
     from waku.application import WakuApplication
+    from waku.eventsourcing.contracts.event import StoredEvent
     from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
     from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
     from waku.eventsourcing.store.in_memory import InMemoryEventStore
@@ -65,6 +66,53 @@ class AlwaysLockedLock(IProjectionLock):
     @contextlib.asynccontextmanager
     async def acquire(self, projection_name: str) -> AsyncGenerator[bool]:
         yield False
+
+
+class FailingAcquireLock(IProjectionLock):
+    def __init__(self, failing_name: str) -> None:
+        self._failing_name = failing_name
+        self._inner = InMemoryProjectionLock()
+
+    @override
+    @contextlib.asynccontextmanager
+    async def acquire(self, projection_name: str) -> AsyncGenerator[bool]:
+        if projection_name == self._failing_name:
+            msg = 'lock backend down'
+            raise RuntimeError(msg)
+        async with self._inner.acquire(projection_name) as acquired:
+            yield acquired
+
+
+class RenewFailingLock(IProjectionLock):
+    def __init__(self, failing_name: str) -> None:
+        self._failing_name = failing_name
+        self._inner = InMemoryProjectionLock()
+
+    @override
+    @contextlib.asynccontextmanager
+    async def acquire(self, projection_name: str) -> AsyncGenerator[bool]:
+        if projection_name != self._failing_name:
+            async with self._inner.acquire(projection_name) as acquired:
+                yield acquired
+            return
+        # Mirrors the lease lock's shape: the heartbeat runs in the acquire CM's own task group, so a
+        # renew-time crash propagates through `async with lock.acquire(...)` while the poll loop runs.
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(self._failing_renew)
+            yield True
+
+    @staticmethod
+    async def _failing_renew() -> None:
+        msg = 'lease renew failed'
+        raise RuntimeError(msg)
+
+
+class IdleProjection(ICatchUpProjection):
+    projection_name = 'idle_proj'
+
+    @override
+    async def project(self, _events: Sequence[StoredEvent], /) -> None:
+        pass
 
 
 def _make_app(
@@ -275,6 +323,72 @@ async def test_runner_isolates_projection_errors(
         await _run_until(runner, lambda: len(good_projection.received) >= 5)
 
     assert len(good_projection.received) == 5
+
+
+async def test_one_projection_lock_failure_does_not_cancel_others(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    await seed_events(event_store, count=5)
+
+    lock = FailingAcquireLock('stop_proj')
+    good_projection = RecordingProjection()
+    doomed_projection = StopProjection()
+    doomed_binding = make_binding(StopProjection)
+    good_binding = make_binding(RecordingProjection)
+    app = _make_app(
+        event_store,
+        in_memory_checkpoint_store,
+        lock,
+        (good_projection, doomed_projection),
+        (doomed_binding, good_binding),
+    )
+
+    with caplog.at_level(logging.ERROR, logger='waku.eventsourcing.projection.runner'):
+        async with app:
+            runner = await CatchUpProjectionRunner.create(
+                container=app.container,
+                lock=lock,
+                polling=_FAST_POLLING,
+            )
+            await _run_until(runner, lambda: len(good_projection.received) >= 5)
+
+    assert len(good_projection.received) == 5
+    assert "Projection 'stop_proj' stopped due to unrecoverable error" in caplog.text
+
+
+async def test_renew_failure_while_polling_does_not_cancel_others(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    await seed_events(event_store, count=5)
+
+    lock = RenewFailingLock('idle_proj')
+    good_projection = RecordingProjection()
+    doomed_projection = IdleProjection()
+    doomed_binding = make_binding(IdleProjection)
+    good_binding = make_binding(RecordingProjection)
+    app = _make_app(
+        event_store,
+        in_memory_checkpoint_store,
+        lock,
+        (good_projection, doomed_projection),
+        (doomed_binding, good_binding),
+    )
+
+    with caplog.at_level(logging.ERROR, logger='waku.eventsourcing.projection.runner'):
+        async with app:
+            runner = await CatchUpProjectionRunner.create(
+                container=app.container,
+                lock=lock,
+                polling=_FAST_POLLING,
+            )
+            await _run_until(runner, lambda: len(good_projection.received) >= 5)
+
+    assert len(good_projection.received) == 5
+    assert "Projection 'idle_proj' stopped due to unrecoverable error" in caplog.text
 
 
 async def test_poll_loop_logs_and_continues_on_scope_error(

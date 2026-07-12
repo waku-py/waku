@@ -29,6 +29,26 @@ class RenameNameToOwnerMigration(ISnapshotMigration):
         return new_state
 
 
+class InPlaceMutatingMigration(ISnapshotMigration):
+    from_version = 1
+    to_version = 2
+
+    @override
+    def migrate(self, state: dict[str, Any], /) -> dict[str, Any]:
+        state['migrated'] = True
+        return state
+
+
+def test_migration_chain_does_not_mutate_input() -> None:
+    chain = SnapshotMigrationChain([InPlaceMutatingMigration()])
+    original = {'name': 'Alice'}
+
+    result_state, _ = chain.migrate(original, from_version=1)
+
+    assert original == {'name': 'Alice'}
+    assert result_state == {'name': 'Alice', 'migrated': True}
+
+
 def test_migrate_applies_single_migration() -> None:
     chain = SnapshotMigrationChain([AddBalanceFieldMigration()])
 

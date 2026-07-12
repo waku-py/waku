@@ -474,7 +474,7 @@ class EventSourcingRegistryAggregator(RegistryAggregator['EventSourcingExtension
             if item.upcasters:
                 type_name = item.name or item.event_type.__name__
                 cls._validate_upcaster_versions(item.upcasters, type_name, item.version)
-                if type_name in upcasters and upcasters[type_name] is not item.upcasters:
+                if type_name in upcasters and list(upcasters[type_name]) != list(item.upcasters):
                     msg = f'Conflicting upcaster definitions for event type {type_name!r}'
                     raise UpcasterChainError(msg)
                 upcasters[type_name] = item.upcasters

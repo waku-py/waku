@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import copy
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -61,6 +62,8 @@ class SnapshotMigrationChain:
         return self._migrations
 
     def migrate(self, state: dict[str, Any], from_version: int) -> tuple[dict[str, Any], int]:
+        # Work on a copy so an in-place migration can never corrupt the caller's dict.
+        state = copy.deepcopy(state)
         current = from_version
         for m in self._migrations:
             if m.from_version == current:

@@ -426,3 +426,47 @@ async def test_snapshot_save_failure_does_not_prevent_aggregate_save(
     stored = await event_store.read_stream(StreamId.for_aggregate('BankAccount', 'acc-1'))
     assert len(stored) == 3
     assert 'Failed to save snapshot' in caplog.text
+
+
+class _NotADataclassState:
+    pass
+
+
+class _BrokenStateRepository(BankAccountRepository):
+    @override
+    def _snapshot_state(self, aggregate: BankAccount) -> object:
+        return _NotADataclassState()
+
+
+class _RaisingStateHookRepository(BankAccountRepository):
+    @override
+    def _snapshot_state(self, aggregate: BankAccount) -> object:
+        msg = 'state hook exploded'
+        raise RuntimeError(msg)
+
+
+@pytest.mark.parametrize('repository_type', [_BrokenStateRepository, _RaisingStateHookRepository])
+async def test_snapshot_side_failure_does_not_fail_save(
+    event_store: InMemoryEventStore,
+    snapshot_store: InMemorySnapshotStore,
+    state_serializer: JsonSnapshotStateSerializer,
+    caplog: pytest.LogCaptureFixture,
+    repository_type: type[BankAccountRepository],
+) -> None:
+    config_registry = SnapshotConfigRegistry({
+        'BankAccount': SnapshotConfig(strategy=EventCountStrategy(threshold=3)),
+    })
+    repository = repository_type(event_store, snapshot_store, config_registry, state_serializer)
+
+    account = BankAccount()
+    account.open('Alice')
+    account.deposit(100)
+    account.deposit(200)
+    version, events = await repository.save('acc-1', account)
+
+    assert version == 2
+    assert len(events) == 3
+    stored = await event_store.read_stream(StreamId.for_aggregate('BankAccount', 'acc-1'))
+    assert len(stored) == 3
+    assert await snapshot_store.load(StreamId.for_aggregate('BankAccount', 'acc-1')) is None
+    assert 'Failed to save snapshot' in caplog.text

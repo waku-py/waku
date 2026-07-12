@@ -72,7 +72,9 @@ class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
         idempotency_key: str | None = None,
     ) -> tuple[int, list[IEvent]]:
         stream_id = self._stream_id(aggregate_id)
-        events = aggregate.collect_events()
+        # Peek without draining: events leave the aggregate only once the append succeeded
+        # (mark_persisted), so a retried save() after a transient failure still sees them.
+        events = aggregate.pending_events
         if not events:
             return aggregate.version, []
 

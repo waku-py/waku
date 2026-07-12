@@ -121,6 +121,15 @@ class CatchUpProjectionRunner:
 
     async def _run_projection(self, binding: CatchUpProjectionBinding) -> None:
         projection_name = binding.projection.projection_name
+        # One boundary around the whole body (lock acquisition, lease heartbeat, poll loop): a failure
+        # here stops only this projection's task, never the sibling projections sharing the task group.
+        # Cancellation is a BaseException and passes through untouched.
+        try:
+            await self._acquire_and_poll(binding, projection_name)
+        except Exception:
+            logger.exception('Projection %r stopped due to unrecoverable error', projection_name)
+
+    async def _acquire_and_poll(self, binding: CatchUpProjectionBinding, projection_name: str) -> None:
         async with self._lock.acquire(projection_name) as acquired:
             if not acquired:
                 logger.info('Projection %r is locked by another instance, skipping', projection_name)
@@ -133,10 +142,7 @@ class CatchUpProjectionRunner:
                 jitter_factor=self._polling.poll_interval_jitter_factor,
             )
             processor = ProjectionProcessor(binding)
-            try:
-                await self._poll_loop(binding, processor, interval)
-            except ProjectionError:
-                logger.exception('Projection %r stopped due to unrecoverable error', projection_name)
+            await self._poll_loop(binding, processor, interval)
 
     async def _poll_loop(
         self,

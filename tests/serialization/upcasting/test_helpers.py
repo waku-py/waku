@@ -98,3 +98,54 @@ class TestUpcast:
     @staticmethod
     def test_stores_from_version() -> None:
         assert upcast(from_version=3, fn=lambda d: d).from_version == 3
+
+
+class TestValueEquality:
+    @staticmethod
+    def test_same_helper_same_args_compare_equal() -> None:
+        assert rename_field(from_version=1, old='a', new='b') == rename_field(from_version=1, old='a', new='b')
+        assert noop(from_version=1) == noop(from_version=1)
+        assert remove_field(from_version=1, field='x') == remove_field(from_version=1, field='x')
+
+    @staticmethod
+    def test_same_helper_different_args_compare_unequal() -> None:
+        assert rename_field(from_version=1, old='a', new='b') != rename_field(from_version=1, old='a', new='c')
+        assert remove_field(from_version=1, field='x') != remove_field(from_version=1, field='y')
+
+    @staticmethod
+    def test_different_from_version_compares_unequal() -> None:
+        assert noop(from_version=1) != noop(from_version=2)
+
+    @staticmethod
+    def test_different_helpers_compare_unequal() -> None:
+        assert rename_field(from_version=1, old='a', new='b') != add_field(from_version=1, field='b', default=None)
+
+    @staticmethod
+    def test_add_field_unhashable_default_compares_by_repr() -> None:
+        assert add_field(from_version=1, field='tags', default=[]) == add_field(
+            from_version=1, field='tags', default=[]
+        )
+        assert add_field(from_version=1, field='tags', default=[]) != add_field(
+            from_version=1, field='tags', default=[1]
+        )
+
+    @staticmethod
+    def test_add_field_hashable_default_compares_by_value() -> None:
+        assert add_field(from_version=1, field='n', default=0) == add_field(from_version=1, field='n', default=0)
+        assert add_field(from_version=1, field='n', default=0) != add_field(from_version=1, field='n', default=1)
+
+    @staticmethod
+    def test_raw_upcast_shared_fn_compares_equal() -> None:
+        def fn(data: dict[str, object]) -> dict[str, object]:
+            return data
+
+        assert upcast(from_version=1, fn=fn) == upcast(from_version=1, fn=fn)
+
+    @staticmethod
+    def test_raw_upcast_distinct_closures_compare_unequal() -> None:
+        assert upcast(from_version=1, fn=lambda d: d) != upcast(from_version=1, fn=lambda d: d)
+
+    @staticmethod
+    def test_upcaster_compares_unequal_to_other_types() -> None:
+        other: object = ('noop',)
+        assert noop(from_version=1) != other

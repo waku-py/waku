@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -7,6 +8,7 @@ from typing_extensions import override
 
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import SnapshotTypeMismatchError
+from waku.eventsourcing.serialization.json import JsonSnapshotStateSerializer
 from waku.eventsourcing.snapshot._internal.manager import SnapshotManager
 from waku.eventsourcing.snapshot.interfaces import Snapshot
 from waku.eventsourcing.snapshot.migration import ISnapshotMigration, SnapshotMigrationChain
@@ -18,6 +20,11 @@ if TYPE_CHECKING:
     from unittest.mock import AsyncMock
 
     from pytest_mock import MockerFixture
+
+
+@dataclass(frozen=True)
+class _State:
+    key: str = 'value'
 
 
 @pytest.fixture
@@ -49,6 +56,7 @@ def _make_manager(
         store=snapshot_store,
         config=config,
         valid_state_types=frozenset({state_type_name}),
+        serializer=JsonSnapshotStateSerializer(),
     )
 
 
@@ -116,6 +124,7 @@ async def test_load_snapshot_accepts_any_family_member(
         store=snapshot_store,
         config=SnapshotConfig(strategy=EventCountStrategy(threshold=3)),
         valid_state_types=frozenset({'NotCreated', 'Active'}),
+        serializer=JsonSnapshotStateSerializer(),
     )
 
     result = await manager.load_snapshot(stream_id, 'agg-1')
@@ -138,6 +147,7 @@ async def test_load_snapshot_mismatch_renders_family_in_expected_type(
         store=snapshot_store,
         config=SnapshotConfig(strategy=EventCountStrategy(threshold=3)),
         valid_state_types=frozenset({'NotCreated', 'Active'}),
+        serializer=JsonSnapshotStateSerializer(),
     )
 
     with pytest.raises(SnapshotTypeMismatchError) as exc_info:
@@ -301,7 +311,7 @@ async def test_save_snapshot_persists_and_tracks(
 ) -> None:
     manager = _make_manager(snapshot_store, schema_version=2)
 
-    await manager.save_snapshot(stream_id, 'agg-1', {'key': 'value'}, version=7, state_type_name='TestAggregate')
+    await manager.save_snapshot(stream_id, 'agg-1', _State, version=7, state_type_name='TestAggregate')
 
     snapshot_store.save.assert_called_once()
     saved: Snapshot = snapshot_store.save.call_args[0][0]
@@ -318,7 +328,7 @@ async def test_save_snapshot_updates_tracked_version(
 ) -> None:
     manager = _make_manager(snapshot_store, threshold=3)
 
-    await manager.save_snapshot(stream_id, 'agg-1', {'key': 'value'}, version=5, state_type_name='TestAggregate')
+    await manager.save_snapshot(stream_id, 'agg-1', _State, version=5, state_type_name='TestAggregate')
 
     assert not manager.should_save('agg-1', 6)
     assert not manager.should_save('agg-1', 7)

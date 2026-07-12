@@ -145,6 +145,7 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
             store=snapshot_store,
             config=config,
             valid_state_types=frozenset(self._variants_by_name),
+            serializer=state_serializer,
         )
 
     def _resolve_state_variants(self) -> dict[str, type[StateT]]:
@@ -235,12 +236,11 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
                     f'it is not a declared state variant ({known})'
                 )
                 raise EventSourcingConfigError(msg)
-            state_data = self._state_serializer.serialize(state)
             stream_id = self._stream_id(aggregate_id)
             await self._snapshot_manager.save_snapshot(
                 stream_id,
                 aggregate_id,
-                state_data,
+                lambda: state,
                 new_version,
                 state_type_name=state_type_name,
             )

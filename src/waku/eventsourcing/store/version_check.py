@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import assert_never
+
 from waku.eventsourcing.contracts.stream import AnyVersion, Exact, NoStream, StreamExists, StreamId
 from waku.eventsourcing.exceptions import ConcurrencyConflictError
 
@@ -25,3 +27,5 @@ def check_expected_version(
         case Exact(version=v):
             if v != current_version:
                 raise ConcurrencyConflictError(stream_id, v, current_version)
+        case _:
+            assert_never(expected)

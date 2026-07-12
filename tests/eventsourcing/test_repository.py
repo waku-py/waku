@@ -1,14 +1,23 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Generic, TypeVar
+
 import pytest
 
+from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import AggregateNotFoundError, ConcurrencyConflictError, StreamTooLargeError
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
+from waku.eventsourcing.store.interfaces import IEventStore
 
 from tests.eventsourcing.domain import AccountOpened, BankAccount, MoneyDeposited
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
+
+_AggregateT = TypeVar('_AggregateT', bound=EventSourcedAggregate)
 
 
 class BankAccountRepository(EventSourcedRepository[BankAccount]):
@@ -253,3 +262,37 @@ async def test_save_without_idempotency_key_generates_unique_uuid_keys(
     for key in keys:
         assert len(key) == 36
         assert key.count('-') == 4
+
+
+async def test_save_retry_after_transient_append_failure_does_not_lose_events(mocker: MockerFixture) -> None:
+    flaky_store = mocker.AsyncMock(spec=IEventStore)
+    flaky_store.append_to_stream.side_effect = [RuntimeError('transient'), 1]
+    repository = BankAccountRepository(flaky_store)
+    account = BankAccount()
+    account.open('Alice')
+    account.deposit(100)
+
+    with pytest.raises(RuntimeError, match='transient'):
+        await repository.save('acc-retry', account)
+
+    new_version, events = await repository.save('acc-retry', account)
+
+    assert new_version == 1
+    assert events == [AccountOpened(name='Alice'), MoneyDeposited(amount=100)]
+
+
+def test_generic_intermediate_repository_base_does_not_crash() -> None:
+    class GenericBase(EventSourcedRepository[_AggregateT], Generic[_AggregateT]):
+        pass
+
+    class ConcreteRepo(GenericBase[BankAccount]):
+        pass
+
+    assert ConcreteRepo.aggregate_name == 'BankAccount'
+
+
+def test_concrete_unparametrized_repository_still_raises() -> None:
+    with pytest.raises(TypeError, match='must define aggregate_name or parametrize Generic'):
+
+        class _BareRepo(EventSourcedRepository):  # type: ignore[type-arg]
+            pass

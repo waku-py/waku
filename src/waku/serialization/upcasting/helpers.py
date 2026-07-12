@@ -20,7 +20,7 @@ __all__ = [
 
 
 def noop(from_version: int) -> IPayloadUpcaster:
-    return FnUpcaster(from_version, fn=dict)
+    return FnUpcaster(from_version, fn=dict, key=('noop',))
 
 
 def rename_field(from_version: int, *, old: str, new: str) -> IPayloadUpcaster:
@@ -30,7 +30,7 @@ def rename_field(from_version: int, *, old: str, new: str) -> IPayloadUpcaster:
             result[new] = data[old]
         return result
 
-    return FnUpcaster(from_version, fn=_rename)
+    return FnUpcaster(from_version, fn=_rename, key=('rename_field', old, new))
 
 
 def add_field(from_version: int, *, field: str, default: Any) -> IPayloadUpcaster:
@@ -40,12 +40,24 @@ def add_field(from_version: int, *, field: str, default: Any) -> IPayloadUpcaste
             result[field] = copy.copy(default)
         return result
 
-    return FnUpcaster(from_version, fn=_add)
+    return FnUpcaster(from_version, fn=_add, key=('add_field', field, _hashable_or_repr(default)))
 
 
 def remove_field(from_version: int, *, field: str) -> IPayloadUpcaster:
-    return FnUpcaster(from_version, fn=lambda data: {k: v for k, v in data.items() if k != field})
+    return FnUpcaster(
+        from_version,
+        fn=lambda data: {k: v for k, v in data.items() if k != field},
+        key=('remove_field', field),
+    )
 
 
 def upcast(from_version: int, fn: Callable[[dict[str, Any]], dict[str, Any]]) -> IPayloadUpcaster:
     return FnUpcaster(from_version, fn=fn)
+
+
+def _hashable_or_repr(default: Any) -> object:
+    try:
+        hash(default)
+    except TypeError:
+        return repr(default)
+    return default

@@ -27,10 +27,40 @@ from waku.exceptions import ImproperlyConfiguredError
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from types import TracebackType
+
     from waku.eventsourcing.contracts.stream import ExpectedVersion, StreamId
     from waku.eventsourcing.store.interfaces import ICheckpointStore, ISnapshotStore
 
 __all__ = ['InMemoryEventStore']
+
+
+# Task-ownership reentrant lock over anyio.Lock (which is non-reentrant). append_to_stream holds the
+# store lock across its inline projections, so a projection that reads back through the public API
+# re-enters from the same task and must not deadlock, while other tasks stay excluded.
+class _TaskReentrantLock:
+    def __init__(self) -> None:
+        self._lock = anyio.Lock()
+        self._owner: anyio.TaskInfo | None = None
+        self._depth = 0
+
+    async def __aenter__(self) -> None:
+        task = anyio.get_current_task()
+        if self._owner != task:
+            await self._lock.acquire()
+            self._owner = task
+        self._depth += 1
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        self._depth -= 1
+        if self._depth == 0:
+            self._owner = None
+            self._lock.release()
 
 
 class InMemoryEventStore(IEventStore):
@@ -50,7 +80,7 @@ class InMemoryEventStore(IEventStore):
         self._idempotency_keys: dict[str, set[str]] = {}
         self._deleted_streams: set[str] = set()
         self._global_position: int = 0
-        self._lock = anyio.Lock()
+        self._lock = _TaskReentrantLock()
         self._projections = projections
         self._enrichers = enrichers
 
@@ -167,6 +197,9 @@ class InMemoryEventStore(IEventStore):
         *,
         expected_version: ExpectedVersion,
     ) -> int:
+        # The task-reentrant store lock is held across the inline projections: no other task can
+        # interleave with an append (mirroring the SQLAlchemy store, which projects inside the
+        # append's transaction), while a projection may still read back through the public API.
         async with self._lock:
             key = str(stream_id)
             if key in self._deleted_streams:
@@ -192,7 +225,6 @@ class InMemoryEventStore(IEventStore):
                 is_new_stream = False
 
             stored_events: list[StoredEvent] = []
-            base_global_position = self._global_position
             for envelope in events:
                 position = len(stream)
                 stored = StoredEvent(
@@ -219,32 +251,37 @@ class InMemoryEventStore(IEventStore):
             for envelope in events:
                 stream_keys.add(envelope.idempotency_key)
 
+            new_version = stored_events[-1].position
+
             try:
                 for projection in self._projections:
                     await projection.project(stored_events)
             except Exception:
-                self._rollback_append(key, stream, events, base_global_position, is_new_stream=is_new_stream)
+                self._rollback_append(key, stored_events, is_new_stream=is_new_stream)
                 raise
 
-            return len(stream) - 1
+            return new_version
 
     def _rollback_append(
         self,
         key: str,
-        stream: list[StoredEvent],
-        events: Sequence[EventEnvelope],
-        base_global_position: int,
+        stored_events: Sequence[StoredEvent],
         *,
         is_new_stream: bool,
     ) -> None:
-        del stream[len(stream) - len(events) :]
-        if is_new_stream:
-            del self._streams[key]
-        self._global_position = base_global_position
+        # Runs under the held store lock. Global positions consumed by the rolled-back events are
+        # burned permanently (the counter is never reset), matching the documented burned-position
+        # model: real backends burn sequence values on a rolled-back append too.
+        stream = self._streams.get(key)
+        if stream is not None:
+            appended_ids = {e.event_id for e in stored_events}
+            stream[:] = [e for e in stream if e.event_id not in appended_ids]
+            if is_new_stream and not stream:
+                del self._streams[key]
         stream_keys = self._idempotency_keys.get(key)
         if stream_keys is not None:
-            for envelope in events:
-                stream_keys.discard(envelope.idempotency_key)
+            for event in stored_events:
+                stream_keys.discard(event.idempotency_key)
             if not stream_keys:
                 del self._idempotency_keys[key]
 

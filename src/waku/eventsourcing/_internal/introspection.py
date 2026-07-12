@@ -23,7 +23,8 @@ _TYPE_ALIAS_TYPES: typing.Final[tuple[type, ...]] = (
 
 
 def is_abstract(cls: type) -> bool:
-    return inspect.isabstract(cls) or abc.ABC in cls.__bases__
+    """Whether *cls* is not yet concrete: abstract methods, direct ABC base, or unbound type parameters."""
+    return inspect.isabstract(cls) or abc.ABC in cls.__bases__ or bool(getattr(cls, '__parameters__', ()))
 
 
 def is_type_alias(obj: object) -> typing.TypeGuard[BackportTypeAliasType]:

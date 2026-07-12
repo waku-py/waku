@@ -81,6 +81,27 @@ def test_collect_events_is_destructive() -> None:
     assert second == []
 
 
+def test_pending_events_is_non_destructive() -> None:
+    aggregate = TaskAggregate()
+    aggregate.create('Write tests')
+
+    first = aggregate.pending_events
+    second = aggregate.pending_events
+
+    assert first == [TaskCreated(title='Write tests')]
+    assert second == first
+
+
+def test_mark_persisted_clears_pending_events() -> None:
+    aggregate = TaskAggregate()
+    aggregate.create('Write tests')
+
+    aggregate.mark_persisted(0)
+
+    assert aggregate.version == 0
+    assert aggregate.pending_events == []
+
+
 def test_load_from_history_reconstructs_state_and_sets_version() -> None:
     aggregate = TaskAggregate()
     history = [TaskCreated(title='From history'), TaskCompleted()]

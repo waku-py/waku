@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from waku.eventsourcing.exceptions import SnapshotTypeMismatchError
 from waku.eventsourcing.snapshot.interfaces import Snapshot
 from waku.eventsourcing.snapshot.migration import migrate_snapshot_or_discard
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from waku.eventsourcing.contracts.stream import StreamId
+    from waku.eventsourcing.serialization.interfaces import ISnapshotStateSerializer
     from waku.eventsourcing.snapshot.registry import SnapshotConfig
     from waku.eventsourcing.store.interfaces import ISnapshotStore
 
@@ -19,6 +22,7 @@ class SnapshotManager:
     __slots__ = (
         '_config',
         '_last_snapshot_versions',
+        '_serializer',
         '_store',
         '_valid_state_types',
     )
@@ -28,10 +32,12 @@ class SnapshotManager:
         store: ISnapshotStore,
         config: SnapshotConfig,
         valid_state_types: frozenset[str],
+        serializer: ISnapshotStateSerializer,
     ) -> None:
         self._store = store
         self._config = config
         self._valid_state_types = valid_state_types
+        self._serializer = serializer
         self._last_snapshot_versions: dict[str, int] = {}
 
     async def load_snapshot(self, stream_id: StreamId, aggregate_id: str) -> Snapshot | None:
@@ -68,19 +74,22 @@ class SnapshotManager:
         self,
         stream_id: StreamId,
         aggregate_id: str,
-        state_data: dict[str, Any],
+        produce_state: Callable[[], object],
         version: int,
         *,
         state_type_name: str,
     ) -> None:
-        snapshot = Snapshot(
-            stream_id=stream_id,
-            state=state_data,
-            version=version,
-            state_type=state_type_name,
-            schema_version=self._config.schema_version,
-        )
+        # Snapshots are a rebuildable cache: the boundary deliberately spans state production,
+        # serialization, and the store write, so no snapshot-side bug can fail a durable append.
         try:
+            state_data = self._serializer.serialize(produce_state())
+            snapshot = Snapshot(
+                stream_id=stream_id,
+                state=state_data,
+                version=version,
+                state_type=state_type_name,
+                schema_version=self._config.schema_version,
+            )
             await self._store.save(snapshot)
         except Exception:
             logger.warning(
