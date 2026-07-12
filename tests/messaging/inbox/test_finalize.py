@@ -84,6 +84,40 @@ async def test_non_success_deletes(outcome: ExecutionOutcome) -> None:
     assert uow.commit_count == 1
 
 
+async def test_deferred_terminal_outcome_rolls_back() -> None:
+    inbox = FakeInboxStore()
+    uow = FakeUoW()
+    entry_id, destination = _seed(inbox)
+    async with make_async_container(_Deps(inbox, uow)) as container:
+        with pytest.raises(RuntimeError, match='must be intercepted'):
+            await apply_inbox_outcome(
+                container,
+                entry_id=entry_id,
+                destination=destination,
+                outcome=ExecutionOutcome.REQUEUED,
+                keep_after_handled=timedelta(minutes=5),
+            )
+    assert uow.rollback_count == 1
+    assert uow.commit_count == 0
+
+
+async def test_success_outcome_commits_without_rollback() -> None:
+    inbox = FakeInboxStore()
+    uow = FakeUoW()
+    entry_id, destination = _seed(inbox)
+    async with make_async_container(_Deps(inbox, uow)) as container:
+        await apply_inbox_outcome(
+            container,
+            entry_id=entry_id,
+            destination=destination,
+            outcome=ExecutionOutcome.SUCCESS,
+            keep_after_handled=timedelta(minutes=5),
+        )
+    assert inbox.entries[entry_id, destination].status is InboxStatus.HANDLED
+    assert uow.commit_count == 1
+    assert uow.rollback_count == 0
+
+
 async def test_dead_letter_failed_keeps_row() -> None:
     # ERR-2: a failed durable DLQ write must NOT delete the inbox row — recovery re-drains it.
     inbox = FakeInboxStore()

@@ -6,6 +6,7 @@ from typing import Any, ClassVar
 from uuid import uuid4
 
 import anyio
+from anyio.lowlevel import checkpoint
 from dishka import make_async_container
 from typing_extensions import override
 
@@ -41,6 +42,7 @@ from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
 from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.transport._internal.wire import encode_payload
+from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
@@ -214,6 +216,80 @@ class TestOutboxRelayLifecycleIntegration:
         body, destination, _metadata, _mapper = transport.sent[0]
         assert destination == 'notifications'
         assert body == {'order_id': 'lifecycle-1'}
+
+
+# Records whether any send() ever observed an unstarted transport; start() yields repeatedly so an
+# already-spawned relay loop gets every chance to run its first tick mid-start — surfacing a
+# relay-before-transport ordering race deterministically.
+class _SlowStartTransport(RecordingTransport):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = False
+        self.sent_before_started = False
+
+    @override
+    async def start(self) -> None:
+        for _ in range(50):
+            await checkpoint()
+        self.started = True
+
+    @override
+    async def send(
+        self,
+        body: dict[str, Any],
+        *,
+        destination: str,
+        metadata: EnvelopeMetadata,
+        mapper: IEnvelopeMapper[Any, Any] | None = None,
+    ) -> None:
+        if not self.started:
+            self.sent_before_started = True
+        await super().send(body, destination=destination, metadata=metadata, mapper=mapper)
+
+
+class TestTransportStartupOrdering:
+    @staticmethod
+    async def test_transport_started_before_relay_first_publish() -> None:
+        transport = _SlowStartTransport()
+        outbox = InMemoryOutboxStore(InMemoryDeadLetterStore())
+        envelope = make_envelope(_OrderPlaced(order_id='early-1'))
+        # Staged BEFORE app init: the relay's very first tick already has work to publish.
+        outbox.messages.append(
+            OutboxMessage(
+                id=uuid4(),
+                idempotency_key=str(envelope.message_id),
+                message_type=envelope.message_type,
+                payload=encode_payload(envelope, make_codec()),
+                destination='test://notifications',
+                correlation_id=envelope.correlation_id,
+                causation_id=envelope.causation_id,
+            ),
+        )
+
+        config = MessagingConfig(
+            endpoints=[external_endpoint('test://notifications')],
+            routing=[route(_OrderPlaced).to('test://notifications')],
+            outbox=OutboxConfig(
+                relay=OutboxRelayConfig(
+                    polling=PollingConfig(poll_interval_min_seconds=0.01), recovery_interval=timedelta(hours=1)
+                ),
+            ),
+            transports={'test': lambda: transport},
+            global_pipeline_behaviors=[TransactionalBehavior],
+        )
+
+        @module(extensions=[MessagingExtension().bind(_OrderPlacedHandler)])
+        class TestModule:
+            pass
+
+        async with create_test_app(
+            imports=[MessagingModule.register(config), TestModule],
+            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(outbox, provided_type=IOutboxStore)],
+        ):
+            await wait_until(lambda: len(transport.sent) == 1)
+
+        assert transport.started
+        assert not transport.sent_before_started  # every broker start() completed before the first publish
 
 
 class TestMessageIdentityPropagation:

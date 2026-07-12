@@ -20,10 +20,8 @@ __all__ = [
 class InboxStatus(enum.StrEnum):
     INCOMING = 'INCOMING'
     HANDLED = 'HANDLED'
-    # Forward scaffolding for M3 scheduled-messages: a scheduled entry waits until
-    # NOW() >= execution_time before the recovery worker promotes it to INCOMING.
-    # M2b.1 never transitions into SCHEDULED — it is defined here so the `status`
-    # column can take the value without a later migration.
+    # A scheduled entry waits until NOW() >= execution_time, when ScheduledPromotionWorker
+    # promotes it to INCOMING.
     SCHEDULED = 'SCHEDULED'
 
 
@@ -44,9 +42,9 @@ class InboxEntry:
     correlation_id: str | None = None
     causation_id: str | None = None
     metadata: dict[str, Any] | None = None
-    # M3 scheduled-messages populate execution_time and gate dispatch on
-    # NOW() >= execution_time (SCHEDULED -> INCOMING when due). M2b.1 never writes a
-    # non-None value — the column exists so the schema is stable when M3 lands.
+    # Scheduled entries carry the due time; the promotion worker gates on
+    # NOW() >= execution_time (SCHEDULED -> INCOMING when due). __post_init__ enforces
+    # that a SCHEDULED row has one.
     execution_time: datetime | None = None
     attempts: int = 0
     keep_until: datetime | None = None
@@ -54,6 +52,11 @@ class InboxEntry:
     sequence_number: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if self.status is InboxStatus.SCHEDULED and self.execution_time is None:
+            msg = 'InboxEntry with SCHEDULED status requires a non-null execution_time'
+            raise ValueError(msg)
 
     @property
     def message_id(self) -> UUID:

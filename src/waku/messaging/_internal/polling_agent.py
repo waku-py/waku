@@ -120,6 +120,12 @@ class PollingAgent(ABC):
     async def _tick(self) -> int: ...
 
     async def start(self) -> None:
+        if self._worker_task is not None:
+            msg = f'{type(self).__name__} is already started'
+            raise RuntimeError(msg)
+        # Fresh event per run: anyio.Event is one-shot (no reset), and stop() leaves the old one set —
+        # reusing it would make a restarted loop exit before its first tick.
+        self._shutdown_event = anyio.Event()
         self._worker_task = asyncio.create_task(self._run_loop())
 
     async def stop(self) -> None:

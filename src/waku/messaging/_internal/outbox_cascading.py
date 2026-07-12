@@ -5,8 +5,10 @@ from typing import TYPE_CHECKING, Any
 
 from typing_extensions import override
 
-# IEndpointDispatch + MessageRouter are DI-injected -> runtime imports (dishka introspects __init__
-# type hints at container-build time); the TC001 noqa keeps ruff from moving them under TYPE_CHECKING.
+# IEndpointDispatch + MessageRouter + TransactionDepth are DI-injected -> runtime imports (dishka
+# introspects __init__ type hints at container-build time); the TC001 noqa keeps ruff from moving
+# them under TYPE_CHECKING.
+from waku._internal.transaction import TransactionDepth  # noqa: TC001
 from waku.messaging._internal.dispatch import IEndpointDispatch  # noqa: TC001
 from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.outgoing import Action, IOutgoingMessagesFrames
@@ -20,7 +22,7 @@ if TYPE_CHECKING:
     from waku.messaging.endpoints.base import Endpoint
     from waku.messaging.outgoing import PendingMessage
 
-__all__ = ['DeferredCascadingBehavior', 'OutboxCascadingBehavior']
+__all__ = ['DeferredCascadeFlusher', 'DeferredCascadingBehavior', 'OutboxCascadingBehavior']
 
 logger = logging.getLogger(__name__)
 
@@ -112,20 +114,18 @@ class OutboxCascadingBehavior(IPipelineBehavior[Any, Any]):
             raise
 
 
-class DeferredCascadingBehavior(IPipelineBehavior[Any, Any]):
-    """Outer cascade behavior — owns the frame and flushes non-durable legs post-commit.
+class DeferredCascadeFlusher:
+    """Drains the deferred bucket and dispatches each cascade's non-durable legs.
 
-    Runs OUTSIDE ``TransactionalBehavior`` (outermost global), so its flush happens AFTER commit on
-    the paths that own their commit at the handler's transactional frame (``invoke(request)``,
-    ``send``, ``publish``); under ``invoke(event)`` the dispatcher owns the transaction frame and the
-    per-handler flush runs before ITS commit — a pre-existing ordering caveat, tracked as a
-    depth-aware-flush follow-up. Owns the frame lifecycle: pushes a frame before ``call_next()``,
-    discards it on pipeline failure (a handler failure discards the staged non-durable batch), pops
-    the (drained-by-the-inner-behavior, now-empty) frame on success. Then drains the deferred bucket
-    and re-partitions each cascade with the same immutable-router split the inner behavior used,
-    dispatching ONLY the non-durable subset — the durable subset was already written in-tx. The
-    non-durable leg is at-most-once by its in-memory transport's nature: the tx already committed,
-    so dispatch failures are logged, not raised; ``BaseException`` (cancellation) is NOT swallowed.
+    The single flush authority shared by the two ``run_in_transaction`` owners:
+    ``DeferredCascadingBehavior`` (the handler's own transactional frame — ``invoke(request)``,
+    ``send``, ``publish``) and ``MessageDispatcher.invoke_event`` (the fan-out frame). Whichever
+    owner observes ``TransactionDepth == 0`` after its frame closes flushes everything accumulated
+    since the last flush. Re-partitions each cascade with the same immutable-router split the inner
+    behavior used, dispatching ONLY the non-durable subset — the durable subset was already written
+    in-tx. The non-durable leg is at-most-once by its in-memory transport's nature: the tx already
+    committed, so dispatch failures are logged, not raised; ``BaseException`` (cancellation) is NOT
+    swallowed.
     """
 
     __slots__ = ('_dispatch', '_outgoing', '_router')
@@ -140,6 +140,44 @@ class DeferredCascadingBehavior(IPipelineBehavior[Any, Any]):
         self._outgoing = outgoing
         self._router = router
 
+    async def flush(self) -> None:
+        for pending_message in self._outgoing.drain_deferred():
+            _, non_durable = _split_by_durability(self._router, type(pending_message.message))
+            try:
+                await self._dispatch.dispatch_to(pending_message.message, non_durable)
+            except Exception:
+                logger.exception(
+                    'DeferredCascadeFlusher: cascade dispatch failed for %s',
+                    type(pending_message.message).__name__,
+                )
+
+
+class DeferredCascadingBehavior(IPipelineBehavior[Any, Any]):
+    """Outer cascade behavior — owns the frame and flushes non-durable legs post-commit.
+
+    Runs OUTSIDE ``TransactionalBehavior`` (outermost global). Owns the frame lifecycle: pushes a
+    frame before ``call_next()``, discards it on pipeline failure (a handler failure discards the
+    staged non-durable batch), pops the (drained-by-the-inner-behavior, now-empty) frame on success.
+    The flush is depth-aware: it runs ONLY when ``TransactionDepth`` is back to 0 — i.e. the
+    handler's own transactional frame was the outermost one and has committed (``invoke(request)``,
+    ``send``, ``publish``). Under ``invoke(event)`` (and any nesting inside an open transaction) the
+    dispatcher's fan-out frame keeps depth >= 1 for every per-handler pipeline, so the flush defers
+    to whichever frame IS the true outermost owner — ``MessageDispatcher.invoke_event`` flushes via
+    the same shared ``DeferredCascadeFlusher`` after its own commit.
+    """
+
+    __slots__ = ('_depth', '_flusher', '_outgoing')
+
+    def __init__(
+        self,
+        flusher: DeferredCascadeFlusher,
+        outgoing: IOutgoingMessagesFrames,
+        depth: TransactionDepth,
+    ) -> None:
+        self._flusher = flusher
+        self._outgoing = outgoing
+        self._depth = depth
+
     @override
     async def handle(self, message: IMessage, /, call_next: CallNext[Any]) -> Any:
         self._outgoing.push_frame()
@@ -149,16 +187,6 @@ class DeferredCascadingBehavior(IPipelineBehavior[Any, Any]):
             self._outgoing.discard_frame()
             raise
         self._outgoing.pop_frame()
-        await self._flush_deferred()
+        if self._depth.depth == 0:
+            await self._flusher.flush()
         return response
-
-    async def _flush_deferred(self) -> None:
-        for pending_message in self._outgoing.drain_deferred():
-            _, non_durable = _split_by_durability(self._router, type(pending_message.message))
-            try:
-                await self._dispatch.dispatch_to(pending_message.message, non_durable)
-            except Exception:
-                logger.exception(
-                    'DeferredCascadingBehavior: cascade dispatch failed for %s',
-                    type(pending_message.message).__name__,
-                )

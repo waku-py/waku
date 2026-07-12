@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -109,7 +109,17 @@ class IListener(abc.ABC):
         """Drain in-flight messages and close the broker connection."""
 
 
-class ITransport(ISender, IListener, abc.ABC): ...
+class ITransport(ISender, IListener, abc.ABC):
+    """Bidirectional broker transport.
+
+    ``mapper_family`` declares the ``IEnvelopeMapper`` subtype this transport accepts as a
+    per-endpoint override; ``TransportRegistry`` validates configured mappers against it at
+    construction so a wrong-family mapper fails at startup, not at first dispatch. The permissive
+    ``IEnvelopeMapper`` default accepts any mapper — only real brokers narrow it.
+    """
+
+    # The abstract base IS the intended value: it is an isinstance() bound, never instantiated.
+    mapper_family: ClassVar[type[IEnvelopeMapper[Any, Any]]] = IEnvelopeMapper  # type: ignore[type-abstract]
 
 
 TransportFactory = Callable[[], ITransport]

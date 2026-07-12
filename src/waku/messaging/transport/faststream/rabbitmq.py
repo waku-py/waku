@@ -129,6 +129,8 @@ class FastStreamRabbitTransport(FastStreamTransportBase[RabbitMessage]):
 
     __slots__ = ('_listen_broker', '_mapper', '_prefetch_count', '_send_broker', '_started')
 
+    mapper_family = IRabbitEnvelopeMapper
+
     def __init__(
         self,
         *,

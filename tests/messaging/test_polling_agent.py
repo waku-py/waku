@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 import anyio
+import pytest
 from typing_extensions import override
 
 from waku.messaging import PollingConfig
@@ -86,3 +87,31 @@ async def test_polling_agent_tick_exception_does_not_break_loop() -> None:
 async def test_polling_agent_stop_is_idempotent_when_never_started() -> None:
     agent = _FakeAgent()
     await agent.stop()
+
+
+async def test_second_start_while_running_raises() -> None:
+    agent = _FakeAgent()
+    await agent.start()
+    with anyio.fail_after(5):
+        await agent.reached.wait()
+    with pytest.raises(RuntimeError, match='already started'):
+        await agent.start()
+    await agent.stop()
+
+
+async def test_start_stop_start_polls_again() -> None:
+    agent = _FakeAgent()
+    await agent.start()
+    with anyio.fail_after(5):
+        await agent.reached.wait()
+    await agent.stop()
+
+    first_run_ticks = agent.ticks
+    agent.reached = anyio.Event()
+    agent.target = first_run_ticks + 3
+    await agent.start()
+    with anyio.fail_after(5):
+        await agent.reached.wait()
+    await agent.stop()
+
+    assert agent.ticks >= first_run_ticks + 3

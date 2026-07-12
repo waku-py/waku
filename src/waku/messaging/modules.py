@@ -36,6 +36,7 @@ from waku.messaging._internal.dispatch import IEndpointDispatch
 from waku.messaging._internal.dispatcher import MessageDispatcher
 from waku.messaging._internal.envelope_factory import EnvelopeFactory
 from waku.messaging._internal.identity import MessageTypeRegistry
+from waku.messaging._internal.outbox_cascading import DeferredCascadeFlusher
 from waku.messaging._internal.routing_builder import RoutingTableBuilder
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import DeadLetterConfig, MessagingConfig
@@ -135,6 +136,9 @@ class MessagingModule:
             _endpoint_dispatch_alias(),
             scoped(AnyOf[IOutgoingMessages, IOutgoingMessagesFrames], OutgoingMessages),  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
             scoped(TransactionDepth),  # always registered: gating on config misses per-handler TransactionalBehavior
+            # Always registered: invoke_event's post-commit flush resolves it unconditionally
+            # (an empty deferred bucket makes it a no-op on the no-outbox path).
+            scoped(DeferredCascadeFlusher),
             object_(config_, provided_type=MessagingConfig),
             object_(utc_now, provided_type=Now),
             singleton(MessageTypeRegistry, _build_message_type_registry),
@@ -155,11 +159,13 @@ class MessagingModule:
             EndpointLifecycleExtension(),
             _UnitOfWorkValidationExtension(config_),
         ]
-        if config_.outbox is not None:
-            extensions.append(OutboxRelayLifecycleExtension(config_.outbox.relay))
-        # After the relay: relay stops before transport closes on shutdown; brokers boot before relay's first publish.
+        # Transport before relay: after_app_init AWAITS every transport.start() to completion before
+        # the relay's poll-loop task is even created — no first-publish race by construction. LIFO
+        # app-extension shutdown then stops the relay before the transports close.
         if config_.transports:
             extensions.append(TransportLifecycleExtension(config_))
+        if config_.outbox is not None:
+            extensions.append(OutboxRelayLifecycleExtension(config_.outbox.relay))
         if config_.inbox is not None:
             extensions.append(InboxRecoveryLifecycleExtension(config_.inbox))
         if config_.dead_letter is not None and (
@@ -875,7 +881,11 @@ class DeadLetterLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
 
 
 class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
-    """Starts registered transports and drives one listening agent per listen URI.  Registered after the relay — see extension ordering."""
+    """Starts registered transports and drives one listening agent per listen URI.
+
+    Registered before the relay so every broker is connected before the relay's first publish;
+    LIFO shutdown closes the transports after the relay stops.
+    """
 
     __slots__ = ('_agents', '_config', '_registry')
 

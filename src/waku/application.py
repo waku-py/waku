@@ -131,7 +131,9 @@ class WakuApplication:
             for module_ext in self._extension_registry.get_module_extensions(module.target, OnModuleDestroy):
                 await module_ext.on_module_destroy(module)
 
-        for app_ext in self._extension_registry.get_application_extensions(OnApplicationShutdown):
+        # LIFO teardown: app extensions shut down in reverse registration order, mirroring the
+        # module-hook reversal above (whatever started last stops first).
+        for app_ext in reversed(self._extension_registry.get_application_extensions(OnApplicationShutdown)):
             await app_ext.on_app_shutdown(self)
 
     def _get_modules_for_triggering_extensions(self, *, reverse: bool = False) -> Iterable[Module]:

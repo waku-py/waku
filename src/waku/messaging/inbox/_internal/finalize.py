@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, assert_never
 
+from waku._internal.transaction import unit_of_work_scope
 from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints.outcome import ExecutionOutcome
-from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from datetime import timedelta
@@ -28,14 +28,14 @@ async def apply_inbox_outcome(
 
     SUCCESS → mark_as_handled. DEAD_LETTERED/DISCARDED/FAILED_NO_POLICY → delete. DEAD_LETTER_FAILED →
     leave INCOMING so recovery re-runs it (ERR-2). Shared by the drainer and durable endpoint.
+    ``unit_of_work_scope`` owns the transaction: commit on clean exit, rollback on exception.
 
     Raises:
         RuntimeError: if a deferred-terminal outcome (REQUEUED/PAUSED) reaches finalization — the
             durable endpoint and drainer must intercept those before calling this.
     """
-    async with container() as scope:
+    async with unit_of_work_scope(container) as scope:
         inbox = await scope.get(IInboxStore)
-        uow = await scope.get(IUnitOfWork)
         match outcome:
             case ExecutionOutcome.SUCCESS:
                 keep_until = datetime.now(tz=UTC) + keep_after_handled
@@ -46,11 +46,10 @@ async def apply_inbox_outcome(
                 # DLQ write failed: leave INCOMING for the recovery drain — deleting loses the message
                 # from both stores (ERR-2).
                 pass
-            case ExecutionOutcome.REQUEUED | ExecutionOutcome.PAUSED:  # pragma: no cover
+            case ExecutionOutcome.REQUEUED | ExecutionOutcome.PAUSED:
                 # Deferred-terminal: the durable endpoint and drainer intercept these before finalize,
                 # so they never reach here. Guard the invariant loudly rather than leak an INCOMING row.
                 msg = f'{outcome.value} must be intercepted before inbox finalization'
                 raise RuntimeError(msg)
             case _ as unreachable:  # pragma: no cover
                 assert_never(unreachable)
-        await uow.commit()

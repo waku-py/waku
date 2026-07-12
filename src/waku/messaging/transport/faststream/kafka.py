@@ -153,6 +153,8 @@ class FastStreamKafkaTransport(FastStreamTransportBase[KafkaMessage]):
 
     __slots__ = ('_auto_offset_reset', '_broker', '_consumer_group', '_mapper', '_started')
 
+    mapper_family = IKafkaEnvelopeMapper
+
     def __init__(
         self,
         *,

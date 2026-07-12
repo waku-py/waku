@@ -7,6 +7,11 @@ from typing_extensions import override
 
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging.transport._internal.registry import TransportRegistry, resolve_default_scheme, split_destination
+from waku.messaging.transport.faststream import (
+    DefaultKafkaEnvelopeMapper,
+    DefaultRabbitEnvelopeMapper,
+    IRabbitEnvelopeMapper,
+)
 from waku.messaging.transport.interfaces import IEnvelopeMapper, ITransport
 
 from tests.messaging.helpers import StubSubscription
@@ -138,6 +143,46 @@ class _StubMapper(IEnvelopeMapper[Any, Any]):
     @override
     async def map_incoming(self, msg: Any) -> tuple[dict[str, Any], Any]:
         raise NotImplementedError  # pragma: no cover
+
+
+class _RabbitFamilyTransport(StubTransport):
+    """Transport double narrowing its accepted mapper family, like FastStreamRabbitTransport."""
+
+    mapper_family = IRabbitEnvelopeMapper
+
+
+class TestTransportRegistryMapperFamilyValidation:
+    @staticmethod
+    def test_wrong_family_mapper_rejected_at_construction() -> None:
+        with pytest.raises(ImproperlyConfiguredError) as exc_info:
+            TransportRegistry(
+                {'rabbitmq': _RabbitFamilyTransport()},
+                external_mappers={'rabbitmq://orders': DefaultKafkaEnvelopeMapper()},
+            )
+        message = str(exc_info.value)
+        assert 'rabbitmq://orders' in message
+        assert 'DefaultKafkaEnvelopeMapper' in message
+        assert 'IRabbitEnvelopeMapper' in message
+
+    @staticmethod
+    def test_matching_family_mapper_accepted() -> None:
+        mapper = DefaultRabbitEnvelopeMapper()
+        reg = TransportRegistry(
+            {'rabbitmq': _RabbitFamilyTransport()},
+            external_mappers={'rabbitmq://orders': mapper},
+        )
+        assert reg.mapper_for('rabbitmq://orders') is mapper
+
+    @staticmethod
+    def test_transport_without_declared_family_accepts_any_mapper() -> None:
+        # A custom/test transport that does not narrow mapper_family inherits the permissive
+        # IEnvelopeMapper base — any mapper is accepted (no false positives).
+        mapper = DefaultKafkaEnvelopeMapper()
+        reg = TransportRegistry(
+            {'rabbitmq': StubTransport()},
+            external_mappers={'rabbitmq://orders': mapper},
+        )
+        assert reg.mapper_for('rabbitmq://orders') is mapper
 
 
 class TestTransportRegistryMapperFor:

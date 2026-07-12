@@ -166,9 +166,22 @@ class OutboxRelay(PollingAgent):
         # Resolve with the full URI (not the split queue) — the override map is keyed by the configured
         # BrokerEndpointEntry.send.mapper source URI.
         mapper = registry.mapper_for(message.destination)
+        # Phase 1 — send: a raise here means NOT delivered -> propagate to the caller's except,
+        # which runs the sending-failure policy (_on_dispatch_failure).
         await sender.send(message.payload, destination=queue, metadata=metadata, mapper=mapper)
-        await store.mark_dispatched(message.id)
-        await uow.commit()
+        # Phase 2 — record: the message IS delivered; a recording failure must never reach the
+        # sending policy (it would record a delivered message DISCARDED/DEAD_LETTERED). Roll back
+        # and leave the row PROCESSING so recover_stuck re-dispatches it (at-least-once).
+        try:
+            await store.mark_dispatched(message.id)
+            await uow.commit()
+        except Exception:
+            await uow.rollback()
+            logger.exception(
+                'Outbox message %s was delivered but recording dispatch failed; '
+                'leaving PROCESSING for recovery (at-least-once)',
+                message.id,
+            )
 
     async def _on_dispatch_failure(self, scope: AsyncContainer, message: OutboxMessage, exc: Exception) -> None:
         store = await scope.get(IOutboxStore)

@@ -1,4 +1,5 @@
 from pytest_mock import MockerFixture
+from typing_extensions import override
 
 from waku import Module, WakuApplication, WakuFactory
 from waku.extensions import (
@@ -72,6 +73,33 @@ async def test_application_init_extensions_single_call(mocker: MockerFixture) ->
     assert on_app_init_mock.call_count == 1
     assert isinstance(on_app_init_mock.call_args[0][0], WakuApplication)
     assert after_app_init_mock.call_count == 1
+
+
+async def test_app_shutdown_runs_in_reverse_registration_order() -> None:
+    events: list[str] = []
+
+    class _Recorder(AfterApplicationInit, OnApplicationShutdown):
+        def __init__(self, tag: str) -> None:
+            self._tag = tag
+
+        @override
+        async def after_app_init(self, app: WakuApplication) -> None:
+            events.append(f'init:{self._tag}')
+
+        @override
+        async def on_app_shutdown(self, app: WakuApplication) -> None:
+            events.append(f'shutdown:{self._tag}')
+
+    application = WakuFactory(
+        create_basic_module(name='AppModule'),
+        extensions=[_Recorder('a'), _Recorder('b')],
+    ).create()
+
+    await application.initialize()
+    await application.close()
+
+    # Startup runs forward; teardown is strict LIFO of startup (mirrors module OnModuleDestroy reversal).
+    assert events == ['init:a', 'init:b', 'shutdown:b', 'shutdown:a']
 
 
 async def test_close_without_initialize_skips_shutdown_extensions(mocker: MockerFixture) -> None:

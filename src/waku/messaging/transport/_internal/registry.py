@@ -70,6 +70,7 @@ class TransportRegistry:
         self._transports: dict[str, ITransport] = dict(transports)
         self._default_scheme: str | None = resolve_default_scheme(self._transports, explicit=default_scheme)
         self._external_mappers: dict[str, IEnvelopeMapper[Any, Any]] = dict(external_mappers or {})
+        self._validate_mapper_families()
 
     def sender_for(self, uri: str) -> ISender:
         """Raises ``ImproperlyConfiguredError`` for unknown or unresolvable schemes."""
@@ -103,3 +104,18 @@ class TransportRegistry:
             msg = f"No transport registered for scheme '{scheme}' (uri='{uri}')."
             raise ImproperlyConfiguredError(msg)
         return transport
+
+    def _validate_mapper_families(self) -> None:
+        # Startup check: a wrong-family per-endpoint mapper (e.g. a Kafka mapper on a rabbitmq://
+        # endpoint) would otherwise surface only as a dispatch-time AttributeError swallowed into
+        # retry/DLQ. Each transport self-describes its accepted family via ITransport.mapper_family.
+        for uri, mapper in self._external_mappers.items():
+            transport = self._resolve(uri)
+            family = transport.mapper_family
+            if not isinstance(mapper, family):
+                scheme = split_destination(uri, default_scheme=self._default_scheme)[0]
+                msg = (
+                    f"Envelope mapper {type(mapper).__name__} configured for '{uri}' does not match "
+                    f"the '{scheme}' transport: expected an instance of {family.__name__}."
+                )
+                raise ImproperlyConfiguredError(msg)

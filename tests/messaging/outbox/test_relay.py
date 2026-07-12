@@ -25,6 +25,7 @@ from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMappe
 
 from tests._wait import wait_until
 from tests.messaging.helpers import (
+    FakeUoW,
     RecordingTransport,
     RelayDepsProvider,
     StubSubscription,
@@ -99,6 +100,7 @@ class _TrackingOutboxStore(IOutboxStore):
     move_to_dead_letter_error: Exception | None = None
     mark_failed_error: Exception | None = None
     recover_stuck_error: Exception | None = None
+    mark_dispatched_error: Exception | None = None
 
     @override
     async def save_batch(self, messages: Sequence[OutboxMessage]) -> None:  # pragma: no cover
@@ -114,6 +116,10 @@ class _TrackingOutboxStore(IOutboxStore):
 
     @override
     async def mark_dispatched(self, message_id: UUID) -> None:
+        if self.mark_dispatched_error is not None:
+            err = self.mark_dispatched_error
+            self.mark_dispatched_error = None
+            raise err
         self.dispatched_ids.append(message_id)
 
     @override
@@ -608,6 +614,62 @@ class TestOutboxRelay:
         assert msg.id in store.dead_lettered_ids
         assert msg.id not in store.failed_ids
         assert msg.id not in store.discarded_ids
+
+
+class TestRelayDispatchQuarantine:
+    # The two delivered-or-poison quarantine invariants: a delivered message never becomes terminal
+    # via the sending policy, and a poison row dead-letters instead of crash-looping the tick.
+
+    @staticmethod
+    async def test_post_send_persistence_failure_is_not_recorded_terminal() -> None:
+        # The message WAS delivered; only recording failed. It must stay claimed (PROCESSING) for
+        # recover_stuck — never routed into the sending-failure policy (FAILED/DISCARDED/DEAD_LETTERED),
+        # which would let a DLQ replay double-deliver.
+        store, msg = _make_pending_store()
+        store.mark_dispatched_error = ConnectionError('db down after send')
+        uow = FakeUoW()
+        transport = RecordingTransport()
+
+        async with _run_relay(RelayDepsProvider(store, transport, uow=uow)):
+            await wait_until(lambda: len(transport.sent) == 1 and store.poll_calls >= 2)
+
+        assert len(transport.sent) == 1  # delivered exactly once — no policy-driven resend
+        assert msg.id not in store.dispatched_ids
+        assert msg.id not in store.failed_ids
+        assert msg.id not in store.discarded_ids
+        assert msg.id not in store.dead_lettered_ids
+        assert not store.pending  # never re-enqueued PENDING; stays claimed for recover_stuck
+        assert uow.rollback_count == 1
+
+    @staticmethod
+    async def test_relay_dead_letters_poison_row_without_crashing() -> None:
+        # A foreign/backfilled row whose idempotency_key is not a UUID must quarantine cleanly
+        # (DeadLetterEntry.message_id=None) instead of crashing the tick and poison-looping.
+        store = _TrackingOutboxStore()
+        envelope = make_envelope(_TestEvent(value='poison'))
+        msg = _make_outbox_message(envelope)
+        msg = OutboxMessage(
+            id=msg.id,
+            idempotency_key='☠',
+            message_type=msg.message_type,
+            payload=msg.payload,
+            metadata=msg.metadata,
+            destination=msg.destination,
+            correlation_id=msg.correlation_id,
+            causation_id=msg.causation_id,
+        )
+        store.pending.append(msg)
+
+        async with _run_relay(
+            RelayDepsProvider(store, _FailingTransport()),
+            _EXHAUST_ON_FIRST_FAILURE_CONFIG,
+        ):
+            await wait_until(lambda: msg.id in store.dead_lettered_ids)
+
+        assert msg.id in store.dead_lettered_ids
+        assert len(store.dead_letter_entries) == 1
+        assert store.dead_letter_entries[0].message_id is None
+        assert not store.pending
 
 
 class TestDispatchMessageMetadata:

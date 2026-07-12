@@ -431,6 +431,62 @@ class TestLocalQueueRequeue:
         assert len(dl_store.entries) == (1 if configured else 0)
 
     @staticmethod
+    async def test_requeue_reexecutes_only_the_failing_handler() -> None:
+        _RecordingHandler.received.clear()
+        _RecordingHandler.contexts.clear()
+        _FailingThenRecordingHandler.received.clear()
+        _FailingThenRecordingHandler.call_count = 0
+
+        async with create_test_app(
+            imports=[MessagingModule.register()],
+            extensions=[MessagingExtension().bind(_RecordingHandler, _FailingThenRecordingHandler)],
+        ) as app:
+            endpoint = await _make_endpoint_with_requeue(
+                app,
+                {_OrderPlaced: frozenset({_RecordingHandler, _FailingThenRecordingHandler})},
+                max_requeue_attempts=5,
+            )
+            await endpoint.start()
+            await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='rq-both')), app.container)
+            await wait_until(lambda: [e.order_id for e in _FailingThenRecordingHandler.received] == ['rq-both'])
+            for _ in range(10):
+                await checkpoint()
+            await endpoint.stop()
+
+        # The redelivery carries ONLY the failing handler — the succeeded one never re-runs.
+        assert len(_RecordingHandler.received) == 1
+        assert _FailingThenRecordingHandler.call_count == 2  # failed once -> requeued alone -> handled
+
+    @staticmethod
+    async def test_per_handler_requeue_budget_dead_letters_the_poison_handler() -> None:
+        _RecordingHandler.received.clear()
+        _RecordingHandler.contexts.clear()
+        _AlwaysFailingHandler.call_count = 0
+        dl_store = RecordingDeadLetterStore()
+
+        async with create_test_app(
+            imports=[MessagingModule.register(MessagingConfig(dead_letter=DeadLetterConfig()))],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(dl_store, provided_type=IDeadLetterStore),
+            ],
+            extensions=[MessagingExtension().bind(_RecordingHandler, _AlwaysFailingHandler)],
+        ) as app:
+            endpoint = await _make_endpoint_with_requeue(
+                app,
+                {_OrderPlaced: frozenset({_RecordingHandler, _AlwaysFailingHandler})},
+                max_requeue_attempts=2,
+            )
+            await endpoint.start()
+            await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='poison-b')), app.container)
+            # The poison handler's budget accumulates despite the sibling's success — no livelock.
+            await wait_until(lambda: len(dl_store.entries) == 1)
+            await endpoint.stop()
+
+        assert _AlwaysFailingHandler.call_count == 2  # original + 1 requeue, then dead-lettered at its own bound
+        assert len(_RecordingHandler.received) == 1  # the succeeded handler executed exactly once
+
+    @staticmethod
     async def test_terminal_dead_letter_fires_at_per_rule_limit() -> None:
         _BudgetTwoHandler.call_count = 0
         dl_store = RecordingDeadLetterStore()

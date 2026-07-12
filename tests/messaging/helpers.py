@@ -267,11 +267,12 @@ class RelayDepsProvider(Provider):
         store: IOutboxStore,
         transport: ITransport,
         external_mappers: Mapping[str, IEnvelopeMapper[Any, Any]] | None = None,
+        uow: IUnitOfWork | None = None,
     ) -> None:
         super().__init__()
         self._store = store
         self._registry = TransportRegistry({'test': transport}, external_mappers=external_mappers)
-        self._uow: IUnitOfWork = FakeUoW()
+        self._uow: IUnitOfWork = uow or FakeUoW()
 
     @provide
     def outbox_store(self) -> IOutboxStore:

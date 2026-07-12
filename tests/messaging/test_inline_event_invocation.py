@@ -1,29 +1,36 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from typing_extensions import override
 
-from waku.di import object_
+from waku.di import object_, scoped
 from waku.messages import IEvent
 from waku.messaging import (
+    EndpointMode,
     EventHandler,
     IMessageBus,
+    IOutgoingMessages,
     IRequest,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
+    OutboxConfig,
     RequestHandler,
+    local_queue,
+    route,
 )
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.context import get_message_context
+from waku.messaging.durability import IOutboxStore
 from waku.messaging.exceptions import HandlerNotFoundError
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests.messaging.helpers import FakeUoW
+from tests.messaging.outbox.fake_store import FakeOutboxStore
 
 if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
@@ -41,10 +48,36 @@ class _PlaceOrder(IRequest[None]):
     order: str
 
 
+@dataclass(frozen=True, kw_only=True)
+class _AuditLogged(IEvent):  # routed to an INLINE local_queue -> non-durable cascade leg
+    order: str
+
+
 def _transactional_app(uow: FakeUoW, extension: MessagingExtension) -> AbstractAsyncContextManager[WakuApplication]:
     return create_test_app(
         providers=[object_(uow, provided_type=IUnitOfWork)],
         imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[TransactionalBehavior]))],
+        extensions=[extension],
+    )
+
+
+def _fresh_uow() -> FakeUoW:
+    return FakeUoW()
+
+
+def _cascading_app(extension: MessagingExtension) -> AbstractAsyncContextManager[WakuApplication]:
+    # INLINE mode: the non-durable subscriber runs synchronously wherever it is dispatched from, so
+    # the tests observe deterministically WHEN it runs relative to the fan-out frame's commit.
+    # A FRESH UoW per scope keeps the background outbox relay's commits out of the observed counters.
+    config = MessagingConfig(
+        endpoints=[local_queue('local://audit', mode=EndpointMode.INLINE)],
+        routing=[route(_AuditLogged).to('local://audit')],
+        outbox=OutboxConfig(),
+        global_pipeline_behaviors=[TransactionalBehavior],
+    )
+    return create_test_app(
+        providers=[scoped(IUnitOfWork, _fresh_uow), scoped(IOutboxStore, FakeOutboxStore)],
+        imports=[MessagingModule.register(config)],
         extensions=[extension],
     )
 
@@ -213,3 +246,95 @@ class TestInvokeEventAtomicity:
         # Two event handlers + the nested request all join ONE transaction — one commit, not three.
         assert uow.commit_count == 1
         assert uow.rollback_count == 0
+
+    @staticmethod
+    async def test_nested_invoke_event_defers_non_durable_cascade_past_the_outer_commit() -> None:
+        seen: dict[str, FakeUoW] = {}
+        commits_when_subscriber_ran: list[int] = []
+
+        class ShippedHandler(EventHandler[_OrderShipped]):
+            def __init__(self, bus: IMessageBus) -> None:
+                self._bus = bus
+
+            @override
+            async def handle(self, event: _OrderShipped, /) -> None:
+                await self._bus.invoke(_PlaceOrder(order=event.order))
+
+        class PlaceOrderHandler(RequestHandler[_PlaceOrder, None]):
+            def __init__(self, outgoing: IOutgoingMessages, uow: IUnitOfWork) -> None:
+                self._outgoing = outgoing
+                self._uow = uow
+
+            @override
+            async def handle(self, request: _PlaceOrder, /) -> None:
+                seen['uow'] = cast('FakeUoW', self._uow)
+                self._outgoing.publish(_AuditLogged(order=request.order))  # non-durable cascade
+
+        class AuditSubscriber(EventHandler[_AuditLogged]):
+            @override
+            async def handle(self, event: _AuditLogged, /) -> None:
+                commits_when_subscriber_ran.append(seen['uow'].commit_count)
+
+        async with (
+            _cascading_app(
+                MessagingExtension().bind(ShippedHandler).bind(PlaceOrderHandler).bind(AuditSubscriber),
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            await bus.invoke(_OrderShipped(order='o-7'))
+
+        # The INLINE subscriber ran exactly once, strictly AFTER the fan-out frame's single commit —
+        # never from within the still-open transaction (a causal ordering, not a wall-clock race).
+        assert commits_when_subscriber_ran == [1]
+
+    @staticmethod
+    async def test_nested_invoke_event_rollback_discards_the_non_durable_cascade() -> None:
+        seen: dict[str, FakeUoW] = {}
+
+        class ShippedHandler(EventHandler[_OrderShipped]):
+            def __init__(self, bus: IMessageBus) -> None:
+                self._bus = bus
+
+            @override
+            async def handle(self, event: _OrderShipped, /) -> None:
+                await self._bus.invoke(_PlaceOrder(order=event.order))
+
+        class FailingAuditShippedHandler(EventHandler[_OrderShipped]):
+            @override
+            async def handle(self, event: _OrderShipped, /) -> None:
+                msg = 'sibling boom'
+                raise RuntimeError(msg)
+
+        class PlaceOrderHandler(RequestHandler[_PlaceOrder, None]):
+            def __init__(self, outgoing: IOutgoingMessages, uow: IUnitOfWork) -> None:
+                self._outgoing = outgoing
+                self._uow = uow
+
+            @override
+            async def handle(self, request: _PlaceOrder, /) -> None:
+                seen['uow'] = cast('FakeUoW', self._uow)
+                self._outgoing.publish(_AuditLogged(order=request.order))  # staged, then rolled back
+
+        class AuditSubscriber(EventHandler[_AuditLogged]):
+            @override
+            async def handle(self, event: _AuditLogged, /) -> None:  # pragma: no cover
+                pytest.fail('non-durable cascade must not flush when the fan-out frame rolls back')
+
+        async with (
+            _cascading_app(
+                MessagingExtension()
+                .bind(ShippedHandler, FailingAuditShippedHandler)
+                .bind(PlaceOrderHandler)
+                .bind(AuditSubscriber),
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            with pytest.raises(RuntimeError, match='sibling boom'):
+                await bus.invoke(_OrderShipped(order='o-8'))
+
+        # The sibling failure rolled back the whole fan-out frame; the staged non-durable cascade
+        # was discarded with it (AuditSubscriber would pytest.fail if it ever ran).
+        assert seen['uow'].rollback_count == 1
+        assert seen['uow'].commit_count == 0

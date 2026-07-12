@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 from dishka.exceptions import NoFactoryError
 
 from waku._internal.transaction import TransactionDepth
+from waku.messaging._internal.outbox_cascading import DeferredCascadeFlusher
 from waku.messaging._internal.uow import NoOpUnitOfWork
 from waku.messaging.behaviors.transactional import run_in_transaction
 from waku.messaging.endpoints.outcome import ExecutionOutcome
@@ -85,6 +86,13 @@ class MessageDispatcher:
         uow = await self._resolve_uow(scope)
         depth = await scope.get(TransactionDepth)
         await run_in_transaction(uow, depth, _run_all)
+        # The fan-out frame keeps depth >= 1 for every per-handler pipeline, so the per-handler
+        # DeferredCascadingBehavior never flushes under invoke(event) — the dispatcher is the flush
+        # owner once ITS frame has committed. depth stays > 0 when this invoke_event is itself
+        # nested inside an open transaction: the true outermost owner flushes then.
+        if depth.depth == 0:
+            flusher = await scope.get(DeferredCascadeFlusher)
+            await flusher.flush()
 
     async def dispatch_to_handler(
         self, scope: 'AsyncContainer', envelope: 'MessageEnvelope[Any]', handler_type: 'HandlerType'
