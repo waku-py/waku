@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.handler import HandlerType
 
 from waku.exceptions import ImproperlyConfiguredError
-from waku.messaging._internal.registry import MessageRegistry
+from waku.messaging import HandlerMap
 from waku.messaging._internal.routing_builder import ModuleRoutingMap, RoutingTableBuilder
 from waku.messaging.endpoints.base import DEFAULT_ENDPOINT_URI, EndpointEntry
 from waku.messaging.handler import EventHandler, RequestHandler
@@ -36,10 +36,10 @@ class _DummyModule: ...
 def _make_registry_with_handlers(
     message_type: type[IMessage],
     *handler_types: HandlerType,
-) -> MessageRegistry:
-    reg = MessageRegistry()
+) -> HandlerMap:
+    reg = HandlerMap()
     for handler_type in handler_types:
-        reg.handler_map.bind(message_type, handler_type)
+        reg.bind(message_type, handler_type)
     reg.freeze()
     return reg
 
@@ -52,7 +52,7 @@ def _make_config(
 
 
 def test_empty_config_with_no_handlers_produces_empty_table() -> None:
-    registry = MessageRegistry()
+    registry = HandlerMap()
     config = _make_config()
     table = RoutingTableBuilder(config, aggregated=registry, module_routing_map={}).build()
     assert table.entries == ()
@@ -79,7 +79,7 @@ def test_route_descriptor_populates_type_routes_and_subscriptions() -> None:
 
 
 def test_route_descriptor_with_unknown_uri_raises_error() -> None:
-    registry = MessageRegistry()
+    registry = HandlerMap()
     config = _make_config(
         routing=(RouteDescriptor(_TestEvent, 'queue://unknown'),),
     )
@@ -106,7 +106,7 @@ def test_module_route_descriptor_with_unknown_uri_raises_error() -> None:
     )
     module_routing_map: ModuleRoutingMap = {_DummyModule: {_TestEvent: [_TestHandler]}}
     with pytest.raises(ImproperlyConfiguredError, match='unknown'):
-        RoutingTableBuilder(config, aggregated=MessageRegistry(), module_routing_map=module_routing_map).build()
+        RoutingTableBuilder(config, aggregated=HandlerMap(), module_routing_map=module_routing_map).build()
 
 
 def test_module_route_descriptor_with_unknown_module_raises_error() -> None:
@@ -117,11 +117,11 @@ def test_module_route_descriptor_with_unknown_module_raises_error() -> None:
         routing=(ModuleRouteDescriptor(_UnknownModule, 'queue://test'),),
     )
     with pytest.raises(ImproperlyConfiguredError, match='_UnknownModule'):
-        RoutingTableBuilder(config, aggregated=MessageRegistry(), module_routing_map={}).build()
+        RoutingTableBuilder(config, aggregated=HandlerMap(), module_routing_map={}).build()
 
 
 def test_route_without_handlers_raises_error() -> None:
-    registry = MessageRegistry()
+    registry = HandlerMap()
     registry.freeze()
     config = _make_config(
         endpoints=(local_queue('queue://events'),),
@@ -132,7 +132,7 @@ def test_route_without_handlers_raises_error() -> None:
 
 
 def test_request_route_populates_type_routes_and_subscriptions() -> None:
-    registry = MessageRegistry()
+    registry = HandlerMap()
 
     class _Cmd(IRequest[None]): ...
 
@@ -140,7 +140,7 @@ def test_request_route_populates_type_routes_and_subscriptions() -> None:
         @override
         async def handle(self, request: _Cmd, /) -> None: ...  # pragma: no cover
 
-    registry.handler_map.bind(_Cmd, _CmdHandler)
+    registry.bind(_Cmd, _CmdHandler)
     registry.freeze()
     config = _make_config(
         endpoints=(local_queue('queue://cmds'),),
@@ -206,9 +206,9 @@ def test_per_type_override_only_affects_overridden_event() -> None:
         @override
         async def handle(self, event: _OtherEvent, /) -> None: ...  # pragma: no cover
 
-    registry = MessageRegistry()
-    registry.handler_map.bind(_TestEvent, _TestHandler)
-    registry.handler_map.bind(_OtherEvent, _OtherHandler)
+    registry = HandlerMap()
+    registry.bind(_TestEvent, _TestHandler)
+    registry.bind(_OtherEvent, _OtherHandler)
     registry.freeze()
 
     config = _make_config(
@@ -283,9 +283,9 @@ def test_partially_routed_event_splits_handlers() -> None:
         @override
         async def handle(self, event: _TestEvent, /) -> None: ...  # pragma: no cover
 
-    registry = MessageRegistry()
-    registry.handler_map.bind(_TestEvent, _HandlerA)
-    registry.handler_map.bind(_TestEvent, _HandlerB)
+    registry = HandlerMap()
+    registry.bind(_TestEvent, _HandlerA)
+    registry.bind(_TestEvent, _HandlerB)
     registry.freeze()
 
     class _ModA: ...
@@ -302,7 +302,7 @@ def test_partially_routed_event_splits_handlers() -> None:
 
 
 def test_endpoint_with_empty_handler_list_excluded_from_subscriptions() -> None:
-    registry = MessageRegistry()
+    registry = HandlerMap()
     registry.freeze()
 
     class _Mod: ...

@@ -35,7 +35,6 @@ from waku.messaging._internal.bus import MessageBus
 from waku.messaging._internal.dispatcher import MessageDispatcher
 from waku.messaging._internal.envelope_factory import EnvelopeFactory
 from waku.messaging._internal.identity import MessageTypeRegistry
-from waku.messaging._internal.registry import MessageRegistry
 from waku.messaging._internal.routing_builder import RoutingTableBuilder
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import DeadLetterConfig, MessagingConfig
@@ -64,6 +63,7 @@ from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.errors.worker import DeadLetterWorker
 from waku.messaging.exceptions import HandlerAlreadyRegistered, MultipleHandlersRegistered
 from waku.messaging.handler import MessageHandler
+from waku.messaging.handler_map import HandlerMap
 from waku.messaging.inbox._internal.drainer import build_inbox_drainer
 from waku.messaging.inbox._internal.recovery import InboxRecoveryWorker
 from waku.messaging.inbox._internal.scheduled import ScheduledPromotionWorker
@@ -148,7 +148,7 @@ class MessagingModule:
             *cls._infrastructure_providers(config_),
         ]
         extensions: list[ModuleExtension] = [
-            MessageRegistryAggregator(config_),
+            HandlerMapAggregator(config_),
             EndpointLifecycleExtension(),
             _UnitOfWorkValidationExtension(config_),
             _SequenceAllocatorValidationExtension(config_),
@@ -177,7 +177,7 @@ class MessagingModule:
         if has_external and config.outbox is None:
             msg = 'external_endpoint requires outbox in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
-        # DLQ validation deferred to MessageRegistryAggregator (handler ClassVar policies only known post-merge).
+        # DLQ validation deferred to HandlerMapAggregator (handler ClassVar policies only known post-merge).
         if _has_durable_local_queue(config) and config.inbox is None:
             msg = 'EndpointMode.DURABLE on a local_queue entry requires inbox in MessagingConfig'
             raise ImproperlyConfiguredError(msg)
@@ -204,7 +204,7 @@ class MessagingModule:
 
 class MessagingExtension(OnModuleConfigure):
     def __init__(self) -> None:
-        self._registry = MessageRegistry()
+        self._registry = HandlerMap()
 
     @override
     def on_module_configure(self, metadata: 'ModuleMetadata') -> None:
@@ -231,7 +231,7 @@ class MessagingExtension(OnModuleConfigure):
             raise ImproperlyConfiguredError(msg)
         if issubclass(first, MessageHandler):
             for handler in cast('tuple[type[MessageHandler[Any, Any]], ...]', args):
-                self._registry.handler_map.bind(_infer_message_type(handler), handler)
+                self._registry.bind(_infer_message_type(handler), handler)
             return self
         if not issubclass(first, IMessage):
             msg = f'bind({first.__name__}, ...): first argument must be an IMessage or MessageHandler subclass'
@@ -242,11 +242,11 @@ class MessagingExtension(OnModuleConfigure):
             msg = 'bind(message_type, ...) requires at least one handler type'
             raise ImproperlyConfiguredError(msg)
         for handler in handlers:
-            self._registry.handler_map.bind(message_type, handler)
+            self._registry.bind(message_type, handler)
         return self
 
     @property
-    def registry(self) -> MessageRegistry:
+    def handler_map(self) -> HandlerMap:
         return self._registry
 
 
@@ -262,10 +262,10 @@ def _infer_message_type(handler_type: 'type[MessageHandler[Any, Any]]') -> 'type
     raise ImproperlyConfiguredError(msg)
 
 
-def _requires_dead_letter_store(registry: MessageRegistry, config: MessagingConfig) -> bool:
+def _requires_dead_letter_store(registry: HandlerMap, config: MessagingConfig) -> bool:
     if policies_need_dead_letter(config.endpoint_defaults.error_policies):
         return True
-    return any(policies_need_dead_letter(ht.error_policies) for ht in registry.handler_map.handler_types())
+    return any(policies_need_dead_letter(ht.error_policies) for ht in registry.handler_types())
 
 
 def _effective_mode(entry: LocalQueueEntry, config: MessagingConfig) -> EndpointMode:
@@ -423,12 +423,12 @@ def _build_endpoint_executor_factory(
 
 
 def _build_message_type_registry(
-    registry: MessageRegistry,
+    registry: HandlerMap,
     config: MessagingConfig,
 ) -> MessageTypeRegistry:
     return MessageTypeRegistry(
         identities=config.message_identities,
-        known_types=registry.handler_map.message_types(),
+        known_types=registry.message_types(),
     )
 
 
@@ -563,7 +563,7 @@ def _create_endpoint(
             assert_never(effective_mode)
 
 
-class MessageRegistryAggregator(RegistryAggregator['MessagingExtension', MessageRegistry]):
+class HandlerMapAggregator(RegistryAggregator['MessagingExtension', HandlerMap]):
     __slots__ = ('_config', '_module_routing_map', '_policies', '_seen_behaviors', '_seen_handlers')
 
     def __init__(self, config: MessagingConfig, policies: Sequence[IBehaviorPolicy] = _FRAMEWORK_POLICIES) -> None:
@@ -578,27 +578,27 @@ class MessageRegistryAggregator(RegistryAggregator['MessagingExtension', Message
         return MessagingExtension
 
     @override
-    def _new_registry(self) -> MessageRegistry:
-        return MessageRegistry()
+    def _new_registry(self) -> HandlerMap:
+        return HandlerMap()
 
     @override
-    def _merge(self, aggregated: MessageRegistry, ext: 'MessagingExtension', module_type: 'ModuleType') -> None:
+    def _merge(self, aggregated: HandlerMap, ext: 'MessagingExtension', module_type: 'ModuleType') -> None:
         try:
-            aggregated.merge(ext.registry)
+            aggregated.merge(ext.handler_map)
         except HandlerAlreadyRegistered as exc:
             msg = f'{exc} (from module {module_type.__qualname__})'
             raise ImproperlyConfiguredError(msg) from exc
-        if ext.registry.handler_map:
-            self._module_routing_map[module_type] = dict(ext.registry.handler_map.items())
+        if ext.handler_map:
+            self._module_routing_map[module_type] = dict(ext.handler_map.items())
 
     @override
     def _extension_providers(self, ext: 'MessagingExtension') -> Iterator[Provider]:
-        return self._handler_providers(ext.registry, self._seen_handlers, self._seen_behaviors)
+        return self._handler_providers(ext.handler_map, self._seen_handlers, self._seen_behaviors)
 
     @override
     def _finalize(
         self,
-        aggregated: MessageRegistry,
+        aggregated: HandlerMap,
         registry: ModuleMetadataRegistry,
         owning_module: 'ModuleType',
     ) -> None:
@@ -640,7 +640,7 @@ class MessageRegistryAggregator(RegistryAggregator['MessagingExtension', Message
 
         handler_policies = {
             handler_type: handler_type.error_policies
-            for handler_type in aggregated.handler_map.handler_types()
+            for handler_type in aggregated.handler_types()
             if handler_type.error_policies
         }
         error_policy_registry = ErrorPolicyRegistry(
@@ -676,8 +676,8 @@ class MessageRegistryAggregator(RegistryAggregator['MessagingExtension', Message
                 raise ImproperlyConfiguredError(msg)
 
     @staticmethod
-    def _validate_request_handler_counts(registry: MessageRegistry) -> None:
-        for msg_type, handlers in registry.handler_map.items():
+    def _validate_request_handler_counts(registry: HandlerMap) -> None:
+        for msg_type, handlers in registry.items():
             if issubclass(msg_type, IRequest) and len(handlers) > 1:
                 raise MultipleHandlersRegistered(msg_type)
 
@@ -685,20 +685,20 @@ class MessageRegistryAggregator(RegistryAggregator['MessagingExtension', Message
         self,
         registry: ModuleMetadataRegistry,
         owning_module: 'ModuleType',
-        aggregated: MessageRegistry,
+        aggregated: HandlerMap,
     ) -> None:
         # Chains resolved once at registration; behavior TYPES instantiated per-scope by the invoker.
         # Extra policies (e.g. ES forwarding) contributed via BehaviorPolicyExtension.
         contributed = tuple(ext.policy for _module, ext in registry.find_extensions(BehaviorPolicyExtension))
         plan = build_behavior_plan(
-            tuple(aggregated.handler_map.handler_types()),
+            tuple(aggregated.handler_types()),
             (*self._policies, *contributed),
             aggregated,
             self._config,
         )
         registry.add_provider(owning_module, object_(plan, provided_type=BehaviorPlan))
 
-        for handler_type in aggregated.handler_map.handler_types():
+        for handler_type in aggregated.handler_types():
             for behavior_type in plan.for_handler(handler_type):
                 if behavior_type not in self._seen_behaviors:
                     self._seen_behaviors.add(behavior_type)
@@ -706,12 +706,12 @@ class MessageRegistryAggregator(RegistryAggregator['MessagingExtension', Message
 
     @staticmethod
     def _handler_providers(
-        reg: MessageRegistry,
+        reg: HandlerMap,
         seen_handlers: 'set[HandlerType]',
         seen_behaviors: set[type[IPipelineBehavior[Any, Any]]],
     ) -> Iterator[Provider]:
         # Each handler/behavior registers once across all modules; duplicates would be rejected by dishka.
-        for handler_type in reg.handler_map.handler_types():
+        for handler_type in reg.handler_types():
             if handler_type in seen_handlers:
                 continue
             seen_handlers.add(handler_type)
@@ -765,10 +765,10 @@ class _UnitOfWorkValidationExtension(OnContainerBuilt):
         if config_requires_uow(self._config):
             return True
         plan = await app.container.get(BehaviorPlan)
-        registry = await app.container.get(MessageRegistry)
+        registry = await app.container.get(HandlerMap)
         return any(
             any(issubclass(behavior, TransactionalBehavior) for behavior in plan.for_handler(handler_type))
-            for handler_type in registry.handler_map.handler_types()
+            for handler_type in registry.handler_types()
         )
 
 
@@ -897,7 +897,7 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
         merged = await app.container.get(tuple[MergedBrokerEndpoint, ...])
         codec = await app.container.get(PayloadCodec)
         type_registry = await app.container.get(MessageTypeRegistry)
-        message_registry = await app.container.get(MessageRegistry)
+        message_registry = await app.container.get(HandlerMap)
         factory = await app.container.get(EndpointExecutorFactory)
         for ep in merged:
             if ep.listen is None:

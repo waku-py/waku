@@ -14,10 +14,10 @@ from waku.messaging.pipeline.policy import IBehaviorPolicy, Position, Positioned
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from waku.messaging._internal.registry import MessageRegistry
     from waku.messaging.config import MessagingConfig
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.contracts.pipeline import IPipelineBehavior
+    from waku.messaging.handler_map import HandlerMap
 
 __all__ = [
     'CascadingPolicy',
@@ -88,7 +88,7 @@ class CascadingPolicy(IBehaviorPolicy):
     def behaviors_for(
         self,
         handler: HandlerType,
-        registry: MessageRegistry,
+        handler_map: HandlerMap,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]:
         if config.outbox is not None:
@@ -103,7 +103,7 @@ class DeferredCascadingPolicy(IBehaviorPolicy):
     def behaviors_for(
         self,
         handler: HandlerType,
-        registry: MessageRegistry,
+        handler_map: HandlerMap,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]:
         if config.outbox is None:
@@ -118,7 +118,7 @@ class OutboxDrainPolicy(IBehaviorPolicy):
     def behaviors_for(
         self,
         handler: HandlerType,
-        registry: MessageRegistry,
+        handler_map: HandlerMap,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]:
         if config.outbox is None:
@@ -137,7 +137,7 @@ class UserGlobalPolicy(IBehaviorPolicy):
     def behaviors_for(
         self,
         handler: HandlerType,
-        registry: MessageRegistry,
+        handler_map: HandlerMap,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]:
         return tuple(
@@ -159,7 +159,7 @@ class TransactionalPolicy(IBehaviorPolicy):
     def behaviors_for(
         self,
         handler: HandlerType,
-        registry: MessageRegistry,
+        handler_map: HandlerMap,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]:
         if _handler_requires_uow(handler, config):
@@ -179,7 +179,7 @@ class HandlerLocalPolicy(IBehaviorPolicy):
     def behaviors_for(
         self,
         handler: HandlerType,
-        registry: MessageRegistry,
+        handler_map: HandlerMap,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]:
         return tuple(

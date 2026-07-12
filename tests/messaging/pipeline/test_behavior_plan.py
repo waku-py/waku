@@ -5,10 +5,9 @@ from typing import Any
 
 from typing_extensions import override
 
-from waku.messaging import CallNext, IPipelineBehavior, IRequest, MessageT, RequestHandler, ResponseT
+from waku.messaging import CallNext, HandlerMap, IPipelineBehavior, IRequest, MessageT, RequestHandler, ResponseT
 from waku.messaging._internal.cascading import CascadingBehavior
 from waku.messaging._internal.outbox_cascading import DeferredCascadingBehavior, OutboxCascadingBehavior
-from waku.messaging._internal.registry import MessageRegistry
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import MessagingConfig, OutboxConfig
 from waku.messaging.modules import _FRAMEWORK_POLICIES
@@ -49,7 +48,7 @@ class _Other(RequestHandler[_Cmd, None]):
 
 def test_plan_for_no_outbox_handler_matches_legacy_global_then_local() -> None:
     config = MessagingConfig(global_pipeline_behaviors=(TransactionalBehavior,))
-    plan = build_behavior_plan([_Handler], _FRAMEWORK_POLICIES, MessageRegistry(), config)
+    plan = build_behavior_plan([_Handler], _FRAMEWORK_POLICIES, HandlerMap(), config)
     assert plan.for_handler(_Handler) == (CascadingBehavior, TransactionalBehavior, _SomeBehavior)
 
 
@@ -58,7 +57,7 @@ def test_plan_for_outbox_handler_matches_legacy_chain() -> None:
         global_pipeline_behaviors=(TransactionalBehavior,),
         outbox=OutboxConfig(),
     )
-    plan = build_behavior_plan([_Handler], _FRAMEWORK_POLICIES, MessageRegistry(), config)
+    plan = build_behavior_plan([_Handler], _FRAMEWORK_POLICIES, HandlerMap(), config)
     assert plan.for_handler(_Handler) == (
         DeferredCascadingBehavior,
         TransactionalBehavior,
@@ -69,12 +68,12 @@ def test_plan_for_outbox_handler_matches_legacy_chain() -> None:
 
 def test_plan_preserves_global_declaration_order() -> None:
     config = MessagingConfig(global_pipeline_behaviors=(_BehaviorA, _BehaviorB))
-    plan = build_behavior_plan([_Handler], _FRAMEWORK_POLICIES, MessageRegistry(), config)
+    plan = build_behavior_plan([_Handler], _FRAMEWORK_POLICIES, HandlerMap(), config)
     chain = plan.for_handler(_Handler)
     assert chain.index(_BehaviorA) < chain.index(_BehaviorB)
 
 
 def test_empty_plan_for_unknown_handler() -> None:
     config = MessagingConfig()
-    plan = build_behavior_plan([_Handler], _FRAMEWORK_POLICIES, MessageRegistry(), config)
+    plan = build_behavior_plan([_Handler], _FRAMEWORK_POLICIES, HandlerMap(), config)
     assert plan.for_handler(_Other) == ()

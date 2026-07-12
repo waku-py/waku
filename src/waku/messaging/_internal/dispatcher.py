@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING, Any
 from dishka.exceptions import NoFactoryError
 
 from waku._internal.transaction import TransactionDepth
-from waku.messaging._internal.registry import MessageRegistry
 from waku.messaging._internal.uow import NoOpUnitOfWork
 from waku.messaging.behaviors.transactional import run_in_transaction
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.exceptions import HandlerNotFound
+from waku.messaging.handler_map import HandlerMap
 from waku.messaging.observability.observer import INVOKE_DESTINATION, MessageObservers
 from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
 from waku.uow import IUnitOfWork
@@ -28,7 +28,7 @@ class MessageDispatcher:
 
     def __init__(
         self,
-        registry: MessageRegistry,
+        registry: HandlerMap,
         invoker: HandlerPipelineInvoker,
         observers: MessageObservers,
     ) -> None:
@@ -49,7 +49,7 @@ class MessageDispatcher:
             HandlerNotFound: If no handler is registered for the request type.
         """
         request_type = type(envelope.payload)
-        handlers = self._registry.handler_map.get_handler_types(request_type)
+        handlers = self._registry.get_handler_types(request_type)
         if len(handlers) == 0:
             raise HandlerNotFound(request_type)
         return await self._observed_invoke(scope, envelope, handlers[0])  # type: ignore[no-any-return]  # pyrefly: ignore[bad-return]
@@ -74,7 +74,7 @@ class MessageDispatcher:
             HandlerNotFound: If no handler is registered for the event type.
         """
         event_type = type(envelope.payload)
-        handlers = self._registry.handler_map.get_handler_types(event_type)
+        handlers = self._registry.get_handler_types(event_type)
         if len(handlers) == 0:
             raise HandlerNotFound(event_type)
 

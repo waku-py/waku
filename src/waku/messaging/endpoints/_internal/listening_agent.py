@@ -23,12 +23,12 @@ if TYPE_CHECKING:
 
     from waku.messaging._internal.identity import MessageTypeRegistry
     from waku.messaging._internal.pauser import PauseToken
-    from waku.messaging._internal.registry import MessageRegistry
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.config import MessagingConfig
     from waku.messaging.endpoints._internal.aspects import ListenAspect
     from waku.messaging.endpoints._internal.merge import MergedBrokerEndpoint
     from waku.messaging.endpoints.executor import EndpointExecutorFactory
+    from waku.messaging.handler_map import HandlerMap
     from waku.messaging.inbox.backpressure import BufferingLimits
     from waku.messaging.inbox.config import InboxConfig
     from waku.messaging.transport._internal.registry import TransportRegistry
@@ -226,7 +226,7 @@ def create_listening_agent(  # noqa: PLR0913
     registry: TransportRegistry,
     codec: PayloadCodec,
     type_registry: MessageTypeRegistry,
-    message_registry: MessageRegistry,
+    message_registry: HandlerMap,
     inbox: InboxConfig,
     config: MessagingConfig,
 ) -> ListeningAgent:

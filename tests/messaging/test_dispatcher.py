@@ -9,6 +9,7 @@ from typing_extensions import override
 from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
+    HandlerMap,
     IRequest,
     MessageEnvelope,
     MessagingConfig,
@@ -17,7 +18,6 @@ from waku.messaging import (
     RequestHandler,
 )
 from waku.messaging._internal.dispatcher import MessageDispatcher
-from waku.messaging._internal.registry import MessageRegistry
 from waku.messaging.endpoints import ExecutionOutcome
 from waku.messaging.exceptions import HandlerNotFound
 from waku.messaging.observability.observer import INVOKE_DESTINATION, IMessageObserver, MessageObservers
@@ -181,7 +181,7 @@ class TestInvokeObservability:
         ):
             spy = _HookSpy()
             dispatcher = MessageDispatcher(
-                registry=await app.container.get(MessageRegistry),
+                registry=await app.container.get(HandlerMap),
                 invoker=await app.container.get(HandlerPipelineInvoker),
                 observers=MessageObservers([spy]),
             )
@@ -211,7 +211,7 @@ class TestInvokeObservability:
         ):
             spy = _HookSpy()
             dispatcher = MessageDispatcher(
-                registry=await app.container.get(MessageRegistry),
+                registry=await app.container.get(HandlerMap),
                 invoker=await app.container.get(HandlerPipelineInvoker),
                 observers=MessageObservers([spy]),
             )
@@ -242,7 +242,7 @@ class TestInvokeObservability:
         ):
             spy = _HookSpy()
             dispatcher = MessageDispatcher(
-                registry=await app.container.get(MessageRegistry),
+                registry=await app.container.get(HandlerMap),
                 invoker=await app.container.get(HandlerPipelineInvoker),
                 observers=MessageObservers([spy]),
             )
@@ -265,7 +265,7 @@ class TestInvokeObservability:
         ):
             spy = _HookSpy()
             dispatcher = MessageDispatcher(
-                registry=await app.container.get(MessageRegistry),
+                registry=await app.container.get(HandlerMap),
                 invoker=await app.container.get(HandlerPipelineInvoker),
                 observers=MessageObservers([spy]),
             )

@@ -5,10 +5,10 @@ from typing import TYPE_CHECKING
 
 from waku._internal.transaction import unit_of_work_scope
 from waku.messaging._internal.identity import MessageTypeRegistry
-from waku.messaging._internal.registry import MessageRegistry
 from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES, EndpointExecutorFactory
 from waku.messaging.errors.dead_letter import DeadLetterEntry
+from waku.messaging.handler_map import HandlerMap
 from waku.messaging.inbox._internal.finalize import apply_inbox_outcome
 from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.transport._internal.wire import rebuild_envelope, wire_metadata_from_entry
@@ -154,12 +154,12 @@ class InboxDrainer:
 
 async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) -> InboxDrainer:
     """Resolve app-scope collaborators and assemble the drainer (called at lifecycle start)."""
-    registry = await container.get(MessageRegistry)
+    registry = await container.get(HandlerMap)
     codec = await container.get(PayloadCodec)
     type_registry = await container.get(MessageTypeRegistry)
     factory = await container.get(EndpointExecutorFactory)
 
-    handler_by_fqn = {handler_destination(ht): ht for ht in registry.handler_map.handler_types()}
+    handler_by_fqn = {handler_destination(ht): ht for ht in registry.handler_types()}
 
     return InboxDrainer(
         container=container,

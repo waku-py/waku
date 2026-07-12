@@ -7,9 +7,8 @@ import pytest
 from typing_extensions import override
 
 from waku.exceptions import ImproperlyConfiguredError
-from waku.messaging import CallNext, IPipelineBehavior, IRequest, MessageT, RequestHandler, ResponseT
+from waku.messaging import CallNext, HandlerMap, IPipelineBehavior, IRequest, MessageT, RequestHandler, ResponseT
 from waku.messaging._internal.outbox_cascading import DeferredCascadingBehavior, OutboxCascadingBehavior
-from waku.messaging._internal.registry import MessageRegistry
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import MessagingConfig, OutboxConfig
 from waku.messaging.modules import _FRAMEWORK_POLICIES
@@ -80,7 +79,7 @@ class _HandlerDeclaresSiblings(RequestHandler[_Cmd, None]):
 
 
 def _plan_for(handler: type[RequestHandler[_Cmd, None]], config: MessagingConfig) -> tuple[type[Any], ...]:
-    plan = build_behavior_plan([handler], _FRAMEWORK_POLICIES, MessageRegistry(), config)
+    plan = build_behavior_plan([handler], _FRAMEWORK_POLICIES, HandlerMap(), config)
     return plan.for_handler(handler)
 
 
@@ -138,7 +137,7 @@ def test_two_handlers_subclass_and_plain_independent() -> None:
     plan = build_behavior_plan(
         [_HandlerDeclaresSubclassOnly, _PlainHandler],
         _FRAMEWORK_POLICIES,
-        MessageRegistry(),
+        HandlerMap(),
         config,
     )
     sub_chain = plan.for_handler(_HandlerDeclaresSubclassOnly)
@@ -161,10 +160,10 @@ def test_plain_handler_no_uow_signal_still_omits_frame() -> None:
 def test_sibling_subclasses_raise_improperly_configured() -> None:
     config = MessagingConfig()
     with pytest.raises(ImproperlyConfiguredError, match=r'_AuditTxn.*_MetricsTxn.*declare exactly one'):
-        build_behavior_plan([_HandlerDeclaresSiblings], _FRAMEWORK_POLICIES, MessageRegistry(), config)
+        build_behavior_plan([_HandlerDeclaresSiblings], _FRAMEWORK_POLICIES, HandlerMap(), config)
 
 
 def test_sibling_split_across_sources_raises() -> None:
     config = MessagingConfig(global_pipeline_behaviors=(_MetricsTxn,))
     with pytest.raises(ImproperlyConfiguredError, match=r'_AuditTxn.*_MetricsTxn.*declare exactly one'):
-        build_behavior_plan([_HandlerDeclaresSubclassOnly], _FRAMEWORK_POLICIES, MessageRegistry(), config)
+        build_behavior_plan([_HandlerDeclaresSubclassOnly], _FRAMEWORK_POLICIES, HandlerMap(), config)

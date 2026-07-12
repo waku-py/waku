@@ -29,12 +29,13 @@ src/waku/
 ├── messages/        # Neutral kernel: IMessage, IEvent, MessageIdentity (single import home)
 ├── serialization/   # PayloadCodec + upcasting toolkit (upcast, rename_field, …); upcasting/ is structural
 ├── messaging/       # Messaging: IRequest, Pipeline behaviors, MessageBus
-│   ├── _internal/   # Machinery: bus (MessageBus), dispatcher, handler_map, identity, registry,
-│   │                # routing_builder, envelope_factory, escalation, circuit_breaker, cascading, pauser, uow
+│   ├── _internal/   # Machinery: bus (MessageBus), dispatcher, identity, routing_builder,
+│   │                # envelope_factory, escalation, circuit_breaker, cascading, pauser, uow
 │   ├── contracts/   # (structural) envelope.py, handler.py, message.py, pipeline.py, request.py
 │   ├── context.py   # MessageContext (ContextVar-based, correlation/causation propagation)
 │   ├── endpoints/   # SPI facade: Endpoint model + EndpointExecutor; workers live in endpoints/_internal/
 │   ├── handler.py   # MessageHandler, RequestHandler, EventHandler (unified hierarchy)
+│   ├── handler_map.py # HandlerMap (message→handler registry; surfaced on the waku.messaging facade)
 │   ├── behaviors/   # (structural) transactional.py — TransactionalBehavior
 │   ├── pipeline/    # (structural) policy.py = IBehaviorPolicy SPI; executor/invoker/plan in _internal/
 │   ├── router.py    # Routing DSL: route()/route_module() + listen()/local_queue()/external_endpoint()

@@ -376,9 +376,10 @@ protocols across two classes:
 
 1. **`MessagingExtension`** (`OnModuleConfigure`) — placed in each feature module. Collects
    request/event handler bindings via the fluent builder API.
-2. **`MessageRegistryAggregator`** (`OnModuleRegistration`) — placed in `MessagingModule`.
-   Discovers all `MessagingExtension` instances across the module tree, merges their registries,
-   and contributes the aggregated providers to the appropriate modules.
+2. **`HandlerMapAggregator`** (`OnModuleRegistration`) — placed in `MessagingModule`.
+   Discovers all `MessagingExtension` instances across the module tree, merges each module's
+   `HandlerMap` into one aggregated map, and registers handler providers in the modules that
+   declared them.
 
 ```python linenums="1"
 from collections.abc import Mapping
@@ -386,14 +387,13 @@ from typing import Any
 
 from typing_extensions import override
 
-from waku.messaging import MessagingExtension
-from waku.messaging._internal.registry import MessageRegistry
-from waku.di import object_
+from waku.di import object_, scoped
 from waku.extensions import OnModuleRegistration
+from waku.messaging import HandlerMap, MessagingExtension
 from waku.modules import ModuleMetadataRegistry, ModuleType
 
 
-class MessageRegistryAggregator(OnModuleRegistration):
+class HandlerMapAggregator(OnModuleRegistration):
     @override
     def on_module_registration(
         self,
@@ -401,26 +401,27 @@ class MessageRegistryAggregator(OnModuleRegistration):
         owning_module: ModuleType,
         context: Mapping[Any, Any] | None,
     ) -> None:
-        aggregated = MessageRegistry()  # (1)!
+        aggregated = HandlerMap()  # (1)!
 
         for module_type, ext in registry.find_extensions(MessagingExtension):  # (2)!
-            aggregated.merge(ext.registry)
-            for provider in ext.registry.handler_providers():
-                registry.add_provider(module_type, provider)  # (3)!
+            aggregated.merge(ext.handler_map)
+            for handler_type in ext.handler_map.handler_types():
+                registry.add_provider(module_type, scoped(handler_type))  # (3)!
 
-        for provider in aggregated.collector_providers():
-            registry.add_provider(owning_module, provider)  # (4)!
-
-        aggregated.freeze()  # (5)!
-        registry.add_provider(owning_module, object_(aggregated))  # (6)!
+        aggregated.freeze()  # (4)!
+        registry.add_provider(owning_module, object_(aggregated))  # (5)!
 ```
 
-1. Create a fresh registry to merge all discovered handler bindings into.
+1. Create a fresh `HandlerMap` to merge all discovered handler bindings into.
 2. Walk every module that has a `MessagingExtension` attached.
-3. Register each handler provider in the module that declared it.
-4. Collector providers (multi-bindings) go to the owning module (`MessagingModule`).
-5. Prevent further modifications to the registry.
-6. Make the aggregated registry itself available as a DI provider.
+3. Register each bound handler in the module that declared it.
+4. Freeze **before** publishing: any later `bind()`/`merge()` on the map raises `MapFrozenError`,
+   so behavior policies and user code always see an immutable handler graph.
+5. Make the frozen map DI-resolvable — `container.get(HandlerMap)`.
+
+The shipped aggregator layers more onto this spine (duplicate-handler validation, behavior-plan
+assembly, routing-table construction), but the discovery-merge-freeze-publish sequence is the
+whole pattern.
 
 This pattern — **marker extension for data collection** + **registration extension for
 aggregation** — is the recommended approach for any cross-module discovery use case.

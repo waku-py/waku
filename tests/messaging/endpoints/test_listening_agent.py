@@ -13,6 +13,7 @@ from waku.di import object_, scoped
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IEvent
 from waku.messaging import (
+    HandlerMap,
     InboxConfig,
     MessagingConfig,
     MessagingExtension,
@@ -20,7 +21,6 @@ from waku.messaging import (
     TransactionalBehavior,
 )
 from waku.messaging._internal.identity import MessageTypeRegistry
-from waku.messaging._internal.registry import MessageRegistry
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
 from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
@@ -189,7 +189,7 @@ def _make_agent(
     listener = InboundListener(
         codec=make_codec(),
         type_registry=MessageTypeRegistry(identities={}, known_types=[_OrderPlaced]),
-        registry=MessageRegistry(),
+        registry=HandlerMap(),
         receiver=receiver,
     )
     agent = ListeningAgent(
@@ -445,7 +445,7 @@ async def _factory_agent(
         registry=TransportRegistry({'test': transport}),
         codec=await app.container.get(PayloadCodec),
         type_registry=await app.container.get(MessageTypeRegistry),
-        message_registry=await app.container.get(MessageRegistry),
+        message_registry=await app.container.get(HandlerMap),
         inbox=config.inbox,
         config=config,
     )

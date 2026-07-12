@@ -9,8 +9,8 @@ from waku.messaging.transport.inbound import ConsumeDisposition
 
 if TYPE_CHECKING:
     from waku.messaging._internal.identity import MessageTypeRegistry
-    from waku.messaging._internal.registry import MessageRegistry
     from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
+    from waku.messaging.handler_map import HandlerMap
     from waku.messaging.inbox.backpressure import IListenerBackpressure
     from waku.messaging.transport.interfaces import EnvelopeMetadata
     from waku.serialization.codec import PayloadCodec
@@ -30,7 +30,7 @@ class InboundListener:
         *,
         codec: PayloadCodec,
         type_registry: MessageTypeRegistry,
-        registry: MessageRegistry,
+        registry: HandlerMap,
         receiver: DurableInboxReceiver,
     ) -> None:
         self._codec = codec
@@ -50,7 +50,7 @@ class InboundListener:
             # Waku has no framework ping; an unresolvable message_type is foreign/poison — reject, do not requeue.
             logger.warning('Rejecting unrebuildable inbound message (unknown type or malformed metadata)')
             return ConsumeDisposition.REJECT
-        handler_types = frozenset(self._registry.handler_map.get_handler_types(type(envelope.payload)))
+        handler_types = frozenset(self._registry.get_handler_types(type(envelope.payload)))
         if not handler_types:
             logger.debug('No handler for inbound %s; acking', envelope.message_type)
             return ConsumeDisposition.ACK

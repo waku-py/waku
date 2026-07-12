@@ -10,6 +10,7 @@ from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
+    HandlerMap,
     IMessageBus,
     IRequest,
     MessagingConfig,
@@ -17,7 +18,6 @@ from waku.messaging import (
     MessagingModule,
     RequestHandler,
 )
-from waku.messaging._internal.registry import MessageRegistry
 from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
 
 
@@ -77,8 +77,8 @@ async def test_multi_module_event_handlers_all_resolved() -> None:
     app = WakuFactory(AppModule).create()
 
     async with app, app.container() as container:
-        message_registry = await container.get(MessageRegistry)
-        handler_types = message_registry.handler_map.get_handler_types(OrderPlaced)
+        message_registry = await container.get(HandlerMap)
+        handler_types = message_registry.get_handler_types(OrderPlaced)
         assert len(handler_types) == 3
 
         resolved = {type(await container.get(ht)) for ht in handler_types}
@@ -222,8 +222,8 @@ async def test_module_with_empty_messaging_extension_starts_without_error() -> N
     app = WakuFactory(AppModule).create()
 
     async with app, app.container() as container:
-        message_registry = await container.get(MessageRegistry)
-        handler_types = message_registry.handler_map.get_handler_types(OrderPlaced)
+        message_registry = await container.get(HandlerMap)
+        handler_types = message_registry.get_handler_types(OrderPlaced)
         assert len(handler_types) == 1
         assert handler_types[0] is SendEmailHandler
 

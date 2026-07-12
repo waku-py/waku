@@ -10,8 +10,8 @@ from typing_extensions import override
 
 from waku._internal.retort import default_retort
 from waku.messages import IEvent
+from waku.messaging import HandlerMap
 from waku.messaging._internal.identity import MessageTypeRegistry
-from waku.messaging._internal.registry import MessageRegistry
 from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionResult
@@ -123,8 +123,8 @@ def _receiver(container: AsyncContainer, executor: EndpointExecutor) -> DurableI
 def _listener(container: AsyncContainer) -> tuple[InboundListener, DurableInboxReceiver]:
     codec = _make_codec()
     type_registry = _make_type_registry(_Event)
-    registry = MessageRegistry()
-    registry.handler_map.bind(_Event, _Handler)
+    registry = HandlerMap()
+    registry.bind(_Event, _Handler)
     executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
     receiver = _receiver(container, executor)
     return InboundListener(
@@ -225,8 +225,8 @@ async def test_unknown_type_with_no_handler_acks() -> None:
         codec = _make_codec()
         # type_registry knows both types; handler registry only has _Event
         type_registry = _make_type_registry(_Event, _OtherEvent)
-        registry = MessageRegistry()
-        registry.handler_map.bind(_Event, _Handler)
+        registry = HandlerMap()
+        registry.bind(_Event, _Handler)
         executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
         listener = InboundListener(
             codec=codec,
@@ -287,8 +287,8 @@ async def test_consume_pauses_listener_when_buffer_crosses_high_watermark() -> N
     async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
         codec = _make_codec()
         type_registry = _make_type_registry(_Event)
-        registry = MessageRegistry()
-        registry.handler_map.bind(_Event, _Handler)
+        registry = HandlerMap()
+        registry.bind(_Event, _Handler)
         receiver = DurableInboxReceiver(
             uri='local://test',
             container=container,

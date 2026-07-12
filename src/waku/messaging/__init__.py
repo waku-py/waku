@@ -24,6 +24,7 @@ from waku.messaging.exceptions import (
     SchedulingNotSupportedError,
 )
 from waku.messaging.handler import EventHandler, MessageHandler, RequestHandler
+from waku.messaging.handler_map import HandlerMap
 from waku.messaging.inbox.backpressure import BufferingLimits
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.interfaces import IMessageBus, IPublisher, ISender
@@ -51,6 +52,7 @@ __all__ = [
     'EndpointMode',
     'EventHandler',
     'HandlerAlreadyRegistered',
+    'HandlerMap',
     'HandlerNotFound',
     'HandlerTimeoutError',
     'HandlerType',

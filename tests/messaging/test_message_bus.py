@@ -14,6 +14,7 @@ from waku.messaging import (
     EndpointDefaults,
     EndpointMode,
     EventHandler,
+    HandlerMap,
     IMessageBus,
     InboxConfig,
     IPipelineBehavior,
@@ -27,7 +28,6 @@ from waku.messaging import (
     ResponseT,
     TransactionalBehavior,
 )
-from waku.messaging._internal.registry import MessageRegistry
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import get_message_context
 from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
@@ -436,8 +436,8 @@ class TestMessagingConfigValidation:
             providers=[object_(FakeUoW(), provided_type=IUnitOfWork), scoped(IOutboxStore, FakeOutboxStore)],
         ) as app:
             plan = await app.container.get(BehaviorPlan)
-            registry = await app.container.get(MessageRegistry)
-            handler_types = registry.handler_map.handler_types()
+            registry = await app.container.get(HandlerMap)
+            handler_types = registry.handler_types()
             assert handler_types
             assert all(TransactionalBehavior in plan.for_handler(handler_type) for handler_type in handler_types)
 

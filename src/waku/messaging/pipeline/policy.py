@@ -12,10 +12,10 @@ from waku.extensions import OnModuleConfigure
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from waku.messaging._internal.registry import MessageRegistry
     from waku.messaging.config import MessagingConfig
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.contracts.pipeline import IPipelineBehavior
+    from waku.messaging.handler_map import HandlerMap
     from waku.modules import ModuleMetadata
 
 __all__ = [
@@ -52,7 +52,7 @@ class IBehaviorPolicy(ABC):
     def behaviors_for(
         self,
         handler: HandlerType,
-        registry: MessageRegistry,
+        handler_map: HandlerMap,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]: ...
 
@@ -61,7 +61,7 @@ class IBehaviorPolicy(ABC):
 class BehaviorPolicyExtension(OnModuleConfigure):
     """Module-extension seam contributing an IBehaviorPolicy into the pipeline assembly.
 
-    Declare it in a module's ``extensions=[...]``; ``MessageRegistryAggregator`` discovers it via
+    Declare it in a module's ``extensions=[...]``; ``HandlerMapAggregator`` discovers it via
     ``find_extensions`` and folds the policy into every handler's ``BehaviorPlan``. One mechanism for
     framework, event-sourcing (event forwarding), and user-supplied policies alike.
 

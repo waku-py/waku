@@ -10,9 +10,8 @@ from waku.integrations.eventsourcing_messaging import (
     EventSourcedVoidCommandHandler,
     ForwardingPolicy,
 )
-from waku.messaging import IRequest, RequestHandler
+from waku.messaging import HandlerMap, IRequest, RequestHandler
 from waku.messaging._internal.outbox_cascading import OutboxCascadingBehavior
-from waku.messaging._internal.registry import MessageRegistry
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import MessagingConfig, OutboxConfig
 from waku.messaging.contracts.handler import HandlerType
@@ -42,7 +41,7 @@ class _PlainHandler(RequestHandler[_DoThing, None]):
 
 
 def _chain_for(handler: HandlerType, config: MessagingConfig) -> tuple[type[Any], ...]:
-    return build_behavior_plan([handler], _POLICIES, MessageRegistry(), config).for_handler(handler)
+    return build_behavior_plan([handler], _POLICIES, HandlerMap(), config).for_handler(handler)
 
 
 def test_es_command_handler_gets_forwarding_innermost() -> None:

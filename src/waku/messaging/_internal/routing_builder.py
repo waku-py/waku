@@ -12,9 +12,9 @@ from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor, Routin
 
 if TYPE_CHECKING:
     from waku.messages import IMessage
-    from waku.messaging._internal.registry import MessageRegistry
     from waku.messaging.config import MessagingConfig
     from waku.messaging.contracts.handler import HandlerType
+    from waku.messaging.handler_map import HandlerMap
     from waku.modules import ModuleType
 
 __all__ = [
@@ -41,7 +41,7 @@ class RoutingTableBuilder:
         config: MessagingConfig,
         *,
         merged_endpoints: tuple[MergedBrokerEndpoint, ...] = (),
-        aggregated: MessageRegistry,
+        aggregated: HandlerMap,
         module_routing_map: ModuleRoutingMap,
     ) -> None:
         self._config = config
@@ -90,7 +90,7 @@ class RoutingTableBuilder:
         self._per_type_overrides.add(msg_type)
         self._type_routes[msg_type].append(descriptor.endpoint_uri)
 
-        handlers = self._registry.handler_map.get_handler_types(msg_type)
+        handlers = self._registry.get_handler_types(msg_type)
         if not handlers:
             msg = f"route() references '{msg_type.__qualname__}' which has no registered handlers"
             raise ImproperlyConfiguredError(msg)
@@ -109,7 +109,7 @@ class RoutingTableBuilder:
             self._endpoint_handlers[descriptor.endpoint_uri][msg_type].update(handler_types)
 
     def _assign_unrouted_to_default(self) -> None:
-        for msg_type, handlers in self._registry.handler_map.items():
+        for msg_type, handlers in self._registry.items():
             all_handlers: set[HandlerType] = set(handlers)
             routed = self._collect_routed_handlers(msg_type)
             unrouted = all_handlers - routed
