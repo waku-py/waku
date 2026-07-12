@@ -333,7 +333,7 @@ async def test_durable_and_drainer_paths_fire_executing_and_executed(caplog: pyt
                 status=InboxStatus.INCOMING,
                 correlation_id=envelope.correlation_id,
                 causation_id=envelope.causation_id,
-                metadata_=encode_metadata(envelope),
+                metadata=encode_metadata(envelope),
             )
             inbox.entries[entry.id, entry.destination] = entry
             await wait_until(lambda: sorted(calls) == ['live-1', 'recovered-1'])

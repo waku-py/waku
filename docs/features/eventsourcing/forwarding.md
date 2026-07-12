@@ -68,7 +68,7 @@ Every appended event is forwarded. By default it is forwarded **raw** via `publi
 - `forward(EventType).transformed_to(fn)` maps the appended event to an integration event before
   forwarding it via `publish` (still post-commit, still subscriber-gated).
 - `forward(EventType).same_transaction()` forwards inline via `invoke`, in the command's own
-  transaction — fail-fast, so it raises `HandlerNotFound` if no handler is registered.
+  transaction — fail-fast, so it raises `HandlerNotFoundError` if no handler is registered.
 
 The transform receives the appended `StoredEvent`: read the domain payload via `stored.data`, and the
 stream provenance via `stored.stream_id`, `stored.position`, `stored.global_position`, and

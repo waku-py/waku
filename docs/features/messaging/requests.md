@@ -73,7 +73,7 @@ Each request type maps to **exactly one** handler. Subclass `RequestHandler[TReq
 and implement the `handle` method:
 
 !!! warning "One handler per request type"
-    Registering two handlers for the same `IRequest` type raises `MultipleHandlersRegistered`
+    Registering two handlers for the same `IRequest` type raises `MultipleHandlersRegisteredError`
     at startup. This is a safety check — ambiguous dispatch is never silent. If multiple
     components need to react to the same trigger, use [events](events.md) instead.
 

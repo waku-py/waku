@@ -211,7 +211,7 @@ The verb selects the consistency boundary — there is no global switch:
 | Execution | Inline, caller's scope | Routed to endpoints, a separate scope per subscriber |
 | Transaction | One, shared by all handlers | One per subscriber, post-commit |
 | On handler error | Fail-fast — aborts the rest, rolls back | Isolated — logged, the rest proceed |
-| No handlers | Raises `HandlerNotFound` | Silent no-op |
+| No handlers | Raises `HandlerNotFoundError` | Silent no-op |
 | Use for | Same-transaction domain events | Eventual, decoupled fan-out (the default) |
 
 A nested `invoke()` from inside a handler **joins the same transaction** — the outermost call owns

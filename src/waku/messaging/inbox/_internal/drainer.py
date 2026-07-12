@@ -186,6 +186,6 @@ def _poison_dead_letter(entry: InboxEntry, reason: str, attempt: int) -> DeadLet
         exc=InboxPoisonError(reason),
         attempt=attempt,
         message_id=entry.message_id,
-        metadata=entry.metadata_,
+        metadata=entry.metadata,
         group_id=entry.group_id,
     )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from waku.messages import IEvent
@@ -81,7 +82,11 @@ class TestErrorPolicyEvaluator:
         monkeypatch.setattr('waku._internal.adaptive_interval.random.uniform', lambda _lo, hi: hi)
         evaluator = ErrorPolicyEvaluator(
             _registry(
-                ErrorPolicy.on_any_exception().retry_with_backoff(max_attempts=5, base_delay=1.0, max_delay=30.0),
+                ErrorPolicy.on_any_exception().retry_with_backoff(
+                    max_attempts=5,
+                    base_delay=timedelta(seconds=1),
+                    max_delay=timedelta(seconds=30),
+                ),
             )
         )
 
@@ -89,7 +94,44 @@ class TestErrorPolicyEvaluator:
         assert outcome is not None
         assert outcome.action == RetryAction.RETRY_WITH_BACKOFF
         # attempt 2 -> ceiling min(1 * 2**2, 30) = 4.0
-        assert outcome.retry_delay == 4.0
+        assert outcome.retry_delay == timedelta(seconds=4)
+
+    @staticmethod
+    def test_retry_with_backoff_accepts_timedelta_delays() -> None:
+        evaluator = ErrorPolicyEvaluator(
+            _registry(
+                ErrorPolicy.on_any_exception().retry_with_backoff(
+                    max_attempts=3,
+                    base_delay=timedelta(seconds=2),
+                    max_delay=timedelta(seconds=30),
+                ),
+            )
+        )
+
+        outcome = evaluator.evaluate(_make_ctx(RuntimeError(), attempt=1))
+        assert outcome is not None
+        assert outcome.action == RetryAction.RETRY_WITH_BACKOFF
+        assert isinstance(outcome.retry_delay, timedelta)
+        assert 0.0 <= outcome.retry_delay.total_seconds() <= 30.0
+
+    @staticmethod
+    def test_then_retry_with_backoff_accepts_timedelta_delays() -> None:
+        evaluator = ErrorPolicyEvaluator(
+            _registry(
+                ErrorPolicy
+                .on_any_exception()
+                .retry(max_attempts=2)
+                .then_retry_with_backoff(
+                    max_attempts=2, base_delay=timedelta(seconds=1), max_delay=timedelta(seconds=4)
+                ),
+            )
+        )
+
+        outcome = evaluator.evaluate(_make_ctx(RuntimeError(), attempt=2))
+        assert outcome is not None
+        assert outcome.action == RetryAction.RETRY_WITH_BACKOFF
+        assert isinstance(outcome.retry_delay, timedelta)
+        assert 0.0 <= outcome.retry_delay.total_seconds() <= 4.0
 
     @staticmethod
     def test_retry_with_backoff_exhausted_escalates_to_dead_letter_stage() -> None:
@@ -112,7 +154,9 @@ class TestErrorPolicyEvaluator:
                 ErrorPolicy
                 .on_any_exception()
                 .retry(max_attempts=2)
-                .then_retry_with_backoff(max_attempts=2, base_delay=1.0, max_delay=4.0),
+                .then_retry_with_backoff(
+                    max_attempts=2, base_delay=timedelta(seconds=1), max_delay=timedelta(seconds=4)
+                ),
             )
         )
 
@@ -120,7 +164,7 @@ class TestErrorPolicyEvaluator:
         assert outcome is not None
         assert outcome.action == RetryAction.RETRY_WITH_BACKOFF
         # stage-local attempt 1 -> ceiling min(1 * 2**1, 4) = 2.0, NOT global attempt 2's min(1 * 2**2, 4) = 4.0
-        assert outcome.retry_delay == 2.0
+        assert outcome.retry_delay == timedelta(seconds=2)
 
     @staticmethod
     def test_discard_action() -> None:

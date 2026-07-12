@@ -401,7 +401,7 @@ class TestMetadataColumns:
             'scheduled_time': None,
             'expires_at': None,
         }
-        entry = _make_entry(correlation_id=corr, causation_id=caus, metadata_=meta_payload)
+        entry = _make_entry(correlation_id=corr, causation_id=caus, metadata=meta_payload)
         await store.store_incoming(entry)
         await pg_session.flush()
 
@@ -410,7 +410,7 @@ class TestMetadataColumns:
         assert len(claimed) == 1
         assert claimed[0].correlation_id == corr
         assert claimed[0].causation_id == caus
-        assert claimed[0].metadata_ == meta_payload
+        assert claimed[0].metadata == meta_payload
 
     @staticmethod
     async def test_correlation_causation_default_to_none(pg_session: AsyncSession) -> None:
@@ -423,4 +423,10 @@ class TestMetadataColumns:
 
         assert claimed[0].correlation_id is None
         assert claimed[0].causation_id is None
-        assert claimed[0].metadata_ is None
+        assert claimed[0].metadata is None
+
+
+def test_inbox_ddl_column_is_metadata() -> None:
+    table = bind_inbox_tables(MetaData()).entries
+    assert 'metadata' in table.c
+    assert 'metadata_' not in table.c

@@ -24,5 +24,5 @@ class TestSnapshotStoreContract(SnapshotStoreContract):
         if request.param == 'in_memory':
             return InMemorySnapshotStore()
         pg_session: AsyncSession = request.getfixturevalue('pg_session')
-        snapshots_table = bind_snapshot_tables(MetaData())
+        snapshots_table = bind_snapshot_tables(MetaData()).snapshots
         return SqlAlchemySnapshotStore(session=pg_session, snapshots_table=snapshots_table)

@@ -61,7 +61,7 @@ from waku.messaging.errors.policy import policies_have_deferred_terminal, polici
 from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.errors.worker import DeadLetterWorker
-from waku.messaging.exceptions import HandlerAlreadyRegistered, MultipleHandlersRegistered
+from waku.messaging.exceptions import HandlerAlreadyRegisteredError, MultipleHandlersRegisteredError
 from waku.messaging.handler import MessageHandler
 from waku.messaging.handler_map import HandlerMap
 from waku.messaging.inbox._internal.drainer import build_inbox_drainer
@@ -584,7 +584,7 @@ class HandlerMapAggregator(RegistryAggregator['MessagingExtension', HandlerMap])
     def _merge(self, aggregated: HandlerMap, ext: 'MessagingExtension', module_type: 'ModuleType') -> None:
         try:
             aggregated.merge(ext.handler_map)
-        except HandlerAlreadyRegistered as exc:
+        except HandlerAlreadyRegisteredError as exc:
             msg = f'{exc} (from module {module_type.__qualname__})'
             raise ImproperlyConfiguredError(msg) from exc
         if ext.handler_map:
@@ -646,6 +646,7 @@ class HandlerMapAggregator(RegistryAggregator['MessagingExtension', HandlerMap])
         error_policy_registry = ErrorPolicyRegistry(
             handler_policies=handler_policies,
             default_policies=self._config.endpoint_defaults.error_policies,
+            strict=True,
         )
         registry.add_provider(owning_module, object_(error_policy_registry))
 
@@ -695,7 +696,7 @@ class HandlerMapAggregator(RegistryAggregator['MessagingExtension', HandlerMap])
     def _validate_request_handler_counts(registry: HandlerMap) -> None:
         for msg_type, handlers in registry.items():
             if issubclass(msg_type, IRequest) and len(handlers) > 1:
-                raise MultipleHandlersRegistered(msg_type)
+                raise MultipleHandlersRegisteredError(msg_type)
 
     def _register_behavior_plan(
         self,

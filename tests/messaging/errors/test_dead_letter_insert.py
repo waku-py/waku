@@ -19,7 +19,7 @@ def test_dead_letter_insert_values_returns_only_the_nine_persisted_columns() -> 
         retry_count=3,
         message_id=uuid4(),
         group_id='partition-7',
-        metadata_={'trace': 'abc'},
+        metadata={'trace': 'abc'},
     )
 
     values = dead_letter_insert_values(entry)

@@ -170,11 +170,11 @@ class InboxStoreContract:
         corr = 'trace-abc-123'
         caus = 'req-xyz-789'
         meta = {'message_version': 3, 'timestamp': '2026-06-29T10:00:00+00:00', 'headers': {'x-version': '3'}}
-        entry = _make_entry(correlation_id=corr, causation_id=caus, metadata_=meta)
+        entry = _make_entry(correlation_id=corr, causation_id=caus, metadata=meta)
 
         await inbox_store.store_incoming(entry)
         claimed = await inbox_store.fetch_pending(batch_size=10, owner_id='w-1')
 
         assert claimed[0].correlation_id == corr
         assert claimed[0].causation_id == caus
-        assert claimed[0].metadata_ == meta
+        assert claimed[0].metadata == meta

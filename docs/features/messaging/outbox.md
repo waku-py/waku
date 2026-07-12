@@ -208,7 +208,7 @@ The message payload is encoded to a JSON-compatible `dict` by the `PayloadCodec`
 `Retort` plus the upcaster chain, provided automatically by `MessagingModule`), and the
 non-payload envelope fields — correlation/causation ids, message type, version, scheduling, and
 user headers — are captured as `EnvelopeMetadata`. Both are written to the outbox row (payload
-blob + `metadata_` + typed columns) inside the handler's transaction.
+blob + `metadata` + typed columns) inside the handler's transaction.
 
 The relay dispatches the stored payload and metadata to the transport **verbatim** — the body was
 encoded once, at persist time, and is never re-serialized on the way out.
@@ -254,8 +254,8 @@ OutboxConfig(
 | `batch_size`         | `int`               | `100`                   | Messages fetched per poll cycle                          |
 | `polling`            | `PollingConfig`     | *(see below)*           | Adaptive poll pacing (nested; see below)                |
 | `max_attempts`       | `int`               | `5`                     | Max relay dispatch attempts before dead-lettering        |
-| `base_delay`         | `float`             | `1.0`                   | Base delay for exponential backoff on failure             |
-| `max_delay`          | `float`             | `60.0`                  | Maximum backoff delay                                    |
+| `base_delay`         | `timedelta`         | `1 second`              | Base delay for exponential backoff on failure             |
+| `max_delay`          | `timedelta`         | `60 seconds`            | Maximum backoff delay                                    |
 | `stuck_threshold`    | `timedelta`         | `5 minutes`             | Messages stuck in `PROCESSING` longer than this are recovered |
 | `recovery_interval`  | `timedelta`         | `1 minute`              | How often to check for stuck messages                    |
 | `retention`          | `timedelta \| None` | `None`                  | When set, dispatched messages older than this are purged; `None` keeps them |

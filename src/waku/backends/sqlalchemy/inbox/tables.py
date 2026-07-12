@@ -42,7 +42,7 @@ inbox_entries_table = Table(
     Column('owner_id', Text, nullable=True),
     Column('correlation_id', Text, nullable=True),
     Column('causation_id', Text, nullable=True),
-    Column('metadata_', JSONB, nullable=True),
+    Column('metadata', JSONB, nullable=True),
     Column('execution_time', TIMESTAMP(timezone=True), nullable=True),
     Column('attempts', Integer, nullable=False, server_default='0'),
     Column('message_type', Text, nullable=False),

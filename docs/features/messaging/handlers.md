@@ -76,7 +76,7 @@ class OrdersModule:
 2. Or name the message type first, followed by one or more handlers for it.
 
 A request type resolves to **exactly one** handler — binding a second raises
-`MultipleHandlersRegistered` at startup. An event fans out to **every** handler bound to it.
+`MultipleHandlersRegisteredError` at startup. An event fans out to **every** handler bound to it.
 
 ---
 

@@ -48,7 +48,7 @@ dead_letter_table = Table(
     Column('replay_count', Integer, nullable=False, server_default='0'),
     Column('message_id', UUID(as_uuid=True), nullable=True),
     Column('group_id', Text, nullable=True),
-    Column('metadata_', JSONB, nullable=True),
+    Column('metadata', JSONB, nullable=True),
     Column('created_at', TIMESTAMP(timezone=True), server_default=func.now()),
     Index('ix_dead_letter_created', 'created_at'),
     Index('ix_dead_letter_status', 'status'),
@@ -59,7 +59,7 @@ def dead_letter_insert_values(entry: DeadLetterEntry) -> dict[str, Any]:
     """The 9 columns the outbox/inbox stores persist when moving a message to the dead-letter table.
 
     ``status``/``replay_count`` fall back to their server-defaults and ``message_id``/``group_id``/
-    ``metadata_`` stay NULL. The primary ``SqlAlchemyDeadLetterStore.save`` deliberately writes 5 more
+    ``metadata`` stay NULL. The primary ``SqlAlchemyDeadLetterStore.save`` deliberately writes 5 more
     columns and is NOT routed through this helper — do not unify the two field sets.
     """
     return {

@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy import BigInteger, Column, MetaData, Table, Text, func
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 
-__all__ = ['bind_checkpoint_tables']
+__all__ = [
+    'CheckpointTables',
+    'bind_checkpoint_tables',
+]
 
 _internal_metadata = MetaData()
 
@@ -17,7 +22,15 @@ es_checkpoints_table = Table(
 )
 
 
-def bind_checkpoint_tables(metadata: MetaData) -> Table:
-    if es_checkpoints_table.name in metadata.tables:
-        return metadata.tables[es_checkpoints_table.name]
-    return es_checkpoints_table.to_metadata(metadata)
+@dataclass(frozen=True, slots=True)
+class CheckpointTables:
+    checkpoints: Table
+
+
+def bind_checkpoint_tables(metadata: MetaData) -> CheckpointTables:
+    checkpoints = (
+        metadata.tables[es_checkpoints_table.name]
+        if es_checkpoints_table.name in metadata.tables
+        else es_checkpoints_table.to_metadata(metadata)
+    )
+    return CheckpointTables(checkpoints=checkpoints)

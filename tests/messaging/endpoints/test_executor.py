@@ -155,7 +155,11 @@ async def test_executor_exhausted_retries() -> None:
 async def test_executor_transient_backoff() -> None:
     handler, calls = _make_fail_n_times_handler(fail_count=1)
     evaluator = _evaluator_for(
-        ErrorPolicy.on_any_exception().retry_with_backoff(max_attempts=3, base_delay=0.001, max_delay=0.01),
+        ErrorPolicy.on_any_exception().retry_with_backoff(
+            max_attempts=3,
+            base_delay=timedelta(milliseconds=1),
+            max_delay=timedelta(milliseconds=10),
+        ),
     )
     outcome = await _run_executor(handler, evaluator)
     assert len(calls) == 2
@@ -175,7 +179,7 @@ async def test_retry_with_backoff_sleeps_for_the_policy_delay(monkeypatch: pytes
     evaluator = _evaluator_for(
         ErrorPolicy
         .on_any_exception()
-        .retry_with_backoff(max_attempts=2, base_delay=5.0, max_delay=5.0)
+        .retry_with_backoff(max_attempts=2, base_delay=timedelta(seconds=5), max_delay=timedelta(seconds=5))
         .then_move_to_dead_letter(),
     )
 

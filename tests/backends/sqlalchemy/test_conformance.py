@@ -181,11 +181,11 @@ class TestSqlAlchemySnapshotConformance(SnapshotStoreContract):
     @pytest.fixture
     @override
     def snapshot_store(self, conformance_pg_session: AsyncSession) -> ISnapshotStore:
-        return SqlAlchemySnapshotStore(conformance_pg_session, bind_snapshot_tables(MetaData()))
+        return SqlAlchemySnapshotStore(conformance_pg_session, bind_snapshot_tables(MetaData()).snapshots)
 
 
 class TestSqlAlchemyCheckpointConformance(CheckpointStoreContract):
     @pytest.fixture
     @override
     def checkpoint_store(self, conformance_pg_session: AsyncSession) -> ICheckpointStore:
-        return SqlAlchemyCheckpointStore(conformance_pg_session, bind_checkpoint_tables(MetaData()))
+        return SqlAlchemyCheckpointStore(conformance_pg_session, bind_checkpoint_tables(MetaData()).checkpoints)

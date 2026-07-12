@@ -52,6 +52,11 @@ class MemoryBackend:
     for per-store fakes in unit/contract tests (those stay per-store provider overrides). Never
     register it alongside another backend in one app: two providers for one store port fail the
     container build.
+
+    Event-sourcing data is request-scope-local: the `IEventStore` facet is `scoped` because it
+    injects the request-scoped projection/enricher collectors, so each scope gets a fresh
+    `InMemoryEventStore`. The durable-messaging facets (outbox/inbox/DLQ/sequence) are singletons
+    and DO survive across scopes. Multi-scope ES read-back needs the SQLAlchemy backend.
     """
 
     @classmethod

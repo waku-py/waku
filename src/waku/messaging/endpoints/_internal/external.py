@@ -52,7 +52,7 @@ class ExternalEndpoint(Endpoint):
             idempotency_key=str(envelope.message_id),
             message_type=envelope.message_type,
             payload=encode_payload(envelope, codec),
-            metadata_=encode_metadata(envelope),
+            metadata=encode_metadata(envelope),
             destination=self._uri,
             correlation_id=envelope.correlation_id,
             causation_id=envelope.causation_id,

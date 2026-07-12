@@ -30,6 +30,12 @@ class TestDeadLetterStatus:
 
 class TestDeadLetterEntry:
     @staticmethod
+    def test_metadata_field_is_metadata() -> None:
+        entry = dataclasses.replace(_from_failure(), metadata={'trace': 'abc'})
+        assert entry.metadata == {'trace': 'abc'}
+        assert not hasattr(entry, 'metadata_')
+
+    @staticmethod
     def test_from_failure_enters_as_pending_with_zero_replays() -> None:
         entry = _from_failure()
         assert entry.status is DeadLetterStatus.PENDING

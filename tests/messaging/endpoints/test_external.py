@@ -79,7 +79,7 @@ class TestExternalEndpoint:
         assert msg.causation_id == envelope.causation_id
         assert msg.idempotency_key == str(envelope.message_id)
         assert msg.payload == encode_payload(envelope, codec)
-        assert msg.metadata_ == encode_metadata(envelope)
+        assert msg.metadata == encode_metadata(envelope)
 
     @staticmethod
     async def test_start_is_noop() -> None:

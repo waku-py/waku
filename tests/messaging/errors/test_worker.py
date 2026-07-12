@@ -135,7 +135,7 @@ def _entry(destination: str) -> tuple[DeadLetterEntry, MessageEnvelope[Any]]:
         error_type='RuntimeError',
         error_message='boom',
         retry_count=3,
-        metadata_=encode_metadata(envelope),
+        metadata=encode_metadata(envelope),
         group_id=envelope.group_id,
     )
     return entry, envelope

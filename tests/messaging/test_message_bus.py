@@ -35,8 +35,8 @@ from waku.messaging.errors._internal.discarding_store import DiscardingDeadLette
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.exceptions import (
-    HandlerNotFound,
-    MultipleHandlersRegistered,
+    HandlerNotFoundError,
+    MultipleHandlersRegisteredError,
     NoRouteError,
 )
 from waku.messaging.modules import DeadLetterLifecycleExtension
@@ -101,7 +101,7 @@ async def test_multiple_request_handlers_rejected_at_startup() -> None:
         async def handle(self, request: _Command, /) -> _Result:  # pragma: no cover
             return _Result(value='other')
 
-    with pytest.raises(MultipleHandlersRegistered, match='_Command'):
+    with pytest.raises(MultipleHandlersRegisteredError, match='_Command'):
         async with create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
             extensions=[MessagingExtension().bind(_CommandHandler).bind(_AnotherCommandHandler)],
@@ -117,7 +117,7 @@ async def test_invoke_raises_for_unregistered_request() -> None:
         app.container() as container,
     ):
         bus = await container.get(IMessageBus)
-        with pytest.raises(HandlerNotFound, match='No handler registered for _UnregisteredCommand'):
+        with pytest.raises(HandlerNotFoundError, match='No handler registered for _UnregisteredCommand'):
             await bus.invoke(_UnregisteredCommand())
 
 

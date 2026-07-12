@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import pytest
+from typing_extensions import override
 
 from waku.messages import IEvent
+from waku.messaging import MessagingConfig, MessagingExtension, MessagingModule
 from waku.messaging.errors.policy import ErrorPolicy, RetryAction
 from waku.messaging.errors.registry import DuplicateErrorPolicyError, ErrorPolicyRegistry
 from waku.messaging.handler import EventHandler
+from waku.testing import create_test_app
+
+if TYPE_CHECKING:
+    from typing import ClassVar
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,3 +162,23 @@ class TestErrorPolicyRegistry:
                 default_policies=(),
                 strict=True,
             )
+
+
+class _DuplicatePolicyHandler(EventHandler[OrderPlaced]):
+    error_policies: ClassVar = (
+        ErrorPolicy.on_exception(TimeoutError).retry(max_attempts=3),
+        ErrorPolicy.on_exception(TimeoutError).discard(),
+    )
+
+    @override
+    async def handle(self, message: OrderPlaced, /) -> None:  # pragma: no cover
+        pass
+
+
+async def test_duplicate_error_policy_fails_at_startup() -> None:
+    with pytest.raises(DuplicateErrorPolicyError):
+        async with create_test_app(
+            imports=[MessagingModule.register(MessagingConfig())],
+            extensions=[MessagingExtension().bind(_DuplicatePolicyHandler)],
+        ):
+            pass  # pragma: no cover

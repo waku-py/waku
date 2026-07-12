@@ -38,7 +38,7 @@ class ISender(abc.ABC):
         sharing the caller's transaction if a UoW is present.
 
         ``options`` accepts only envelope-native fields (headers/IDs/group_id); scheduling/expiration
-        raises ``DeliveryOptionNotApplicableError``. Raises ``HandlerNotFound`` if unregistered.
+        raises ``DeliveryOptionNotApplicableError``. Raises ``HandlerNotFoundError`` if unregistered.
         """
 
     @abc.abstractmethod

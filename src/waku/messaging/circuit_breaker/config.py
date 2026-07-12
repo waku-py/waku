@@ -10,17 +10,18 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CircuitBreakerConfig:
-    """Per-endpoint circuit breaker tuning (Wolverine-faithful, rate-based).
+    """Per-endpoint circuit breaker tuning (rate-based, Wolverine-aligned defaults).
 
     Trips when, over `tracking_period`, at least `minimum_throughput` messages were recorded AND the
     failure fraction exceeds `failure_rate_threshold` (a fraction in the half-open interval (0.0, 1.0]).
     On trip the endpoint's processing is paused for `pause_time`, then resumed and re-sampled (no
     half-open probe). `track_exceptions` (empty = all) / `ignore_exceptions` filter which exception
-    types count as failures.
+    types count as failures. The whole `tracking_period` is a single window — Wolverine's 250 ms
+    sub-period sampling smoothing is a documented divergence (not implemented).
     """
 
-    failure_rate_threshold: float = 0.2
-    tracking_period: timedelta = timedelta(minutes=5)
+    failure_rate_threshold: float = 0.15
+    tracking_period: timedelta = timedelta(minutes=10)
     minimum_throughput: int = 10
     pause_time: timedelta = timedelta(minutes=5)
     track_exceptions: tuple[type[Exception], ...] = ()

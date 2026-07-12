@@ -24,5 +24,5 @@ class TestCheckpointStoreContract(CheckpointStoreContract):
         if request.param == 'in_memory':
             return InMemoryCheckpointStore()
         pg_session: AsyncSession = request.getfixturevalue('pg_session')
-        checkpoints_table = bind_checkpoint_tables(MetaData())
+        checkpoints_table = bind_checkpoint_tables(MetaData()).checkpoints
         return SqlAlchemyCheckpointStore(session=pg_session, checkpoints_table=checkpoints_table)

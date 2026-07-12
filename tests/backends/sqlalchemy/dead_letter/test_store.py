@@ -212,3 +212,9 @@ class TestSqlAlchemyDeadLetterStore:
         finally:
             async with pg_engine.begin() as conn:
                 await conn.run_sync(metadata.drop_all)
+
+
+def test_dead_letter_ddl_column_is_metadata() -> None:
+    table = bind_dead_letter_tables(MetaData()).messages
+    assert 'metadata' in table.c
+    assert 'metadata_' not in table.c

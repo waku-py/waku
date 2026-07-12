@@ -62,7 +62,7 @@ class DeadLetterEntry:
     replay_count: int = 0
     message_id: UUID | None = None
     group_id: str | None = None
-    metadata_: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
     created_at: datetime | None = None
 
     @classmethod
@@ -91,6 +91,6 @@ class DeadLetterEntry:
             error_message=str(exc),
             retry_count=attempt,
             message_id=message_id,
-            metadata_=metadata,
+            metadata=metadata,
             group_id=group_id,
         )

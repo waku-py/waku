@@ -110,7 +110,7 @@ def _entry_for(envelope: MessageEnvelope[Any], destination: str) -> DeadLetterEn
         error_message='boom',
         retry_count=3,
         message_id=envelope.message_id,
-        metadata_=encode_metadata(envelope),
+        metadata=encode_metadata(envelope),
         group_id=envelope.group_id,
     )
 
@@ -256,7 +256,7 @@ async def test_replay_reconstruct_and_compare_all_metadata_fields() -> None:
         error_message='failed',
         retry_count=5,
         message_id=envelope.message_id,
-        metadata_=encode_metadata(envelope),
+        metadata=encode_metadata(envelope),
         group_id=envelope.group_id,
     )
 

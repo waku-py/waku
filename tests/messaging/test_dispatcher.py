@@ -19,7 +19,7 @@ from waku.messaging import (
 )
 from waku.messaging._internal.dispatcher import MessageDispatcher
 from waku.messaging.endpoints import ExecutionOutcome
-from waku.messaging.exceptions import HandlerNotFound
+from waku.messaging.exceptions import HandlerNotFoundError
 from waku.messaging.observability.observer import INVOKE_DESTINATION, IMessageObserver, MessageObservers
 from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
 from waku.testing import create_test_app
@@ -50,7 +50,7 @@ class TestInvokeRequest:
             app.container() as container,
         ):
             dispatcher = await app.container.get(MessageDispatcher)
-            with pytest.raises(HandlerNotFound, match='_Cmd'):
+            with pytest.raises(HandlerNotFoundError, match='_Cmd'):
                 await dispatcher.invoke_request(container, make_envelope(_Cmd(value='x')))
 
     @staticmethod
@@ -83,7 +83,7 @@ class TestInvokeEvent:
             app.container() as container,
         ):
             dispatcher = await app.container.get(MessageDispatcher)
-            with pytest.raises(HandlerNotFound, match='_Evt'):
+            with pytest.raises(HandlerNotFoundError, match='_Evt'):
                 await dispatcher.invoke_event(container, make_envelope(_Evt(value='x')))
 
     @staticmethod
@@ -269,6 +269,6 @@ class TestInvokeObservability:
                 invoker=await app.container.get(HandlerPipelineInvoker),
                 observers=MessageObservers([spy]),
             )
-            with pytest.raises(HandlerNotFound, match='_Cmd'):
+            with pytest.raises(HandlerNotFoundError, match='_Cmd'):
                 await dispatcher.invoke_request(container, make_envelope(_Cmd(value='x')))
         assert spy.events == []

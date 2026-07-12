@@ -137,7 +137,7 @@ class DurableLocalQueueEndpoint(Endpoint):
             inbox = await write_scope.get(IInboxStore)
             codec = await write_scope.get(PayloadCodec)
             payload = encode_payload(envelope, codec)
-            metadata_ = encode_metadata(envelope)
+            metadata = encode_metadata(envelope)
             for handler_type in handler_types:
                 # owner_id=None so the recovery drain (owner_id IS NULL) claims the promoted row.
                 await inbox.store_incoming(
@@ -154,7 +154,7 @@ class DurableLocalQueueEndpoint(Endpoint):
                         execution_time=scheduled,
                         correlation_id=envelope.correlation_id,
                         causation_id=envelope.causation_id,
-                        metadata_=metadata_,
+                        metadata=metadata,
                     )
                 )
 

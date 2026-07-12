@@ -391,7 +391,7 @@ class TestWireMetadataFromEntry:
     @staticmethod
     def test_outbox_uses_idempotency_key_as_message_id() -> None:
         idem = str(uuid4())
-        entry = _make_outbox_message(idempotency_key=idem, metadata_=_make_meta_json())
+        entry = _make_outbox_message(idempotency_key=idem, metadata=_make_meta_json())
 
         result = wire_metadata_from_entry(entry)
 
@@ -400,7 +400,7 @@ class TestWireMetadataFromEntry:
     @staticmethod
     def test_inbox_uses_str_id_as_message_id() -> None:
         entry_id = uuid4()
-        entry = _make_inbox_entry(id=entry_id, metadata_=_make_meta_json())
+        entry = _make_inbox_entry(id=entry_id, metadata=_make_meta_json())
 
         result = wire_metadata_from_entry(entry)
 
@@ -409,7 +409,7 @@ class TestWireMetadataFromEntry:
     @staticmethod
     def test_dlq_uses_message_id_column_when_set() -> None:
         original_message_id = uuid4()
-        entry = _make_dlq_entry(message_id=original_message_id, metadata_=_make_meta_json())
+        entry = _make_dlq_entry(message_id=original_message_id, metadata=_make_meta_json())
 
         result = wire_metadata_from_entry(entry)
 
@@ -419,7 +419,7 @@ class TestWireMetadataFromEntry:
     def test_dlq_falls_back_to_entry_id_when_message_id_column_is_null() -> None:
         # Legacy DLQ rows written before the message_id column existed have message_id=None.
         entry_id = uuid4()
-        entry = _make_dlq_entry(id=entry_id, message_id=None, metadata_=_make_meta_json())
+        entry = _make_dlq_entry(id=entry_id, message_id=None, metadata=_make_meta_json())
 
         result = wire_metadata_from_entry(entry)
 
@@ -434,7 +434,7 @@ class TestWireMetadataFromEntry:
             causation_id=caus,
             group_id='grp-1',
             message_type='orders.OrderPlaced',
-            metadata_=_make_meta_json(),
+            metadata=_make_meta_json(),
         )
 
         result = wire_metadata_from_entry(entry)
@@ -453,7 +453,7 @@ class TestWireMetadataFromEntry:
             causation_id=caus,
             group_id='grp-2',
             message_type='orders.OrderShipped',
-            metadata_=_make_meta_json(),
+            metadata=_make_meta_json(),
         )
 
         result = wire_metadata_from_entry(entry)
@@ -467,7 +467,7 @@ class TestWireMetadataFromEntry:
     def test_metadata_json_parsed_for_version_timestamp_headers() -> None:
         ts_str = '2026-06-29T10:00:00+00:00'
         meta = _make_meta_json(message_version=3, timestamp=ts_str, headers={'x-tenant': 'acme'})
-        entry = _make_outbox_message(metadata_=meta)
+        entry = _make_outbox_message(metadata=meta)
 
         result = wire_metadata_from_entry(entry)
 
@@ -480,7 +480,7 @@ class TestWireMetadataFromEntry:
         sched_str = '2026-07-01T10:00:00+00:00'
         exp_str = '2026-07-01T11:00:00+00:00'
         meta = _make_meta_json(scheduled_time=sched_str, expires_at=exp_str)
-        entry = _make_outbox_message(metadata_=meta)
+        entry = _make_outbox_message(metadata=meta)
 
         result = wire_metadata_from_entry(entry)
 
@@ -491,7 +491,7 @@ class TestWireMetadataFromEntry:
     def test_none_metadata_returns_minimal_with_typed_columns() -> None:
         corr = str(uuid4())
         caus = str(uuid4())
-        entry = _make_outbox_message(correlation_id=corr, causation_id=caus, metadata_=None)
+        entry = _make_outbox_message(correlation_id=corr, causation_id=caus, metadata=None)
 
         result = wire_metadata_from_entry(entry)
 
@@ -510,7 +510,7 @@ class TestWireMetadataFromEntry:
         caus = str(uuid4())
         # Corrupt: timestamp value is not a valid isoformat string.
         corrupt_meta = {'message_version': 1, 'timestamp': 'NOT-A-DATE', 'headers': {}}
-        entry = _make_inbox_entry(correlation_id=corr, causation_id=caus, metadata_=corrupt_meta)
+        entry = _make_inbox_entry(correlation_id=corr, causation_id=caus, metadata=corrupt_meta)
 
         result = wire_metadata_from_entry(entry)
 
@@ -529,7 +529,7 @@ class TestWireMetadataFromEntry:
             'timestamp': 'NOT-A-DATE',
             'headers': {'x-tenant': 'acme'},
         }
-        entry = _make_outbox_message(metadata_=corrupt_meta)
+        entry = _make_outbox_message(metadata=corrupt_meta)
 
         result = wire_metadata_from_entry(entry)
 
@@ -541,7 +541,7 @@ class TestWireMetadataFromEntry:
     def test_null_correlation_and_causation_fall_back_to_entry_id() -> None:
         # Legacy rows with NULL correlation_id/causation_id must not produce '' — UUID('') crashes
         # rebuild_envelope. The fallback to str(entry.id) yields a valid UUID string instead.
-        entry = _make_inbox_entry(correlation_id=None, causation_id=None, metadata_=_make_meta_json())
+        entry = _make_inbox_entry(correlation_id=None, causation_id=None, metadata=_make_meta_json())
 
         result = wire_metadata_from_entry(entry)
 
@@ -550,7 +550,7 @@ class TestWireMetadataFromEntry:
 
     @staticmethod
     def test_dlq_group_id_from_typed_column() -> None:
-        entry = _make_dlq_entry(group_id='partition-99', metadata_=_make_meta_json())
+        entry = _make_dlq_entry(group_id='partition-99', metadata=_make_meta_json())
 
         result = wire_metadata_from_entry(entry)
 

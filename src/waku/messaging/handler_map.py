@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
-from waku.messaging.exceptions import HandlerAlreadyRegistered, MapFrozenError
+from waku.messaging.exceptions import HandlerAlreadyRegisteredError, MapFrozenError
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -28,7 +28,7 @@ class HandlerMap:
             raise MapFrozenError
         existing = self._registry.setdefault(message_type, [])
         if handler_type in existing:
-            raise HandlerAlreadyRegistered(message_type, handler_type)
+            raise HandlerAlreadyRegisteredError(message_type, handler_type)
         existing.append(handler_type)
         return self
 

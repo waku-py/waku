@@ -390,7 +390,7 @@ scoped `AsyncSession`. To substitute your own, register a provider for `ICheckpo
 | `updated_at` | `TIMESTAMP WITH TIME ZONE` | NOT NULL | Last checkpoint update time |
 | `created_at` | `TIMESTAMP WITH TIME ZONE` | default `now()` | First checkpoint time |
 
-Bind with `bind_checkpoint_tables(metadata)` from `waku.eventsourcing.projection.sqlalchemy`.
+Bind with `bind_checkpoint_tables(metadata)` from `waku.backends.sqlalchemy`.
 
 ### `es_projection_leases`
 

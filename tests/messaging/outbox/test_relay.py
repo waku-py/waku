@@ -155,7 +155,7 @@ def _make_outbox_message(envelope: MessageEnvelope[Any], *, group_id: str | None
         idempotency_key=str(envelope.message_id),
         message_type=envelope.message_type,
         payload=encode_payload(envelope, make_codec()),
-        metadata_=encode_metadata(envelope),
+        metadata=encode_metadata(envelope),
         destination='test://dest',
         correlation_id=envelope.correlation_id,
         causation_id=envelope.causation_id,
@@ -357,7 +357,7 @@ class TestOutboxRelay:
 
         assert len(store.dead_letter_entries) == 1
         entry = store.dead_letter_entries[0]
-        assert entry.metadata_ == msg.metadata_
+        assert entry.metadata == msg.metadata
         assert entry.group_id == msg.group_id
 
     @staticmethod
@@ -627,7 +627,7 @@ class TestDispatchMessageMetadata:
             idempotency_key=str(envelope.message_id),
             message_type=envelope.message_type,
             payload=encode_payload(envelope, make_codec()),
-            metadata_=encode_metadata(envelope),
+            metadata=encode_metadata(envelope),
             destination='test://dest',
             correlation_id=envelope.correlation_id,
             causation_id=envelope.causation_id,
@@ -650,7 +650,7 @@ class TestDispatchMessageMetadata:
         assert metadata.scheduled_time.isoformat() == envelope.scheduled_time.isoformat()  # type: ignore[union-attr]
         assert metadata.expires_at is not None
         assert metadata.expires_at.isoformat() == envelope.expires_at.isoformat()  # type: ignore[union-attr]
-        # Typed columns — these live on the row, NOT in metadata_, and must reach the transport.
+        # Typed columns — these live on the row, NOT in metadata, and must reach the transport.
         assert metadata.correlation_id == str(envelope.correlation_id)
         assert metadata.causation_id == str(envelope.causation_id)
         assert metadata.message_id == str(envelope.message_id)
@@ -659,14 +659,22 @@ class TestDispatchMessageMetadata:
 
 
 def test_build_relay_default_policy_is_catch_all_backoff_then_dead_letter() -> None:
-    policy = build_relay_default_policy(OutboxRelayConfig(max_attempts=5, base_delay=2.0, max_delay=30.0))
+    policy = build_relay_default_policy(
+        OutboxRelayConfig(max_attempts=5, base_delay=timedelta(seconds=2), max_delay=timedelta(seconds=30)),
+    )
     assert isinstance(policy, SendingFailurePolicy)
     assert policy.exception_type is None
     assert policy.predicate is None
     assert [s.action for s in policy.stages] == [RetryAction.RETRY_WITH_BACKOFF, RetryAction.DEAD_LETTER]
     assert policy.stages[0].max_attempts == 5
-    assert policy.stages[0].base_delay == 2.0
-    assert policy.stages[0].max_delay == 30.0
+    assert policy.stages[0].base_delay == timedelta(seconds=2)
+    assert policy.stages[0].max_delay == timedelta(seconds=30)
+
+
+def test_outbox_relay_config_delays_are_timedelta() -> None:
+    config = OutboxRelayConfig()
+    assert config.base_delay == timedelta(seconds=1)
+    assert config.max_delay == timedelta(seconds=60)
 
 
 # Observable identity mapper — map_outgoing returns payload unchanged; used to assert the override reached send.

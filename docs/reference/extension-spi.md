@@ -196,12 +196,14 @@ Payload codec and the upcasting toolkit.
 
 SQLAlchemy durability backend: entry point, store adapters, tables.
 
+`CheckpointTables` ·
 `DeadLetterTables` ·
 `EnumFromValues` ·
 `EventStoreTables` ·
 `InboxTables` ·
 `OutboxTables` ·
 `SequenceTables` ·
+`SnapshotTables` ·
 `SqlAlchemyBackend` ·
 `SqlAlchemyCheckpointStore` ·
 `SqlAlchemyDeadLetterStore` ·

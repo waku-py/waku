@@ -1,6 +1,6 @@
 from waku.backends.sqlalchemy.backend import SqlAlchemyBackend
 from waku.backends.sqlalchemy.checkpoint.store import SqlAlchemyCheckpointStore, make_sqlalchemy_checkpoint_store
-from waku.backends.sqlalchemy.checkpoint.tables import bind_checkpoint_tables
+from waku.backends.sqlalchemy.checkpoint.tables import CheckpointTables, bind_checkpoint_tables
 from waku.backends.sqlalchemy.column_types import EnumFromValues
 from waku.backends.sqlalchemy.dead_letter.store import SqlAlchemyDeadLetterStore
 from waku.backends.sqlalchemy.dead_letter.tables import DeadLetterTables, bind_dead_letter_tables
@@ -13,16 +13,18 @@ from waku.backends.sqlalchemy.outbox.tables import OutboxTables, bind_outbox_tab
 from waku.backends.sqlalchemy.sequence.allocator import SqlAlchemySequenceAllocator
 from waku.backends.sqlalchemy.sequence.tables import SequenceTables, bind_sequence_tables
 from waku.backends.sqlalchemy.snapshot.store import SqlAlchemySnapshotStore, make_sqlalchemy_snapshot_store
-from waku.backends.sqlalchemy.snapshot.tables import bind_snapshot_tables
+from waku.backends.sqlalchemy.snapshot.tables import SnapshotTables, bind_snapshot_tables
 from waku.backends.sqlalchemy.uow import SqlAlchemyUnitOfWork
 
 __all__ = [
+    'CheckpointTables',
     'DeadLetterTables',
     'EnumFromValues',
     'EventStoreTables',
     'InboxTables',
     'OutboxTables',
     'SequenceTables',
+    'SnapshotTables',
     'SqlAlchemyBackend',
     'SqlAlchemyCheckpointStore',
     'SqlAlchemyDeadLetterStore',

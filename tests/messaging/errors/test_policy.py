@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -49,7 +50,7 @@ class TestErrorPolicyBuilder:
             ErrorPolicy
             .on_exception(TimeoutError, when=lambda exc: 'transient' in str(exc))
             .retry(max_attempts=2)
-            .then_retry_with_backoff(max_attempts=3, base_delay=0.5)
+            .then_retry_with_backoff(max_attempts=3, base_delay=timedelta(seconds=0.5))
             .then_move_to_dead_letter()
         )
         assert [stage.action for stage in policy.stages] == [

@@ -39,7 +39,7 @@ class OutboxMessage:
     status: OutboxStatus = OutboxStatus.PENDING
     retry_count: int = 0
     last_error: str | None = None
-    metadata_: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
     created_at: datetime | None = None
     processing_started_at: datetime | None = None
     dispatched_at: datetime | None = None

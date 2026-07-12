@@ -22,5 +22,5 @@ def snapshot_store(request: pytest.FixtureRequest) -> ISnapshotStore:
 
     pg_session: AsyncSession = request.getfixturevalue('pg_session')
     metadata = MetaData()
-    snapshots_table = bind_snapshot_tables(metadata)
+    snapshots_table = bind_snapshot_tables(metadata).snapshots
     return SqlAlchemySnapshotStore(session=pg_session, snapshots_table=snapshots_table)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import functools
 import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, TypeVar, cast, runtime_checkable
@@ -101,15 +100,27 @@ def module(
 
 
 class ModuleCompiler:
+    """Resolves module metadata with an instance-scoped memo.
+
+    The memo keeps `on_module_configure` idempotent across repeated `extract_metadata` calls
+    within one compiler (one app registry) and dies with the compiler — a process-global cache
+    would pin every `DynamicModule` (fresh `uuid4` identity per `.register()`) forever.
+    """
+
+    def __init__(self) -> None:
+        self._cache: dict[Hashable, tuple[ModuleType, ModuleMetadata]] = {}
+
     def extract_metadata(self, module_type: ModuleType | DynamicModule) -> tuple[ModuleType, ModuleMetadata]:
-        try:
-            return self._extract_metadata(cast('Hashable', module_type))
-        except AttributeError:
-            msg = f'{type(module_type).__name__} is not module'
-            raise ValueError(msg) from None
+        key = cast('Hashable', module_type)
+        if key not in self._cache:
+            try:
+                self._cache[key] = self._extract_metadata(module_type)
+            except AttributeError:
+                msg = f'{type(module_type).__name__} is not module'
+                raise ValueError(msg) from None
+        return self._cache[key]
 
     @staticmethod
-    @functools.cache
     def _extract_metadata(module_type: ModuleType | DynamicModule) -> tuple[ModuleType, ModuleMetadata]:
         if isinstance(module_type, DynamicModule):
             parent_module = module_type.parent_module

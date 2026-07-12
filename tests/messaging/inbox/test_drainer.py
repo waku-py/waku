@@ -116,7 +116,7 @@ def _abandoned_entry(
         attempts=attempts,
         correlation_id=envelope.correlation_id,
         causation_id=envelope.causation_id,
-        metadata_=encode_metadata(envelope),
+        metadata=encode_metadata(envelope),
     )
     inbox.entries[entry.id, entry.destination] = entry
     return entry
@@ -168,7 +168,7 @@ class _CapturingExecutor(EndpointExecutor):
 
 async def test_drain_crash_recovery_rebuilds_envelope_from_decomposed_row() -> None:
     # Verifies that the drainer reconstructs the full envelope from the decomposed inbox row
-    # (encoded payload + metadata_ + typed correlation_id/causation_id columns) without using
+    # (encoded payload + metadata + typed correlation_id/causation_id columns) without using
     # serializer.deserialize. A real PayloadCodec + MessageTypeRegistry are used — no mocks.
     inbox = FakeInboxStore()
     envelope = make_envelope(_OrderPlaced(order_id='o-99'))
@@ -182,7 +182,7 @@ async def test_drain_crash_recovery_rebuilds_envelope_from_decomposed_row() -> N
         status=InboxStatus.INCOMING,
         correlation_id=envelope.correlation_id,
         causation_id=envelope.causation_id,
-        metadata_=encode_metadata(envelope),
+        metadata=encode_metadata(envelope),
     )
     inbox.entries[entry.id, entry.destination] = entry
 
@@ -236,11 +236,11 @@ async def test_drain_poison_unknown_handler_under_cap_bumps_attempts_and_leaves_
 
 
 async def test_drain_poison_unrebuildable_payload_bumps_attempts() -> None:
-    # A row with metadata_=None causes wire_metadata_from_entry to return timestamp=None,
+    # A row with metadata=None causes wire_metadata_from_entry to return timestamp=None,
     # which makes rebuild_envelope raise ValueError — poison path, not deserialized.
     inbox = FakeInboxStore()
     entry = _abandoned_entry(inbox)
-    inbox.entries[entry.id, entry.destination] = replace(entry, metadata_=None)
+    inbox.entries[entry.id, entry.destination] = replace(entry, metadata=None)
     async with make_async_container(_Deps(inbox, FakeUoW())) as container:
         processed = await _drainer(
             container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3
@@ -448,7 +448,7 @@ async def test_build_inbox_drainer_executor_enforces_config_deadline() -> None:
             status=InboxStatus.INCOMING,
             correlation_id=envelope.correlation_id,
             causation_id=envelope.causation_id,
-            metadata_=encode_metadata(envelope),
+            metadata=encode_metadata(envelope),
         )
         fake_inbox.entries[entry.id, entry.destination] = entry
 

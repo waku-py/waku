@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Generic, Protocol, Self, TypeVar
 
 from waku._internal.adaptive_interval import calculate_backoff_with_jitter
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
-    from datetime import timedelta
 
 __all__ = [
     'EscalationChain',
@@ -49,8 +49,8 @@ class RetryStage:
 
     action: RetryAction
     max_attempts: int = 1
-    base_delay: float = 1.0
-    max_delay: float = 60.0
+    base_delay: timedelta = timedelta(seconds=1)
+    max_delay: timedelta = timedelta(seconds=60)
     pause_duration: timedelta | None = None
     requeue_limit: int | None = None
 
@@ -58,7 +58,7 @@ class RetryStage:
 @dataclass(frozen=True, slots=True)
 class PolicyOutcome:
     action: RetryAction
-    retry_delay: float | None = None
+    retry_delay: timedelta | None = None
     exhausted: bool = False
     pause_duration: timedelta | None = None
     requeue_limit: int | None = None
@@ -108,8 +108,12 @@ def walk_stages(stages: Sequence[RetryStage], attempt: int) -> PolicyOutcome:
 
 def _retry_outcome(stage: RetryStage, stage_local_attempt: int) -> PolicyOutcome:
     if stage.action is RetryAction.RETRY_WITH_BACKOFF:
-        delay = calculate_backoff_with_jitter(stage_local_attempt, stage.base_delay, stage.max_delay)
-        return PolicyOutcome(action=RetryAction.RETRY_WITH_BACKOFF, retry_delay=delay)
+        delay = calculate_backoff_with_jitter(
+            stage_local_attempt,
+            stage.base_delay.total_seconds(),
+            stage.max_delay.total_seconds(),
+        )
+        return PolicyOutcome(action=RetryAction.RETRY_WITH_BACKOFF, retry_delay=timedelta(seconds=delay))
     return PolicyOutcome(action=RetryAction.RETRY)
 
 
@@ -199,8 +203,8 @@ class EscalationChain(Matchable, Generic[_PolicyT]):
     def then_retry_with_backoff(
         self,
         max_attempts: int = 3,
-        base_delay: float = 1.0,
-        max_delay: float = 60.0,
+        base_delay: timedelta = timedelta(seconds=1),
+        max_delay: timedelta = timedelta(seconds=60),
     ) -> Self:
         validate_max_attempts(max_attempts)
         return self._append(
@@ -244,8 +248,8 @@ class ActionBuilder(Generic[_PolicyT]):
     def retry_with_backoff(
         self,
         max_attempts: int = 3,
-        base_delay: float = 1.0,
-        max_delay: float = 60.0,
+        base_delay: timedelta = timedelta(seconds=1),
+        max_delay: timedelta = timedelta(seconds=60),
     ) -> _PolicyT:
         validate_max_attempts(max_attempts)
         return self._seed(

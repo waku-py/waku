@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy import Column, Integer, MetaData, Table, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 
-__all__ = ['bind_snapshot_tables']
+__all__ = [
+    'SnapshotTables',
+    'bind_snapshot_tables',
+]
 
 _internal_metadata = MetaData()
 
@@ -20,7 +25,15 @@ es_snapshots_table = Table(
 )
 
 
-def bind_snapshot_tables(metadata: MetaData) -> Table:
-    if es_snapshots_table.name in metadata.tables:
-        return metadata.tables[es_snapshots_table.name]
-    return es_snapshots_table.to_metadata(metadata)
+@dataclass(frozen=True, slots=True)
+class SnapshotTables:
+    snapshots: Table
+
+
+def bind_snapshot_tables(metadata: MetaData) -> SnapshotTables:
+    snapshots = (
+        metadata.tables[es_snapshots_table.name]
+        if es_snapshots_table.name in metadata.tables
+        else es_snapshots_table.to_metadata(metadata)
+    )
+    return SnapshotTables(snapshots=snapshots)

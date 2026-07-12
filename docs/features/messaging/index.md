@@ -367,9 +367,9 @@ async def main() -> None:
 
 | Exception                           | Raised when                                                            |
 |-------------------------------------|------------------------------------------------------------------------|
-| `HandlerNotFound`                   | `bus.invoke()` is called for a request type with no registered handler |
-| `HandlerAlreadyRegistered`          | The same handler class is bound to the same message type twice         |
-| `MultipleHandlersRegistered`        | Multiple handlers registered for an `IRequest` type                    |
+| `HandlerNotFoundError`                   | `bus.invoke()` is called for a request type with no registered handler |
+| `HandlerAlreadyRegisteredError`          | The same handler class is bound to the same message type twice         |
+| `MultipleHandlersRegisteredError`        | Multiple handlers registered for an `IRequest` type                    |
 | `NoRouteError`                      | `bus.send()` is called for a message type with no registered handlers  |
 | `ImproperlyConfiguredError`         | Invalid `MessagingConfig` at startup (e.g., external endpoint without outbox) |
 | `PipelineBehaviorAlreadyRegistered` | The same behavior class is bound to the same message type twice        |

@@ -130,7 +130,7 @@ class DurableInboxReceiver:
             # Allocate ONCE per message: all per-handler rows share the same position in the partition.
             group_id, sequence_number = await resolve_and_allocate(envelope, self._partition_by, write_scope)
             payload = encode_payload(envelope, codec)
-            metadata_ = encode_metadata(envelope)
+            metadata = encode_metadata(envelope)
             fresh: set[HandlerType] = set()
             for handler_type in handler_types:
                 entry = InboxEntry(
@@ -144,7 +144,7 @@ class DurableInboxReceiver:
                     owner_id=self._inbox_owner_id,
                     correlation_id=envelope.correlation_id,
                     causation_id=envelope.causation_id,
-                    metadata_=metadata_,
+                    metadata=metadata,
                 )
                 if await inbox.store_incoming(entry):
                     fresh.add(handler_type)

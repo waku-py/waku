@@ -277,12 +277,12 @@ class OutboxStoreContract:
         assert len(await outbox_store.fetch_head_of_queue(batch_size=10)) == 1
 
     async def test_p2_columns_metadata_and_group_id_round_trip(self, outbox_store: IOutboxStore) -> None:
-        # Contract: metadata_ (non-column envelope fields) and group_id survive the persist→fetch cycle.
+        # Contract: metadata (non-column envelope fields) and group_id survive the persist→fetch cycle.
         meta = {'message_version': 2, 'timestamp': '2026-06-29T10:00:00+00:00', 'headers': {'x-tenant': 'acme'}}
-        message = _make_message(group_id='order-42', metadata_=meta)
+        message = _make_message(group_id='order-42', metadata=meta)
 
         await outbox_store.save_batch([message])
         fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
 
         assert fetched[0].group_id == 'order-42'
-        assert fetched[0].metadata_ == meta
+        assert fetched[0].metadata == meta

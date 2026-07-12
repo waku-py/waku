@@ -49,8 +49,8 @@ class OutboxRelayConfig:
         poll_interval_jitter_factor=0.1,
     )
     max_attempts: int = 5
-    base_delay: float = 1.0
-    max_delay: float = 60.0
+    base_delay: timedelta = timedelta(seconds=1)
+    max_delay: timedelta = timedelta(seconds=60)
     stuck_threshold: timedelta = _DEFAULT_STUCK_THRESHOLD
     recovery_interval: timedelta = _DEFAULT_RECOVERY_INTERVAL
     retention: timedelta | None = None
@@ -199,8 +199,8 @@ class OutboxRelay(PollingAgent):
             case RetryAction.RETRY:
                 await self._reschedule(store, uow, message, exc, next_retry_at=datetime.now(tz=UTC))
             case RetryAction.RETRY_WITH_BACKOFF:
-                delay = outcome.retry_delay or 0.0
-                next_retry_at = datetime.now(tz=UTC) + timedelta(seconds=delay)
+                delay = outcome.retry_delay or timedelta(0)
+                next_retry_at = datetime.now(tz=UTC) + delay
                 await self._reschedule(store, uow, message, exc, next_retry_at=next_retry_at)
             case RetryAction.DISCARD:
                 await store.mark_discarded(message.id, _format_error(exc))
@@ -242,7 +242,7 @@ class OutboxRelay(PollingAgent):
             exc=exc,
             attempt=message.retry_count + 1,
             message_id=message.message_id,
-            metadata=message.metadata_,
+            metadata=message.metadata,
             group_id=message.group_id,
         )
         try:

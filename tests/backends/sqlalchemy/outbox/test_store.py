@@ -71,13 +71,13 @@ class TestSqlAlchemyOutboxStore:
             'scheduled_time': None,
             'expires_at': None,
         }
-        msg = _make_message(metadata_=meta_payload)
+        msg = _make_message(metadata=meta_payload)
         await store.save_batch([msg])
         await pg_session.flush()
 
         fetched = await store.fetch_head_of_queue(batch_size=10)
 
-        assert fetched[0].metadata_ == meta_payload
+        assert fetched[0].metadata == meta_payload
 
     @staticmethod
     async def test_metadata_column_defaults_to_none(pg_session: AsyncSession) -> None:
@@ -88,4 +88,9 @@ class TestSqlAlchemyOutboxStore:
 
         fetched = await store.fetch_head_of_queue(batch_size=10)
 
-        assert fetched[0].metadata_ is None
+        assert fetched[0].metadata is None
+
+
+def test_outbox_ddl_column_is_metadata() -> None:
+    assert 'metadata' in outbox_messages_table.c
+    assert 'metadata_' not in outbox_messages_table.c

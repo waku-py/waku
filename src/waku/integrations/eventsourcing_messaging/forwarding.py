@@ -34,7 +34,7 @@ class EventForwardingBehavior(IPipelineBehavior[Any, Any]):
     Per the two-axes model, the default forward is ``publish`` (deferred, isolated, post-commit,
     subscriber-gated: unrouted events are silently dropped). An event with a ``same_transaction``
     rule is instead forwarded via ``invoke`` (inline, same transaction, fail-fast: raises
-    ``HandlerNotFound`` if no handler is registered).
+    ``HandlerNotFoundError`` if no handler is registered).
 
     Forwarding only fires for event stores that record appended events into ``IAppendedEvents`` — i.e.
     ``SqlAlchemyEventStore``. A store that does not record (e.g. ``InMemoryEventStore``) forwards

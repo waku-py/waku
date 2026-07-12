@@ -42,6 +42,7 @@ failure escalates:
 
 ```python linenums="1"
 from collections.abc import Sequence
+from datetime import timedelta
 from typing import ClassVar
 
 from waku.messaging import RequestHandler
@@ -51,7 +52,7 @@ from waku.messaging.errors import ErrorPolicy
 class PlaceOrderHandler(RequestHandler[PlaceOrder, None]):
     error_policies: ClassVar[Sequence[ErrorPolicy]] = (
         ErrorPolicy.on_exception(ValueError)
-            .retry_with_backoff(max_attempts=5, base_delay=1.0, max_delay=60.0)
+            .retry_with_backoff(max_attempts=5, base_delay=timedelta(seconds=1), max_delay=timedelta(seconds=60))
             .then_move_to_dead_letter(),
     )
 ```
@@ -93,8 +94,8 @@ from `base_delay` up to `max_delay`:
 ErrorPolicy.on_any_exception()
     .retry_with_backoff(
         max_attempts=5,
-        base_delay=1.0,      # first retry after ~1 second
-        max_delay=60.0,      # never wait longer than 60 seconds
+        base_delay=timedelta(seconds=1),   # first retry after ~1 second
+        max_delay=timedelta(seconds=60),   # never wait longer than 60 seconds
     )
     .then_move_to_dead_letter()
 ```

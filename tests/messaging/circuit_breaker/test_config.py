@@ -7,10 +7,10 @@ import pytest
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
 
 
-def test_defaults_are_wolverine_aligned() -> None:
+def test_default_config_matches_wolverine_defaults() -> None:
     config = CircuitBreakerConfig()
-    assert config.failure_rate_threshold == 0.2
-    assert config.tracking_period == timedelta(minutes=5)
+    assert config.failure_rate_threshold == 0.15
+    assert config.tracking_period == timedelta(minutes=10)
     assert config.minimum_throughput == 10
     assert config.pause_time == timedelta(minutes=5)
     assert config.track_exceptions == ()

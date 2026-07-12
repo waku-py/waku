@@ -153,9 +153,9 @@ async def test_valid_message_persists_and_acks() -> None:
     stored = next(iter(inbox.entries.values()))
     assert stored.correlation_id == envelope.correlation_id
     assert stored.causation_id == envelope.causation_id
-    assert stored.metadata_ is not None
-    assert stored.metadata_.get('message_version') == envelope.message_version
-    assert 'headers' in stored.metadata_
+    assert stored.metadata is not None
+    assert stored.metadata.get('message_version') == envelope.message_version
+    assert 'headers' in stored.metadata
 
 
 async def test_redelivery_acks_without_double_process() -> None:

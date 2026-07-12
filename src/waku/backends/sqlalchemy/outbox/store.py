@@ -46,7 +46,7 @@ class SqlAlchemyOutboxStore(IOutboxStore):
                 'status': msg.status,
                 'retry_count': msg.retry_count,
                 'last_error': msg.last_error,
-                'metadata_': msg.metadata_,
+                'metadata': msg.metadata,
             }
             for msg in messages
         ]
@@ -181,7 +181,7 @@ def _row_to_model(row: Any) -> OutboxMessage:
         status=OutboxStatus(row.status),
         retry_count=row.retry_count,
         last_error=row.last_error,
-        metadata_=row.metadata_,
+        metadata=row.metadata,
         created_at=row.created_at,
         processing_started_at=row.processing_started_at,
         dispatched_at=row.dispatched_at,

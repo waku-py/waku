@@ -43,7 +43,7 @@ class InboxEntry:
     owner_id: str | None = None
     correlation_id: str | None = None
     causation_id: str | None = None
-    metadata_: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
     # M3 scheduled-messages populate execution_time and gate dispatch on
     # NOW() >= execution_time (SCHEDULED -> INCOMING when due). M2b.1 never writes a
     # non-None value — the column exists so the schema is stable when M3 lands.

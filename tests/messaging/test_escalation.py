@@ -38,11 +38,18 @@ def test_walk_retries_within_stage_then_hands_off_to_terminal() -> None:
 
 
 def test_walk_backoff_sets_positive_delay() -> None:
-    stages = (RetryStage(action=RetryAction.RETRY_WITH_BACKOFF, max_attempts=5, base_delay=1.0, max_delay=30.0),)
+    stages = (
+        RetryStage(
+            action=RetryAction.RETRY_WITH_BACKOFF,
+            max_attempts=5,
+            base_delay=timedelta(seconds=1),
+            max_delay=timedelta(seconds=30),
+        ),
+    )
     outcome = walk_stages(stages, attempt=1)
     assert outcome.action is RetryAction.RETRY_WITH_BACKOFF
     assert outcome.retry_delay is not None
-    assert outcome.retry_delay >= 0.0
+    assert outcome.retry_delay >= timedelta(0)
 
 
 def test_walk_exhausts_to_implicit_discard_without_terminal() -> None:
@@ -59,7 +66,12 @@ def test_walk_second_retry_stage_uses_stage_local_attempt() -> None:
     # At attempt 4: stage_local = 3, which is NOT < 3 → stage 2 exhausted → implicit DISCARD.
     stages = (
         RetryStage(action=RetryAction.RETRY, max_attempts=2),
-        RetryStage(action=RetryAction.RETRY_WITH_BACKOFF, max_attempts=3, base_delay=1.0, max_delay=30.0),
+        RetryStage(
+            action=RetryAction.RETRY_WITH_BACKOFF,
+            max_attempts=3,
+            base_delay=timedelta(seconds=1),
+            max_delay=timedelta(seconds=30),
+        ),
     )
     assert walk_stages(stages, attempt=1).action is RetryAction.RETRY
     # attempt 2: stage1 exhausted (2 < 2 is False), cumulative=1; stage2 stage_local=1 < 3 → retries
@@ -96,10 +108,10 @@ def test_escalation_chain_seeds_single_retry_stage_via_on_exception() -> None:
 
 
 def test_escalation_chain_on_any_exception_seeds_with_no_type() -> None:
-    policy = _ConcreteChain.on_any_exception().retry_with_backoff(max_attempts=3, base_delay=0.5)
+    policy = _ConcreteChain.on_any_exception().retry_with_backoff(max_attempts=3, base_delay=timedelta(seconds=0.5))
     assert policy.exception_type is None
     assert policy.stages[0].action is RetryAction.RETRY_WITH_BACKOFF
-    assert policy.stages[0].base_delay == 0.5
+    assert policy.stages[0].base_delay == timedelta(seconds=0.5)
 
 
 def test_escalation_chain_then_methods_append_and_return_same_subclass() -> None:

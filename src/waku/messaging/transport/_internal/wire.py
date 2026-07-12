@@ -34,7 +34,7 @@ def encode_payload(envelope: MessageEnvelope[Any], codec: PayloadCodec) -> dict[
 
 
 def encode_metadata(envelope: MessageEnvelope[Any]) -> dict[str, Any]:
-    """Return the ``metadata_`` persistence dict for *envelope*.
+    """Return the ``metadata`` persistence dict for *envelope*.
 
     Carries the five non-column envelope fields: ``message_version``, ``timestamp``,
     ``headers``, ``scheduled_time``, and ``expires_at``.  Key names and datetime
@@ -140,7 +140,7 @@ def _iso(value: Any) -> datetime | None:
 def _parse_metadata_json(
     raw: dict[str, Any],
 ) -> tuple[int, datetime | None, dict[str, str], datetime | None, datetime | None]:
-    """Parse the ``metadata_`` JSONB dict into its component fields.
+    """Parse the ``metadata`` JSONB dict into its component fields.
 
     Returns ``(message_version, timestamp, headers, scheduled_time, expires_at)``.
     Each field is parsed independently: a corrupt ``timestamp`` falls back to ``None`` without
@@ -179,14 +179,14 @@ def wire_metadata_from_entry(entry: OutboxMessage | InboxEntry | DeadLetterEntry
     """Reconstruct an :class:`EnvelopeMetadata` from a persisted store entry.
 
     Typed columns (correlation_id, causation_id, group_id, message_type) are the single source of
-    truth and are always read directly from the entry. The ``metadata_`` JSONB field carries the
+    truth and are always read directly from the entry. The ``metadata`` JSONB field carries the
     remaining envelope fields (message_version, timestamp, headers, scheduled_time, expires_at).
 
     ``entry.message_id`` is a uniform accessor across all three entry types: :class:`OutboxMessage`
     (``UUID(idempotency_key)``), :class:`InboxEntry` (``id``), :class:`DeadLetterEntry` (``message_id``
     column). No ``isinstance`` discriminator is needed.
 
-    Fault-tolerant: a ``None`` or unparsable ``metadata_`` returns a minimal
+    Fault-tolerant: a ``None`` or unparsable ``metadata`` returns a minimal
     :class:`EnvelopeMetadata` built from typed columns only — never raises. This ensures the
     poison/quarantine path can still read correlation/causation even for malformed rows.
     """
@@ -205,7 +205,7 @@ def wire_metadata_from_entry(entry: OutboxMessage | InboxEntry | DeadLetterEntry
     scheduled_time: datetime | None = None
     expires_at: datetime | None = None
 
-    raw = entry.metadata_
+    raw = entry.metadata
     if raw is not None:
         message_version, timestamp, headers, scheduled_time, expires_at = _parse_metadata_json(raw)
 

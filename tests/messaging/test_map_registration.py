@@ -10,7 +10,7 @@ from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IEvent
 from waku.messaging import HandlerMap
 from waku.messaging.contracts.request import IRequest
-from waku.messaging.exceptions import HandlerAlreadyRegistered, MapFrozenError
+from waku.messaging.exceptions import HandlerAlreadyRegisteredError, MapFrozenError
 from waku.messaging.handler import EventHandler, MessageHandler, RequestHandler
 from waku.messaging.modules import MessagingExtension
 
@@ -48,7 +48,7 @@ class _EventHandler(EventHandler[_Event]):
 def test_handler_map_rejects_duplicate_handler() -> None:
     m = HandlerMap()
     m.bind(_Request, _Handler)
-    with pytest.raises(HandlerAlreadyRegistered, match='_Handler already registered for _Request'):
+    with pytest.raises(HandlerAlreadyRegisteredError, match='_Handler already registered for _Request'):
         m.bind(_Request, _Handler)
 
 
@@ -62,7 +62,7 @@ def test_handler_map_allows_multiple_handlers_for_events() -> None:
 def test_handler_map_rejects_same_handler_twice_for_event() -> None:
     m = HandlerMap()
     m.bind(_Event, _EventHandler)
-    with pytest.raises(HandlerAlreadyRegistered, match='_EventHandler already registered for _Event'):
+    with pytest.raises(HandlerAlreadyRegisteredError, match='_EventHandler already registered for _Event'):
         m.bind(_Event, _EventHandler)
 
 

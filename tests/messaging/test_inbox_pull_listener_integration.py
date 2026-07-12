@@ -72,7 +72,7 @@ async def test_abandoned_row_is_drained_and_handled() -> None:
         envelope = make_envelope(_OrderPlaced(order_id='abandoned-1'))
         destination = handler_destination(_RecordingHandler)
         # Stage an abandoned INCOMING row (owner NULL) as if a prior node crashed before processing it.
-        # Uses the decomposed row shape: encoded payload + metadata_ + typed correlation/causation columns.
+        # Uses the decomposed row shape: encoded payload + metadata + typed correlation/causation columns.
         inbox.entries[envelope.message_id, destination] = InboxEntry(
             id=envelope.message_id,
             payload=encode_payload(envelope, codec),
@@ -83,7 +83,7 @@ async def test_abandoned_row_is_drained_and_handled() -> None:
             status=InboxStatus.INCOMING,
             correlation_id=envelope.correlation_id,
             causation_id=envelope.causation_id,
-            metadata_=encode_metadata(envelope),
+            metadata=encode_metadata(envelope),
         )
         # The app's InboxRecoveryWorker (its lifecycle-built drainer) claims + processes it within a few ticks.
         await wait_until(lambda: _RecordingHandler.invocations == ['abandoned-1'])

@@ -45,5 +45,5 @@ def checkpoint_store(request: pytest.FixtureRequest) -> ICheckpointStore:
 
     pg_session: AsyncSession = request.getfixturevalue('pg_session')
     metadata = MetaData()
-    checkpoints_table = bind_checkpoint_tables(metadata)
+    checkpoints_table = bind_checkpoint_tables(metadata).checkpoints
     return SqlAlchemyCheckpointStore(session=pg_session, checkpoints_table=checkpoints_table)

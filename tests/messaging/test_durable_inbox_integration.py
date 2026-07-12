@@ -403,7 +403,7 @@ class TestDurableInboxIntegration:
                 attempts=0,
                 correlation_id=envelope.correlation_id,
                 causation_id=envelope.causation_id,
-                metadata_=encode_metadata(envelope),
+                metadata=encode_metadata(envelope),
             )
             inbox.entries[entry.id, entry.destination] = entry
             await wait_until(lambda: len(dlq.entries) == 1)
@@ -450,7 +450,7 @@ class TestDurableInboxIntegration:
                 attempts=0,
                 correlation_id=envelope.correlation_id,
                 causation_id=envelope.causation_id,
-                metadata_=encode_metadata(envelope),
+                metadata=encode_metadata(envelope),
             )
             inbox.entries[entry.id, entry.destination] = entry
             await wait_until(lambda: (entry.id, entry.destination) not in inbox.entries)
@@ -501,7 +501,7 @@ class TestDurableInboxIntegration:
                 status=InboxStatus.INCOMING,
                 correlation_id=envelope.correlation_id,
                 causation_id=envelope.causation_id,
-                metadata_=encode_metadata(envelope),
+                metadata=encode_metadata(envelope),
             )
             inbox.entries[entry.id, entry.destination] = entry
             await wait_until(lambda: sink.events == [('executing', 'orders'), ('executed', 'orders')])
@@ -547,7 +547,7 @@ class TestDurableInboxIntegration:
                 execution_time=datetime.now(tz=UTC) - timedelta(hours=1),  # already due
                 correlation_id=envelope.correlation_id,
                 causation_id=envelope.causation_id,
-                metadata_=encode_metadata(envelope),
+                metadata=encode_metadata(envelope),
             )
             inbox.entries[entry.id, entry.destination] = entry
             await wait_until(lambda: _RecordingHandler.observed == ['sched-1'])
@@ -593,7 +593,7 @@ class TestDurableInboxIntegration:
                 execution_time=datetime.now(tz=UTC) - timedelta(hours=1),  # already due, keyless (group_id=None)
                 correlation_id=envelope.correlation_id,
                 causation_id=envelope.causation_id,
-                metadata_=encode_metadata(envelope),
+                metadata=encode_metadata(envelope),
             )
             inbox.entries[entry.id, entry.destination] = entry
             await wait_until(lambda: _RecordingHandler.observed == ['keyless-sched'])

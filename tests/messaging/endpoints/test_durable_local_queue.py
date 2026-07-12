@@ -357,7 +357,7 @@ class TestDurableLocalQueueEndpoint:
 class TestDurableLocalQueueInboxDecomposition:
     @staticmethod
     async def test_persist_writes_decomposed_inbox_row() -> None:
-        # persist() must store encoded payload + metadata_ + typed correlation/causation columns.
+        # persist() must store encoded payload + metadata + typed correlation/causation columns.
         inbox = FakeInboxStore()
         codec = make_codec()
         async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
@@ -374,15 +374,15 @@ class TestDurableLocalQueueInboxDecomposition:
         entry = next(iter(inbox.entries.values()))
         assert entry.correlation_id == envelope.correlation_id
         assert entry.causation_id == envelope.causation_id
-        assert entry.metadata_ is not None
-        assert 'timestamp' in entry.metadata_
+        assert entry.metadata is not None
+        assert 'timestamp' in entry.metadata
         assert 'correlation_id' not in entry.payload
         assert 'causation_id' not in entry.payload
         assert entry.payload == encode_payload(envelope, codec)
 
     @staticmethod
     async def test_store_scheduled_writes_decomposed_inbox_row() -> None:
-        # _store_scheduled() must store encoded payload + metadata_ + typed correlation/causation columns.
+        # _store_scheduled() must store encoded payload + metadata + typed correlation/causation columns.
         NOW = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
         inbox = FakeInboxStore()
         codec = make_codec()
@@ -405,8 +405,8 @@ class TestDurableLocalQueueInboxDecomposition:
         assert entry.status is InboxStatus.SCHEDULED
         assert entry.correlation_id == envelope.correlation_id
         assert entry.causation_id == envelope.causation_id
-        assert entry.metadata_ is not None
-        assert 'timestamp' in entry.metadata_
+        assert entry.metadata is not None
+        assert 'timestamp' in entry.metadata
         assert 'correlation_id' not in entry.payload
         assert 'causation_id' not in entry.payload
         assert entry.payload == encode_payload(envelope, codec)

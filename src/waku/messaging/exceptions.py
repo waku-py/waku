@@ -14,12 +14,12 @@ if TYPE_CHECKING:
 __all__ = [
     'ConflictingDeliveryOptionsError',
     'DeliveryOptionNotApplicableError',
-    'HandlerAlreadyRegistered',
-    'HandlerNotFound',
+    'HandlerAlreadyRegisteredError',
+    'HandlerNotFoundError',
     'HandlerTimeoutError',
     'MapFrozenError',
     'MessagingError',
-    'MultipleHandlersRegistered',
+    'MultipleHandlersRegisteredError',
     'NoRouteError',
     'RequeueBudgetExceededError',
     'SchedulingNotSupportedError',
@@ -35,7 +35,7 @@ class MapFrozenError(MessagingError):
         super().__init__('Cannot modify map after it is frozen')
 
 
-class HandlerNotFound(MessagingError):  # noqa: N818
+class HandlerNotFoundError(MessagingError):
     def __init__(self, message_type: type[IMessage]) -> None:
         self.message_type = message_type
 
@@ -97,7 +97,7 @@ class SchedulingNotSupportedError(MessagingError):
         return f"endpoint '{self.uri}' does not support scheduled delivery"
 
 
-class HandlerAlreadyRegistered(ImproperlyConfiguredError):  # noqa: N818
+class HandlerAlreadyRegisteredError(ImproperlyConfiguredError):
     def __init__(self, message_type: type[IMessage], handler_type: HandlerType) -> None:
         self.message_type = message_type
         self.handler_type = handler_type
@@ -106,7 +106,7 @@ class HandlerAlreadyRegistered(ImproperlyConfiguredError):  # noqa: N818
         return f'{self.handler_type.__name__} already registered for {self.message_type.__name__}'
 
 
-class MultipleHandlersRegistered(ImproperlyConfiguredError):  # noqa: N818
+class MultipleHandlersRegisteredError(ImproperlyConfiguredError):
     def __init__(self, message_type: type[IMessage]) -> None:
         self.message_type = message_type
 

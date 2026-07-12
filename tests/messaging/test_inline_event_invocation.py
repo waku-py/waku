@@ -19,7 +19,7 @@ from waku.messaging import (
 )
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.context import get_message_context
-from waku.messaging.exceptions import HandlerNotFound
+from waku.messaging.exceptions import HandlerNotFoundError
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
@@ -84,7 +84,7 @@ class TestInvokeEventEndToEnd:
             app.container() as container,
         ):
             bus = await container.get(IMessageBus)
-            with pytest.raises(HandlerNotFound, match='_OrderShipped'):
+            with pytest.raises(HandlerNotFoundError, match='_OrderShipped'):
                 await bus.invoke(_OrderShipped(order='o-2'))
 
     @staticmethod

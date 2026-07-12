@@ -64,7 +64,7 @@ class DeadLetterStoreContract:
         meta = {'message_version': 2, 'timestamp': '2026-06-29T10:00:00+00:00', 'headers': {'x-tenant': 'acme'}}
         entry = _make_entry(
             group_id='partition-42',
-            metadata_=meta,
+            metadata=meta,
             message_id=original_message_id,
         )
 
@@ -72,7 +72,7 @@ class DeadLetterStoreContract:
         fetched = await dlq_store.fetch(batch_size=10)
 
         assert fetched[0].group_id == 'partition-42'
-        assert fetched[0].metadata_ == meta
+        assert fetched[0].metadata == meta
         assert fetched[0].message_id == original_message_id
 
     async def test_message_id_none_when_not_provided(self, dlq_store: IDeadLetterStore) -> None:

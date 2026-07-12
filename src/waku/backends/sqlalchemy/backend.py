@@ -4,13 +4,13 @@
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from typing import Any
 
-from sqlalchemy import MetaData, Table
+from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import override
 
 from waku._internal.provider_scan import provided_type_hints
 from waku.backends.sqlalchemy.checkpoint.store import SqlAlchemyCheckpointStore
-from waku.backends.sqlalchemy.checkpoint.tables import bind_checkpoint_tables
+from waku.backends.sqlalchemy.checkpoint.tables import CheckpointTables, bind_checkpoint_tables
 from waku.backends.sqlalchemy.dead_letter.store import SqlAlchemyDeadLetterStore
 from waku.backends.sqlalchemy.dead_letter.tables import bind_dead_letter_tables
 from waku.backends.sqlalchemy.event_store.store import SqlAlchemyEventStore
@@ -22,7 +22,7 @@ from waku.backends.sqlalchemy.outbox.tables import bind_outbox_tables
 from waku.backends.sqlalchemy.sequence.allocator import SqlAlchemySequenceAllocator
 from waku.backends.sqlalchemy.sequence.tables import bind_sequence_tables
 from waku.backends.sqlalchemy.snapshot.store import SqlAlchemySnapshotStore
-from waku.backends.sqlalchemy.snapshot.tables import bind_snapshot_tables
+from waku.backends.sqlalchemy.snapshot.tables import SnapshotTables, bind_snapshot_tables
 from waku.backends.sqlalchemy.uow import SqlAlchemyUnitOfWork
 from waku.di import Has, scoped
 from waku.eventsourcing.contracts.event import IMetadataEnricher
@@ -64,8 +64,8 @@ class _SqlAlchemyBackendWiring(OnModuleRegistration):
     __slots__ = ('_checkpoints_table', '_event_tables', '_metadata', '_snapshots_table')
 
     _event_tables: EventStoreTables
-    _snapshots_table: Table
-    _checkpoints_table: Table
+    _snapshots_table: SnapshotTables
+    _checkpoints_table: CheckpointTables
 
     def __init__(self, metadata: MetaData) -> None:
         self._metadata = metadata
@@ -91,10 +91,10 @@ class _SqlAlchemyBackendWiring(OnModuleRegistration):
             registry.add_provider(owning_module, scoped(ICheckpointStore, self.build_checkpoint_store))
 
     def build_snapshot_store(self, session: AsyncSession) -> ISnapshotStore:
-        return SqlAlchemySnapshotStore(session, self._snapshots_table)
+        return SqlAlchemySnapshotStore(session, self._snapshots_table.snapshots)
 
     def build_checkpoint_store(self, session: AsyncSession) -> ICheckpointStore:
-        return SqlAlchemyCheckpointStore(session, self._checkpoints_table)
+        return SqlAlchemyCheckpointStore(session, self._checkpoints_table.checkpoints)
 
     def build_event_store(  # noqa: PLR0913, PLR0917
         self,

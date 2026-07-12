@@ -210,10 +210,10 @@ class EndpointExecutor:
                     'Retrying message_id=%s (attempt %d, delay=%.2fs)',
                     envelope.message_id,
                     attempt,
-                    outcome.retry_delay or 0,
+                    outcome.retry_delay.total_seconds() if outcome.retry_delay is not None else 0,
                 )
-                if outcome.retry_delay:
-                    await self._sleep(outcome.retry_delay)
+                if outcome.retry_delay is not None:
+                    await self._sleep(outcome.retry_delay.total_seconds())
                 return None
             case RetryAction.REQUEUE:
                 logger.info('Requeuing message_id=%s after %d attempt(s)', envelope.message_id, attempt)

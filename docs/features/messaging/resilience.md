@@ -28,8 +28,8 @@ from a clean slate — `CLOSED → OPEN (pause) → resume + reset`.
 
 | Field                    | Type                            | Default        | Description                                                     |
 |--------------------------|---------------------------------|----------------|-----------------------------------------------------------------|
-| `failure_rate_threshold` | `float`                         | `0.2`          | Failure fraction in `(0.0, 1.0]` that trips the breaker         |
-| `tracking_period`        | `timedelta`                     | `5 minutes`    | Rolling window over which failures are counted                  |
+| `failure_rate_threshold` | `float`                         | `0.15`         | Failure fraction in `(0.0, 1.0]` that trips the breaker         |
+| `tracking_period`        | `timedelta`                     | `10 minutes`   | Rolling window over which failures are counted                  |
 | `minimum_throughput`     | `int`                           | `10`           | Minimum messages in the window before the breaker can trip      |
 | `pause_time`             | `timedelta`                     | `5 minutes`    | How long the endpoint pauses after a trip                       |
 | `track_exceptions`       | `tuple[type[Exception], ...]`   | `()`           | Exception types that count as failures (empty = all)            |
