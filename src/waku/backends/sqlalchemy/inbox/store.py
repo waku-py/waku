@@ -93,29 +93,6 @@ class SqlAlchemyInboxStore(IInboxStore):
         await self._session.execute(delete(_t).where(_t.c.id == entry_id).where(_t.c.destination == destination))
 
     @override
-    async def fetch_pending(self, batch_size: int, owner_id: str) -> Sequence[InboxEntry]:
-        # SKIP LOCKED excludes in-flight claims; owner_id IS NULL excludes already-claimed rows.
-        # UPDATE filters on composite (id, destination) — filtering on id alone would claim every
-        # fan-out sibling sharing that id (double-claim + batch-size violation).
-        pending_cte = (
-            select(_t.c.id, _t.c.destination)
-            .where(_t.c.status == InboxStatus.INCOMING.value)
-            .where(_t.c.owner_id.is_(None))
-            .order_by(_t.c.created_at.asc())
-            .limit(batch_size)
-            .with_for_update(skip_locked=True)
-            .cte('pending')
-        )
-        stmt = (
-            update(_t)
-            .where(tuple_(_t.c.id, _t.c.destination).in_(select(pending_cte.c.id, pending_cte.c.destination)))
-            .values(owner_id=owner_id)
-            .returning(*_t.c)
-        )
-        result = await self._session.execute(stmt)
-        return [_row_to_entry(row) for row in result.fetchall()]
-
-    @override
     async def fetch_pending_partitioned(self, batch_size: int, owner_id: str) -> Sequence[InboxEntry]:
         incoming = _t.c.status == InboxStatus.INCOMING.value
         unclaimed = _t.c.owner_id.is_(None)

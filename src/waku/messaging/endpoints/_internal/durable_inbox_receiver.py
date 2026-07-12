@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 
 import anyio
 
-from waku._internal.transaction import unit_of_work_scope
 from waku.messaging._internal.circuit_breaker import CircuitBreaker, PassthroughCircuitBreaker
 from waku.messaging._internal.identifiers import EndpointUri
 from waku.messaging._internal.partition import resolve_and_allocate
+from waku.messaging._internal.transaction import unit_of_work_scope
 from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
 from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES

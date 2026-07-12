@@ -7,7 +7,6 @@ from waku._internal.clock import Now, utc_now
 from waku._internal.provider_scan import provided_type_hints
 from waku._internal.retort import default_retort
 from waku._internal.sentinel import MISSING
-from waku._internal.transaction import TransactionDepth
 from waku.di import (
     AnyOf,
     AsyncContainer,
@@ -38,6 +37,7 @@ from waku.messaging._internal.envelope_factory import EnvelopeFactory
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging._internal.outbox_cascading import DeferredCascadeFlusher
 from waku.messaging._internal.routing_builder import RoutingTableBuilder
+from waku.messaging._internal.transaction import TransactionDepth
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import DeadLetterConfig, MessagingConfig
 from waku.messaging.context import MessageContext, get_message_context

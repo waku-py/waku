@@ -29,6 +29,24 @@ class _Plain(IMessage):
     x: int = 0
 
 
+@dataclass
+class _CollidingHeadings(IMessage):
+    credit_amount: Annotated[int, Audit(heading='Amount')] = 0
+    debit_amount: Annotated[int, Audit(heading='Amount')] = 0
+
+
+@dataclass
+class _DistinctHeadings(IMessage):
+    credit_amount: Annotated[int, Audit(heading='Credit')] = 0
+    debit_amount: Annotated[int, Audit(heading='Debit')] = 0
+
+
+@dataclass
+class _OverrideCollides(IMessage):
+    amount: Annotated[int, Audit(heading='note')] = 0
+    note: str = ''
+
+
 def test_extract_returns_annotated_members_with_heading_rename() -> None:
     resolver = AuditedMemberResolver(overrides={})
     assert resolver.extract(_Transfer(account_id='a1', amount=5, note='n')) == {'account_id': 'a1', 'Amount': 5}
@@ -61,6 +79,23 @@ def test_config_typo_on_resolvable_type_raises() -> None:
     resolver = AuditedMemberResolver(overrides={_Vendor: ('no_such_field',)})
     with pytest.raises(ImproperlyConfiguredError):
         resolver.resolve(_Vendor)
+
+
+def test_resolve_raises_on_duplicate_annotated_heading() -> None:
+    resolver = AuditedMemberResolver(overrides={})
+    with pytest.raises(ImproperlyConfiguredError, match=r"'credit_amount'.*'debit_amount'.*'Amount'"):
+        resolver.resolve(_CollidingHeadings)
+
+
+def test_resolve_raises_when_override_collides_with_annotated_heading() -> None:
+    resolver = AuditedMemberResolver(overrides={_OverrideCollides: ('note',)})
+    with pytest.raises(ImproperlyConfiguredError, match=r"'amount'.*'note'"):
+        resolver.resolve(_OverrideCollides)
+
+
+def test_resolve_allows_distinct_headings() -> None:
+    resolver = AuditedMemberResolver(overrides={})
+    assert resolver.extract(_DistinctHeadings(credit_amount=99, debit_amount=10)) == {'Credit': 99, 'Debit': 10}
 
 
 def test_missing_attr_at_extract_is_skipped_with_warning(caplog: pytest.LogCaptureFixture) -> None:

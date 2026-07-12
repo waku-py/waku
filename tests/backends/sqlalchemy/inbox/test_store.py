@@ -90,7 +90,7 @@ class TestMarkAsHandled:
         removed = await store.cleanup_handled(datetime.now(tz=UTC))
         assert removed == 1
         # HandlerA's row was purged; HandlerB's row survives, still INCOMING and claimable.
-        claimed = await store.fetch_pending(batch_size=10, owner_id='w-1')
+        claimed = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
         assert [(e.id, e.destination) for e in claimed] == [(b.id, 'tests.messaging.HandlerB')]
 
 
@@ -107,7 +107,7 @@ class TestIncrementAttempts:
         await pg_session.flush()
 
         # the row stays INCOMING and its attempts counter reflects both increments
-        claimed = await store.fetch_pending(batch_size=10, owner_id='w-1')
+        claimed = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
         assert [e.attempts for e in claimed] == [2]
 
 
@@ -141,50 +141,6 @@ class TestCleanupHandled:
         assert removed == 0
         # the unexpired HANDLED row is retained: cleanup past its keep_until then removes it
         assert await store.cleanup_handled(datetime.now(tz=UTC) + timedelta(hours=2)) == 1
-
-
-class TestFetchPending:
-    @staticmethod
-    async def test_fetch_pending_skips_already_owned_entries(pg_session: AsyncSession) -> None:
-        store = SqlAlchemyInboxStore(pg_session)
-        entry = _make_entry()
-        await store.store_incoming(entry)
-        await pg_session.flush()
-        await store.fetch_pending(batch_size=10, owner_id='worker-1')
-        await pg_session.flush()
-
-        claimed = await store.fetch_pending(batch_size=10, owner_id='worker-2')
-        assert claimed == []
-
-    @staticmethod
-    async def test_fetch_pending_respects_batch_size(pg_session: AsyncSession) -> None:
-        store = SqlAlchemyInboxStore(pg_session)
-        for _ in range(3):
-            await store.store_incoming(_make_entry())
-        await pg_session.flush()
-
-        claimed = await store.fetch_pending(batch_size=2, owner_id='worker-1')
-        assert len(claimed) == 2
-
-    @staticmethod
-    async def test_fetch_pending_claims_only_one_fan_out_sibling_per_batch_slot(pg_session: AsyncSession) -> None:
-        # Composite-key claim: same message_id, two handler destinations -> two rows. batch_size=1
-        # must claim exactly ONE sibling (not both); a second fetch claims the other.
-        store = SqlAlchemyInboxStore(pg_session)
-        a = _make_entry(destination='tests.messaging.HandlerA')
-        b = _make_entry(id=a.id, destination='tests.messaging.HandlerB')
-        await store.store_incoming(a)
-        await store.store_incoming(b)
-        await pg_session.flush()
-
-        first = await store.fetch_pending(batch_size=1, owner_id='worker-1')
-        second = await store.fetch_pending(batch_size=1, owner_id='worker-2')
-        assert len(first) == 1
-        assert len(second) == 1
-        assert {first[0].destination, second[0].destination} == {
-            'tests.messaging.HandlerA',
-            'tests.messaging.HandlerB',
-        }
 
 
 class TestFetchPendingPartitioned:
@@ -237,6 +193,37 @@ class TestFetchPendingPartitioned:
         assert len(fetched) == 1
         assert fetched[0].group_id is None
         assert fetched[0].id in {a.id, b.id}
+
+    @staticmethod
+    async def test_already_owned_keyless_entry_is_not_reclaimed(pg_session: AsyncSession) -> None:
+        store = SqlAlchemyInboxStore(pg_session)
+        await store.store_incoming(_make_entry())
+        await pg_session.flush()
+        await store.fetch_pending_partitioned(batch_size=10, owner_id='worker-1')
+        await pg_session.flush()
+
+        claimed = await store.fetch_pending_partitioned(batch_size=10, owner_id='worker-2')
+        assert claimed == []
+
+    @staticmethod
+    async def test_keyless_fan_out_siblings_claim_one_per_batch_slot(pg_session: AsyncSession) -> None:
+        # Composite-key claim: same message_id, two handler destinations -> two rows. batch_size=1
+        # must claim exactly ONE sibling (not both); a second fetch claims the other.
+        store = SqlAlchemyInboxStore(pg_session)
+        a = _make_entry(destination='tests.messaging.HandlerA')
+        b = _make_entry(id=a.id, destination='tests.messaging.HandlerB')
+        await store.store_incoming(a)
+        await store.store_incoming(b)
+        await pg_session.flush()
+
+        first = await store.fetch_pending_partitioned(batch_size=1, owner_id='worker-1')
+        second = await store.fetch_pending_partitioned(batch_size=1, owner_id='worker-2')
+        assert len(first) == 1
+        assert len(second) == 1
+        assert {first[0].destination, second[0].destination} == {
+            'tests.messaging.HandlerA',
+            'tests.messaging.HandlerB',
+        }
 
     @staticmethod
     async def test_next_head_after_first_handled(pg_session: AsyncSession) -> None:
@@ -352,7 +339,7 @@ class TestRecoverStale:
         entry = _make_entry()
         await store.store_incoming(entry)
         await pg_session.flush()
-        await store.fetch_pending(batch_size=1, owner_id='worker-1')
+        await store.fetch_pending_partitioned(batch_size=1, owner_id='worker-1')
         await pg_session.flush()
 
         recovered = await store.recover_stale(threshold=timedelta(hours=1))
@@ -405,7 +392,7 @@ class TestMetadataColumns:
         await store.store_incoming(entry)
         await pg_session.flush()
 
-        claimed = await store.fetch_pending(batch_size=10, owner_id='w-1')
+        claimed = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
 
         assert len(claimed) == 1
         assert claimed[0].correlation_id == corr
@@ -419,7 +406,7 @@ class TestMetadataColumns:
         await store.store_incoming(entry)
         await pg_session.flush()
 
-        claimed = await store.fetch_pending(batch_size=10, owner_id='w-1')
+        claimed = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
 
         assert claimed[0].correlation_id is None
         assert claimed[0].causation_id is None

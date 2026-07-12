@@ -64,3 +64,18 @@ def test_backoff_capped_at_max() -> None:
     for _ in range(100):
         delay = calculate_backoff_with_jitter(attempt=20, base_delay_seconds=1.0, max_delay_seconds=10.0)
         assert 0 <= delay <= 10.0
+
+
+def test_calculate_backoff_does_not_overflow_at_extreme_attempt() -> None:
+    delay = calculate_backoff_with_jitter(attempt=2000, base_delay_seconds=1.0, max_delay_seconds=60.0)
+    assert 0.0 <= delay <= 60.0
+
+
+def test_calculate_backoff_unchanged_for_small_attempts() -> None:
+    for _ in range(100):
+        delay = calculate_backoff_with_jitter(attempt=2, base_delay_seconds=1.0, max_delay_seconds=60.0)
+        assert 0.0 <= delay <= 4.0
+
+
+def test_calculate_backoff_zero_base_returns_zero() -> None:
+    assert calculate_backoff_with_jitter(attempt=5, base_delay_seconds=0.0, max_delay_seconds=60.0) == 0.0

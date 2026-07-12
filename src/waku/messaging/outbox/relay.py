@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING, assert_never
 from typing_extensions import override
 
 from waku._internal.polling import PollingConfig
-from waku._internal.transaction import unit_of_work_scope
 from waku.messaging._internal.escalation import RetryAction
 from waku.messaging._internal.polling_agent import AdaptivePace, Placement, PollingAgent
+from waku.messaging._internal.transaction import unit_of_work_scope
 from waku.messaging.durability import IOutboxStore
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.sending.evaluator import SendingFailureContext, SendingFailureEvaluator

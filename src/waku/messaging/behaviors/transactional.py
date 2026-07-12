@@ -5,7 +5,7 @@ from typing import Any, TypeVar
 
 # Runtime imports: dishka introspects __init__ type hints at container-build time
 # (get_type_hints), so these DI-injected types must resolve at runtime — not under TYPE_CHECKING.
-from waku._internal.transaction import TransactionDepth  # noqa: TC001
+from waku.messaging._internal.transaction import TransactionDepth  # noqa: TC001
 from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
 from waku.uow import IUnitOfWork  # noqa: TC001
 

@@ -46,6 +46,14 @@ class AuditedMemberResolver:
                     raise ImproperlyConfiguredError(msg)
             seen = {name for name, _ in annotated}
             annotated = (*annotated, *((name, name) for name in override if name not in seen))
+        attr_by_key: dict[str, str] = {}
+        for attr, key in annotated:
+            other = attr_by_key.setdefault(key, attr)
+            if other != attr:
+                msg = (
+                    f'audited members {other!r} and {attr!r} on {message_type.__name__} share the same heading {key!r}'
+                )
+                raise ImproperlyConfiguredError(msg)
         self._cache[message_type] = annotated
         return annotated
 

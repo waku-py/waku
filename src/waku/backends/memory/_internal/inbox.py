@@ -66,19 +66,6 @@ class InMemoryInboxStore(IInboxStore):
         self.entries.pop((entry_id, destination), None)
 
     @override
-    async def fetch_pending(self, batch_size: int, owner_id: str) -> Sequence[InboxEntry]:
-        claimed: list[InboxEntry] = []
-        for key, entry in list(self.entries.items()):
-            if len(claimed) >= batch_size:
-                break
-            if entry.status is not InboxStatus.INCOMING or entry.owner_id is not None:
-                continue
-            updated = replace(entry, owner_id=owner_id)
-            self.entries[key] = updated
-            claimed.append(updated)
-        return claimed
-
-    @override
     async def fetch_pending_partitioned(self, batch_size: int, owner_id: str) -> Sequence[InboxEntry]:
         incoming = [e for e in self.entries.values() if e.status is InboxStatus.INCOMING]
         # Head per (group_id, destination) over ALL INCOMING rows regardless of owner_id: a claimed

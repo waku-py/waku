@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 # Contract shared by every IInboxStore over the `inbox_store` fixture (fake | sqlalchemy): promotion
 # claims due SCHEDULED rows, allocates a per-group sequence at promotion (keyless stays None), and
-# flips them to INCOMING — verified through the public fetch_pending claim, not internal state.
+# flips them to INCOMING — verified through the public fetch_pending_partitioned claim, not internal state.
 
 _PAST = datetime(2026, 6, 21, 11, 0, tzinfo=UTC)
 _NOW = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
@@ -41,7 +41,7 @@ async def test_due_scheduled_row_is_promoted_and_allocated_a_sequence(inbox_stor
     promoted = await inbox_store.promote_due_scheduled(_NOW, RecordingAllocator(), batch_size=100)
 
     assert promoted == 1
-    claimed = await inbox_store.fetch_pending(batch_size=10, owner_id='w')
+    claimed = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w')
     assert [e.id for e in claimed] == [entry.id]
     assert claimed[0].sequence_number == 1
 
@@ -52,7 +52,7 @@ async def test_not_due_scheduled_row_stays_scheduled(inbox_store: IInboxStore) -
     promoted = await inbox_store.promote_due_scheduled(_NOW, RecordingAllocator(), batch_size=100)
 
     assert promoted == 0
-    assert list(await inbox_store.fetch_pending(batch_size=10, owner_id='w')) == []
+    assert list(await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w')) == []
 
 
 async def test_keyless_due_scheduled_row_promotes_without_a_sequence(inbox_store: IInboxStore) -> None:
@@ -63,7 +63,7 @@ async def test_keyless_due_scheduled_row_promotes_without_a_sequence(inbox_store
     promoted = await inbox_store.promote_due_scheduled(_NOW, allocator, batch_size=100)
 
     assert promoted == 1
-    claimed = await inbox_store.fetch_pending(batch_size=10, owner_id='w')
+    claimed = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w')
     assert claimed[0].sequence_number is None
     assert allocator.calls == []  # keyless never allocates
 
@@ -80,12 +80,15 @@ async def test_promoted_sequence_sorts_after_already_incoming_sibling(inbox_stor
 
     await inbox_store.promote_due_scheduled(_NOW, allocator, batch_size=100)
 
-    claimed = await inbox_store.fetch_pending(batch_size=10, owner_id='w')
-    by_id = {e.id: e for e in claimed}
-    promoted_seq = by_id[scheduled.id].sequence_number
-    immediate_seq = by_id[immediate.id].sequence_number
+    # The immediate sibling is the partition head; hand it off to expose the promoted row's sequence.
+    head = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w')
+    assert [e.id for e in head] == [immediate.id]
+    await inbox_store.mark_as_handled(immediate.id, immediate.destination, _FUTURE)
+
+    promoted_rows = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w')
+    assert [e.id for e in promoted_rows] == [scheduled.id]
+    promoted_seq = promoted_rows[0].sequence_number
     assert promoted_seq is not None
-    assert immediate_seq is not None
     assert promoted_seq > immediate_seq
 
 

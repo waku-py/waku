@@ -34,12 +34,6 @@ class FakeInboxStore(InMemoryInboxStore):
         return await super().store_incoming(entry)
 
     @override
-    async def fetch_pending(self, batch_size: int, owner_id: str) -> Sequence[InboxEntry]:
-        if self.fetch_pending_error is not None:
-            raise self.fetch_pending_error
-        return await super().fetch_pending(batch_size, owner_id)
-
-    @override
     async def fetch_pending_partitioned(self, batch_size: int, owner_id: str) -> Sequence[InboxEntry]:
         if self.fetch_pending_error is not None:
             raise self.fetch_pending_error

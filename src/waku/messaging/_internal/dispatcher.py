@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING, Any
 
 from dishka.exceptions import NoFactoryError
 
-from waku._internal.transaction import TransactionDepth
 from waku.messaging._internal.outbox_cascading import DeferredCascadeFlusher
+from waku.messaging._internal.transaction import TransactionDepth
 from waku.messaging._internal.uow import NoOpUnitOfWork
 from waku.messaging.behaviors.transactional import run_in_transaction
 from waku.messaging.endpoints.outcome import ExecutionOutcome

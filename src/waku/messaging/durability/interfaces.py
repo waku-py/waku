@@ -107,20 +107,17 @@ class IInboxStore(abc.ABC):
         ...
 
     @abc.abstractmethod
-    async def fetch_pending(self, batch_size: int, owner_id: str) -> Sequence[InboxEntry]:
-        """Claim unowned INCOMING entries (``owner_id IS NULL``) and assign ``owner_id``.
-
-        ``FOR UPDATE SKIP LOCKED`` excludes rows being claimed concurrently; ``owner_id IS NULL``
-        excludes already-claimed rows. Lock held until commit; ``mark_as_handled`` or ``recover_stale``
-        releases ownership afterward.
-        """
-        ...
-
-    @abc.abstractmethod
     async def fetch_pending_partitioned(self, batch_size: int, owner_id: str) -> Sequence[InboxEntry]:
-        """Head-of-queue per ``(group_id, destination)`` plus unpartitioned FIFO entries.
+        """Claim at most ``batch_size`` unowned INCOMING entries honoring partition order.
 
-        Picks the lowest ``sequence_number`` per group; returns empty for keyless workloads.
+        Keyed rows (``group_id IS NOT NULL``): at most one entry per ``(group_id, destination)``
+        partition — the lowest unprocessed ``sequence_number``; a claimed in-flight head still
+        occupies its slot, so no successor is promoted until it is handled or recovered. Keyless
+        rows (``group_id IS NULL``) are not sequenced and carry NO ordering guarantee — they are
+        claimed concurrently alongside partition heads. ``FOR UPDATE SKIP LOCKED`` excludes rows
+        being claimed by concurrent workers; ``owner_id IS NULL`` excludes already-claimed rows.
+        Returned rows have ``owner_id`` assigned; ``mark_as_handled`` or ``recover_stale``
+        releases ownership afterward.
         """
         ...
 

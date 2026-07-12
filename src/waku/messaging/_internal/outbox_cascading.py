@@ -5,11 +5,12 @@ from typing import TYPE_CHECKING, Any
 
 from typing_extensions import override
 
+from waku.messaging._internal.dispatch import IEndpointDispatch  # noqa: TC001
+
 # IEndpointDispatch + MessageRouter + TransactionDepth are DI-injected -> runtime imports (dishka
 # introspects __init__ type hints at container-build time); the TC001 noqa keeps ruff from moving
 # them under TYPE_CHECKING.
-from waku._internal.transaction import TransactionDepth  # noqa: TC001
-from waku.messaging._internal.dispatch import IEndpointDispatch  # noqa: TC001
+from waku.messaging._internal.transaction import TransactionDepth  # noqa: TC001
 from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.outgoing import Action, IOutgoingMessagesFrames
 from waku.messaging.router import MessageRouter  # noqa: TC001

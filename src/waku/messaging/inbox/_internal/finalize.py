@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, assert_never
 
-from waku._internal.transaction import unit_of_work_scope
+from waku.messaging._internal.transaction import unit_of_work_scope
 from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 

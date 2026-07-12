@@ -72,14 +72,14 @@ class InboxStoreContract:
 
         assert await inbox_store.store_incoming(_make_entry(destination=destination)) is True
 
-        claimed = await inbox_store.fetch_pending(batch_size=10, owner_id='w-1')
+        claimed = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
         assert claimed[0].destination == expected_fqn
 
     async def test_store_incoming_then_fetch_claims_with_owner(self, inbox_store: IInboxStore) -> None:
         entry = _make_entry()
         assert await inbox_store.store_incoming(entry) is True
 
-        claimed = await inbox_store.fetch_pending(batch_size=10, owner_id='w-1')
+        claimed = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
         assert [e.id for e in claimed] == [entry.id]
         assert claimed[0].owner_id == 'w-1'
 
@@ -94,7 +94,7 @@ class InboxStoreContract:
         assert await inbox_store.store_incoming(first) is True
         assert await inbox_store.store_incoming(second) is True
 
-        claimed = await inbox_store.fetch_pending(batch_size=10, owner_id='w-1')
+        claimed = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
         assert {(e.id, e.destination) for e in claimed} == {
             (first.id, 'tests.messaging.HandlerA'),
             (first.id, 'tests.messaging.HandlerB'),
@@ -145,15 +145,45 @@ class InboxStoreContract:
         third = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w-2')
         assert [e.id for e in third] == [successor.id]
 
+    async def test_fetch_pending_partitioned_includes_unpartitioned_keyless_entries(
+        self,
+        inbox_store: IInboxStore,
+    ) -> None:
+        # Keyless (group_id IS NULL) rows bypass partitioning but MUST still be claimed — an impl
+        # returning empty for keyless workloads loses keyless crash recovery entirely.
+        entries = [_make_entry(destination=f'tests.messaging.Handler{suffix}') for suffix in ('A', 'B', 'C')]
+        for entry in entries:
+            await inbox_store.store_incoming(entry)
+
+        claimed = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
+
+        assert {(e.id, e.destination) for e in claimed} == {(e.id, e.destination) for e in entries}
+        assert all(e.owner_id == 'w-1' for e in claimed)
+
+    async def test_fetch_pending_partitioned_mixes_keyless_and_keyed_heads(self, inbox_store: IInboxStore) -> None:
+        # One call claims the keyless row AND the group-A head (lowest sequence), never the successor.
+        keyless = _make_entry()
+        head = _make_entry(group_id='A', sequence_number=1)
+        await inbox_store.store_incoming(keyless)
+        await inbox_store.store_incoming(head)
+        await inbox_store.store_incoming(_make_entry(group_id='A', sequence_number=2))
+
+        claimed = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
+
+        assert {(e.id, e.destination) for e in claimed} == {
+            (keyless.id, keyless.destination),
+            (head.id, head.destination),
+        }
+
     async def test_recover_stale_reclaims_owned_past_threshold(self, inbox_store: IInboxStore) -> None:
         entry = _make_entry()
         await inbox_store.store_incoming(entry)
-        await inbox_store.fetch_pending(batch_size=1, owner_id='crashed-worker')
+        await inbox_store.fetch_pending_partitioned(batch_size=1, owner_id='crashed-worker')
 
         recovered = await inbox_store.recover_stale(threshold=timedelta(seconds=-1))
         assert recovered == 1
 
-        reclaimed = await inbox_store.fetch_pending(batch_size=10, owner_id='new-worker')
+        reclaimed = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='new-worker')
         assert len(reclaimed) == 1
         assert reclaimed[0].owner_id == 'new-worker'
 
@@ -164,7 +194,7 @@ class InboxStoreContract:
         await inbox_store.increment_attempts(entry.id, entry.destination)
         await inbox_store.increment_attempts(entry.id, entry.destination)
 
-        claimed = await inbox_store.fetch_pending(batch_size=10, owner_id='w-1')
+        claimed = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
         assert claimed[0].attempts == 2
 
     async def test_delete_removes_only_that_destination_row(self, inbox_store: IInboxStore) -> None:
@@ -175,7 +205,7 @@ class InboxStoreContract:
 
         await inbox_store.delete(first.id, first.destination)
 
-        claimed = await inbox_store.fetch_pending(batch_size=10, owner_id='w-1')
+        claimed = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
         assert [(e.id, e.destination) for e in claimed] == [(sibling.id, 'tests.messaging.HandlerB')]
         # the deleted row is fully purged: the same (id, destination) is storable again
         assert await inbox_store.store_incoming(_make_entry(id=first.id, destination=first.destination)) is True
@@ -197,7 +227,7 @@ class InboxStoreContract:
         entry = _make_entry(correlation_id=corr, causation_id=caus, metadata=meta)
 
         await inbox_store.store_incoming(entry)
-        claimed = await inbox_store.fetch_pending(batch_size=10, owner_id='w-1')
+        claimed = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
 
         assert claimed[0].correlation_id == corr
         assert claimed[0].causation_id == caus

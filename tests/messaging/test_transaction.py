@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from typing_extensions import override
 
-from waku._internal.transaction import unit_of_work_scope
 from waku.di import object_
+from waku.messaging._internal.transaction import unit_of_work_scope
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 

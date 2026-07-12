@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
-from waku._internal.transaction import unit_of_work_scope
 from waku.messaging._internal.polling_agent import FixedPace, Placement, PollingAgent
+from waku.messaging._internal.transaction import unit_of_work_scope
 from waku.messaging.durability import IInboxStore
 
 if TYPE_CHECKING:

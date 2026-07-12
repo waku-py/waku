@@ -3,8 +3,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from waku._internal.transaction import unit_of_work_scope
 from waku.messaging._internal.identity import MessageTypeRegistry
+from waku.messaging._internal.transaction import unit_of_work_scope
 from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES, EndpointExecutorFactory
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
