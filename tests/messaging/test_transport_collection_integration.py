@@ -11,6 +11,7 @@ faststream_rabbit = pytest.importorskip('faststream.rabbit')
 from faststream.rabbit import TestRabbitBroker
 
 from waku import module
+from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.backends.memory._internal.outbox import InMemoryOutboxStore
 from waku.di import object_
 from waku.messages import IEvent
@@ -54,7 +55,7 @@ class TestTransportCollectionIntegration:
             async def handle(self, message: _OrderPlaced, /) -> None:
                 observed.append(message.order_id)
 
-        outbox = InMemoryOutboxStore()
+        outbox = InMemoryOutboxStore(InMemoryDeadLetterStore())
         inbox = FakeInboxStore()
         transport = FastStreamRabbitTransport(url='amqp://x')
 

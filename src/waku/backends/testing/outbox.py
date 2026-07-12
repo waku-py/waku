@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from waku.messaging.errors.dead_letter import DeadLetterEntry
+from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 
 if TYPE_CHECKING:
@@ -35,6 +35,7 @@ def _dead_letter_for(message: OutboxMessage) -> DeadLetterEntry:
         message_type=message.message_type,
         payload=message.payload,
         destination=message.destination,
+        destination_kind=DeadLetterDestinationKind.ENDPOINT,
         correlation_id=message.correlation_id,
         causation_id=message.causation_id,
         exc=RuntimeError('boom'),
@@ -148,6 +149,20 @@ class OutboxStoreContract:
         await outbox_store.move_to_dead_letter(fetched[0].id, _dead_letter_for(message))
         assert list(await outbox_store.fetch_head_of_queue(batch_size=10)) == []
 
+    async def test_move_to_dead_letter_frees_idempotency_pair_for_replay(self, outbox_store: IOutboxStore) -> None:
+        # The dead-letter table is the quarantine home: the moved row LEAVES the outbox (no tombstone),
+        # so a replay re-dispatch — same message_id, hence the same (idempotency_key, destination) —
+        # persists a fresh row instead of vanishing into the dedup constraint.
+        message = _make_message()
+        await outbox_store.save_batch([message])
+        fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
+        await outbox_store.move_to_dead_letter(fetched[0].id, _dead_letter_for(message))
+
+        replayed = _make_message(idempotency_key=message.idempotency_key, destination=message.destination)
+        await outbox_store.save_batch([replayed])
+        refetched = await outbox_store.fetch_head_of_queue(batch_size=10)
+        assert [m.id for m in refetched] == [replayed.id]
+
     async def test_fetch_head_of_queue_returns_one_head_per_group(self, outbox_store: IOutboxStore) -> None:
         await outbox_store.save_batch([
             _make_message(group_id='A', sequence_number=1),
@@ -228,10 +243,9 @@ class OutboxStoreContract:
         outbox_store: IOutboxStore,
         drive_to_terminal: Callable[[IOutboxStore, OutboxMessage], Awaitable[None]],
     ) -> None:
-        # Goal-3 regression guard on the exact dimension this slice changes: after a grouped head reaches
-        # ANY terminal state (DEAD_LETTERED / DISCARDED / FAILED) its successor must be promotable. Green
-        # today and after a correct widen; a botched head_eligible (a notin_ omitting one terminal, or a
-        # `!= DISPATCHED` predicate) would freeze the group here forever.
+        # Regression guard: after a grouped head reaches ANY terminal disposition (dead-letter move —
+        # row deleted — / DISCARDED / FAILED) its successor must be promotable. A botched head_eligible
+        # (a notin_ omitting one terminal, or a `!= DISPATCHED` predicate) would freeze the group forever.
         head = _make_message(group_id='g', sequence_number=1)
         successor = _make_message(group_id='g', sequence_number=2)
         await outbox_store.save_batch([head, successor])

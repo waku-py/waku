@@ -15,7 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 
 from waku.backends.sqlalchemy.column_types import EnumFromValues
-from waku.messaging.errors.dead_letter import DeadLetterStatus
+from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterStatus
 
 if TYPE_CHECKING:
     from waku.messaging.errors.dead_letter import DeadLetterEntry
@@ -34,6 +34,12 @@ dead_letter_table = Table(
     Column('message_type', Text, nullable=False),
     Column('payload', JSONB, nullable=False),
     Column('destination', Text, nullable=False),
+    Column(
+        'destination_kind',
+        EnumFromValues(DeadLetterDestinationKind),
+        nullable=False,
+        server_default=DeadLetterDestinationKind.ENDPOINT.value,
+    ),
     Column('correlation_id', Text, nullable=False),
     Column('causation_id', Text, nullable=False),
     Column('error_type', Text, nullable=False),
@@ -56,22 +62,27 @@ dead_letter_table = Table(
 
 
 def dead_letter_insert_values(entry: DeadLetterEntry) -> dict[str, Any]:
-    """The 9 columns the outbox/inbox stores persist when moving a message to the dead-letter table.
+    """The full wire-field column set the outbox/inbox stores persist when dead-lettering a message.
 
-    ``status``/``replay_count`` fall back to their server-defaults and ``message_id``/``group_id``/
-    ``metadata`` stay NULL. The primary ``SqlAlchemyDeadLetterStore.save`` deliberately writes 5 more
-    columns and is NOT routed through this helper — do not unify the two field sets.
+    Carries ``message_id``/``group_id``/``metadata``/``destination_kind`` so a
+    ``move_to_dead_letter``-persisted row rebuilds a valid envelope on replay (non-None timestamp,
+    original ``message_id``, partition key). ``status``/``replay_count``/``created_at`` fall back to
+    their server-defaults — a fresh dead letter is ``PENDING``/``0``.
     """
     return {
         'id': entry.id,
         'message_type': entry.message_type,
         'payload': entry.payload,
         'destination': entry.destination,
+        'destination_kind': entry.destination_kind,
         'correlation_id': entry.correlation_id,
         'causation_id': entry.causation_id,
         'error_type': entry.error_type,
         'error_message': entry.error_message,
         'retry_count': entry.retry_count,
+        'message_id': entry.message_id,
+        'group_id': entry.group_id,
+        'metadata': entry.metadata,
     }
 
 

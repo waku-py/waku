@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
+from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.backends.memory._internal.inbox import InMemoryInboxStore
 
 if TYPE_CHECKING:
@@ -13,10 +14,16 @@ if TYPE_CHECKING:
 
 
 class FakeInboxStore(InMemoryInboxStore):
-    """The faithful memory store plus error-injection hooks for failure-path tests."""
+    """The faithful memory store plus error-injection hooks for failure-path tests.
+
+    Param-less on purpose (several tests register it ``scoped(IInboxStore, FakeInboxStore)`` and
+    dishka injects every ``__init__`` param): it owns a private dead-letter store, exposed as
+    ``dead_letters`` so poison-path tests can assert what was dead-lettered.
+    """
 
     def __init__(self) -> None:
-        super().__init__()
+        self.dead_letters = InMemoryDeadLetterStore()
+        super().__init__(self.dead_letters)
         self.store_incoming_error: Exception | None = None
         self.fetch_pending_error: Exception | None = None
 

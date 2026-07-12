@@ -8,15 +8,21 @@ from uuid import UUID, uuid4
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku.di import AsyncContainer
 from waku.messages import IEvent
-from waku.messaging import PollingConfig
+from waku.messaging import HandlerMap, PollingConfig
+from waku.messaging._internal.dispatcher import MessageDispatcher
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.durability import IDeadLetterStore
 from waku.messaging.endpoints.base import Endpoint
+from waku.messaging.errors._internal.reprocess import ReprocessScopeOpener
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.errors.worker import DeadLetterWorker
+from waku.messaging.observability.observer import MessageObservers
+from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
+from waku.messaging.pipeline._internal.plan import BehaviorPlan
 from waku.messaging.router import MessageRouter
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
@@ -28,7 +34,6 @@ from tests.messaging.helpers import FakeUoW, RecordingDeadLetterStore, make_code
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from waku.di import AsyncContainer
     from waku.messaging.contracts.envelope import MessageEnvelope
 
 
@@ -114,6 +119,27 @@ class _DlqDepsProvider(Provider):
     @provide(scope=Scope.APP)
     def router(self) -> MessageRouter:
         return self._router
+
+    @provide(scope=Scope.APP)
+    @staticmethod
+    def handler_map() -> HandlerMap:
+        return HandlerMap()
+
+    @provide(scope=Scope.APP)
+    @staticmethod
+    def dispatcher(handler_map: HandlerMap) -> MessageDispatcher:
+        # Real empty collaborators: the worker tests replay ENDPOINT-kind entries only, so the
+        # dispatcher is wiring ballast dishka's eager validation requires, never exercised.
+        return MessageDispatcher(
+            registry=handler_map,
+            invoker=HandlerPipelineInvoker(BehaviorPlan({})),
+            observers=MessageObservers(()),
+        )
+
+    @provide(scope=Scope.APP)
+    @staticmethod
+    def opener(container: AsyncContainer) -> ReprocessScopeOpener:
+        return ReprocessScopeOpener(container)
 
     replay_executor = provide(ReplayExecutor, scope=Scope.REQUEST)
 

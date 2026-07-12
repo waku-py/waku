@@ -10,6 +10,7 @@ from dishka import make_async_container
 from typing_extensions import override
 
 from waku import module
+from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.backends.memory._internal.outbox import InMemoryOutboxStore
 from waku.di import object_, scoped
 from waku.messages import IEvent
@@ -180,7 +181,7 @@ class TestOutboxRelayLifecycleIntegration:
     @staticmethod
     async def test_outbox_relay_starts_and_stops_via_lifecycle_extension() -> None:
         transport = RecordingTransport()
-        outbox = InMemoryOutboxStore()
+        outbox = InMemoryOutboxStore(InMemoryDeadLetterStore())
 
         config = MessagingConfig(
             endpoints=[external_endpoint('test://notifications')],
@@ -218,7 +219,7 @@ class TestOutboxRelayLifecycleIntegration:
 class TestMessageIdentityPropagation:
     @staticmethod
     async def test_outbox_entry_uses_configured_identity() -> None:
-        store = InMemoryOutboxStore()
+        store = InMemoryOutboxStore(InMemoryDeadLetterStore())
         transport = RecordingTransport()
 
         config = MessagingConfig(
@@ -249,7 +250,7 @@ class TestMessageIdentityPropagation:
 
     @staticmethod
     async def test_outbox_entry_falls_back_to_fqn_without_identity_config() -> None:
-        store = InMemoryOutboxStore()
+        store = InMemoryOutboxStore(InMemoryDeadLetterStore())
         transport = RecordingTransport()
 
         config = MessagingConfig(
@@ -302,7 +303,7 @@ class TestRelayPartitionOrdering:
     @staticmethod
     async def test_relay_dispatches_group_heads_in_sequence_order() -> None:
         transport = RecordingTransport()
-        store = InMemoryOutboxStore()
+        store = InMemoryOutboxStore(InMemoryDeadLetterStore())
         # Staged OUT of sequence order: the relay must still dispatch A-1, A-2, A-3 because it claims
         # the head (lowest pending sequence) of the group each poll — not whatever was inserted first.
         # If the relay used FIFO fetch this would dispatch A-2, A-1, A-3 and the assert would fail.
@@ -462,7 +463,7 @@ class TestGroupIdPropagation:
     async def test_cascaded_message_inherits_parent_group_id_via_context() -> None:
         # partition_by is deliberately NOT set: the ONLY way the cascaded _OrderShipped outbox row can
         # carry group_id='order-9' is propagation parent-context -> _create_envelope -> cascade envelope.
-        outbox = InMemoryOutboxStore()
+        outbox = InMemoryOutboxStore(InMemoryDeadLetterStore())
         config = MessagingConfig(
             endpoints=[external_endpoint('test://shipped')],
             routing=[route(_OrderShipped).to('test://shipped')],
@@ -504,7 +505,7 @@ class TestPartitionOrderingEndToEnd:
     @staticmethod
     async def test_concurrent_groups_each_dispatched_in_strict_sequence_order() -> None:
         transport = RecordingTransport()
-        outbox = InMemoryOutboxStore()
+        outbox = InMemoryOutboxStore(InMemoryDeadLetterStore())
         config = MessagingConfig(
             endpoints=[external_endpoint('test://orders', partition_by=order_id_partition)],
             routing=[route(_OrderPlaced).to('test://orders')],
@@ -556,7 +557,7 @@ class TestMultiDestinationFanOut:
     async def test_event_routed_to_two_endpoints_persists_and_delivers_to_both() -> None:
         transport_ta = RecordingTransport()
         transport_tb = RecordingTransport()
-        outbox = InMemoryOutboxStore()
+        outbox = InMemoryOutboxStore(InMemoryDeadLetterStore())
         config = MessagingConfig(
             endpoints=[external_endpoint('ta://events'), external_endpoint('tb://events')],
             routing=[route(_OrderPlaced).to('ta://events'), route(_OrderPlaced).to('tb://events')],

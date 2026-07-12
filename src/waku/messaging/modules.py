@@ -57,6 +57,7 @@ from waku.messaging.endpoints.base import (
 )
 from waku.messaging.endpoints.executor import EndpointExecutorFactory
 from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore
+from waku.messaging.errors._internal.reprocess import ReprocessScopeOpener
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import policies_have_deferred_terminal, policies_need_dead_letter
 from waku.messaging.errors.registry import ErrorPolicyRegistry
@@ -197,7 +198,9 @@ class MessagingModule:
         if config.transports:
             providers.append(singleton(TransportRegistry, _build_transport_registry))
         if config.dead_letter is not None:
-            providers.append(scoped(ReplayExecutor))
+            # The opener is the PIN-F seam: the scoped executor reprocesses HANDLER-kind entries in
+            # fresh request scopes opened from the app container the singleton captures.
+            providers.extend((singleton(ReprocessScopeOpener), scoped(ReplayExecutor)))
         if config.inbox is not None:
             providers.append(object_(config.inbox, provided_type=InboxConfig))
         return tuple(providers)

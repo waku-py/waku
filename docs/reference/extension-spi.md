@@ -93,6 +93,7 @@ Durable inbox models.
 
 Error policies, dead-letter models, replay, and the DLQ worker.
 
+`DeadLetterDestinationKind` ·
 `DeadLetterEntry` ·
 `DeadLetterQuery` ·
 `DeadLetterStatus` ·

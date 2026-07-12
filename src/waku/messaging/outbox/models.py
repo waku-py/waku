@@ -17,11 +17,16 @@ __all__ = [
 
 @enum.unique
 class OutboxStatus(enum.StrEnum):
+    """Live outbox row lifecycle.
+
+    Dead-lettered messages have NO outbox status: ``move_to_dead_letter`` deletes the row — the
+    dead-letter table is the single quarantine home.
+    """
+
     PENDING = 'PENDING'
     PROCESSING = 'PROCESSING'
     DISPATCHED = 'DISPATCHED'
     FAILED = 'FAILED'
-    DEAD_LETTERED = 'DEAD_LETTERED'
     DISCARDED = 'DISCARDED'
 
 

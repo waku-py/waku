@@ -5,7 +5,12 @@ from uuid import uuid4
 
 import pytest
 
-from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, DeadLetterStatus
+from waku.messaging.errors.dead_letter import (
+    DeadLetterDestinationKind,
+    DeadLetterEntry,
+    DeadLetterQuery,
+    DeadLetterStatus,
+)
 
 
 def _from_failure() -> DeadLetterEntry:
@@ -13,6 +18,7 @@ def _from_failure() -> DeadLetterEntry:
         message_type='test.FailedEvent',
         payload={'key': 'value'},
         destination='test://dead',
+        destination_kind=DeadLetterDestinationKind.ENDPOINT,
         correlation_id=str(uuid4()),
         causation_id=str(uuid4()),
         exc=RuntimeError('boom'),
@@ -50,12 +56,56 @@ class TestDeadLetterEntry:
             entry.status = DeadLetterStatus.REPLAYED  # type: ignore[misc]
 
     @staticmethod
+    def test_from_failure_requires_destination_kind() -> None:
+        with pytest.raises(TypeError, match='destination_kind'):
+            DeadLetterEntry.from_failure(  # type: ignore[call-arg]
+                message_type='test.FailedEvent',
+                payload={'key': 'value'},
+                destination='test://dead',
+                correlation_id=str(uuid4()),
+                causation_id=str(uuid4()),
+                exc=RuntimeError('boom'),
+                attempt=3,
+            )
+
+    @staticmethod
+    def test_from_failure_threads_destination_kind() -> None:
+        entry = DeadLetterEntry.from_failure(
+            message_type='test.FailedEvent',
+            payload={'key': 'value'},
+            destination='tests.messaging.SomeHandler',
+            destination_kind=DeadLetterDestinationKind.HANDLER,
+            correlation_id=str(uuid4()),
+            causation_id=str(uuid4()),
+            exc=RuntimeError('boom'),
+            attempt=3,
+        )
+        assert entry.destination_kind is DeadLetterDestinationKind.HANDLER
+
+    @staticmethod
+    def test_default_destination_kind_is_endpoint() -> None:
+        # Legacy-row + server-default parity: a bare entry (no destination_kind) is an ENDPOINT one.
+        entry = DeadLetterEntry(
+            id=uuid4(),
+            message_type='test.FailedEvent',
+            payload={'key': 'value'},
+            destination='test://dead',
+            correlation_id=str(uuid4()),
+            causation_id=str(uuid4()),
+            error_type='RuntimeError',
+            error_message='boom',
+            retry_count=1,
+        )
+        assert entry.destination_kind is DeadLetterDestinationKind.ENDPOINT
+
+    @staticmethod
     def test_from_failure_stores_group_id_and_message_id() -> None:
         original_id = uuid4()
         entry = DeadLetterEntry.from_failure(
             message_type='test.FailedEvent',
             payload={'key': 'value'},
             destination='test://dead',
+            destination_kind=DeadLetterDestinationKind.ENDPOINT,
             correlation_id=str(uuid4()),
             causation_id=str(uuid4()),
             exc=RuntimeError('boom'),

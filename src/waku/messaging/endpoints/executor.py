@@ -15,7 +15,7 @@ from waku.messaging._internal.uow import NoOpUnitOfWork
 from waku.messaging.context import message_context_scope
 from waku.messaging.durability import IDeadLetterStore
 from waku.messaging.endpoints.outcome import ExecutionOutcome
-from waku.messaging.errors.dead_letter import DeadLetterEntry
+from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.errors.executor import FailureContext
 from waku.messaging.errors.policy import RetryAction
 from waku.messaging.exceptions import HandlerTimeoutError
@@ -245,6 +245,7 @@ class EndpointExecutor:
                 message_type=envelope.message_type,
                 payload=encode_payload(envelope, codec),
                 destination=self._endpoint_uri,
+                destination_kind=DeadLetterDestinationKind.ENDPOINT,
                 correlation_id=envelope.correlation_id,
                 causation_id=envelope.causation_id,
                 exc=exc,

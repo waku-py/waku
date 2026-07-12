@@ -14,7 +14,7 @@ from waku._internal.transaction import unit_of_work_scope
 from waku.messaging._internal.escalation import RetryAction
 from waku.messaging._internal.polling_agent import AdaptivePace, Placement, PollingAgent
 from waku.messaging.durability import IOutboxStore
-from waku.messaging.errors.dead_letter import DeadLetterEntry
+from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.sending.evaluator import SendingFailureContext, SendingFailureEvaluator
 from waku.messaging.sending.policy import SendingFailurePolicy
 from waku.messaging.transport._internal.registry import TransportRegistry, split_destination
@@ -237,6 +237,7 @@ class OutboxRelay(PollingAgent):
             message_type=message.message_type,
             payload=message.payload,
             destination=message.destination,
+            destination_kind=DeadLetterDestinationKind.ENDPOINT,
             correlation_id=message.correlation_id,
             causation_id=message.causation_id,
             exc=exc,

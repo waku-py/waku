@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -10,14 +11,37 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from waku.backends.sqlalchemy.dead_letter.store import SqlAlchemyDeadLetterStore
 from waku.backends.sqlalchemy.dead_letter.tables import bind_dead_letter_tables
-from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, DeadLetterStatus
+from waku.backends.sqlalchemy.inbox.store import SqlAlchemyInboxStore
+from waku.backends.sqlalchemy.inbox.tables import bind_inbox_tables
+from waku.backends.sqlalchemy.outbox.store import SqlAlchemyOutboxStore
+from waku.backends.sqlalchemy.outbox.tables import bind_outbox_tables
+from waku.messages import IEvent
+from waku.messaging._internal.identifiers import EndpointUri, HandlerDestination
+from waku.messaging._internal.identity import MessageTypeRegistry
+from waku.messaging.errors.dead_letter import (
+    DeadLetterDestinationKind,
+    DeadLetterEntry,
+    DeadLetterQuery,
+    DeadLetterStatus,
+)
+from waku.messaging.inbox.models import InboxEntry
+from waku.messaging.outbox.models import OutboxMessage
+from waku.messaging.transport._internal.wire import (
+    encode_metadata,
+    encode_payload,
+    rebuild_envelope,
+    wire_metadata_from_entry,
+)
 
 from tests.backends.sqlalchemy.conftest import pg_session_for
+from tests.messaging.helpers import make_codec, make_envelope
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from sqlalchemy.ext.asyncio import AsyncEngine
+
+    from waku.serialization.codec import PayloadCodec
 
 
 @pytest.fixture
@@ -218,3 +242,108 @@ def test_dead_letter_ddl_column_is_metadata() -> None:
     table = bind_dead_letter_tables(MetaData()).messages
     assert 'metadata' in table.c
     assert 'metadata_' not in table.c
+
+
+@pytest.fixture
+async def durability_pg_session(pg_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
+    async with pg_session_for(pg_engine, bind_dead_letter_tables, bind_outbox_tables, bind_inbox_tables) as session:
+        yield session
+
+
+@dataclass(frozen=True, slots=True)
+class _RoundTripEvent(IEvent):
+    value: str
+
+
+class TestMoveToDeadLetterRowsAreReplayable:
+    """B-9 regression net on the REAL insert helper.
+
+    A ``move_to_dead_letter``-persisted row carries the full wire fields, so ``rebuild_envelope``
+    succeeds with the original identity.
+    """
+
+    @staticmethod
+    def _codec_and_registry() -> tuple[PayloadCodec, MessageTypeRegistry]:
+        return make_codec(), MessageTypeRegistry(identities={}, known_types=[_RoundTripEvent])
+
+    async def test_outbox_exhaustion_row_rebuilds_valid_envelope(self, durability_pg_session: AsyncSession) -> None:
+        codec, registry = self._codec_and_registry()
+        envelope = make_envelope(_RoundTripEvent('pg-outbox'), group_id='order-9')
+        message = OutboxMessage(
+            id=uuid4(),
+            idempotency_key=str(envelope.message_id),
+            message_type=envelope.message_type,
+            payload=encode_payload(envelope, codec),
+            destination='rabbitmq://orders',
+            correlation_id=envelope.correlation_id,
+            causation_id=envelope.causation_id,
+            group_id=envelope.group_id,
+            metadata=encode_metadata(envelope),
+        )
+        outbox = SqlAlchemyOutboxStore(durability_pg_session)
+        await outbox.save_batch([message])
+        entry = DeadLetterEntry.from_failure(
+            message_type=message.message_type,
+            payload=message.payload,
+            destination=message.destination,
+            destination_kind=DeadLetterDestinationKind.ENDPOINT,
+            correlation_id=message.correlation_id,
+            causation_id=message.causation_id,
+            exc=ConnectionError('transport down'),
+            attempt=3,
+            message_id=envelope.message_id,
+            metadata=message.metadata,
+            group_id=message.group_id,
+        )
+
+        await outbox.move_to_dead_letter(message.id, entry)
+
+        fetched = await SqlAlchemyDeadLetterStore(durability_pg_session).fetch_one(entry.id)
+        assert fetched.destination_kind is DeadLetterDestinationKind.ENDPOINT
+        assert fetched.message_id == envelope.message_id
+        assert fetched.group_id == 'order-9'
+        assert fetched.metadata == message.metadata
+        rebuilt = rebuild_envelope(fetched.payload, wire_metadata_from_entry(fetched), codec, registry)
+        assert rebuilt.message_id == envelope.message_id
+        assert rebuilt.timestamp is not None
+        assert rebuilt.payload == _RoundTripEvent('pg-outbox')
+
+    async def test_inbox_poison_row_rebuilds_valid_envelope(self, durability_pg_session: AsyncSession) -> None:
+        codec, registry = self._codec_and_registry()
+        envelope = make_envelope(_RoundTripEvent('pg-inbox'))
+        destination = 'tests.messaging.SomeHandler'
+        row = InboxEntry(
+            id=envelope.message_id,
+            payload=encode_payload(envelope, codec),
+            message_type=envelope.message_type,
+            source_uri=EndpointUri('local://orders'),
+            destination=HandlerDestination(destination),
+            correlation_id=envelope.correlation_id,
+            causation_id=envelope.causation_id,
+            metadata=encode_metadata(envelope),
+        )
+        inbox = SqlAlchemyInboxStore(durability_pg_session)
+        await inbox.store_incoming(row)
+        entry = DeadLetterEntry.from_failure(
+            message_type=row.message_type,
+            payload=row.payload,
+            destination=destination,
+            destination_kind=DeadLetterDestinationKind.HANDLER,
+            correlation_id=envelope.correlation_id,
+            causation_id=envelope.causation_id,
+            exc=RuntimeError('handler kept failing'),
+            attempt=5,
+            message_id=envelope.message_id,
+            metadata=row.metadata,
+        )
+
+        await inbox.move_to_dead_letter(row.id, destination, entry)
+
+        fetched = await SqlAlchemyDeadLetterStore(durability_pg_session).fetch_one(entry.id)
+        assert fetched.destination_kind is DeadLetterDestinationKind.HANDLER
+        assert fetched.destination == destination
+        assert fetched.message_id == envelope.message_id
+        rebuilt = rebuild_envelope(fetched.payload, wire_metadata_from_entry(fetched), codec, registry)
+        assert rebuilt.message_id == envelope.message_id
+        assert rebuilt.timestamp is not None
+        assert rebuilt.payload == _RoundTripEvent('pg-inbox')

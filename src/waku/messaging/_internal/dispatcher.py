@@ -86,6 +86,18 @@ class MessageDispatcher:
         depth = await scope.get(TransactionDepth)
         await run_in_transaction(uow, depth, _run_all)
 
+    async def dispatch_to_handler(
+        self, scope: 'AsyncContainer', envelope: 'MessageEnvelope[Any]', handler_type: 'HandlerType'
+    ) -> Any:
+        """Resolve and execute exactly *handler_type* for *envelope* within the caller's *scope*.
+
+        The replay/reprocess primitive: ONE specific handler, full pipeline, NO error policies —
+        a handler failure propagates to the caller (which records the outcome) instead of
+        re-escalating through policy evaluation. Fires the ``executing``/``executed``
+        execution-lifecycle hooks under ``INVOKE_DESTINATION``.
+        """
+        return await self._observed_invoke(scope, envelope, handler_type)
+
     async def _observed_invoke(
         self, scope: 'AsyncContainer', envelope: 'MessageEnvelope[Any]', handler_type: 'HandlerType'
     ) -> Any:

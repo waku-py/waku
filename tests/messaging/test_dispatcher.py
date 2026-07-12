@@ -272,3 +272,50 @@ class TestInvokeObservability:
             with pytest.raises(HandlerNotFoundError, match='_Cmd'):
                 await dispatcher.invoke_request(container, make_envelope(_Cmd(value='x')))
         assert spy.events == []
+
+
+class TestDispatchToHandler:
+    @staticmethod
+    async def test_runs_only_the_named_handler() -> None:
+        seen: list[str] = []
+
+        class HandlerA(EventHandler[_Evt]):
+            @override
+            async def handle(self, event: _Evt, /) -> None:  # pragma: no cover
+                seen.append(f'a:{event.value}')
+
+        class HandlerB(EventHandler[_Evt]):
+            @override
+            async def handle(self, event: _Evt, /) -> None:
+                seen.append(f'b:{event.value}')
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(MessagingConfig())],
+                extensions=[MessagingExtension().bind(HandlerA, HandlerB)],
+            ) as app,
+            app.container() as container,
+        ):
+            dispatcher = await app.container.get(MessageDispatcher)
+            await dispatcher.dispatch_to_handler(container, make_envelope(_Evt(value='replay')), HandlerB)
+
+        assert seen == ['b:replay']
+
+    @staticmethod
+    async def test_handler_exception_propagates_without_policy_swallow() -> None:
+        class Failing(EventHandler[_Evt]):
+            @override
+            async def handle(self, event: _Evt, /) -> None:
+                msg = 'boom'
+                raise RuntimeError(msg)
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(MessagingConfig())],
+                extensions=[MessagingExtension().bind(Failing)],
+            ) as app,
+            app.container() as container,
+        ):
+            dispatcher = await app.container.get(MessageDispatcher)
+            with pytest.raises(RuntimeError, match='boom'):
+                await dispatcher.dispatch_to_handler(container, make_envelope(_Evt(value='x')), Failing)

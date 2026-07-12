@@ -9,14 +9,15 @@ from typing_extensions import override
 
 from waku.di import object_, scoped
 from waku.messages import IEvent
-from waku.messaging import EventHandler, MessagingConfig, MessagingExtension, MessagingModule
+from waku.messaging import EventHandler, HandlerMap, MessagingConfig, MessagingExtension, MessagingModule
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging.config import DeadLetterConfig, OutboxConfig
 from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
 from waku.messaging.endpoints.base import Endpoint
-from waku.messaging.errors.dead_letter import DeadLetterEntry
+from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.inbox.config import InboxConfig
+from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.router import MessageRouter, external_endpoint, listen
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
@@ -44,9 +45,13 @@ class _DlqEvent(IEvent):
     value: str
 
 
+_handled: list[str] = []
+
+
 class _DlqEventHandler(EventHandler[_DlqEvent]):
     @override
-    async def handle(self, event: _DlqEvent, /) -> None: ...
+    async def handle(self, event: _DlqEvent, /) -> None:
+        _handled.append(event.value)
 
 
 class _RecordingEndpoint(Endpoint):
@@ -91,19 +96,26 @@ class _ReplayStore(RecordingDeadLetterStore):
 
 
 _DUMMY_CONTAINER: Any = object()  # endpoints under test ignore the scope arg
+_DUMMY_DISPATCHER: Any = object()  # ENDPOINT-branch tests never reach the handler dispatch
+_DUMMY_SCOPES: Any = object()
 
 
 def _make_type_registry() -> MessageTypeRegistry:
     return MessageTypeRegistry(identities={}, known_types=[_DlqEvent])
 
 
-def _entry_for(envelope: MessageEnvelope[Any], destination: str) -> DeadLetterEntry:
+def _entry_for(
+    envelope: MessageEnvelope[Any],
+    destination: str,
+    kind: DeadLetterDestinationKind = DeadLetterDestinationKind.ENDPOINT,
+) -> DeadLetterEntry:
     codec = make_codec()
     return DeadLetterEntry(
         id=uuid4(),
         message_type=envelope.message_type,
         payload=encode_payload(envelope, codec),
         destination=destination,
+        destination_kind=kind,
         correlation_id=envelope.correlation_id,
         causation_id=envelope.causation_id,
         error_type='RuntimeError',
@@ -123,6 +135,9 @@ def _make_executor(store: _ReplayStore, endpoint: Endpoint | None) -> ReplayExec
         codec=make_codec(),
         type_registry=_make_type_registry(),
         router=MessageRouter(routes={}, endpoints=endpoints),
+        dispatcher=_DUMMY_DISPATCHER,
+        handler_map=HandlerMap(),
+        scopes=_DUMMY_SCOPES,
     )
 
 
@@ -209,6 +224,56 @@ async def test_replay_listen_only_endpoint_marks_failed() -> None:
     assert 'rabbitmq://orders' in store.failures[0][1]
 
 
+async def test_replay_handler_kind_dispatches_resolved_handler() -> None:
+    # An inbox-origin (HANDLER-kind) dead letter names a handler FQN — never a router URI. Replay
+    # must resolve the ONE handler and reprocess it inline (B-10 fixed): handler runs, mark_replayed.
+    _handled.clear()
+    envelope = make_envelope(_DlqEvent('reprocessed'))
+    entry = _entry_for(
+        envelope,
+        destination=handler_destination(_DlqEventHandler),
+        kind=DeadLetterDestinationKind.HANDLER,
+    )
+    dlq_store = _ReplayStore()
+    config = MessagingConfig(dead_letter=DeadLetterConfig())
+
+    async with (
+        create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_DlqEventHandler)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(dlq_store, provided_type=IDeadLetterStore),
+            ],
+        ) as app,
+        app.container() as scope,
+    ):
+        replayer = await scope.get(ReplayExecutor)
+
+        assert await replayer.replay(entry) is True
+
+    assert _handled == ['reprocessed']
+    assert dlq_store.replayed == [entry.id]
+    assert dlq_store.failures == []
+
+
+async def test_replay_handler_kind_unknown_fqn_marks_failed() -> None:
+    envelope = make_envelope(_DlqEvent('hi'))
+    entry = _entry_for(
+        envelope,
+        destination='tests.messaging.NoSuchHandler',
+        kind=DeadLetterDestinationKind.HANDLER,
+    )
+    store = _ReplayStore()
+    executor = _make_executor(store, endpoint=None)
+
+    assert await executor.replay(entry) is False
+    assert store.replayed == []
+    assert len(store.failures) == 1
+    assert store.failures[0][0] == entry.id
+    assert 'tests.messaging.NoSuchHandler' in store.failures[0][1]
+
+
 async def test_replay_dispatch_error_marks_failed() -> None:
     envelope = make_envelope(_DlqEvent('hi'))
     entry = _entry_for(envelope, destination='local://dlq')
@@ -268,6 +333,9 @@ async def test_replay_reconstruct_and_compare_all_metadata_fields() -> None:
         codec=codec,
         type_registry=type_registry,
         router=MessageRouter(routes={}, endpoints=[endpoint]),
+        dispatcher=_DUMMY_DISPATCHER,
+        handler_map=HandlerMap(),
+        scopes=_DUMMY_SCOPES,
     )
 
     assert await executor.replay(entry) is True

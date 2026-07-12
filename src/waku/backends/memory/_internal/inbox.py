@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
-from waku.messaging.durability import IInboxStore
+from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 
 if TYPE_CHECKING:
@@ -28,9 +28,9 @@ class InMemoryInboxStore(IInboxStore):
     Not thread-safe.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, dead_letters: IDeadLetterStore) -> None:
         self.entries: dict[tuple[UUID, str], InboxEntry] = {}
-        self.dead_lettered: list[DeadLetterEntry] = []
+        self._dead_letters = dead_letters
 
     @override
     async def store_incoming(self, entry: InboxEntry) -> bool:
@@ -56,8 +56,10 @@ class InMemoryInboxStore(IInboxStore):
 
     @override
     async def move_to_dead_letter(self, entry_id: UUID, destination: str, dead_letter: DeadLetterEntry) -> None:
+        # Mirror the SQLAlchemy peer's atomic delete+insert: the entry lands in the SHARED dead-letter
+        # store (the singleton the worker/replay read), not in inbox-local state.
         self.entries.pop((entry_id, destination), None)
-        self.dead_lettered.append(dead_letter)
+        await self._dead_letters.save(dead_letter)
 
     @override
     async def delete(self, entry_id: UUID, destination: str) -> None:

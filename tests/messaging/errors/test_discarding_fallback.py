@@ -12,7 +12,7 @@ from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IEvent
 from waku.messaging import MessagingConfig, MessagingExtension, MessagingModule
 from waku.messaging.durability import IDeadLetterStore
-from waku.messaging.errors import DeadLetterEntry, ErrorPolicy
+from waku.messaging.errors import DeadLetterDestinationKind, DeadLetterEntry, ErrorPolicy
 from waku.messaging.handler import EventHandler
 from waku.testing import create_test_app
 
@@ -30,6 +30,7 @@ def _entry() -> DeadLetterEntry:
         message_type='tests.Boom',
         payload={'value': 1},
         destination='local://boom',
+        destination_kind=DeadLetterDestinationKind.ENDPOINT,
         correlation_id=str(uuid4()),
         causation_id=str(uuid4()),
         exc=RuntimeError('boom'),

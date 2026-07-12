@@ -8,7 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002  # Dishka needs r
 
 from waku.backends.sqlalchemy.dead_letter.tables import dead_letter_table
 from waku.messaging.durability import IDeadLetterStore
-from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, DeadLetterStatus
+from waku.messaging.errors.dead_letter import (
+    DeadLetterDestinationKind,
+    DeadLetterEntry,
+    DeadLetterQuery,
+    DeadLetterStatus,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -30,23 +35,28 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
         self._session = session
 
     async def save(self, entry: DeadLetterEntry) -> None:
-        stmt = insert(_t).values(
-            id=entry.id,
-            message_type=entry.message_type,
-            payload=entry.payload,
-            destination=entry.destination,
-            correlation_id=entry.correlation_id,
-            causation_id=entry.causation_id,
-            error_type=entry.error_type,
-            error_message=entry.error_message,
-            retry_count=entry.retry_count,
-            status=entry.status,
-            replay_count=entry.replay_count,
-            message_id=entry.message_id,
-            group_id=entry.group_id,
-            metadata=entry.metadata,
-        )
-        await self._session.execute(stmt)
+        values: dict[str, Any] = {
+            'id': entry.id,
+            'message_type': entry.message_type,
+            'payload': entry.payload,
+            'destination': entry.destination,
+            'destination_kind': entry.destination_kind,
+            'correlation_id': entry.correlation_id,
+            'causation_id': entry.causation_id,
+            'error_type': entry.error_type,
+            'error_message': entry.error_message,
+            'retry_count': entry.retry_count,
+            'status': entry.status,
+            'replay_count': entry.replay_count,
+            'message_id': entry.message_id,
+            'group_id': entry.group_id,
+            'metadata': entry.metadata,
+        }
+        if entry.created_at is not None:
+            # Honor an explicit creation instant (mirrors the memory store); None keeps the
+            # server-side now() default.
+            values['created_at'] = entry.created_at
+        await self._session.execute(insert(_t).values(**values))
 
     async def fetch(self, batch_size: int = 100) -> Sequence[DeadLetterEntry]:
         stmt = select(*_t.c).order_by(_t.c.created_at.asc()).limit(batch_size)
@@ -128,6 +138,7 @@ def _row_to_model(row: Any) -> DeadLetterEntry:
         message_type=row.message_type,
         payload=row.payload,
         destination=row.destination,
+        destination_kind=DeadLetterDestinationKind(row.destination_kind),
         correlation_id=row.correlation_id,
         causation_id=row.causation_id,
         error_type=row.error_type,

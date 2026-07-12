@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 
 from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore
-from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery
+from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry, DeadLetterQuery
 
 _DISCARDING_LOGGER = 'waku.messaging.errors._internal.discarding_store'
 
@@ -17,6 +17,7 @@ def _entry() -> DeadLetterEntry:
         message_type='tests.OrderPlaced',
         payload={'order_id': 'o-1'},
         destination='local://orders',
+        destination_kind=DeadLetterDestinationKind.ENDPOINT,
         correlation_id=str(uuid4()),
         causation_id=str(uuid4()),
         exc=RuntimeError('boom'),

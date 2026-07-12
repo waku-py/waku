@@ -590,11 +590,11 @@ class TestDurableLocalQueueRequeue:
             await endpoint.start()
             async with container() as scope:
                 await endpoint.dispatch(make_envelope(_DomainEvent(kind='Poison')), scope)
-            await wait_until(lambda: len(inbox.dead_lettered) == 1)
+            await wait_until(lambda: len(inbox.dead_letters.entries) == 1)
             await endpoint.stop()
 
         assert inbox.entries == {}  # the row was moved to the dead-letter table
-        assert len(inbox.dead_lettered) == 1
+        assert len(inbox.dead_letters.entries) == 1
 
 
 class TestDurableLocalQueuePause:
@@ -635,7 +635,7 @@ class TestDurableLocalQueuePause:
                 await endpoint.dispatch(make_envelope(_DomainEvent(kind='Poison')), scope)
             await wait_until(lambda: sleep.requested == [600.0])  # paused once after the first PAUSED
             sleep.released.set()  # resume -> the second PAUSED hits the shared budget -> DLQ, not a third pause
-            await wait_until(lambda: len(inbox.dead_lettered) == 1)
+            await wait_until(lambda: len(inbox.dead_letters.entries) == 1)
             await endpoint.stop()
 
         assert len(sleep.requested) == 1  # the budget-exhausted delivery dead-letters instead of pausing again

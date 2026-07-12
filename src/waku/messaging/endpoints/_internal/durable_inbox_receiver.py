@@ -13,7 +13,7 @@ from waku.messaging._internal.partition import resolve_and_allocate
 from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
 from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES
-from waku.messaging.errors.dead_letter import DeadLetterEntry
+from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.exceptions import RequeueBudgetExceededError
 from waku.messaging.inbox._internal.finalize import apply_inbox_outcome
 from waku.messaging.inbox.destination import handler_destination
@@ -226,6 +226,7 @@ class DurableInboxReceiver:
                 message_type=envelope.message_type,
                 payload=encode_payload(envelope, codec),
                 destination=destination,
+                destination_kind=DeadLetterDestinationKind.HANDLER,
                 correlation_id=envelope.correlation_id,
                 causation_id=envelope.causation_id,
                 exc=RequeueBudgetExceededError(envelope.message_id, attempts),

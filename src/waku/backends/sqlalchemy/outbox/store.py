@@ -122,11 +122,10 @@ class SqlAlchemyOutboxStore(IOutboxStore):
         await self._session.execute(stmt)
 
     async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry) -> None:
-        await self._session.execute(
-            update(_t)
-            .where(_t.c.id == message_id)
-            .values(status=OutboxStatus.DEAD_LETTERED.value, last_error=entry.error_message),
-        )
+        # The dead-letter table is the single quarantine home: delete + insert in ONE transaction (no
+        # outbox tombstone). Deleting frees the (idempotency_key, destination) pair so a later replay
+        # re-dispatch — which reuses the original message_id — can persist a fresh outbox row.
+        await self._session.execute(delete(_t).where(_t.c.id == message_id))
         await self._session.execute(
             insert(dead_letter_table).values(**dead_letter_insert_values(entry)),
         )

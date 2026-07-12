@@ -8,7 +8,7 @@ import pytest
 from typing_extensions import override
 
 from waku.messages import IEvent
-from waku.messaging.errors.dead_letter import DeadLetterEntry
+from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.inbox.models import InboxEntry
@@ -35,6 +35,7 @@ def _dead_letter_for(entry: InboxEntry) -> DeadLetterEntry:
         message_type=entry.message_type,
         payload=entry.payload,
         destination=entry.destination,
+        destination_kind=DeadLetterDestinationKind.HANDLER,
         correlation_id=str(uuid4()),
         causation_id=str(uuid4()),
         exc=RuntimeError('boom'),
@@ -155,6 +156,29 @@ class InboxStoreContract:
         reclaimed = await inbox_store.fetch_pending(batch_size=10, owner_id='new-worker')
         assert len(reclaimed) == 1
         assert reclaimed[0].owner_id == 'new-worker'
+
+    async def test_increment_attempts_persists_attempt_count(self, inbox_store: IInboxStore) -> None:
+        entry = _make_entry()
+        await inbox_store.store_incoming(entry)
+
+        await inbox_store.increment_attempts(entry.id, entry.destination)
+        await inbox_store.increment_attempts(entry.id, entry.destination)
+
+        claimed = await inbox_store.fetch_pending(batch_size=10, owner_id='w-1')
+        assert claimed[0].attempts == 2
+
+    async def test_delete_removes_only_that_destination_row(self, inbox_store: IInboxStore) -> None:
+        first = _make_entry(destination='tests.messaging.HandlerA')
+        sibling = _make_entry(id=first.id, destination='tests.messaging.HandlerB')
+        await inbox_store.store_incoming(first)
+        await inbox_store.store_incoming(sibling)
+
+        await inbox_store.delete(first.id, first.destination)
+
+        claimed = await inbox_store.fetch_pending(batch_size=10, owner_id='w-1')
+        assert [(e.id, e.destination) for e in claimed] == [(sibling.id, 'tests.messaging.HandlerB')]
+        # the deleted row is fully purged: the same (id, destination) is storable again
+        assert await inbox_store.store_incoming(_make_entry(id=first.id, destination=first.destination)) is True
 
     async def test_move_to_dead_letter_deletes_entry(self, inbox_store: IInboxStore) -> None:
         entry = _make_entry()

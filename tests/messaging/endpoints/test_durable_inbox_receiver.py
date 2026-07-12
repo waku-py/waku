@@ -219,10 +219,10 @@ class TestDurableInboxReceiverProcess:
             await receiver.start()
             fresh = await receiver.persist(envelope, handler_types)
             await receiver.enqueue(envelope, fresh)
-            await wait_until(lambda: len(inbox.dead_lettered) == 1)
+            await wait_until(lambda: len(inbox.dead_letters.entries) == 1)
             await receiver.stop()
 
-        assert len(inbox.dead_lettered) == 1
+        assert len(inbox.dead_letters.entries) == 1
 
     @staticmethod
     async def test_per_rule_budget_dead_letters_below_endpoint_bound() -> None:
@@ -235,7 +235,7 @@ class TestDurableInboxReceiverProcess:
             await receiver.start()
             fresh = await receiver.persist(envelope, frozenset([_Handler]))
             await receiver.enqueue(envelope, fresh)
-            await wait_until(lambda: len(inbox.dead_lettered) == 1)
+            await wait_until(lambda: len(inbox.dead_letters.entries) == 1)
             await receiver.stop()
 
         assert executor.calls == 2  # per-rule budget dead-letters below the endpoint's 5
@@ -251,7 +251,7 @@ class TestDurableInboxReceiverProcess:
             await receiver.start()
             fresh = await receiver.persist(envelope, frozenset([_Handler]))
             await receiver.enqueue(envelope, fresh)
-            await wait_until(lambda: len(inbox.dead_lettered) == 1)
+            await wait_until(lambda: len(inbox.dead_letters.entries) == 1)
             await receiver.stop()
 
         assert executor.calls == 4  # a different per-rule budget honored independently of the endpoint's 5

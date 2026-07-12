@@ -61,14 +61,14 @@ class TestMemoryOutboxConformance(OutboxStoreContract):
     @pytest.fixture
     @override
     def outbox_store(self) -> IOutboxStore:
-        return InMemoryOutboxStore()
+        return InMemoryOutboxStore(InMemoryDeadLetterStore())
 
 
 class TestMemoryInboxConformance(InboxStoreContract):
     @pytest.fixture
     @override
     def inbox_store(self) -> IInboxStore:
-        return InMemoryInboxStore()
+        return InMemoryInboxStore(InMemoryDeadLetterStore())
 
 
 class TestMemoryDeadLetterConformance(DeadLetterStoreContract):

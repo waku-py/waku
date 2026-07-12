@@ -7,7 +7,7 @@ from waku._internal.transaction import unit_of_work_scope
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES, EndpointExecutorFactory
-from waku.messaging.errors.dead_letter import DeadLetterEntry
+from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.handler_map import HandlerMap
 from waku.messaging.inbox._internal.finalize import apply_inbox_outcome
 from waku.messaging.inbox.destination import handler_destination
@@ -181,6 +181,7 @@ def _poison_dead_letter(entry: InboxEntry, reason: str, attempt: int) -> DeadLet
         message_type=entry.message_type,
         payload=entry.payload,
         destination=entry.destination,
+        destination_kind=DeadLetterDestinationKind.HANDLER,
         correlation_id=entry.correlation_id if entry.correlation_id is not None else str(entry.id),
         causation_id=entry.causation_id if entry.causation_id is not None else str(entry.id),
         exc=InboxPoisonError(reason),

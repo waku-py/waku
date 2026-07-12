@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
-from waku.messaging.durability import IOutboxStore
+from waku.messaging.durability import IDeadLetterStore, IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 
 if TYPE_CHECKING:
@@ -33,8 +33,9 @@ class InMemoryOutboxStore(IOutboxStore):
     (server-assigned ascending). Not thread-safe.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, dead_letters: IDeadLetterStore) -> None:
         self.messages: list[OutboxMessage] = []
+        self._dead_letters = dead_letters
 
     def _replace(self, message_id: UUID, **changes: Any) -> None:
         for i, msg in enumerate(self.messages):
@@ -96,7 +97,11 @@ class InMemoryOutboxStore(IOutboxStore):
 
     @override
     async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry) -> None:
-        self._replace(message_id, status=OutboxStatus.DEAD_LETTERED, last_error=entry.error_message)
+        # Mirror the SQLAlchemy peer's atomic delete+insert: the row leaves the outbox (freeing its
+        # (idempotency_key, destination) pair for a replay re-dispatch) and the entry lands in the
+        # SHARED dead-letter store (the singleton the worker/replay read), not in outbox-local state.
+        self.messages = [msg for msg in self.messages if msg.id != message_id]
+        await self._dead_letters.save(entry)
 
     @override
     async def mark_failed(self, message_id: UUID, error: str, next_retry_at: datetime | None = None) -> None:

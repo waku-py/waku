@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
 __all__ = [
+    'DeadLetterDestinationKind',
     'DeadLetterEntry',
     'DeadLetterQuery',
     'DeadLetterStatus',
@@ -21,6 +22,18 @@ class DeadLetterStatus(enum.StrEnum):
     PENDING = 'PENDING'
     REPLAYED = 'REPLAYED'
     REPLAY_FAILED = 'REPLAY_FAILED'
+
+
+@enum.unique
+class DeadLetterDestinationKind(enum.StrEnum):
+    """What ``DeadLetterEntry.destination`` names — declared explicitly at write time.
+
+    ENDPOINT: an endpoint URI (executor/outbox-exhaustion origins) — replay re-dispatches via the router.
+    HANDLER: a handler FQN (inbox-poison origins) — replay reprocesses that one handler inline.
+    """
+
+    ENDPOINT = 'ENDPOINT'
+    HANDLER = 'HANDLER'
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -51,8 +64,8 @@ class DeadLetterEntry:
     id: UUID
     message_type: str
     payload: dict[str, Any]
-    # Dual-origin, so deliberately bare `str`: executor path writes the endpoint URI, poison path the handler FQN.
     destination: str
+    destination_kind: DeadLetterDestinationKind = DeadLetterDestinationKind.ENDPOINT
     correlation_id: str
     causation_id: str
     error_type: str
@@ -72,6 +85,7 @@ class DeadLetterEntry:
         message_type: str,
         payload: dict[str, Any],
         destination: str,
+        destination_kind: DeadLetterDestinationKind,
         correlation_id: str,
         causation_id: str,
         exc: Exception,
@@ -85,6 +99,7 @@ class DeadLetterEntry:
             message_type=message_type,
             payload=payload,
             destination=destination,
+            destination_kind=destination_kind,
             correlation_id=correlation_id,
             causation_id=causation_id,
             error_type=_format_fqn(type(exc)),

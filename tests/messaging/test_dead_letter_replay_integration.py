@@ -1,35 +1,61 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, ClassVar
+from uuid import uuid4
 
 from typing_extensions import override
 
-from waku.di import object_
+from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
+from waku.backends.memory._internal.inbox import InMemoryInboxStore
+from waku.backends.memory._internal.outbox import InMemoryOutboxStore
+from waku.di import object_, scoped
+from waku.messages import IEvent
 from waku.messaging import (
     EndpointDefaults,
+    EventHandler,
     IMessageBus,
+    InboxConfig,
     IRequest,
+    ISequenceAllocator,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
+    OutboxConfig,
+    PollingConfig,
     RequestHandler,
+    TransactionalBehavior,
 )
 from waku.messaging.config import DeadLetterConfig
-from waku.messaging.durability import IDeadLetterStore
-from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, DeadLetterStatus
+from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
+from waku.messaging.endpoints.base import EndpointMode
+from waku.messaging.errors.dead_letter import (
+    DeadLetterDestinationKind,
+    DeadLetterEntry,
+    DeadLetterQuery,
+    DeadLetterStatus,
+)
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.replay import ReplayExecutor
+from waku.messaging.inbox.destination import handler_destination
+from waku.messaging.outbox import OutboxRelayConfig
+from waku.messaging.router import external_endpoint, local_queue, route
+from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
+from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper, ITransport, Subscription
+from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW
+from tests.messaging.helpers import FakeUoW, RecordingAllocator, StubSubscription, make_envelope
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
     from uuid import UUID
+
+    from waku.messaging.transport.inbound import ConsumeCallback
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,3 +148,258 @@ async def test_dead_letter_then_replay_reprocesses_message() -> None:
 
     assert _attempts == [42, 42]
     assert dl_store.rows[entry_id].status is DeadLetterStatus.REPLAYED
+
+
+_FAST_POLLING = PollingConfig(
+    poll_interval_min_seconds=0.01,
+    poll_interval_max_seconds=0.05,
+    poll_interval_step_seconds=0.01,
+)
+
+
+class _FlakyTransport(ITransport):
+    """Fails every send until ``working`` is flipped, then records sends."""
+
+    def __init__(self) -> None:
+        self.working = False
+        self.sent: list[tuple[dict[str, Any], str, EnvelopeMetadata]] = []
+
+    @override
+    async def send(
+        self,
+        body: dict[str, Any],
+        *,
+        destination: str,
+        metadata: EnvelopeMetadata,
+        mapper: IEnvelopeMapper[Any, Any] | None = None,
+    ) -> None:
+        if not self.working:
+            msg = 'transport down'
+            raise ConnectionError(msg)
+        self.sent.append((body, destination, metadata))
+
+    @override
+    def subscribe(
+        self,
+        queue: str,
+        on_message: ConsumeCallback,
+        mapper: IEnvelopeMapper[Any, Any] | None = None,
+    ) -> Subscription:
+        return StubSubscription()
+
+    @override
+    async def start(self) -> None: ...
+    @override
+    async def stop(self) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _OrderPlaced(IEvent):
+    order_id: str
+
+
+class _OrderAuditHandler(EventHandler[_OrderPlaced]):
+    """Inert subscriber: route() validation requires a registered handler for the routed type."""
+
+    @override
+    async def handle(self, message: _OrderPlaced, /) -> None: ...
+
+
+class _FlakyOrderHandler(EventHandler[_OrderPlaced]):
+    broken: ClassVar[bool] = True
+    attempts: ClassVar[list[str]] = []
+
+    @override
+    async def handle(self, message: _OrderPlaced, /) -> None:
+        type(self).attempts.append(message.order_id)
+        if type(self).broken:
+            msg = 'handler down'
+            raise RuntimeError(msg)
+
+
+class _AlwaysFailingHandler(EventHandler[_OrderPlaced]):
+    attempts: ClassVar[list[str]] = []
+
+    @override
+    async def handle(self, message: _OrderPlaced, /) -> None:
+        type(self).attempts.append(message.order_id)
+        msg = 'still failing on replay'
+        raise RuntimeError(msg)
+
+
+class _ScopedRecordingUoW(IUnitOfWork):
+    """Param-less scoped UoW: one instance per DI scope, all instances observable via the ClassVar."""
+
+    instances: ClassVar[list[_ScopedRecordingUoW]] = []
+
+    def __init__(self) -> None:
+        self.commit_count = 0
+        self.rollback_count = 0
+        type(self).instances.append(self)
+
+    @override
+    async def commit(self) -> None:
+        self.commit_count += 1
+
+    @override
+    async def rollback(self) -> None:
+        self.rollback_count += 1
+
+
+async def test_outbox_exhaustion_dead_letter_replays() -> None:
+    # Path 2 end-to-end (memory backend): relay exhaustion -> move_to_dead_letter persists the FULL
+    # wire fields into the SHARED DLQ (B-9/B-28 fixed) and frees the outbox idempotency pair; replay
+    # re-dispatches through the router and the message finally reaches the transport.
+    transport = _FlakyTransport()
+    dlq = InMemoryDeadLetterStore()
+    outbox = InMemoryOutboxStore(dlq)
+    config = MessagingConfig(
+        endpoints=[external_endpoint('flaky://orders')],
+        routing=[route(_OrderPlaced).to('flaky://orders')],
+        outbox=OutboxConfig(
+            relay=OutboxRelayConfig(polling=_FAST_POLLING, recovery_interval=timedelta(hours=1), max_attempts=1),
+        ),
+        dead_letter=DeadLetterConfig(),
+        transports={'flaky': lambda: transport},
+        global_pipeline_behaviors=[TransactionalBehavior],
+    )
+
+    async with (
+        create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_OrderAuditHandler)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(outbox, provided_type=IOutboxStore),
+                object_(dlq, provided_type=IDeadLetterStore),
+            ],
+        ) as app,
+        app.container() as scope,
+    ):
+        bus = await scope.get(IMessageBus)
+        await bus.publish(_OrderPlaced(order_id='o-replay'))
+        await wait_until(lambda: bool(dlq.entries))
+
+        entry = next(iter(dlq.entries.values()))
+        assert entry.destination_kind is DeadLetterDestinationKind.ENDPOINT
+        assert entry.destination == 'flaky://orders'
+        assert entry.metadata is not None  # the wire fields survived move_to_dead_letter
+
+        transport.working = True
+        replayer = await scope.get(ReplayExecutor)
+        assert await replayer.replay(entry) is True
+        await wait_until(lambda: bool(transport.sent))
+
+    assert dlq.entries[entry.id].status is DeadLetterStatus.REPLAYED
+    body, destination, metadata = transport.sent[0]
+    assert body == {'order_id': 'o-replay'}
+    assert destination == 'orders'
+    assert metadata.message_id == str(entry.message_id)  # original identity preserved through the DLQ
+
+
+async def test_inbox_poison_dead_letter_replays() -> None:
+    # Path 4 end-to-end (memory backend): a durable-inbox handler exhausts its requeue budget -> the
+    # HANDLER-kind dead letter lands in the SHARED DLQ (B-29 fixed); after the handler is healthy the
+    # replay reprocesses that ONE handler inline (B-10 fixed) and marks the entry REPLAYED.
+    _FlakyOrderHandler.broken = True
+    _FlakyOrderHandler.attempts = []
+    dlq = InMemoryDeadLetterStore()
+    inbox = InMemoryInboxStore(dlq)
+    config = MessagingConfig(
+        endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0)],
+        routing=[route(_OrderPlaced).to('orders')],
+        inbox=InboxConfig(owner_id='test-node:1'),
+        dead_letter=DeadLetterConfig(),
+        endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().requeue(max_attempts=1),)),
+        global_pipeline_behaviors=[TransactionalBehavior],
+    )
+
+    async with (
+        create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_FlakyOrderHandler)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(inbox, provided_type=IInboxStore),
+                object_(dlq, provided_type=IDeadLetterStore),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+            ],
+        ) as app,
+        app.container() as scope,
+    ):
+        bus = await scope.get(IMessageBus)
+        await bus.publish(_OrderPlaced(order_id='o-poison'))
+        await wait_until(lambda: bool(dlq.entries))
+
+        entry = next(iter(dlq.entries.values()))
+        assert entry.destination_kind is DeadLetterDestinationKind.HANDLER
+        assert entry.destination == handler_destination(_FlakyOrderHandler)
+        assert inbox.entries == {}  # the poison row was moved out of the inbox
+
+        _FlakyOrderHandler.broken = False
+        replayer = await scope.get(ReplayExecutor)
+        assert await replayer.replay(entry) is True
+
+    assert _FlakyOrderHandler.attempts == ['o-poison', 'o-poison']  # original failure + replay success
+    assert dlq.entries[entry.id].status is DeadLetterStatus.REPLAYED
+
+
+async def test_replay_of_handler_entry_does_not_commit_worker_claim_tx() -> None:
+    # PIN-F guard: the HANDLER reprocess runs in a FRESH request scope whose transaction is rolled
+    # back on re-failure, while every worker claim/mark scope commits exactly once. A re-failure
+    # marks REPLAY_FAILED — never a second dead letter.
+    _AlwaysFailingHandler.attempts = []
+    _ScopedRecordingUoW.instances = []
+    dlq = InMemoryDeadLetterStore()
+    envelope = make_envelope(_OrderPlaced(order_id='o-fail'))
+    config = MessagingConfig(
+        dead_letter=DeadLetterConfig(
+            auto_replay_enabled=True,
+            max_replay_count=1,
+            polling=_FAST_POLLING,
+            stop_timeout=timedelta(seconds=1),
+        ),
+        global_pipeline_behaviors=[TransactionalBehavior],
+    )
+
+    async with (
+        create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
+            providers=[
+                scoped(IUnitOfWork, _ScopedRecordingUoW),
+                object_(dlq, provided_type=IDeadLetterStore),
+            ],
+        ) as app,
+        app.container() as scope,
+    ):
+        payload_codec = await scope.get(PayloadCodec)
+        entry = DeadLetterEntry(
+            id=uuid4(),
+            message_type=envelope.message_type,
+            payload=encode_payload(envelope, payload_codec),
+            destination=handler_destination(_AlwaysFailingHandler),
+            destination_kind=DeadLetterDestinationKind.HANDLER,
+            correlation_id=envelope.correlation_id,
+            causation_id=envelope.causation_id,
+            error_type='RuntimeError',
+            error_message='boom',
+            retry_count=3,
+            message_id=envelope.message_id,
+            metadata=encode_metadata(envelope),
+        )
+        await dlq.save(entry)
+        await wait_until(lambda: dlq.entries[entry.id].status is DeadLetterStatus.REPLAY_FAILED)
+
+    assert _AlwaysFailingHandler.attempts == ['o-fail']  # max_replay_count=1: reprocessed exactly once
+    assert list(dlq.entries) == [entry.id]  # re-failure marks REPLAY_FAILED; NO second dead letter
+    assert dlq.entries[entry.id].replay_count == 1
+
+    # PIN-F: the failed reprocess transaction is its OWN scope's UoW — rolled back, never committed —
+    # and it is a different instance from every worker claim/mark scope UoW (each commits exactly once).
+    rolled_back = [uow for uow in _ScopedRecordingUoW.instances if uow.rollback_count]
+    assert len(rolled_back) == 1
+    assert rolled_back[0].commit_count == 0
+    worker_scopes = [uow for uow in _ScopedRecordingUoW.instances if uow.rollback_count == 0]
+    assert worker_scopes  # the claim/mark scope exists and is distinct from the reprocess scope
+    assert all(uow.commit_count == 1 for uow in worker_scopes)

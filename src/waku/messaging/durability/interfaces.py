@@ -50,14 +50,21 @@ class IOutboxStore(abc.ABC):
     async def mark_discarded(self, message_id: UUID, error: str) -> None:
         """Terminally drop a message a sending policy chose to DISCARD (status DISCARDED).
 
-        Intentional policy drop — distinct from DEAD_LETTERED (normal exhaustion) and from FAILED
-        (the degradation when a DLQ write itself fails). Never bumps retry_count. The relay owns the
-        transaction; this method must not commit.
+        Intentional policy drop — distinct from a dead-letter move (normal exhaustion; the row leaves
+        the outbox) and from FAILED (the degradation when a DLQ write itself fails). Never bumps
+        retry_count. The relay owns the transaction; this method must not commit.
         """
         ...
 
     @abc.abstractmethod
-    async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry) -> None: ...
+    async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry) -> None:
+        """Quarantine an exhausted message: delete the outbox row AND persist *entry* to the dead-letter store.
+
+        Both writes belong to the caller's transaction (must not commit). Deleting — not status-flipping —
+        frees the ``(idempotency_key, destination)`` pair so a replay re-dispatch of the same message_id
+        can persist a fresh row; the dead-letter table is the single quarantine home.
+        """
+        ...
 
     @abc.abstractmethod
     async def recover_stuck(self, threshold: timedelta) -> int: ...
