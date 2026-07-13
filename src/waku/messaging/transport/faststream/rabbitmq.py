@@ -45,21 +45,25 @@ class RabbitOutgoing:
     """Outgoing RabbitMQ message ready for ``RabbitBroker.publish``.
 
     ``body``, ``headers``, and ``persist`` are always passed to ``RabbitBroker.publish``.
-    The native fields below are **passthrough-only** — the default ``DefaultRabbitEnvelopeMapper`` leaves them
-    ``None`` and they are omitted from the publish call.  A custom mapper may set them to reach AMQP message
-    properties that the Wolverine wire format does not expose.
+    ``correlation_id``, ``reply_to``, and ``priority`` are **passthrough-only** — the default
+    ``DefaultRabbitEnvelopeMapper`` leaves them ``None`` and they are omitted from the publish call.  A custom
+    mapper may set them to reach AMQP message properties that the Wolverine wire format does not expose.
 
     ``persist`` is **not** a passthrough native: it is the durability guarantee, on by default.  Every Waku
     broker send is outbox-backed, so publishes are ``DeliveryMode.PERSISTENT`` unless a custom mapper opts out
     with ``persist=False`` (foreign interop / non-durable topics).
+
+    ``expiration`` is default-populated from the envelope's ``expires_at`` (``deliver_by``/``deliver_within``) so
+    a delivery deadline reaches the AMQP per-message TTL; it stays ``None`` when the message carries no deadline.
 
     Native fields (verified against FastStream 0.7.1 ``RabbitBroker.publish`` signature):
         correlation_id: AMQP ``correlation-id`` property.  Distinct from the Waku envelope ``correlation_id``
             header — do not confuse the two.
         reply_to: AMQP ``reply-to`` property (routing key for reply messages; always uses the default exchange).
         priority: AMQP ``priority`` property (0–255); ``None`` lets the broker use its default (0).
-        expiration: AMQP message expiration.  Accepts ``int`` or ``float`` (seconds), ``datetime``, or
-            ``timedelta`` — as forwarded by aio_pika's ``DateType``.
+        expiration: AMQP per-message TTL.  The default mapper populates it from the envelope ``expires_at`` (an
+            absolute ``datetime``); aio_pika encodes it to a relative-ms TTL at publish.  Also accepts ``int`` or
+            ``float`` (seconds) or ``timedelta`` via aio_pika's ``DateType``.
     """
 
     body: dict[str, Any]
@@ -88,6 +92,8 @@ class DefaultRabbitEnvelopeMapper(IRabbitEnvelopeMapper):
         return RabbitOutgoing(
             body=payload,
             headers=wire_headers_of(metadata),
+            # AMQP per-message TTL: aio_pika encodes the absolute datetime to a relative-ms TTL at publish.
+            expiration=metadata.expires_at,
         )
 
     @override

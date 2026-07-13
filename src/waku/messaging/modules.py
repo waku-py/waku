@@ -818,10 +818,12 @@ class OutboxRelayLifecycleExtension(AfterApplicationInit, OnApplicationShutdown)
     @override
     async def after_app_init(self, app: 'WakuApplication') -> None:
         evaluator = await app.container.get(SendingFailureEvaluator)
+        now = await app.container.get(Now)
         self._relay = OutboxRelay(
             container=app.container,
             config=self._config,
             sending_failure_evaluator=evaluator,
+            now=now,
         )
         await self._relay.start()
 

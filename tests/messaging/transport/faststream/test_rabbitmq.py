@@ -1,6 +1,7 @@
 # ruff: noqa: SLF001
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
@@ -58,6 +59,23 @@ class TestFastStreamRabbitTransportSend:
 
         assert publish.await_args is not None
         assert publish.await_args.kwargs['persist'] is True
+
+    @staticmethod
+    async def test_send_threads_expiration_to_publish(mocker: MockerFixture) -> None:
+        t = FastStreamRabbitTransport(url='amqp://x')
+        publish = mocker.patch.object(t._send_broker, 'publish', new_callable=mocker.AsyncMock)
+        meta = EnvelopeMetadata(
+            message_id='m',
+            correlation_id='c',
+            causation_id='ca',
+            message_type='evt',
+            expires_at=datetime(2030, 1, 1, tzinfo=UTC),
+        )
+
+        await t.send({}, destination='q', metadata=meta)
+
+        assert publish.await_args is not None
+        assert publish.await_args.kwargs['expiration'] == meta.expires_at
 
     @staticmethod
     async def test_custom_mapper_can_opt_out_of_persistence(mocker: MockerFixture) -> None:
@@ -460,6 +478,27 @@ class TestDefaultRabbitEnvelopeMapperOutgoing:
         out = mapper.map_outgoing({}, meta)
 
         assert out.headers['message_type'] == 'real'
+
+    @staticmethod
+    def test_default_mapper_maps_expires_at_to_expiration() -> None:
+        # A delivery deadline reaches the AMQP per-message TTL (Wolverine RabbitMqEnvelopeMapper parity).
+        # The absolute datetime is forwarded; aio_pika encodes it to a relative-ms TTL at publish.
+        meta = EnvelopeMetadata(
+            message_id='m',
+            correlation_id='c',
+            causation_id='ca',
+            message_type='evt',
+            expires_at=datetime(2030, 1, 1, tzinfo=UTC),
+        )
+        out = DefaultRabbitEnvelopeMapper().map_outgoing({'v': 1}, meta)
+
+        assert out.expiration == meta.expires_at
+
+    @staticmethod
+    def test_default_mapper_leaves_expiration_none_without_deadline() -> None:
+        out = DefaultRabbitEnvelopeMapper().map_outgoing({}, _METADATA)
+
+        assert out.expiration is None
 
 
 class TestDefaultRabbitEnvelopeMapperIncoming:

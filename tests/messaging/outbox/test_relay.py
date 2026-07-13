@@ -12,6 +12,7 @@ import anyio
 from dishka import make_async_container
 from typing_extensions import override
 
+from waku._internal.clock import Now, utc_now
 from waku.messages import IEvent
 from waku.messaging import PollingConfig
 from waku.messaging._internal.escalation import RetryAction, walk_stages
@@ -236,12 +237,14 @@ async def _run_relay(
     config: OutboxRelayConfig = _FAST_CONFIG,
     *,
     evaluator: SendingFailureEvaluator | None = None,
+    now: Now = utc_now,
 ) -> AsyncGenerator[None]:
     async with make_async_container(provider) as container:
         relay = OutboxRelay(
             container=container,
             config=config,
             sending_failure_evaluator=evaluator or make_relay_evaluator(config),
+            now=now,
         )
         await relay.start()
         try:
@@ -682,7 +685,7 @@ class TestDispatchMessageMetadata:
             _TestEvent(value='round-trip'),
             headers={'x-tenant': 'acme'},
             scheduled_time=datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC),
-            expires_at=datetime(2025, 1, 2, 0, 0, 0, tzinfo=UTC),
+            expires_at=datetime(2999, 1, 2, 0, 0, 0, tzinfo=UTC),
         )
         msg = OutboxMessage(
             id=uuid4(),
@@ -784,3 +787,56 @@ class TestRelayMapperOverrideWiring:
         assert len(transport.sent) == 1
         _body, _destination, _metadata, mapper = transport.sent[0]
         assert mapper is None
+
+
+_FIXED_NOW = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+_PAST = _FIXED_NOW - timedelta(minutes=5)
+_FUTURE = _FIXED_NOW + timedelta(minutes=5)
+
+
+class TestRelayExpiration:
+    @staticmethod
+    async def test_expired_message_is_discarded_before_send() -> None:
+        # A durable message whose delivery deadline elapsed while queued is DISCARDED at the relay,
+        # never shipped to the broker (Wolverine DurableSendingAgent.SplitByExpiration parity).
+        store = _TrackingOutboxStore()
+        msg = _make_outbox_message(make_envelope(_TestEvent(value='stale'), expires_at=_PAST))
+        store.pending.append(msg)
+        transport = RecordingTransport()
+
+        async with _run_relay(RelayDepsProvider(store, transport), now=lambda: _FIXED_NOW):
+            await wait_until(lambda: msg.id in store.discarded_ids)
+
+        assert transport.sent == []
+        assert msg.id in store.discarded_ids
+        assert msg.id not in store.dispatched_ids
+
+    @staticmethod
+    async def test_unexpired_message_is_sent() -> None:
+        # Regression guard: a deadline still in the future must NOT be over-discarded.
+        store = _TrackingOutboxStore()
+        msg = _make_outbox_message(make_envelope(_TestEvent(value='fresh'), expires_at=_FUTURE))
+        store.pending.append(msg)
+        transport = RecordingTransport()
+
+        async with _run_relay(RelayDepsProvider(store, transport), now=lambda: _FIXED_NOW):
+            await wait_until(lambda: msg.id in store.dispatched_ids)
+
+        assert len(transport.sent) == 1
+        assert msg.id in store.dispatched_ids
+        assert msg.id not in store.discarded_ids
+
+    @staticmethod
+    async def test_message_with_no_expiry_is_sent() -> None:
+        # The common case: no deadline set -> always sent.
+        store = _TrackingOutboxStore()
+        msg = _make_outbox_message(make_envelope(_TestEvent(value='eternal')))
+        store.pending.append(msg)
+        transport = RecordingTransport()
+
+        async with _run_relay(RelayDepsProvider(store, transport), now=lambda: _FIXED_NOW):
+            await wait_until(lambda: msg.id in store.dispatched_ids)
+
+        assert len(transport.sent) == 1
+        assert msg.id in store.dispatched_ids
+        assert msg.id not in store.discarded_ids

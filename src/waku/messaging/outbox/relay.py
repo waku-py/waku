@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, assert_never
 
 from typing_extensions import override
 
+from waku._internal.clock import Now, utc_now
 from waku._internal.polling import PollingConfig
 from waku.messaging._internal.escalation import RetryAction
 from waku.messaging._internal.polling_agent import AdaptivePace, Placement, PollingAgent
@@ -88,6 +89,7 @@ class OutboxRelay(PollingAgent):
         '_container',
         '_last_cleanup',
         '_last_recovery',
+        '_now',
         '_sending_evaluator',
     )
 
@@ -97,10 +99,12 @@ class OutboxRelay(PollingAgent):
         container: AsyncContainer,
         config: OutboxRelayConfig,
         sending_failure_evaluator: SendingFailureEvaluator,
+        now: Now = utc_now,
     ) -> None:
         self._container = container
         self._config = config
         self._sending_evaluator = sending_failure_evaluator
+        self._now = now
         self._last_recovery = 0.0
         self._last_cleanup = 0.0
         super().__init__(stop_timeout=config.stop_timeout)
@@ -155,14 +159,23 @@ class OutboxRelay(PollingAgent):
                     await self._on_dispatch_failure(scope, message, exc)
         return processed
 
-    @staticmethod
-    async def _dispatch_message(scope: AsyncContainer, message: OutboxMessage) -> None:
+    async def _dispatch_message(self, scope: AsyncContainer, message: OutboxMessage) -> None:
         store = await scope.get(IOutboxStore)
-        registry = await scope.get(TransportRegistry)
         uow = await scope.get(IUnitOfWork)
+        metadata = wire_metadata_from_entry(message)
+        if metadata.expires_at is not None and metadata.expires_at <= self._now():
+            # The delivery deadline (deliver_by/deliver_within) elapsed while the row sat queued (relay
+            # downtime, retries, backpressure). Terminal-DISCARDED (never DLQ'd) before any broker send —
+            # the send-side analog of the executor's receive-time discard.
+            await store.mark_discarded(message.id, 'expired before dispatch (delivery deadline elapsed)')
+            await uow.commit()
+            logger.info(
+                'Discarding expired outbox message %s (expires_at=%s) before send', message.id, metadata.expires_at
+            )
+            return
+        registry = await scope.get(TransportRegistry)
         sender = registry.sender_for(message.destination)
         queue = split_destination(message.destination, default_scheme=registry.default_scheme)[1]
-        metadata = wire_metadata_from_entry(message)
         # Resolve with the full URI (not the split queue) — the override map is keyed by the configured
         # BrokerEndpointEntry.send.mapper source URI.
         mapper = registry.mapper_for(message.destination)
