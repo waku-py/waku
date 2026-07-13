@@ -40,9 +40,10 @@ src/waku/
 │   ├── pipeline/    # (structural) policy.py = IBehaviorPolicy SPI; executor/invoker/plan in _internal/
 │   ├── router.py    # Routing DSL: route()/route_module() + listen()/local_queue()/external_endpoint()
 │   ├── transport/   # SPI facade: ITransport, IEnvelopeMapper, EnvelopeMetadata; faststream/ adapters
-│   ├── errors/      # SPI facade: ErrorPolicy, IDeadLetterStore, DeadLetterWorker, replay (+ sqla/)
-│   ├── inbox/       # SPI facade: IInboxStore, InboxEntry/InboxStatus (+ sqla/; workers in _internal/)
-│   ├── outbox/      # SPI facade: IOutboxStore, OutboxRelay(Config) (+ sqla/)
+│   ├── durability/  # SPI facade: IDurabilityStore (outbox/inbox/dead_letters facets) + the facet port contracts
+│   ├── errors/      # SPI facade: ErrorPolicy, IDeadLetterStore, DeadLetterWorker, replay
+│   ├── inbox/       # SPI facade: IInboxStore, InboxEntry/InboxStatus (workers in _internal/)
+│   ├── outbox/      # SPI facade: IOutboxStore, OutboxRelay(Config)
 │   ├── sending/     # SPI facade: SendingFailurePolicy machinery
 │   ├── interfaces.py # IMessageBus, ISender, IPublisher
 │   └── modules.py   # MessagingModule, MessagingConfig, MessagingExtension
@@ -52,8 +53,8 @@ src/waku/
 │   ├── decider/     # (structural) repository.py — DeciderRepository et al. exported via top facade
 │   ├── projection/  # SPI facade: ICheckpointStore, PollingConfig; processor/gap_tracker in _internal/
 │   ├── serialization/ # SPI facade: event/snapshot serializers (adaptix-based)
-│   ├── snapshot/    # SPI facade: ISnapshotStore, strategies, migration (+ sqlalchemy/)
-│   ├── store/       # SPI facade: IEventStore (+ sqlalchemy/)
+│   ├── snapshot/    # SPI facade: ISnapshotStore, strategies, migration
+│   ├── store/       # SPI facade: IEventStore (+ .snapshots/.checkpoints facets)
 │   ├── testing/     # AggregateSpec, DeciderSpec, wait_for_projection helpers
 │   ├── modules.py   # EventSourcingModule, EventSourcingConfig
 │   └── repository.py # EventSourcedRepository
