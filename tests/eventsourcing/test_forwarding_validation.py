@@ -13,7 +13,9 @@ from waku.backends.sqlalchemy.event_store.tables import bind_event_store_tables
 from waku.di import scoped
 from waku.eventsourcing import forward
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingModule
-from waku.eventsourcing.store.interfaces import IEventStore
+from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
+from waku.eventsourcing.snapshot.in_memory import InMemorySnapshotStore
+from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventStore, ISnapshotStore
 from waku.exceptions import ImproperlyConfiguredError
 from waku.integrations.eventsourcing_messaging import EventSourcingMessagingModule
 from waku.messages import IEvent
@@ -70,6 +72,8 @@ async def test_forwarding_with_recording_store_and_bridge_boots() -> None:
         ],
         providers=[
             scoped(AsyncSession, _fake_session),
+            scoped(ISnapshotStore, InMemorySnapshotStore),
+            scoped(ICheckpointStore, InMemoryCheckpointStore),
             scoped(IEventStore, make_sqlalchemy_event_store(tables)),
         ],
     ):

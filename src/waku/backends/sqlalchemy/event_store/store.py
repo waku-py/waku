@@ -34,7 +34,11 @@ from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001 
 from waku.eventsourcing.serialization.interfaces import IEventSerializer  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.store.enrichment import enrich_metadata
-from waku.eventsourcing.store.interfaces import IEventStore
+from waku.eventsourcing.store.interfaces import (  # Dishka needs runtime access
+    ICheckpointStore,
+    IEventStore,
+    ISnapshotStore,
+)
 from waku.eventsourcing.store.version_check import check_expected_version
 from waku.exceptions import ImproperlyConfiguredError
 from waku.serialization.upcasting.chain import UpcasterChain  # noqa: TC001  # Dishka needs runtime access
@@ -42,7 +46,6 @@ from waku.serialization.upcasting.chain import UpcasterChain  # noqa: TC001  # D
 if TYPE_CHECKING:
     from waku.eventsourcing.contracts.event import EventEnvelope
     from waku.eventsourcing.contracts.stream import ExpectedVersion
-    from waku.eventsourcing.store.interfaces import ICheckpointStore, ISnapshotStore
     from waku.messages import IEvent
 
 __all__ = [
@@ -54,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 
 class SqlAlchemyEventStoreFactory(Protocol):
-    def __call__(
+    def __call__(  # noqa: PLR0913
         self,
         session: AsyncSession,
         serializer: IEventSerializer,
@@ -64,6 +67,8 @@ class SqlAlchemyEventStoreFactory(Protocol):
         enrichers: Sequence[IMetadataEnricher] = (),
         *,
         appended_events: IAppendedEvents,
+        snapshots: ISnapshotStore,
+        checkpoints: ICheckpointStore,
     ) -> SqlAlchemyEventStore: ...
 
 
@@ -456,7 +461,7 @@ class SqlAlchemyEventStore(IEventStore):
 
 
 def make_sqlalchemy_event_store(tables: EventStoreTables) -> SqlAlchemyEventStoreFactory:
-    def factory(
+    def factory(  # noqa: PLR0913
         session: AsyncSession,
         serializer: IEventSerializer,
         registry: EventTypeRegistry,
@@ -465,6 +470,8 @@ def make_sqlalchemy_event_store(tables: EventStoreTables) -> SqlAlchemyEventStor
         enrichers: Sequence[IMetadataEnricher] = (),
         *,
         appended_events: IAppendedEvents,
+        snapshots: ISnapshotStore,
+        checkpoints: ICheckpointStore,
     ) -> SqlAlchemyEventStore:
         return SqlAlchemyEventStore(
             session,
@@ -475,6 +482,8 @@ def make_sqlalchemy_event_store(tables: EventStoreTables) -> SqlAlchemyEventStor
             projections,
             enrichers,
             appended_events=appended_events,
+            snapshots=snapshots,
+            checkpoints=checkpoints,
         )
 
     return factory

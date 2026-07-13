@@ -13,7 +13,7 @@ from waku.backends.sqlalchemy.checkpoint.store import SqlAlchemyCheckpointStore
 from waku.backends.sqlalchemy.checkpoint.tables import CheckpointTables, bind_checkpoint_tables
 from waku.backends.sqlalchemy.dead_letter.store import SqlAlchemyDeadLetterStore
 from waku.backends.sqlalchemy.dead_letter.tables import bind_dead_letter_tables
-from waku.backends.sqlalchemy.event_store.store import SqlAlchemyEventStore
+from waku.backends.sqlalchemy.event_store.store import make_sqlalchemy_event_store
 from waku.backends.sqlalchemy.event_store.tables import EventStoreTables, bind_event_store_tables
 from waku.backends.sqlalchemy.inbox.store import SqlAlchemyInboxStore
 from waku.backends.sqlalchemy.inbox.tables import bind_inbox_tables
@@ -109,11 +109,14 @@ class _SqlAlchemyBackendWiring(OnModuleRegistration):
         *,
         appended_events: IAppendedEvents,
     ) -> IEventStore:
-        return SqlAlchemyEventStore(
+        # Signature-only mirror for dishka injection: the provider must stay STATIC because the ES
+        # fail-loud registration scan keys on IEventStore (same reason the messaging facet stores
+        # are static), while the tables are bound only at registration time. Construction delegates
+        # to the ONE authority — ``make_sqlalchemy_event_store`` — shared with the public SPI.
+        return make_sqlalchemy_event_store(self._event_tables)(
             session,
             serializer,
             registry,
-            self._event_tables,
             upcaster_chain,
             projections,
             enrichers,

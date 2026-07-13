@@ -129,7 +129,7 @@ class InboxStoreContract:
     async def test_claimed_partition_head_blocks_successor(self, inbox_store: IInboxStore) -> None:
         # Symmetric to the outbox: a claimed (owner_id set, in-flight) partition head still occupies its
         # (group_id, destination) slot, so a second worker must NOT promote the successor until the head is
-        # handled. Fails today — seq 2 is wrongly promoted while seq 1 is claimed by another worker.
+        # handled.
         head = _make_entry(group_id='A', sequence_number=1)
         successor = _make_entry(group_id='A', sequence_number=2)
         await inbox_store.store_incoming(head)

@@ -21,7 +21,9 @@ from waku.di import scoped
 from waku.eventsourcing import ForwardDescriptor, forward
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
-from waku.eventsourcing.store.interfaces import IEventStore
+from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
+from waku.eventsourcing.snapshot.in_memory import InMemorySnapshotStore
+from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventStore, ISnapshotStore
 from waku.integrations.eventsourcing_messaging import EventSourcedVoidCommandHandler, EventSourcingMessagingModule
 from waku.messages import IEvent
 from waku.messaging import (
@@ -180,6 +182,8 @@ async def _forwarding_app(
                 providers=[
                     scoped(AsyncSession, _session_factory),
                     scoped(IUnitOfWork, SqlAlchemyUnitOfWork),
+                    scoped(ISnapshotStore, InMemorySnapshotStore),
+                    scoped(ICheckpointStore, InMemoryCheckpointStore),
                     scoped(IEventStore, make_sqlalchemy_event_store(es_tables)),
                     scoped(IOutboxStore, FakeOutboxStore),
                 ],

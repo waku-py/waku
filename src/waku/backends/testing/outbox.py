@@ -196,8 +196,8 @@ class OutboxStoreContract:
 
     async def test_processing_head_blocks_successor(self, outbox_store: IOutboxStore) -> None:
         # A committed PROCESSING (in-flight) head occupies its group's slot cluster-wide: no successor is
-        # promoted until the head reaches a terminal state. Fails today — seq 2 is wrongly promoted while
-        # seq 1 is still PROCESSING.
+        # promoted until the head reaches a terminal state — head occupancy is by row presence, not
+        # readiness.
         head = _make_message(group_id='g', sequence_number=1)
         successor = _make_message(group_id='g', sequence_number=2)
         await outbox_store.save_batch([head, successor])
@@ -213,10 +213,9 @@ class OutboxStoreContract:
         assert [m.id for m in third] == [successor.id]
 
     async def test_processing_head_for_one_destination_does_not_block_sibling(self, outbox_store: IOutboxStore) -> None:
-        # Post-C1 fan-out (#8): a grouped message sent to N destinations creates same-group_id sibling rows.
-        # The outbox head is composite (group_id, destination), so each destination has an INDEPENDENT head —
-        # a PROCESSING head for destination A must not starve destination B's co-sequenced sibling. Fails
-        # today: DISTINCT ON (group_id) collapses the two siblings to one head, so only one destination fires.
+        # A grouped message sent to N destinations creates same-group_id sibling rows. The outbox head is
+        # composite (group_id, destination), so each destination has an INDEPENDENT head — a PROCESSING
+        # head for destination A must not starve destination B's co-sequenced sibling.
         key = str(uuid4())
         await outbox_store.save_batch([
             _make_message(idempotency_key=key, destination='test://a', group_id='g', sequence_number=1),
