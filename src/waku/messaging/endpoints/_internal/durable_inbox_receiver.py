@@ -11,8 +11,8 @@ from waku.messaging._internal.identifiers import EndpointUri
 from waku.messaging._internal.partition import resolve_and_allocate
 from waku.messaging._internal.transaction import unit_of_work_scope
 from waku.messaging.durability import IInboxStore
+from waku.messaging.endpoints._internal.redelivery import RedeliveryCoordinator, RedeliveryHooks
 from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
-from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.exceptions import RequeueBudgetExceededError
 from waku.messaging.inbox._internal.finalize import apply_inbox_outcome
@@ -24,7 +24,6 @@ from waku.serialization.codec import PayloadCodec
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from datetime import timedelta
-    from uuid import UUID
 
     from dishka import AsyncContainer
 
@@ -57,9 +56,8 @@ class DurableInboxReceiver:
         '_executor',
         '_inbox_owner_id',
         '_keep_after_handled',
-        '_max_requeue_attempts',
         '_partition_by',
-        '_requeue_counts',
+        '_redelivery',
         '_timed_pauser',
         '_uri',
         '_worker',
@@ -86,9 +84,6 @@ class DurableInboxReceiver:
         self._inbox_owner_id = inbox_owner_id
         self._keep_after_handled = keep_after_handled
         self._partition_by = partition_by
-        self._max_requeue_attempts = max_requeue_attempts
-        # per-(message, handler) requeue counter; mirrored to the durable row by increment_attempts.
-        self._requeue_counts: dict[tuple[UUID, str], int] = {}
         # Single sequential consumer (max_parallel=1); durable ordering relies on it.
         self._worker: MemoryStreamWorker[_WorkItem] = MemoryStreamWorker(
             max_buffer_size=max_buffer_size,
@@ -100,6 +95,18 @@ class DurableInboxReceiver:
             CircuitBreaker(config=circuit_breaker_config, pause=self.pause, resume=self.resume)
             if circuit_breaker_config is not None
             else PassthroughCircuitBreaker()
+        )
+        # DURABLE mirrors each attempt onto the inbox row and transitions it on a terminal outcome; a
+        # stopped worker keeps the INCOMING row for recovery (the default noop on_stopped, no DLQ).
+        self._redelivery = RedeliveryCoordinator(
+            worker=self._worker,
+            timed_pauser=self._timed_pauser,
+            max_requeue_attempts=max_requeue_attempts,
+            hooks=RedeliveryHooks(
+                dead_letter=self._dead_letter_poison,
+                record_attempt=self._record_requeue_attempt,
+                finalize=self._finalize,
+            ),
         )
 
     @property
@@ -172,53 +179,22 @@ class DurableInboxReceiver:
         envelope, handler_types = work_item
         on_result = self._circuit_breaker.record
         for handler_type in handler_types:
-            destination = handler_destination(handler_type)
             result = await self._executor.execute(envelope, handler_type, on_result=on_result)
-            if result.outcome in DEFERRED_TERMINAL_OUTCOMES:
-                await self._enact_redelivery(
-                    envelope,
-                    destination,
-                    frozenset({handler_type}),
-                    result.pause_duration,
-                    result.requeue_limit,
-                )
-            else:
-                self._requeue_counts.pop((envelope.message_id, destination), None)
-                await self._finalize(envelope, destination, result.outcome)
+            await self._redelivery.handle_result(envelope, handler_type, result)
 
-    async def _enact_redelivery(
-        self,
-        envelope: MessageEnvelope[Any],
-        destination: str,
-        handler_types: frozenset[HandlerType],
-        pause_duration: timedelta | None,
-        requeue_limit: int | None,
-    ) -> None:
-        limit = requeue_limit if requeue_limit is not None else self._max_requeue_attempts
-        key = (envelope.message_id, destination)
-        count = self._requeue_counts.get(key, 0) + 1
-        await self._record_requeue_attempt(envelope, destination)
-        if count >= limit:
-            self._requeue_counts.pop(key, None)
-            await self._dead_letter_poison(envelope, destination, count)
-            return  # budget exhausted → DLQ
-        if not self._worker.is_running:
-            self._requeue_counts.pop(key, None)  # stopped; INCOMING row survives for recovery
-            return
-        if not self._worker.try_send((envelope, handler_types)):
-            self._requeue_counts.pop(key, None)
-            await self._dead_letter_poison(envelope, destination, count)  # full buffer → DLQ, never block
-            return
-        self._requeue_counts[key] = count
-        if pause_duration is not None:
-            await self._timed_pauser.pause(pause_duration)
-
-    async def _record_requeue_attempt(self, envelope: MessageEnvelope[Any], destination: str) -> None:
+    async def _record_requeue_attempt(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> None:
+        destination = handler_destination(handler_type)
         async with unit_of_work_scope(self._container) as scope:
             inbox = await scope.get(IInboxStore)
             await inbox.increment_attempts(envelope.message_id, destination)
 
-    async def _dead_letter_poison(self, envelope: MessageEnvelope[Any], destination: str, attempts: int) -> None:
+    async def _dead_letter_poison(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        attempts: int,
+    ) -> None:
+        destination = handler_destination(handler_type)
         async with unit_of_work_scope(self._container) as scope:
             inbox = await scope.get(IInboxStore)
             codec = await scope.get(PayloadCodec)
@@ -237,7 +213,13 @@ class DurableInboxReceiver:
             )
             await inbox.move_to_dead_letter(envelope.message_id, destination, dead_letter)
 
-    async def _finalize(self, envelope: MessageEnvelope[Any], destination: str, outcome: ExecutionOutcome) -> None:
+    async def _finalize(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        outcome: ExecutionOutcome,
+    ) -> None:
+        destination = handler_destination(handler_type)
         await apply_inbox_outcome(
             self._container,
             entry_id=envelope.message_id,

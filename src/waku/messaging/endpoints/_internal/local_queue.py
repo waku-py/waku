@@ -8,15 +8,14 @@ import anyio
 from typing_extensions import override
 
 from waku.messaging._internal.circuit_breaker import CircuitBreaker, PassthroughCircuitBreaker
+from waku.messaging.endpoints._internal.redelivery import RedeliveryCoordinator, RedeliveryHooks
 from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
 from waku.messaging.endpoints.base import Endpoint
-from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.exceptions import RequeueBudgetExceededError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-    from uuid import UUID
 
     from waku.di import AsyncContainer
     from waku.messaging._internal.circuit_breaker import ICircuitBreaker
@@ -50,9 +49,8 @@ class LocalQueueEndpoint(Endpoint):
         '_circuit_breaker',
         '_executor',
         '_handler_subscriptions',
-        '_max_requeue_attempts',
         '_observers',
-        '_requeue_counts',
+        '_redelivery',
         '_timed_pauser',
         '_worker',
     )
@@ -75,11 +73,6 @@ class LocalQueueEndpoint(Endpoint):
         self._handler_subscriptions = handler_subscriptions
         self._executor = executor
         self._observers = observers
-        self._max_requeue_attempts = max_requeue_attempts
-        # Per-(message, handler) requeue counter; bounds each handler's redeliveries independently
-        # (BUFFERED has no inbox row to DLQ from), so a succeeding sibling never resets a poison
-        # handler's budget.
-        self._requeue_counts: dict[tuple[UUID, HandlerType], int] = {}
         self._worker: MemoryStreamWorker[_WorkItem] = MemoryStreamWorker(
             max_buffer_size=max_buffer_size,
             stop_timeout=stop_timeout,
@@ -90,6 +83,15 @@ class LocalQueueEndpoint(Endpoint):
             CircuitBreaker(config=circuit_breaker_config, pause=self.pause, resume=self.resume)
             if circuit_breaker_config is not None
             else PassthroughCircuitBreaker()
+        )
+        # BUFFERED has no inbox row to recover from: a stopped worker dead-letters (on_stopped) just like
+        # an exhausted budget or a full buffer. Per-(message, handler) budget bounds each handler
+        # independently, so a succeeding sibling never resets a poison handler's count.
+        self._redelivery = RedeliveryCoordinator(
+            worker=self._worker,
+            timed_pauser=self._timed_pauser,
+            max_requeue_attempts=max_requeue_attempts,
+            hooks=RedeliveryHooks(dead_letter=self._terminal_dead_letter, on_stopped=self._terminal_dead_letter),
         )
 
     @override
@@ -129,32 +131,7 @@ class LocalQueueEndpoint(Endpoint):
         on_result = self._circuit_breaker.record
         for handler_type in handler_types:
             result = await self._executor.execute(envelope, handler_type, on_result=on_result)
-            if result.outcome in DEFERRED_TERMINAL_OUTCOMES:
-                await self._enact_redelivery(envelope, handler_type, result.pause_duration, result.requeue_limit)
-            else:
-                self._requeue_counts.pop((envelope.message_id, handler_type), None)
-
-    async def _enact_redelivery(
-        self,
-        envelope: MessageEnvelope[Any],
-        handler_type: HandlerType,
-        pause_duration: timedelta | None,
-        requeue_limit: int | None,
-    ) -> None:
-        limit = requeue_limit if requeue_limit is not None else self._max_requeue_attempts
-        key = (envelope.message_id, handler_type)
-        count = self._requeue_counts.get(key, 0) + 1
-        if count >= limit:
-            self._requeue_counts.pop(key, None)
-            await self._terminal_dead_letter(envelope, handler_type, count)
-            return  # PAUSE shares this bound — no re-pause at the limit (no livelock)
-        if not self._worker.try_send((envelope, frozenset({handler_type}))):
-            self._requeue_counts.pop(key, None)
-            await self._terminal_dead_letter(envelope, handler_type, count)
-            return  # full buffer → DLQ, never block
-        self._requeue_counts[key] = count
-        if pause_duration is not None:  # re-enqueued; halt the listener for the PAUSE duration
-            await self._timed_pauser.pause(pause_duration)
+            await self._redelivery.handle_result(envelope, handler_type, result)
 
     async def _terminal_dead_letter(
         self,
