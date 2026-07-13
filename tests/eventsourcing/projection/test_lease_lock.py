@@ -6,8 +6,8 @@ import anyio.lowlevel
 import pytest
 from sqlalchemy import MetaData, text
 
+from waku.backends.sqlalchemy import PostgresLease, bind_lease_tables
 from waku.eventsourcing.projection.config import LeaseConfig
-from waku.eventsourcing.projection.lock.sqlalchemy import PostgresLeaseProjectionLock, bind_lease_tables
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -15,13 +15,13 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
 
-async def _wait_for_expiry_advance(engine: AsyncEngine, projection_name: str) -> None:
-    select = text('SELECT expires_at FROM es_projection_leases WHERE projection_name = :name')
+async def _wait_for_expiry_advance(engine: AsyncEngine, name: str) -> None:
+    select = text('SELECT expires_at FROM waku_leases WHERE name = :name')
     async with engine.connect() as conn:
         await conn.execution_options(isolation_level='AUTOCOMMIT')
-        initial = (await conn.execute(select, {'name': projection_name})).scalar_one()
+        initial = (await conn.execute(select, {'name': name})).scalar_one()
         with anyio.fail_after(5):
-            while (await conn.execute(select, {'name': projection_name})).scalar_one() <= initial:
+            while (await conn.execute(select, {'name': name})).scalar_one() <= initial:
                 await anyio.lowlevel.checkpoint()
 
 
@@ -41,15 +41,15 @@ async def lease_tables(pg_engine: AsyncEngine) -> AsyncIterator[None]:
 
 @pytest.mark.usefixtures('lease_tables')
 async def test_lease_acquire_succeeds(pg_engine: AsyncEngine) -> None:
-    lock = PostgresLeaseProjectionLock(pg_engine, LeaseConfig())
+    lock = PostgresLease(pg_engine, LeaseConfig())
     async with lock.acquire('orders') as acquired:
         assert acquired is True
 
 
 @pytest.mark.usefixtures('lease_tables')
 async def test_lease_blocks_second_holder(pg_engine: AsyncEngine) -> None:
-    lock1 = PostgresLeaseProjectionLock(pg_engine, LeaseConfig())
-    lock2 = PostgresLeaseProjectionLock(pg_engine, LeaseConfig())
+    lock1 = PostgresLease(pg_engine, LeaseConfig())
+    lock2 = PostgresLease(pg_engine, LeaseConfig())
 
     async with lock1.acquire('orders') as first:
         assert first is True
@@ -59,7 +59,7 @@ async def test_lease_blocks_second_holder(pg_engine: AsyncEngine) -> None:
 
 @pytest.mark.usefixtures('lease_tables')
 async def test_lease_released_on_exit(pg_engine: AsyncEngine) -> None:
-    lock = PostgresLeaseProjectionLock(pg_engine, LeaseConfig())
+    lock = PostgresLease(pg_engine, LeaseConfig())
 
     async with lock.acquire('orders') as acquired:
         assert acquired is True
@@ -70,13 +70,13 @@ async def test_lease_released_on_exit(pg_engine: AsyncEngine) -> None:
 
 @pytest.mark.usefixtures('lease_tables')
 async def test_expired_lease_is_reacquired(pg_engine: AsyncEngine) -> None:
-    lock = PostgresLeaseProjectionLock(pg_engine, LeaseConfig())
+    lock = PostgresLease(pg_engine, LeaseConfig())
 
     async with pg_engine.connect() as conn:
         await conn.execution_options(isolation_level='AUTOCOMMIT')
         await conn.execute(
             text("""\
-            INSERT INTO es_projection_leases (projection_name, holder_id, expires_at)
+            INSERT INTO waku_leases (name, holder_id, expires_at)
             VALUES (:name, :holder, now() - make_interval(secs => :ttl))
             """),
             {'name': 'orders', 'holder': 'stale-holder', 'ttl': 60},
@@ -89,7 +89,7 @@ async def test_expired_lease_is_reacquired(pg_engine: AsyncEngine) -> None:
 @pytest.mark.usefixtures('lease_tables')
 async def test_heartbeat_renews_lease_expiry_while_held(pg_engine: AsyncEngine) -> None:
     config = LeaseConfig(ttl_seconds=0.5)
-    lock = PostgresLeaseProjectionLock(pg_engine, config)
+    lock = PostgresLease(pg_engine, config)
 
     async with lock.acquire('orders') as acquired:
         assert acquired is True

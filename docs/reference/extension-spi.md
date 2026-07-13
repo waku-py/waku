@@ -154,18 +154,10 @@ Projection contracts and polling configuration.
 
 ## `waku.eventsourcing.projection.lock`
 
-Projection lock contract and the in-memory lock.
+Lease contract and the in-memory lease; Postgres lease adapters live in `waku.backends.sqlalchemy`.
 
-`IProjectionLock` ·
-`InMemoryProjectionLock`
-
-## `waku.eventsourcing.projection.lock.sqlalchemy`
-
-Postgres advisory/lease projection locks.
-
-`PostgresAdvisoryProjectionLock` ·
-`PostgresLeaseProjectionLock` ·
-`bind_lease_tables`
+`ILease` ·
+`InMemoryLease`
 
 ## `waku.eventsourcing.serialization`
 
@@ -203,6 +195,8 @@ SQLAlchemy durability backend: entry point, store adapters, tables.
 `EventStoreTables` ·
 `InboxTables` ·
 `OutboxTables` ·
+`PostgresAdvisoryLease` ·
+`PostgresLease` ·
 `SequenceTables` ·
 `SnapshotTables` ·
 `SqlAlchemyBackend` ·
@@ -218,6 +212,7 @@ SQLAlchemy durability backend: entry point, store adapters, tables.
 `bind_dead_letter_tables` ·
 `bind_event_store_tables` ·
 `bind_inbox_tables` ·
+`bind_lease_tables` ·
 `bind_outbox_tables` ·
 `bind_sequence_tables` ·
 `bind_snapshot_tables` ·

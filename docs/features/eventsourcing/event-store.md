@@ -358,14 +358,18 @@ All tables created by waku's event sourcing module:
 | `es_streams` | `bind_event_store_tables(metadata)` | [Event Store](#postgresql-with-sqlalchemy) |
 | `es_events` | `bind_event_store_tables(metadata)` | [Event Store](#postgresql-with-sqlalchemy) |
 | `es_checkpoints` | `bind_checkpoint_tables(metadata)` | [Projections](projections.md#table-schema-reference) |
-| `es_projection_leases` | `bind_lease_tables(metadata)` | [Projections](projections.md#es_projection_leases) |
+| `waku_leases` | `bind_lease_tables(metadata)` | [Projections](projections.md#waku_leases) |
 | `es_snapshots` | `bind_snapshot_tables(metadata)` | [Snapshots](snapshots.md#table-schema-reference) |
 
 ```python
 from sqlalchemy import MetaData
 
-from waku.backends.sqlalchemy import bind_checkpoint_tables, bind_event_store_tables, bind_snapshot_tables
-from waku.eventsourcing.projection.lock.sqlalchemy import bind_lease_tables
+from waku.backends.sqlalchemy import (
+    bind_checkpoint_tables,
+    bind_event_store_tables,
+    bind_lease_tables,
+    bind_snapshot_tables,
+)
 
 metadata = MetaData()
 es_tables = bind_event_store_tables(metadata)

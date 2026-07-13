@@ -31,8 +31,10 @@ SPI_FACADES: tuple[tuple[str, str], ...] = (
     ('waku.eventsourcing.store', 'Event store contracts (with snapshot/checkpoint facets); in-memory reference store.'),
     ('waku.eventsourcing.snapshot', 'Snapshot model, strategy, and migration contracts.'),
     ('waku.eventsourcing.projection', 'Projection contracts and polling configuration.'),
-    ('waku.eventsourcing.projection.lock', 'Projection lock contract and the in-memory lock.'),
-    ('waku.eventsourcing.projection.lock.sqlalchemy', 'Postgres advisory/lease projection locks.'),
+    (
+        'waku.eventsourcing.projection.lock',
+        'Lease contract and the in-memory lease; Postgres lease adapters live in `waku.backends.sqlalchemy`.',
+    ),
     ('waku.eventsourcing.serialization', 'Event and snapshot-state serializer contracts.'),
     ('waku.serialization', 'Payload codec and the upcasting toolkit.'),
     ('waku.backends.sqlalchemy', 'SQLAlchemy durability backend: entry point, store adapters, tables.'),

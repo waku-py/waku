@@ -1,7 +1,6 @@
-from waku.eventsourcing.projection.lock.in_memory import InMemoryProjectionLock
-from waku.eventsourcing.projection.lock.interfaces import IProjectionLock
+from waku._internal.lease import ILease, InMemoryLease
 
 __all__ = [
-    'IProjectionLock',
-    'InMemoryProjectionLock',
+    'ILease',
+    'InMemoryLease',
 ]

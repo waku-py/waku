@@ -20,11 +20,11 @@ _DEFAULT_POLLING: Final = PollingConfig()
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from waku._internal.lease import ILease
     from waku.di import AsyncContainer
     from waku.eventsourcing.projection._internal.processor import SkipRequest
     from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
     from waku.eventsourcing.projection.interfaces import ICatchUpProjection
-    from waku.eventsourcing.projection.lock.interfaces import IProjectionLock
 
 __all__ = ['CatchUpProjectionRunner']
 
@@ -35,7 +35,7 @@ class CatchUpProjectionRunner:
     def __init__(
         self,
         container: AsyncContainer,
-        lock: IProjectionLock,
+        lock: ILease,
         registry: CatchUpProjectionRegistry,
         polling: PollingConfig = _DEFAULT_POLLING,
     ) -> None:
@@ -49,7 +49,7 @@ class CatchUpProjectionRunner:
     async def create(
         cls,
         container: AsyncContainer,
-        lock: IProjectionLock,
+        lock: ILease,
         projections: Sequence[type[ICatchUpProjection]] | None = None,
         polling: PollingConfig = _DEFAULT_POLLING,
     ) -> CatchUpProjectionRunner:

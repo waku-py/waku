@@ -9,11 +9,10 @@ import pytest
 from typing_extensions import override
 
 from waku import module
+from waku._internal.lease import ILease, InMemoryLease
 from waku.di import object_
 from waku.eventsourcing.projection.config import PollingConfig
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ProjectionErrorPolicy
-from waku.eventsourcing.projection.lock.in_memory import InMemoryProjectionLock
-from waku.eventsourcing.projection.lock.interfaces import IProjectionLock
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.projection.runner import CatchUpProjectionRunner
 from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventReader, IEventStore
@@ -61,38 +60,38 @@ class _NoOpUoW(IUnitOfWork):
         pass
 
 
-class AlwaysLockedLock(IProjectionLock):
+class AlwaysLockedLock(ILease):
     @override
     @contextlib.asynccontextmanager
-    async def acquire(self, projection_name: str) -> AsyncGenerator[bool]:
+    async def acquire(self, name: str) -> AsyncGenerator[bool]:
         yield False
 
 
-class FailingAcquireLock(IProjectionLock):
+class FailingAcquireLock(ILease):
     def __init__(self, failing_name: str) -> None:
         self._failing_name = failing_name
-        self._inner = InMemoryProjectionLock()
+        self._inner = InMemoryLease()
 
     @override
     @contextlib.asynccontextmanager
-    async def acquire(self, projection_name: str) -> AsyncGenerator[bool]:
-        if projection_name == self._failing_name:
+    async def acquire(self, name: str) -> AsyncGenerator[bool]:
+        if name == self._failing_name:
             msg = 'lock backend down'
             raise RuntimeError(msg)
-        async with self._inner.acquire(projection_name) as acquired:
+        async with self._inner.acquire(name) as acquired:
             yield acquired
 
 
-class RenewFailingLock(IProjectionLock):
+class RenewFailingLock(ILease):
     def __init__(self, failing_name: str) -> None:
         self._failing_name = failing_name
-        self._inner = InMemoryProjectionLock()
+        self._inner = InMemoryLease()
 
     @override
     @contextlib.asynccontextmanager
-    async def acquire(self, projection_name: str) -> AsyncGenerator[bool]:
-        if projection_name != self._failing_name:
-            async with self._inner.acquire(projection_name) as acquired:
+    async def acquire(self, name: str) -> AsyncGenerator[bool]:
+        if name != self._failing_name:
+            async with self._inner.acquire(name) as acquired:
                 yield acquired
             return
         # Mirrors the lease lock's shape: the heartbeat runs in the acquire CM's own task group, so a
@@ -118,7 +117,7 @@ class IdleProjection(ICatchUpProjection):
 def _make_app(
     store: InMemoryEventStore,
     checkpoint_store: ICheckpointStore,
-    lock: IProjectionLock,
+    lock: ILease,
     projections: Sequence[ICatchUpProjection],
     bindings: Sequence[CatchUpProjectionBinding],
     uow: IUnitOfWork | None = None,
@@ -128,7 +127,7 @@ def _make_app(
         object_(store, provided_type=IEventStore),
         object_(store, provided_type=IEventReader),
         object_(checkpoint_store, provided_type=ICheckpointStore),
-        object_(lock, provided_type=IProjectionLock),
+        object_(lock, provided_type=ILease),
         object_(projection_registry),
         *[object_(proj, provided_type=type(proj)) for proj in projections],
         object_(uow if uow is not None else _NoOpUoW(), provided_type=IUnitOfWork),
@@ -162,7 +161,7 @@ async def test_runner_processes_all_events(
 ) -> None:
     await seed_events(event_store, count=5)
 
-    lock = InMemoryProjectionLock()
+    lock = InMemoryLease()
     projection = RecordingProjection()
     binding = make_binding(RecordingProjection)
     app = _make_app(event_store, in_memory_checkpoint_store, lock, (projection,), (binding,))
@@ -183,7 +182,7 @@ async def test_runner_exits_when_no_projections(
     event_store: InMemoryEventStore,
     in_memory_checkpoint_store: InMemoryCheckpointStore,
 ) -> None:
-    lock = InMemoryProjectionLock()
+    lock = InMemoryLease()
     app = _make_app(event_store, in_memory_checkpoint_store, lock, (), ())
 
     async with app:
@@ -203,7 +202,7 @@ async def test_rebuild_resets_and_reprocesses(
 ) -> None:
     await seed_events(event_store, count=5)
 
-    lock = InMemoryProjectionLock()
+    lock = InMemoryLease()
     projection = RecordingProjection()
     binding = make_binding(RecordingProjection)
     app = _make_app(event_store, in_memory_checkpoint_store, lock, (projection,), (binding,))
@@ -229,7 +228,7 @@ async def test_rebuild_resets_and_reprocesses(
     ('lock_factory', 'rebuild_name', 'exc_type', 'match'),
     [
         pytest.param(
-            InMemoryProjectionLock,
+            InMemoryLease,
             'nonexistent',
             ValueError,
             "Projection 'nonexistent' not found",
@@ -241,7 +240,7 @@ async def test_rebuild_resets_and_reprocesses(
 async def test_rebuild_error_cases(
     event_store: InMemoryEventStore,
     in_memory_checkpoint_store: InMemoryCheckpointStore,
-    lock_factory: type[IProjectionLock],
+    lock_factory: type[ILease],
     rebuild_name: str,
     exc_type: type[Exception],
     match: str,
@@ -300,7 +299,7 @@ async def test_runner_isolates_projection_errors(
 ) -> None:
     await seed_events(event_store, count=5)
 
-    lock = InMemoryProjectionLock()
+    lock = InMemoryLease()
     good_projection = RecordingProjection()
     stop_projection = StopProjection()
     recording_binding = make_binding(RecordingProjection)
@@ -398,7 +397,7 @@ async def test_poll_loop_logs_and_continues_on_scope_error(
 ) -> None:
     await seed_events(event_store, count=5)
 
-    lock = InMemoryProjectionLock()
+    lock = InMemoryLease()
     binding = make_binding(RecordingProjection)
     app = _make_app(event_store, in_memory_checkpoint_store, lock, (), (binding,))
 
@@ -421,7 +420,7 @@ async def test_skip_policy_commits_checkpoint_and_advances_past_poison(
 ) -> None:
     await seed_events(event_store, count=5)
 
-    lock = InMemoryProjectionLock()
+    lock = InMemoryLease()
     session = FakeSession()
     projection = PoisonProjection(poison_value=2)
     binding = make_binding(PoisonProjection, error_policy=ProjectionErrorPolicy.SKIP, batch_size=1)
@@ -454,7 +453,7 @@ async def test_rebuild_completes_past_poison_batch_under_skip_policy(
 ) -> None:
     await seed_events(event_store, count=5)
 
-    lock = InMemoryProjectionLock()
+    lock = InMemoryLease()
     session = FakeSession()
     projection = PoisonProjection(poison_value=2)
     binding = make_binding(PoisonProjection, error_policy=ProjectionErrorPolicy.SKIP, batch_size=1)
@@ -488,7 +487,7 @@ async def test_skip_persists_in_clean_transaction_when_project_aborts_session(
 ) -> None:
     await seed_events(event_store, count=5)
 
-    lock = InMemoryProjectionLock()
+    lock = InMemoryLease()
     session = FakeSession()
     projection = PoisonProjection(poison_value=2, session=session)
     binding = make_binding(PoisonProjection, error_policy=ProjectionErrorPolicy.SKIP, batch_size=1)
@@ -521,7 +520,7 @@ async def test_skip_swallows_on_skip_failure_and_still_advances(
 ) -> None:
     await seed_events(event_store, count=5)
 
-    lock = InMemoryProjectionLock()
+    lock = InMemoryLease()
     session = FakeSession()
     projection = PoisonProjection(poison_value=2, session=session, on_skip_fails=True)
     binding = make_binding(PoisonProjection, error_policy=ProjectionErrorPolicy.SKIP, batch_size=1)
@@ -557,7 +556,7 @@ async def test_request_shutdown_interrupts_retry_backoff(
 ) -> None:
     await seed_events(event_store, count=1)
 
-    lock = InMemoryProjectionLock()
+    lock = InMemoryLease()
     projection = PoisonProjection(poison_value=0)
     binding = make_binding(PoisonProjection, max_retry_attempts=10, base_retry_delay_seconds=60.0)
     app = _make_app(event_store, in_memory_checkpoint_store, lock, (projection,), (binding,))
@@ -582,7 +581,7 @@ async def test_rebuild_ignores_gap_detection_and_completes_past_permanent_gap(
 ) -> None:
     await seed_events(event_store, count=5)
 
-    lock = InMemoryProjectionLock()
+    lock = InMemoryLease()
     projection = RecordingProjection()
     binding = make_binding(RecordingProjection)  # gap detection on by default
     app = _make_app(event_store, in_memory_checkpoint_store, lock, (projection,), (binding,))
@@ -612,7 +611,7 @@ async def test_rebuild_retries_transient_failure_then_completes(
 ) -> None:
     await seed_events(event_store, count=5)
 
-    lock = InMemoryProjectionLock()
+    lock = InMemoryLease()
     session = FakeSession()
     projection = FlakyProjection(failures=1)
     binding = make_binding(FlakyProjection, max_retry_attempts=1, base_retry_delay_seconds=0.0)
@@ -645,7 +644,7 @@ async def test_poll_loop_retries_transient_failure_and_commits_recovery(
 ) -> None:
     await seed_events(event_store, count=5)
 
-    lock = InMemoryProjectionLock()
+    lock = InMemoryLease()
     session = FakeSession()
     projection = FlakyProjection(failures=1)
     binding = make_binding(FlakyProjection, max_retry_attempts=2, base_retry_delay_seconds=0.0)

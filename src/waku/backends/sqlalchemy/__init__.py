@@ -8,6 +8,9 @@ from waku.backends.sqlalchemy.event_store.store import SqlAlchemyEventStore, mak
 from waku.backends.sqlalchemy.event_store.tables import EventStoreTables, bind_event_store_tables
 from waku.backends.sqlalchemy.inbox.store import SqlAlchemyInboxStore
 from waku.backends.sqlalchemy.inbox.tables import InboxTables, bind_inbox_tables
+from waku.backends.sqlalchemy.lease.advisory import PostgresAdvisoryLease
+from waku.backends.sqlalchemy.lease.store import PostgresLease
+from waku.backends.sqlalchemy.lease.tables import bind_lease_tables
 from waku.backends.sqlalchemy.outbox.store import SqlAlchemyOutboxStore
 from waku.backends.sqlalchemy.outbox.tables import OutboxTables, bind_outbox_tables
 from waku.backends.sqlalchemy.sequence.allocator import SqlAlchemySequenceAllocator
@@ -23,6 +26,8 @@ __all__ = [
     'EventStoreTables',
     'InboxTables',
     'OutboxTables',
+    'PostgresAdvisoryLease',
+    'PostgresLease',
     'SequenceTables',
     'SnapshotTables',
     'SqlAlchemyBackend',
@@ -38,6 +43,7 @@ __all__ = [
     'bind_dead_letter_tables',
     'bind_event_store_tables',
     'bind_inbox_tables',
+    'bind_lease_tables',
     'bind_outbox_tables',
     'bind_sequence_tables',
     'bind_snapshot_tables',

@@ -174,11 +174,11 @@ Use the `create()` classmethod to build a runner from a DI container:
 
 ```python
 from waku.eventsourcing.projection.config import PollingConfig
-from waku.eventsourcing.projection.lock.in_memory import InMemoryProjectionLock
+from waku.eventsourcing.projection.lock import InMemoryLease
 
 runner = await CatchUpProjectionRunner.create(
     container,
-    lock=InMemoryProjectionLock(),
+    lock=InMemoryLease(),
     projections=[AccountSummaryProjection],  # optional filter; None = all registered
     polling=PollingConfig(),                 # optional; defaults to sensible values
 )
@@ -266,14 +266,14 @@ transaction) and skipped.
 
 ## Distributed Locking
 
-`IProjectionLock` ensures only one instance of each catch-up projection runs at a time
+`ILease` ensures only one instance of each catch-up projection runs at a time
 across multiple processes. This prevents duplicate processing and checkpoint conflicts.
 
 ```python
-class IProjectionLock(abc.ABC):
+class ILease(abc.ABC):
     @contextlib.asynccontextmanager
-    async def acquire(self, projection_name: str) -> AsyncIterator[bool]:
-        """Yields True if the lock was acquired, False if held by another instance."""
+    async def acquire(self, name: str) -> AsyncIterator[bool]:
+        """Yields True if the lease was acquired, False if held by another instance."""
 ```
 
 ### Choosing a Lock
@@ -281,40 +281,41 @@ class IProjectionLock(abc.ABC):
 ```mermaid
 graph TD
     Q1{Single process?}
-    Q1 -->|Yes| IM[InMemoryProjectionLock]
+    Q1 -->|Yes| IM[InMemoryLease]
     Q1 -->|No| Q2{Using PgBouncer<br/>in transaction mode?}
-    Q2 -->|Yes| LB[PostgresLeaseProjectionLock]
+    Q2 -->|Yes| LB[PostgresLease]
     Q2 -->|No| Q3{Long-running projections<br/>with many connections?}
     Q3 -->|Yes| LB
-    Q3 -->|No| ADV[PostgresAdvisoryProjectionLock]
+    Q3 -->|No| ADV[PostgresAdvisoryLease]
 ```
 
-| | `InMemoryProjectionLock` | `PostgresLeaseProjectionLock` | `PostgresAdvisoryProjectionLock` |
+| | `InMemoryLease` | `PostgresLease` | `PostgresAdvisoryLease` |
 |---|---|---|---|
 | **Extra** | — | `waku[sqla]` | `waku[sqla]` |
 | **Use case** | Single process, testing | Multi-process production | Multi-process, simple setups |
 | **Connection held** | None | Only during heartbeats | Entire lock duration |
 | **PgBouncer compatible** | N/A | Yes | No (session-bound) |
-| **Extra table required** | No | Yes (`es_projection_leases`) | No |
+| **Extra table required** | No | Yes (`waku_leases`) | No |
 | **Lock granularity** | Per process | Per lease TTL | Per DB session |
 | **Failure detection** | Instant | Heartbeat interval | Connection drop |
 
-### InMemoryProjectionLock
+### InMemoryLease
 
-Always acquires the lock immediately. Tracks held lock names for testing. Use this for
-single-process deployments and in tests.
+Always acquires the lease immediately. Default construction is single-node-isolated (a private
+in-process store), so it suits single-process deployments and tests. Passing a shared `store` with
+distinct holders models contending nodes.
 
-### PostgresLeaseProjectionLock
+### PostgresLease
 
 Uses a database table with TTL-based leases for multi-process coordination. A background
 heartbeat task renews the lease periodically. If the heartbeat detects the lease was stolen
 (e.g., by another instance after TTL expiry), it cancels the projection task.
 
 ```python
+from waku.backends.sqlalchemy import PostgresLease
 from waku.eventsourcing.projection.config import LeaseConfig
-from waku.eventsourcing.projection.lock.sqlalchemy import PostgresLeaseProjectionLock
 
-lock = PostgresLeaseProjectionLock(engine=engine, config=LeaseConfig())
+lock = PostgresLease(engine=engine, config=LeaseConfig())
 ```
 
 Configured via `LeaseConfig`:
@@ -338,22 +339,22 @@ With the defaults, the lease renews every 10 seconds and expires after 30 second
     atomically or both roll back — duplicate processing from a brief overlap will not corrupt
     the read model.
 
-### PostgresAdvisoryProjectionLock
+### PostgresAdvisoryLease
 
 Uses PostgreSQL [advisory locks](https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS)
 via `pg_try_advisory_lock(hashtext(name))`. The lock is session-bound — it holds a database
 connection for the entire duration.
 
 ```python
-from waku.eventsourcing.projection.lock.sqlalchemy import PostgresAdvisoryProjectionLock
+from waku.backends.sqlalchemy import PostgresAdvisoryLease
 
-lock = PostgresAdvisoryProjectionLock(engine=engine)
+lock = PostgresAdvisoryLease(engine=engine)
 ```
 
 !!! warning
     Advisory locks are **not compatible** with PgBouncer in transaction-pooling mode because
     the lock is tied to the database session, not the transaction. Releasing the connection
-    back to the pool releases the lock. Use `PostgresLeaseProjectionLock` instead.
+    back to the pool releases the lock. Use `PostgresLease` instead.
 
 ## Checkpoint Store
 
@@ -392,19 +393,22 @@ scoped `AsyncSession`. To substitute your own, register a provider for `ICheckpo
 
 Bind with `bind_checkpoint_tables(metadata)` from `waku.backends.sqlalchemy`.
 
-### `es_projection_leases`
+### `waku_leases`
 
-Only required when using `PostgresLeaseProjectionLock`.
+Only required when using `PostgresLease`.
 
 | Column | Type | Constraints | Description |
 |--------|------|------------|-------------|
-| `projection_name` | `Text` | **PK** | Projection being locked |
-| `holder_id` | `Text` | NOT NULL | UUID of the lock holder instance |
+| `name` | `Text` | **PK** | Lease key — the projection name being locked |
+| `holder_id` | `Text` | NOT NULL | UUID of the lease holder instance |
 | `acquired_at` | `TIMESTAMP WITH TIME ZONE` | default `now()` | When the lease was first acquired |
 | `renewed_at` | `TIMESTAMP WITH TIME ZONE` | default `now()` | Last heartbeat renewal time |
 | `expires_at` | `TIMESTAMP WITH TIME ZONE` | NOT NULL | When the lease expires if not renewed |
 
-Bind with `bind_lease_tables(metadata)` from `waku.eventsourcing.projection.lock.sqlalchemy`.
+The `waku:` name prefix is reserved for framework-owned lease roles; projection lease names are
+user-chosen.
+
+Bind with `bind_lease_tables(metadata)` from `waku.backends.sqlalchemy`.
 
 ## Live Projections
 
