@@ -35,6 +35,7 @@ async def enqueue(sender: ISender, order_id: str) -> None:
 | `correlation_id` | `str`                   | Override the propagated correlation id                 |
 | `causation_id`   | `str`                   | Override the propagated causation id                   |
 | `group_id`       | `str`                   | Partition / ordering key (per-group FIFO)              |
+| `tenant_id`      | `str`                   | Reserved tenant marker (carried; drives no routing)    |
 | `scheduled_time` | `datetime`              | Deliver at an absolute time                            |
 | `schedule_delay` | `timedelta`             | Deliver after a relative delay                         |
 | `deliver_by`     | `datetime`              | Discard if not delivered by this absolute time         |
@@ -46,8 +47,8 @@ async def enqueue(sender: ISender, order_id: str) -> None:
 !!! info "`invoke()` takes only envelope-native fields"
     Because `invoke()` runs inline and returns a response, scheduling and expiration make no sense on
     it. Passing `scheduled_time`, `schedule_delay`, `deliver_by`, or `deliver_within` to `invoke()`
-    raises `DeliveryOptionNotApplicableError`. Headers, correlation/causation ids, and `group_id` are
-    accepted.
+    raises `DeliveryOptionNotApplicableError`. Headers, correlation/causation ids, `group_id`, and
+    `tenant_id` are accepted.
 
 ## Scheduling
 

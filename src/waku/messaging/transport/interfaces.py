@@ -39,6 +39,7 @@ class EnvelopeMetadata:
     causation_id: str
     message_type: str
     group_id: str | None = None
+    tenant_id: str | None = None
     message_version: int = 1
     timestamp: datetime | None = None
     headers: Mapping[str, str] = field(default_factory=dict)

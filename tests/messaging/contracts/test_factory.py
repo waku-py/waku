@@ -134,3 +134,15 @@ class TestEnvelopeFactory:
         envelope = _make_factory().create(SampleMessage())
 
         assert envelope.group_id is None
+
+    @staticmethod
+    def test_create_forwards_tenant_id() -> None:
+        envelope = _make_factory().create(SampleMessage(), tenant_id='t1')
+
+        assert envelope.tenant_id == 't1'
+
+    @staticmethod
+    def test_create_defaults_tenant_id_to_none() -> None:
+        envelope = _make_factory().create(SampleMessage())
+
+        assert envelope.tenant_id is None

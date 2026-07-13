@@ -23,6 +23,7 @@ class DeliveryOptions:
     correlation_id: str | None = None
     causation_id: str | None = None
     group_id: str | None = None
+    tenant_id: str | None = None
     scheduled_time: datetime | None = None
     schedule_delay: timedelta | None = None
     deliver_by: datetime | None = None

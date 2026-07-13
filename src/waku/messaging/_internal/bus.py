@@ -176,6 +176,7 @@ class MessageBus(IMessageBus, IEndpointDispatch):
             correlation_id=_override(opt.correlation_id, ctx.correlation_id if ctx else None),
             causation_id=_override(opt.causation_id, str(ctx.message_id) if ctx else None),
             group_id=_override(opt.group_id, ctx.group_id if ctx else None),
+            tenant_id=_override(opt.tenant_id, ctx.tenant_id if ctx else None),
             headers={**ctx_headers, **(opt.headers or {})},  # fresh dict; never alias the caller's mapping
             scheduled_time=self._resolve_scheduled(opt),
             expires_at=self._resolve_expires(opt),

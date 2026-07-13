@@ -57,6 +57,17 @@ class _CorrelationEchoHandler(RequestHandler[_Cmd, str]):
         return get_message_context().correlation_id
 
 
+@dataclass(frozen=True, slots=True)
+class _TenantQuery(IRequest[str | None]):
+    pass
+
+
+class _TenantEchoHandler(RequestHandler[_TenantQuery, str | None]):
+    @override
+    async def handle(self, request: _TenantQuery, /) -> str | None:
+        return get_message_context().tenant_id
+
+
 class _CapturingEndpoint(Endpoint):
     def __init__(self, uri: str = 'spy://q', *, supports_scheduling: bool = False) -> None:
         super().__init__(uri)
@@ -88,7 +99,7 @@ async def container() -> AsyncIterator[AsyncContainer]:
     async with (
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            extensions=[MessagingExtension().bind(_CorrelationEchoHandler)],
+            extensions=[MessagingExtension().bind(_CorrelationEchoHandler).bind(_TenantEchoHandler)],
         ) as app,
         app.container() as scope,
     ):
@@ -130,6 +141,39 @@ async def test_send_applies_correlation_and_group_overrides(container: AsyncCont
     assert endpoint.last is not None
     assert endpoint.last.correlation_id == cid
     assert endpoint.last.group_id == 'g1'
+
+
+async def test_send_applies_tenant_override(container: AsyncContainer) -> None:
+    bus, endpoint = await _spy_bus(container)
+
+    await bus.send(_Note(), DeliveryOptions(tenant_id='t1'))
+
+    assert endpoint.last is not None
+    assert endpoint.last.tenant_id == 't1'
+
+
+async def test_tenant_inherits_from_ambient_context(container: AsyncContainer) -> None:
+    bus, endpoint = await _spy_bus(container)
+    ambient = await _spy_bus(container)
+    ambient_envelope = ambient[0]._create_envelope(_Note(), DeliveryOptions(tenant_id='amb'))  # noqa: SLF001
+
+    with message_context_scope(ambient_envelope):
+        await bus.send(_Note())
+
+    assert endpoint.last is not None
+    assert endpoint.last.tenant_id == 'amb'
+
+
+async def test_option_tenant_beats_ambient(container: AsyncContainer) -> None:
+    bus, endpoint = await _spy_bus(container)
+    ambient = await _spy_bus(container)
+    ambient_envelope = ambient[0]._create_envelope(_Note(), DeliveryOptions(tenant_id='amb'))  # noqa: SLF001
+
+    with message_context_scope(ambient_envelope):
+        await bus.send(_Note(), DeliveryOptions(tenant_id='opt'))
+
+    assert endpoint.last is not None
+    assert endpoint.last.tenant_id == 'opt'
 
 
 async def test_send_applies_causation_override(container: AsyncContainer) -> None:
@@ -244,6 +288,14 @@ async def test_invoke_applies_envelope_native_override(container: AsyncContainer
     result = await bus.invoke(_Cmd(name='x'), DeliveryOptions(correlation_id=cid))
 
     assert result == cid
+
+
+async def test_invoke_accepts_tenant_id_and_exposes_it_in_context(container: AsyncContainer) -> None:
+    bus = await container.get(IMessageBus)
+
+    result = await bus.invoke(_TenantQuery(), DeliveryOptions(tenant_id='t1'))
+
+    assert result == 't1'
 
 
 async def test_schedule_send_with_absolute_at_resolves_scheduled_time(container: AsyncContainer) -> None:

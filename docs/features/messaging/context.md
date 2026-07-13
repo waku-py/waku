@@ -61,6 +61,8 @@ class AuditHandler(EventHandler[OrderPlaced]):
 | `correlation_id` | `UUID`              | Shared across a chain of related messages         |
 | `causation_id`   | `UUID`              | ID of the message that caused this one            |
 | `headers`        | `Mapping[str, str]` | Arbitrary metadata attached to the message        |
+| `group_id`       | `str \| None`       | Partition key of the current message              |
+| `tenant_id`      | `str \| None`       | Tenant marker of the current message              |
 
 For a top-level message (no outer context), `correlation_id` is a fresh UUID and `causation_id`
 equals `message_id`. When a handler dispatches a nested message, the bus propagates the

@@ -62,3 +62,15 @@ def test_scope_defaults_group_id_to_none_when_envelope_has_none() -> None:
     envelope = make_envelope(_SampleMessage())
     with message_context_scope(envelope):
         assert get_message_context().group_id is None
+
+
+def test_scope_copies_tenant_id_from_envelope() -> None:
+    envelope = make_envelope(_SampleMessage(), tenant_id='t1')
+    with message_context_scope(envelope):
+        assert get_message_context().tenant_id == 't1'
+
+
+def test_scope_defaults_tenant_id_to_none_when_envelope_has_none() -> None:
+    envelope = make_envelope(_SampleMessage())
+    with message_context_scope(envelope):
+        assert get_message_context().tenant_id is None

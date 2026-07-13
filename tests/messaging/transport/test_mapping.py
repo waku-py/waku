@@ -83,6 +83,41 @@ class TestWireHeadersOf:
         assert 'group_id' not in headers
 
     @staticmethod
+    def test_tenant_id_emitted_when_set() -> None:
+        meta = EnvelopeMetadata(
+            message_id='m',
+            correlation_id='c',
+            causation_id='x',
+            message_type='t',
+            tenant_id='t-acme',
+        )
+
+        headers = wire_headers_of(meta)
+
+        assert headers['tenant_id'] == 't-acme'
+
+    @staticmethod
+    def test_none_tenant_emits_no_header() -> None:
+        headers = wire_headers_of(_BASE)
+
+        assert 'tenant_id' not in headers
+
+    @staticmethod
+    def test_user_header_named_tenant_id_is_dropped() -> None:
+        meta = EnvelopeMetadata(
+            message_id='m',
+            correlation_id='c',
+            causation_id='x',
+            message_type='t',
+            tenant_id='real',
+            headers={'tenant_id': 'spoof'},
+        )
+
+        headers = wire_headers_of(meta)
+
+        assert headers['tenant_id'] == 'real'  # reserved wins; the user value is dropped
+
+    @staticmethod
     def test_user_headers_emitted_bare_no_prefix() -> None:
         meta = EnvelopeMetadata(
             message_id='m',
@@ -179,6 +214,27 @@ class TestMetadataFromHeaders:
         meta = metadata_from_headers(headers)
 
         assert meta.group_id is None
+
+    @staticmethod
+    def test_tenant_id_round_trips_through_headers() -> None:
+        orig = EnvelopeMetadata(
+            message_id='m',
+            correlation_id='c',
+            causation_id='x',
+            message_type='t',
+            tenant_id='t-acme',
+        )
+        headers = wire_headers_of(orig)
+        meta = metadata_from_headers(headers)
+
+        assert meta.tenant_id == 't-acme'
+
+    @staticmethod
+    def test_round_trip_with_tenant_id_none() -> None:
+        headers = wire_headers_of(_BASE)
+        meta = metadata_from_headers(headers)
+
+        assert meta.tenant_id is None
 
     @staticmethod
     def test_round_trip_with_datetime_optionals() -> None:

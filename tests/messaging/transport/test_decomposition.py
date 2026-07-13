@@ -15,6 +15,7 @@ from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.inbox.models import InboxEntry
 from waku.messaging.outbox.models import OutboxMessage
 from waku.messaging.transport._internal.wire import (
+    encode_metadata,
     encode_payload,
     envelope_metadata_of,
     rebuild_envelope,
@@ -44,6 +45,7 @@ def _make_envelope(
     message_version: int = 1,
     headers: dict[str, str] | None = None,
     group_id: str | None = None,
+    tenant_id: str | None = None,
     scheduled_time: datetime | None = None,
     expires_at: datetime | None = None,
 ) -> MessageEnvelope[OrderPlaced]:
@@ -57,6 +59,7 @@ def _make_envelope(
         payload=OrderPlaced(order_id='o-1', total=42.0),
         headers=headers or {},
         group_id=group_id,
+        tenant_id=tenant_id,
         scheduled_time=scheduled_time,
         expires_at=expires_at,
     )
@@ -71,6 +74,25 @@ class TestEncodePayload:
         result = encode_payload(env, codec)
 
         assert result == {'order_id': 'o-1', 'total': 42.0}
+
+
+class TestEncodeMetadata:
+    @staticmethod
+    def test_carries_tenant_id() -> None:
+        env = _make_envelope(tenant_id='t1')
+
+        blob = encode_metadata(env)
+
+        assert blob['tenant_id'] == 't1'
+
+    @staticmethod
+    def test_none_tenant_id_stored_as_none() -> None:
+        env = _make_envelope()
+
+        blob = encode_metadata(env)
+
+        assert 'tenant_id' in blob
+        assert blob['tenant_id'] is None
 
 
 class TestEnvelopeMetadataOf:
@@ -139,6 +161,22 @@ class TestEnvelopeMetadataOf:
 
         assert meta.group_id is None
 
+    @staticmethod
+    def test_tenant_id_passes_through() -> None:
+        env = _make_envelope(tenant_id='t1')
+
+        meta = envelope_metadata_of(env)
+
+        assert meta.tenant_id == 't1'
+
+    @staticmethod
+    def test_tenant_id_none_when_absent() -> None:
+        env = _make_envelope()
+
+        meta = envelope_metadata_of(env)
+
+        assert meta.tenant_id is None
+
 
 class TestRebuildEnvelope:
     @staticmethod
@@ -163,6 +201,16 @@ class TestRebuildEnvelope:
         assert restored.payload == env.payload
         assert restored.scheduled_time == env.scheduled_time
         assert restored.expires_at == env.expires_at
+
+    @staticmethod
+    def test_rebuild_envelope_restores_tenant() -> None:
+        registry = _make_registry(OrderPlaced)
+        codec = _make_codec()
+        env = _make_envelope(tenant_id='t1')
+
+        restored = rebuild_envelope(encode_payload(env, codec), envelope_metadata_of(env), codec, registry)
+
+        assert restored.tenant_id == 't1'
 
     @staticmethod
     def test_round_trip_with_scheduled_and_expires() -> None:
@@ -555,3 +603,19 @@ class TestWireMetadataFromEntry:
         result = wire_metadata_from_entry(entry)
 
         assert result.group_id == 'partition-99'
+
+    @staticmethod
+    def test_tenant_id_read_from_metadata_blob() -> None:
+        entry = _make_outbox_message(metadata=_make_meta_json() | {'tenant_id': 't1'})
+
+        result = wire_metadata_from_entry(entry)
+
+        assert result.tenant_id == 't1'
+
+    @staticmethod
+    def test_legacy_blob_without_tenant_id_yields_none() -> None:
+        entry = _make_outbox_message(metadata=_make_meta_json())
+
+        result = wire_metadata_from_entry(entry)
+
+        assert result.tenant_id is None

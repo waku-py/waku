@@ -25,6 +25,7 @@ class MessageContext:
     message_id: UUID
     headers: Mapping[str, str]
     group_id: str | None = None
+    tenant_id: str | None = None
 
 
 _message_context: ContextVar[MessageContext | None] = ContextVar('_message_context', default=None)
@@ -58,6 +59,7 @@ def message_context_scope(envelope: MessageEnvelope[Any]) -> Generator[None]:
         message_id=envelope.message_id,
         headers=envelope.headers,
         group_id=envelope.group_id,
+        tenant_id=envelope.tenant_id,
     )
     token = _set_message_context(ctx)
     try:

@@ -45,6 +45,7 @@ _RESERVED_KEYS: frozenset[str] = frozenset({
     'expires_at',
     'content-type',
     'group_id',
+    'tenant_id',
 })
 
 
@@ -68,7 +69,7 @@ def wire_headers_of(metadata: EnvelopeMetadata) -> dict[str, str]:
         ``content-type`` (always ``application/json``).
 
     Tier 2 — emitted only when not ``None``:
-        ``timestamp``, ``scheduled_time``, ``expires_at`` (ISO-8601 strings), ``group_id``.
+        ``timestamp``, ``scheduled_time``, ``expires_at`` (ISO-8601 strings), ``group_id``, ``tenant_id``.
 
     User headers — each key copied bare, SKIPPING any key present in ``_RESERVED_KEYS``.
     The reserved-field projection wins; the user value is silently dropped.
@@ -89,6 +90,8 @@ def wire_headers_of(metadata: EnvelopeMetadata) -> dict[str, str]:
         out['expires_at'] = metadata.expires_at.isoformat()
     if metadata.group_id is not None:
         out['group_id'] = metadata.group_id
+    if metadata.tenant_id is not None:
+        out['tenant_id'] = metadata.tenant_id
     out.update({key: value for key, value in metadata.headers.items() if key not in _RESERVED_KEYS})
     return out
 
@@ -134,5 +137,6 @@ def metadata_from_headers(headers: Mapping[str, str]) -> EnvelopeMetadata:
         scheduled_time=_parse_header_dt(headers, 'scheduled_time'),
         expires_at=_parse_header_dt(headers, 'expires_at'),
         group_id=headers.get('group_id'),
+        tenant_id=headers.get('tenant_id'),
         headers=user_headers,
     )

@@ -66,13 +66,14 @@ the runtime needs to route, correlate, and persist it:
 | `payload` | your message | The message object itself |
 | `headers` | `Mapping[str, str]` | Arbitrary user headers |
 | `group_id` | `str \| None` | Partition key for per-group ordering |
+| `tenant_id` | `str \| None` | Reserved tenant marker — carried across wire and storage, drives no routing |
 | `scheduled_time` | `datetime \| None` | When a future-dated message becomes due |
 | `expires_at` | `datetime \| None` | When an unprocessed message is discarded |
 
 You do not build envelopes by hand — the bus mints one per dispatch. `correlation_id` and
 `causation_id` are strings and propagate automatically across the messages a handler dispatches;
 see [Message context & correlation](context.md). To set per-call metadata (headers, `group_id`,
-scheduling), use [Delivery options & scheduling](delivery-options.md).
+`tenant_id`, scheduling), use [Delivery options & scheduling](delivery-options.md).
 
 ---
 

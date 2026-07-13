@@ -29,7 +29,7 @@ Wolverine's two-tier header layout:
 - **Payload** — the full envelope body is the message value.
 - **Envelope headers** — framework fields (`message_id`, `correlation_id`, `causation_id`,
   `message_type`, `message_version`, `content-type`, `timestamp`, `scheduled_time`, `expires_at`,
-  `group_id`) are written **bare** (no prefix) into broker headers.
+  `group_id`, `tenant_id`) are written **bare** (no prefix) into broker headers.
 - **User headers** — arbitrary headers from `EnvelopeMetadata.headers` are copied bare, with one
   constraint: any key that collides with a reserved framework name is **silently dropped** (reserved
   wins). This is the interop contract — a consumer relying on a bare `correlation_id` header will

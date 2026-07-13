@@ -13,6 +13,7 @@ from waku.backends.memory._internal.outbox import InMemoryOutboxStore
 from waku.di import object_, scoped
 from waku.messages import IEvent
 from waku.messaging import (
+    DeliveryOptions,
     EndpointDefaults,
     EventHandler,
     IMessageBus,
@@ -28,6 +29,7 @@ from waku.messaging import (
     TransactionalBehavior,
 )
 from waku.messaging.config import DeadLetterConfig
+from waku.messaging.context import get_message_context
 from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
 from waku.messaging.endpoints.base import EndpointMode
 from waku.messaging.errors.dead_letter import (
@@ -225,6 +227,112 @@ class _AlwaysFailingHandler(EventHandler[_OrderPlaced]):
         type(self).attempts.append(message.order_id)
         msg = 'still failing on replay'
         raise RuntimeError(msg)
+
+
+class _TenantRecordingHandler(EventHandler[_OrderPlaced]):
+    broken: ClassVar[bool] = True
+    seen_tenants: ClassVar[list[str | None]] = []
+
+    @override
+    async def handle(self, message: _OrderPlaced, /) -> None:
+        type(self).seen_tenants.append(get_message_context().tenant_id)
+        if type(self).broken:
+            msg = 'handler down'
+            raise RuntimeError(msg)
+
+
+async def test_tenant_id_survives_outbox_dead_letter_replay_via_metadata_blob() -> None:
+    # Blob round-trip, outbox side: publish(tenant) -> outbox persist writes tenant_id into the metadata
+    # JSONB blob -> relay exhaustion copies the blob verbatim into the DLQ entry -> replay reads it back
+    # (wire_metadata_from_entry) and the transport receives EnvelopeMetadata with the original tenant.
+    transport = _FlakyTransport()
+    dlq = InMemoryDeadLetterStore()
+    outbox = InMemoryOutboxStore(dlq)
+    config = MessagingConfig(
+        endpoints=[external_endpoint('flaky://orders')],
+        routing=[route(_OrderPlaced).to('flaky://orders')],
+        outbox=OutboxConfig(
+            relay=OutboxRelayConfig(polling=_FAST_POLLING, recovery_interval=timedelta(hours=1), max_attempts=1),
+        ),
+        dead_letter=DeadLetterConfig(),
+        transports={'flaky': lambda: transport},
+        global_pipeline_behaviors=[TransactionalBehavior],
+    )
+
+    async with (
+        create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_OrderAuditHandler)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(outbox, provided_type=IOutboxStore),
+                object_(dlq, provided_type=IDeadLetterStore),
+            ],
+        ) as app,
+        app.container() as scope,
+    ):
+        bus = await scope.get(IMessageBus)
+        await bus.publish(_OrderPlaced(order_id='o-tenant'), DeliveryOptions(tenant_id='t-acme'))
+        await wait_until(lambda: bool(dlq.entries))
+
+        entry = next(iter(dlq.entries.values()))
+        assert entry.metadata is not None
+        assert entry.metadata['tenant_id'] == 't-acme'  # outbox blob copied verbatim into the DLQ
+
+        transport.working = True
+        replayer = await scope.get(ReplayExecutor)
+        assert await replayer.replay(entry) is True
+        await wait_until(lambda: bool(transport.sent))
+
+    _, _, metadata = transport.sent[0]
+    assert metadata.tenant_id == 't-acme'  # read back from the blob on replay
+
+
+async def test_tenant_id_survives_inbox_dead_letter_replay_to_handler_context() -> None:
+    # Blob round-trip, inbox side: publish(tenant) -> durable local queue persists tenant_id into the
+    # inbox metadata blob -> drainer rebuilds the envelope (handler sees the tenant in its context) ->
+    # poison moves the blob into the DLQ -> replay rebuilds again and the handler still sees the tenant.
+    _TenantRecordingHandler.broken = True
+    _TenantRecordingHandler.seen_tenants = []
+    dlq = InMemoryDeadLetterStore()
+    inbox = InMemoryInboxStore(dlq)
+    config = MessagingConfig(
+        endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0)],
+        routing=[route(_OrderPlaced).to('orders')],
+        inbox=InboxConfig(owner_id='test-node:1'),
+        dead_letter=DeadLetterConfig(),
+        endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().requeue(max_attempts=1),)),
+        global_pipeline_behaviors=[TransactionalBehavior],
+    )
+
+    async with (
+        create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_TenantRecordingHandler)],
+            providers=[
+                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(inbox, provided_type=IInboxStore),
+                object_(dlq, provided_type=IDeadLetterStore),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+            ],
+        ) as app,
+        app.container() as scope,
+    ):
+        bus = await scope.get(IMessageBus)
+        await bus.publish(_OrderPlaced(order_id='o-tenant'), DeliveryOptions(tenant_id='t-acme'))
+        await wait_until(lambda: bool(dlq.entries))
+
+        entry = next(iter(dlq.entries.values()))
+        assert entry.metadata is not None
+        assert entry.metadata['tenant_id'] == 't-acme'  # inbox blob carried into the DLQ
+
+        _TenantRecordingHandler.broken = False
+        replayer = await scope.get(ReplayExecutor)
+        assert await replayer.replay(entry) is True
+
+    # Original inbox-drain attempt + replay attempt both observed the tenant from the blob.
+    assert _TenantRecordingHandler.seen_tenants == ['t-acme', 't-acme']
+    assert dlq.entries[entry.id].status is DeadLetterStatus.REPLAYED
 
 
 class _ScopedRecordingUoW(IUnitOfWork):

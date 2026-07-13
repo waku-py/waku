@@ -42,6 +42,14 @@ def test_single_sided_expiration_options_construct() -> None:
     assert DeliveryOptions(deliver_within=timedelta(seconds=5)).deliver_within == timedelta(seconds=5)
 
 
+def test_tenant_id_defaults_none() -> None:
+    assert DeliveryOptions().tenant_id is None
+
+
+def test_tenant_id_is_carried() -> None:
+    assert DeliveryOptions(tenant_id='t1').tenant_id == 't1'
+
+
 def test_not_applicable_error_names_option_and_verb() -> None:
     err = DeliveryOptionNotApplicableError('scheduled_time', 'invoke')
     assert 'scheduled_time' in str(err)
