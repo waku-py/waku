@@ -12,7 +12,7 @@ faststream_rabbit = pytest.importorskip('faststream.rabbit')
 from faststream.rabbit import TestRabbitBroker
 
 from waku._internal.retort import default_retort
-from waku.di import object_
+from waku.di import object_, singleton
 from waku.messages import IEvent
 from waku.messaging import (
     InboxConfig,
@@ -26,6 +26,7 @@ from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.router import listen
+from waku.messaging.testing import MessageTracker, TrackingMessageObserver
 from waku.messaging.transport._internal.wire import encode_payload, envelope_metadata_of
 from waku.messaging.transport.faststream.rabbitmq import DefaultRabbitEnvelopeMapper, FastStreamRabbitTransport
 from waku.serialization import UpcasterChain
@@ -33,7 +34,6 @@ from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests._wait import wait_until
 from tests.messaging.helpers import FakeUoW, RecordingAllocator, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
@@ -46,12 +46,9 @@ class _OrderPlaced(IEvent):
 class TestInboundIntegration:
     @staticmethod
     async def test_published_message_is_consumed_and_handled() -> None:
-        observed: list[str] = []
-
         class _RecordingHandler(EventHandler[_OrderPlaced]):
             @override
-            async def handle(self, message: _OrderPlaced, /) -> None:
-                observed.append(message.order_id)
+            async def handle(self, message: _OrderPlaced, /) -> None: ...
 
         inbox = FakeInboxStore()
         codec = PayloadCodec(default_retort, UpcasterChain({}))
@@ -62,6 +59,7 @@ class TestInboundIntegration:
             inbox=InboxConfig(owner_id='test-node:1'),
             transports={'rabbitmq': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
+            observers=(TrackingMessageObserver,),
         )
 
         envelope = make_envelope(_OrderPlaced(order_id='o-1'))
@@ -80,14 +78,17 @@ class TestInboundIntegration:
                     object_(FakeUoW(), provided_type=IUnitOfWork),
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                    singleton(MessageTracker),
                 ],
-            ),
+            ) as app,
+            app.container() as container,
         ):
+            tracker = await container.get(MessageTracker)
             await transport._listen_broker.publish(out.body, 'orders', headers=headers)  # noqa: SLF001
-            await wait_until(lambda: observed == ['o-1'])
+            await tracker.wait_for_executed(_OrderPlaced)
 
         entries = list(inbox.entries.values())
         assert len(entries) == 1
         assert entries[0].status is InboxStatus.HANDLED
         assert entries[0].source_uri == 'rabbitmq://orders'
-        assert observed == ['o-1']
+        assert tracker.single(_OrderPlaced).order_id == 'o-1'

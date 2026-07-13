@@ -138,6 +138,82 @@ your fire-and-forget traffic through the same seam.
 
 ---
 
+## Testing
+
+`waku.messaging.testing` turns the observer seam into a test harness. A `MessageTracker` records every
+`sent` and `executed` observation; a `TrackingMessageObserver` forwards the hooks into it. Wire the
+observer as a global (or per-endpoint) observer and register the tracker as a singleton — DI hands
+your test the same instance the observer writes to:
+
+```python linenums="1"
+from waku.di import singleton
+from waku.messaging import IMessageBus, MessagingConfig, MessagingExtension, MessagingModule
+from waku.messaging.router import local_queue, route
+from waku.messaging.testing import MessageTracker, TrackingMessageObserver
+from waku.testing import create_test_app
+
+config = MessagingConfig(
+    endpoints=[local_queue('orders')],
+    routing=[route(OrderPlaced).to('orders')],
+    observers=(TrackingMessageObserver,),
+)
+
+async with (
+    create_test_app(
+        imports=[MessagingModule.register(config)],
+        extensions=[MessagingExtension().bind(OrderHandler)],
+        providers=[singleton(MessageTracker)],
+    ) as app,
+    app.container() as container,
+):
+    tracker = await container.get(MessageTracker)
+    bus = await container.get(IMessageBus)
+
+    await bus.publish(OrderPlaced(order_id='o-1'))
+    await tracker.wait_for_executed(OrderPlaced)
+    assert tracker.single(OrderPlaced).order_id == 'o-1'
+```
+
+`wait_for_executed(T)` returns as soon as one envelope of `T` reaches `on_executed`, or immediately if
+one already has — no sleeps, no poll loops. `count=` waits for that many **distinct** messages (deduped
+by `message_id`, so an inline retry counts once), `outcome=` narrows to a single terminal outcome, and
+`deadline=` bounds the wait (default 5 seconds) before a `TimeoutError` carrying an activity dump.
+`wait_for_sent(T)` is the send-side equivalent. Between waits, read the recorded observations directly:
+`tracker.executed`, `tracker.sent`, `tracker.executed_of(T)`, `tracker.exceptions`, and
+`tracker.single(T)` — the sole payload of `T`, deduped by `message_id` (a send-then-execute flow records
+both a `sent` and an `executed` envelope for one message).
+
+### What the harness can observe
+
+The tracker sees only what the observer seam reports, so a wait blocks until its `TimeoutError` on paths
+that never fire the matching hook:
+
+| Flow | `wait_for_sent` | `wait_for_executed` |
+|---|---|---|
+| `send`/`publish` → `local_queue` | yes, at enqueue | yes, after the handler runs |
+| `send`/`publish` → `external_endpoint` / outbox | yes, in-tx at enqueue | no — the wire-send happens in the relay, off the seam |
+| `bus.invoke()` | no — invoke never sends | yes |
+| type routed only to an external endpoint | yes, at enqueue | no — nothing executes in-process |
+
+A `sent` observation means *accepted for delivery*, not delivered: the outbox endpoint fires it inside
+the caller's still-open transaction, so a later rollback yields no delivery.
+
+The tracker also waits per message type, not per activity. `wait_for_executed(T)` returns when `T` itself
+reaches its terminal outcome; it does not wait for the follow-on messages `T`'s handler
+[cascades](events.md#cascading-messages) onward. A flow that cascades downstream work has no single "wait
+until everything this send triggered has settled" — enumerate each downstream type (with `count=`) you
+expect and await it explicitly, or the assertions after the wait run against a system still mid-cascade.
+
+!!! warning "One app per tracked activity"
+    A `MessageTracker` is app-scoped and single-use — records accumulate for the app's whole lifetime
+    with no reset. Build a fresh app (a fresh `create_test_app`) per tracked activity; reusing one
+    pollutes a second activity's counts and `single()` with the first activity's records. Declare the
+    observer before the container is built, in `MessagingConfig.observers` or an endpoint's `observers=`:
+    the harness does **not** compose with `override()`, which patches an already-built container and
+    cannot add a member to the materialized observer collection.
+
+---
+
 ## Further reading
 
 - **[Runtime & delivery semantics](runtime.md)** — the lifecycle these hooks observe
