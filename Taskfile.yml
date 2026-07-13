@@ -34,6 +34,11 @@ tasks:
       - sh: uv lock --locked
         msg: "⚠️ Project lockfile is out of sync. Run: task deps:sync"
 
+  docs:check:
+    desc: Authoritative strict docs build (--clean clears the zensical cache — stale caches produce phantom broken-link warnings after doc renames)
+    deps: [ .uv ]
+    cmd: uv run zensical build --clean --strict
+
   deps:install:
     aliases: [ install ]
     desc: Install the package, dependencies, and pre-commit for local development
