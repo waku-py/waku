@@ -81,7 +81,7 @@ class LeadershipConfig:
 
     When ``MessagingConfig.leadership`` is set, exactly one node holds the ``role`` lease and runs the
     maintenance agent; standbys wait to take over on lease expiry/steal. When unset (the default),
-    every node runs the maintenance agent unconditionally (today's behaviour).
+    every node runs the maintenance agent unconditionally.
     """
 
     lease: LeaseConfig = LeaseConfig()  # noqa: RUF009 — ttl + renew_interval_factor + renew<ttl invariant, reused
@@ -106,7 +106,7 @@ class MessagingConfig:
     inbox: InboxConfig | None = None
     leadership: LeadershipConfig | None = None
     """Opt-in cluster leader election gating the durability maintenance agent (see :class:`LeadershipConfig`).
-    Default ``None`` = every node runs maintenance unconditionally (today's behaviour)."""
+    Default ``None`` = every node runs maintenance unconditionally."""
     message_identities: Mapping[type[IMessage], str | MessageIdentity] = field(default_factory=dict)
     """Third-party override for types you can't annotate; the default path is the ClassVar."""
     audited_members: Mapping[type[IMessage], Sequence[str]] = field(default_factory=dict)

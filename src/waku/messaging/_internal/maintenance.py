@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import logging
 import time
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Final
 
 import anyio
@@ -109,11 +108,12 @@ class _DlqMaintenancePoller(PollingAgent):
 
     placement = Placement.SINGLETON_PER_DC
 
-    __slots__ = ('_config', '_container', '_last_cleanup')
+    __slots__ = ('_config', '_container', '_last_cleanup', '_now')
 
-    def __init__(self, *, container: AsyncContainer, config: DeadLetterConfig) -> None:
+    def __init__(self, *, container: AsyncContainer, config: DeadLetterConfig, now: Now = utc_now) -> None:
         self._container = container
         self._config = config
+        self._now = now
         self._last_cleanup = 0.0
         super().__init__(stop_timeout=config.stop_timeout)
 
@@ -148,7 +148,7 @@ class _DlqMaintenancePoller(PollingAgent):
         self._last_cleanup = now
         async with unit_of_work_scope(self._container) as scope:
             store = await scope.get(IDeadLetterStore)
-            purged = await store.purge(datetime.now(tz=UTC) - self._config.retention)
+            purged = await store.purge(self._now() - self._config.retention)
         if purged > 0:
             logger.info('Purged %d dead letters older than retention', purged)
 
@@ -206,7 +206,7 @@ class DurabilityMaintenanceAgent:
         if config.dead_letter is not None and (
             config.dead_letter.auto_replay_enabled or config.dead_letter.retention is not None
         ):
-            pollers.append(_DlqMaintenancePoller(container=container, config=config.dead_letter))
+            pollers.append(_DlqMaintenancePoller(container=container, config=config.dead_letter, now=now))
         if config.inbox is not None:
             pollers.append(_PromotionPoller(container=container, config=config.inbox, now=now))
         self._pollers = tuple(pollers)

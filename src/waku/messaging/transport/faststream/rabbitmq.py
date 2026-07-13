@@ -6,7 +6,7 @@ generalise across brokers (e.g. Kafka ``reject()`` commits the offset, Redis ``n
 opts in by importing it from this module.
 
 Two separate ``RabbitBroker`` connections are used: one exclusively for publishing (``_send_broker``) and one for
-consuming (``_listen_broker``).  This isolation prevents head-of-line blocking between producers and consumers sharing
+consuming (``_listen_broker``). This isolation prevents head-of-line blocking between producers and consumers sharing
 a single AMQP channel pool, matches the Wolverine two-connection model, and keeps prefetch-count semantics correct.
 """
 
@@ -46,10 +46,10 @@ class RabbitOutgoing:
 
     ``body``, ``headers``, and ``persist`` are always passed to ``RabbitBroker.publish``.
     ``correlation_id``, ``reply_to``, and ``priority`` are **passthrough-only** — the default
-    ``DefaultRabbitEnvelopeMapper`` leaves them ``None`` and they are omitted from the publish call.  A custom
+    ``DefaultRabbitEnvelopeMapper`` leaves them ``None`` and they are omitted from the publish call. A custom
     mapper may set them to reach AMQP message properties that the Wolverine wire format does not expose.
 
-    ``persist`` is **not** a passthrough native: it is the durability guarantee, on by default.  Every Waku
+    ``persist`` is **not** a passthrough native: it is the durability guarantee, on by default. Every Waku
     broker send is outbox-backed, so publishes are ``DeliveryMode.PERSISTENT`` unless a custom mapper opts out
     with ``persist=False`` (foreign interop / non-durable topics).
 
@@ -57,12 +57,12 @@ class RabbitOutgoing:
     a delivery deadline reaches the AMQP per-message TTL; it stays ``None`` when the message carries no deadline.
 
     Native fields (verified against FastStream 0.7.1 ``RabbitBroker.publish`` signature):
-        correlation_id: AMQP ``correlation-id`` property.  Distinct from the Waku envelope ``correlation_id``
+        correlation_id: AMQP ``correlation-id`` property. Distinct from the Waku envelope ``correlation_id``
             header — do not confuse the two.
         reply_to: AMQP ``reply-to`` property (routing key for reply messages; always uses the default exchange).
         priority: AMQP ``priority`` property (0–255); ``None`` lets the broker use its default (0).
-        expiration: AMQP per-message TTL.  The default mapper populates it from the envelope ``expires_at`` (an
-            absolute ``datetime``); aio_pika encodes it to a relative-ms TTL at publish.  Also accepts ``int`` or
+        expiration: AMQP per-message TTL. The default mapper populates it from the envelope ``expires_at`` (an
+            absolute ``datetime``); aio_pika encodes it to a relative-ms TTL at publish. Also accepts ``int`` or
             ``float`` (seconds) or ``timedelta`` via aio_pika's ``DateType``.
     """
 
@@ -172,7 +172,7 @@ class FastStreamRabbitTransport(FastStreamTransportBase[RabbitMessage]):
             extra['priority'] = out.priority
         if out.expiration is not None:
             extra['expiration'] = out.expiration
-        await self._send_broker.publish(  # pyrefly: ignore[unexpected-keyword]
+        await self._send_broker.publish(
             out.body,
             destination,
             headers=headers,
@@ -213,7 +213,7 @@ class FastStreamRabbitTransport(FastStreamTransportBase[RabbitMessage]):
 
     @override
     async def _reject(self, msg: RabbitMessage) -> None:
-        await msg.reject()  # no requeue -> DLX/drop (poison; Waku DLQ is handled at the processing layer)
+        await msg.reject()  # no requeue -> broker DLX/drop; poison logged and dropped (no Waku DLQ for this path)
 
     @override
     async def start(self) -> None:

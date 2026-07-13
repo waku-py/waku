@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import traceback
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Final, assert_never
 
 from typing_extensions import override
@@ -200,10 +200,10 @@ class OutboxRelay(PollingAgent):
     ) -> None:
         match outcome.action:
             case RetryAction.RETRY:
-                await self._reschedule(store, uow, message, exc, next_retry_at=datetime.now(tz=UTC))
+                await self._reschedule(store, uow, message, exc, next_retry_at=self._now())
             case RetryAction.RETRY_WITH_BACKOFF:
                 delay = outcome.retry_delay or timedelta(0)
-                next_retry_at = datetime.now(tz=UTC) + delay
+                next_retry_at = self._now() + delay
                 await self._reschedule(store, uow, message, exc, next_retry_at=next_retry_at)
             case RetryAction.DISCARD:
                 await store.mark_discarded(message.id, _format_error(exc))

@@ -502,7 +502,6 @@ class TestOutboxRelay:
         monkeypatch.setattr(
             'waku.messaging._internal.escalation.calculate_backoff_with_jitter', lambda *_a, **_kw: 60.0
         )
-        before = datetime.now(tz=UTC)
         store, msg = _make_pending_store()
         evaluator = make_relay_evaluator(
             _FAST_CONFIG,
@@ -519,20 +518,20 @@ class TestOutboxRelay:
         async with _run_relay(
             RelayDepsProvider(store, _FailingTransport()),
             evaluator=evaluator,
+            now=lambda: _FIXED_NOW,
         ):
             await wait_until(lambda: msg.id in store.failed_ids)
 
         assert msg.id in store.failed_ids
         assert store.failure_records
         record = store.failure_records[0]
-        assert record.next_retry_at is not None
-        assert record.next_retry_at > before + timedelta(seconds=30)
+        # RETRY_WITH_BACKOFF schedules off the relay's injected clock: next_retry_at = now + backoff (pinned 60s).
+        assert record.next_retry_at == _FIXED_NOW + timedelta(seconds=60)
 
     @staticmethod
     async def test_retry_policy_reschedules_for_next_poll() -> None:
         # Exercises the RETRY (no-backoff) arm of _apply_outcome: reschedule for the next poll
-        # (next_retry_at≈now), NOT a future backoff delay.
-        before = datetime.now(tz=UTC)
+        # (next_retry_at == the relay's injected clock), NOT a future backoff delay.
         store, msg = _make_pending_store()
         evaluator = make_relay_evaluator(
             _FAST_CONFIG,
@@ -546,14 +545,14 @@ class TestOutboxRelay:
         async with _run_relay(
             RelayDepsProvider(store, _FailingTransport()),
             evaluator=evaluator,
+            now=lambda: _FIXED_NOW,
         ):
             await wait_until(lambda: msg.id in store.failed_ids)
 
         assert msg.id in store.failed_ids
         assert store.failure_records
         record = store.failure_records[0]
-        assert record.next_retry_at is not None
-        assert before <= record.next_retry_at <= before + timedelta(seconds=5)
+        assert record.next_retry_at == _FIXED_NOW
 
     @staticmethod
     async def test_missing_outcome_dead_letters_as_failsafe() -> None:

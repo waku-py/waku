@@ -113,7 +113,7 @@ class IListener(abc.ABC):
 
     @abc.abstractmethod
     async def start(self) -> None:
-        """Open broker connection and activate registered consumers.  Idempotent."""
+        """Open broker connection and activate registered consumers. Idempotent."""
 
     @abc.abstractmethod
     async def stop(self) -> None:

@@ -11,8 +11,8 @@ __all__ = [
 ]
 
 # The one shared lease table, keyed by an opaque `name`. The `waku:` name prefix is reserved for
-# framework-owned roles (e.g. a future `'waku:leader'` leadership row); projection lease names are
-# user-chosen.
+# framework-owned roles — `'waku:leader'` (`LeadershipConfig.role`) is the first; projection lease
+# names are user-chosen.
 _internal_metadata = MetaData()
 
 waku_leases_table = Table(

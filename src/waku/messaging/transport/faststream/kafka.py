@@ -50,7 +50,7 @@ class KafkaOutgoing:
 
     ``body``, ``key``, and ``headers`` are always passed to ``KafkaBroker.publish``.
     The native fields below are **passthrough-only** — the default ``DefaultKafkaEnvelopeMapper`` leaves them
-    ``None`` and they are omitted from the publish call.  A custom mapper may set them to reach aiokafka
+    ``None`` and they are omitted from the publish call. A custom mapper may set them to reach aiokafka
     capabilities that the Wolverine wire format does not expose.
 
     Native fields (verified against FastStream 0.7.1 ``KafkaBroker.publish`` signature):
@@ -95,7 +95,7 @@ class DefaultKafkaEnvelopeMapper(IKafkaEnvelopeMapper):
         payload = cast('dict[str, Any]', await msg.decode())
         meta = metadata_from_headers(msg.headers)
         # Kafka message key takes precedence over the group_id header (Wolverine key-takes-precedence rule).
-        raw_message = cast('Any', msg.raw_message)  # raw_message not typed on KafkaMessage; pyrefly: ignore
+        raw_message = cast('Any', msg.raw_message)  # raw_message not typed on KafkaMessage
         raw_key: bytes | None = raw_message.key
         # aiokafka yields None (never b'') for a keyless message; keep the header group_id in that case.
         if raw_key is not None:
@@ -188,7 +188,7 @@ class FastStreamKafkaTransport(FastStreamTransportBase[KafkaMessage]):
             extra['correlation_id'] = out.correlation_id
         if out.reply_to is not None:
             extra['reply_to'] = out.reply_to
-        await self._broker.publish(out.body, destination, key=out.key, headers=out.headers, **extra)  # pyrefly: ignore[unexpected-keyword]
+        await self._broker.publish(out.body, destination, key=out.key, headers=out.headers, **extra)
 
     @override
     def subscribe(
@@ -223,7 +223,7 @@ class FastStreamKafkaTransport(FastStreamTransportBase[KafkaMessage]):
 
     @override
     async def _reject(self, msg: KafkaMessage) -> None:
-        await msg.reject()  # commit/skip (poison; Waku DLQ is handled at the processing layer)
+        await msg.reject()  # commit/skip; poison logged and dropped (no Waku DLQ for this path)
 
     @override
     async def start(self) -> None:
