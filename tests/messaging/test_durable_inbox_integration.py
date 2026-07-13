@@ -107,7 +107,11 @@ class _EndpointOnlyObserver(IMessageObserver):
 # registered for inbox-only setups (the durable endpoint encodes the payload before persisting).
 def _durable_config() -> MessagingConfig:
     return MessagingConfig(
-        endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0, max_buffer_size=math.inf)],
+        endpoints=[
+            local_queue(
+                'orders', mode=EndpointMode.DURABLE, stop_timeout=timedelta(seconds=1.0), max_buffer_size=math.inf
+            )
+        ],
         routing=[route(_OrderPlaced).to('orders')],
         inbox=InboxConfig(owner_id='test-node:1'),
         global_pipeline_behaviors=[TransactionalBehavior],
@@ -125,7 +129,11 @@ class _FailingOrderHandler(EventHandler[_OrderPlaced]):
 # unavailable (save raises). Exercises ERR-2 — a failed durable DLQ write must keep the inbox row.
 def _dlq_failing_config() -> MessagingConfig:
     return MessagingConfig(
-        endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0, max_buffer_size=math.inf)],
+        endpoints=[
+            local_queue(
+                'orders', mode=EndpointMode.DURABLE, stop_timeout=timedelta(seconds=1.0), max_buffer_size=math.inf
+            )
+        ],
         routing=[route(_OrderPlaced).to('orders')],
         inbox=InboxConfig(owner_id='test-node:1'),
         endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
@@ -247,7 +255,9 @@ class TestDurableInboxIntegration:
         _RecordingHandler.observed = []
         inbox = FakeInboxStore()
         config = MessagingConfig(
-            endpoints=[local_queue('orders', stop_timeout=1.0)],  # mode unset -> inherits the global default
+            endpoints=[
+                local_queue('orders', stop_timeout=timedelta(seconds=1.0))
+            ],  # mode unset -> inherits the global default
             routing=[route(_OrderPlaced).to('orders')],
             inbox=InboxConfig(owner_id='test-node:1'),
             global_pipeline_behaviors=[TransactionalBehavior],
@@ -279,7 +289,7 @@ class TestDurableInboxIntegration:
         _RecordingHandler.observed = []
         inbox = FakeInboxStore()
         config = MessagingConfig(
-            endpoints=[local_queue('orders', mode=EndpointMode.BUFFERED, stop_timeout=1.0)],
+            endpoints=[local_queue('orders', mode=EndpointMode.BUFFERED, stop_timeout=timedelta(seconds=1.0))],
             routing=[route(_OrderPlaced).to('orders')],
             inbox=InboxConfig(owner_id='test-node:1'),
             global_pipeline_behaviors=[TransactionalBehavior],
@@ -363,7 +373,7 @@ class TestDurableInboxIntegration:
         inbox = FakeInboxStore()
         dlq = RecordingDeadLetterStore()
         config = MessagingConfig(
-            endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0)],
+            endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=timedelta(seconds=1.0))],
             routing=[route(_OrderPlaced).to('orders')],
             inbox=InboxConfig(owner_id='node-a:1', recovery_interval=timedelta(seconds=0.01)),
             dead_letter=DeadLetterConfig(),
@@ -418,7 +428,7 @@ class TestDurableInboxIntegration:
         inbox = FakeInboxStore()
         dlq = RecordingDeadLetterStore()
         config = MessagingConfig(
-            endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0)],
+            endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=timedelta(seconds=1.0))],
             routing=[route(_OrderPlaced).to('orders')],
             inbox=InboxConfig(owner_id='node-a:1', recovery_interval=timedelta(seconds=0.01)),
             dead_letter=DeadLetterConfig(),
@@ -470,7 +480,7 @@ class TestDurableInboxIntegration:
                 local_queue(
                     'orders',
                     mode=EndpointMode.DURABLE,
-                    stop_timeout=1.0,
+                    stop_timeout=timedelta(seconds=1.0),
                     observers=(_EndpointOnlyObserver,),
                 )
             ],
@@ -516,7 +526,7 @@ class TestDurableInboxIntegration:
         _RecordingHandler.observed = []
         inbox = FakeInboxStore()
         config = MessagingConfig(
-            endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0)],
+            endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=timedelta(seconds=1.0))],
             routing=[route(_OrderPlaced).to('orders')],
             inbox=InboxConfig(
                 owner_id='node-a:1',
@@ -562,7 +572,7 @@ class TestDurableInboxIntegration:
         inbox = FakeInboxStore()
         allocator = RecordingAllocator()
         config = MessagingConfig(
-            endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0)],
+            endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=timedelta(seconds=1.0))],
             routing=[route(_OrderPlaced).to('orders')],
             inbox=InboxConfig(
                 owner_id='node-a:1',

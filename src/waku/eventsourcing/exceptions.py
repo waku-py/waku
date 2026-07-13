@@ -14,10 +14,12 @@ __all__ = [
     'DuplicateAggregateNameError',
     'DuplicateEventTypeError',
     'DuplicateIdempotencyKeyError',
+    'DuplicateProjectionNameError',
     'EventSourcingConfigError',
     'EventSourcingError',
     'PartialDuplicateAppendError',
     'ProjectionError',
+    'ProjectionLockedError',
     'ProjectionStoppedError',
     'RegistryFrozenError',
     'SnapshotConfigNotFoundError',
@@ -27,6 +29,7 @@ __all__ = [
     'StreamNotFoundError',
     'StreamTooLargeError',
     'UnknownEventTypeError',
+    'UnknownProjectionError',
 ]
 
 
@@ -138,6 +141,24 @@ class ProjectionStoppedError(ProjectionError):
         self.projection_name = projection_name
         self.cause = cause
         super().__init__(f'Projection {projection_name!r} stopped due to error: {cause}')
+
+
+class ProjectionLockedError(ProjectionError):
+    def __init__(self, projection_name: str) -> None:
+        self.projection_name = projection_name
+        super().__init__(f'Projection {projection_name!r} is locked by another instance')
+
+
+class DuplicateProjectionNameError(EventSourcingConfigError):
+    def __init__(self, projection_name: str) -> None:
+        self.projection_name = projection_name
+        super().__init__(f'Duplicate projection name {projection_name!r}')
+
+
+class UnknownProjectionError(EventSourcingError):
+    def __init__(self, projection_name: str) -> None:
+        self.projection_name = projection_name
+        super().__init__(f'Projection {projection_name!r} not found')
 
 
 class DuplicateIdempotencyKeyError(EventSourcingError):

@@ -5,7 +5,7 @@ from typing import Any
 
 from typing_extensions import override
 
-from waku.messaging import CallNext, HandlerMap, IPipelineBehavior, IRequest, MessageT, RequestHandler, ResponseT
+from waku.messaging import CallNext, IPipelineBehavior, IRequest, MessageT, RequestHandler, ResponseT
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import DeadLetterConfig, MessagingConfig, OutboxConfig
 from waku.messaging.errors.policy import ErrorPolicy
@@ -48,7 +48,7 @@ class _HandlerWithTransactionalLocal(RequestHandler[_Cmd, None]):
 
 
 def _plan_for(handler: type[RequestHandler[_Cmd, None]], config: MessagingConfig) -> tuple[type[Any], ...]:
-    plan = build_behavior_plan([handler], _FRAMEWORK_POLICIES, HandlerMap(), config)
+    plan = build_behavior_plan([handler], _FRAMEWORK_POLICIES, config)
     return plan.for_handler(handler)
 
 

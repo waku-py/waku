@@ -168,7 +168,7 @@ def _make_receiver(
         inbox_owner_id='node-a:1',
         keep_after_handled=timedelta(seconds=300),
         max_buffer_size=100,
-        stop_timeout=1.0,
+        stop_timeout=timedelta(seconds=1.0),
     )
 
 
@@ -190,7 +190,7 @@ def _make_agent(
     listener = InboundListener(
         codec=make_codec(),
         type_registry=MessageTypeRegistry(identities={}, known_types=[_OrderPlaced]),
-        registry=HandlerMap(),
+        handler_map=HandlerMap(),
         receiver=receiver,
     )
     agent = ListeningAgent(
@@ -446,7 +446,7 @@ async def _factory_agent(
         registry=TransportRegistry({'test': transport}),
         codec=await app.container.get(PayloadCodec),
         type_registry=await app.container.get(MessageTypeRegistry),
-        message_registry=await app.container.get(HandlerMap),
+        handler_map=await app.container.get(HandlerMap),
         inbox=config.inbox,
         config=config,
     )

@@ -9,7 +9,6 @@ if TYPE_CHECKING:
     from waku.messaging.config import MessagingConfig
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.contracts.pipeline import IPipelineBehavior
-    from waku.messaging.handler_map import HandlerMap
     from waku.messaging.pipeline.policy import IBehaviorPolicy, PositionedBehavior
 
 __all__ = [
@@ -31,14 +30,13 @@ class BehaviorPlan:
 def build_behavior_plan(
     handlers: Sequence[HandlerType],
     policies: Sequence[IBehaviorPolicy],
-    handler_map: HandlerMap,
     config: MessagingConfig,
 ) -> BehaviorPlan:
     plan: dict[HandlerType, tuple[type[IPipelineBehavior[Any, Any]], ...]] = {}
     for handler in handlers:
         positioned: list[PositionedBehavior] = []
         for policy in policies:
-            positioned.extend(policy.behaviors_for(handler, handler_map, config))
+            positioned.extend(policy.behaviors_for(handler, config))
         positioned.sort(key=lambda item: item.sort_key)
         plan[handler] = tuple(item.behavior for item in positioned)
     return BehaviorPlan(plan)

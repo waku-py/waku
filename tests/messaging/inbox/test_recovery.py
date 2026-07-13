@@ -7,6 +7,7 @@ from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
 from waku.messaging.durability import IInboxStore
+from waku.messaging.inbox._internal.drainer import InboxDrainer
 from waku.messaging.inbox._internal.recovery import InboxRecoveryWorker
 from waku.messaging.inbox.config import InboxConfig
 from waku.uow import IUnitOfWork
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
 
-class _TickCountingStore(FakeInboxStore):
+class _RecordingTickStore(FakeInboxStore):
     def __init__(self) -> None:
         super().__init__()
         self.recover_calls = 0
@@ -50,14 +51,14 @@ class _RecoveryDepsProvider(Provider):
 class TestInboxRecoveryWorker:
     @staticmethod
     async def test_worker_invokes_recover_stale_and_cleanup_each_tick() -> None:
-        store = _TickCountingStore()
+        store = _RecordingTickStore()
         config = InboxConfig(
             stuck_threshold=timedelta(seconds=0),
             recovery_interval=timedelta(milliseconds=10),
             stop_timeout=timedelta(seconds=1),
         )
         async with make_async_container(_RecoveryDepsProvider(store)) as container:
-            worker = InboxRecoveryWorker(container=container, config=config)
+            worker = InboxRecoveryWorker(container=container, config=config, drainer=_RecordingDrainer())
             await worker.start()
             await wait_until(lambda: store.recover_calls >= 1)
             await worker.stop()
@@ -69,16 +70,18 @@ class TestInboxRecoveryWorker:
     async def test_worker_can_be_stopped_when_never_started() -> None:
         config = InboxConfig(stop_timeout=timedelta(seconds=0.1))
         async with make_async_container(_RecoveryDepsProvider(FakeInboxStore())) as container:
-            worker = InboxRecoveryWorker(container=container, config=config)
+            worker = InboxRecoveryWorker(container=container, config=config, drainer=_RecordingDrainer())
             await worker.stop()
 
         assert worker.is_stopped is True
 
 
-class _RecordingDrainer:
+class _RecordingDrainer(InboxDrainer):
     def __init__(self) -> None:
+        # Bypass parent __init__: only drain_once is exercised.
         self.drain_calls = 0
 
+    @override
     async def drain_once(self) -> int:
         self.drain_calls += 1
         return 0
@@ -100,11 +103,13 @@ class _OrderStore(FakeInboxStore):
         return await super().cleanup_handled(now)
 
 
-class _OrderDrainer:
+class _OrderDrainer(InboxDrainer):
     def __init__(self, log: list[str]) -> None:
+        # Bypass parent __init__: only drain_once is exercised.
         self._log = log
         self.drain_calls = 0
 
+    @override
     async def drain_once(self) -> int:
         self._log.append('drain')
         self.drain_calls += 1
@@ -133,12 +138,3 @@ async def test_worker_recovers_before_draining() -> None:
         await wait_until(lambda: 'drain' in log)
         await worker.stop()
     assert log.index('recover') < log.index('drain')
-
-
-async def test_worker_without_drainer_runs_clean() -> None:
-    inbox = FakeInboxStore()
-    async with make_async_container(_RecoveryDepsProvider(inbox)) as container:
-        worker = InboxRecoveryWorker(container=container, config=_config())
-        await worker.start()
-        await worker.stop()
-    assert worker.is_stopped

@@ -84,7 +84,7 @@ def override(
         ```
 
     Raises:
-        ValueError: If container is not at root (APP) scope.
+        ImproperlyConfiguredError: If container is not at root (APP) scope.
     """
     if container.scope != Scope.APP:
         msg = (
@@ -92,7 +92,7 @@ def override(
             f'got {container.scope.name} scope. '
             f'Use application.container instead of a scoped container.'
         )
-        raise ValueError(msg)
+        raise ImproperlyConfiguredError(msg)
 
     marked = tuple(_as_override(provider) for provider in providers)
 

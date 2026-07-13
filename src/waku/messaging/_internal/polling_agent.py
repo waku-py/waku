@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import abc
 import asyncio
 import contextlib
 import enum
 import logging
 import random
-from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar, Protocol, runtime_checkable
 
 import anyio
@@ -92,7 +92,7 @@ class Placement(enum.Enum):
     PER_POD = 'PER_POD'
 
 
-class PollingAgent(ABC):
+class PollingAgent(abc.ABC):
     """Base for durability poll-loop agents (outbox relay, inbox recovery, dead-letter worker).
 
     ``start`` spawns ``_run_loop``; ``stop`` signals + joins + cancels. Each cycle calls ``_tick``,
@@ -113,10 +113,10 @@ class PollingAgent(ABC):
     def is_stopped(self) -> bool:
         return self._worker_task is None
 
-    @abstractmethod
+    @abc.abstractmethod
     def _make_pace(self) -> IPaceStrategy: ...
 
-    @abstractmethod
+    @abc.abstractmethod
     async def _tick(self) -> int: ...
 
     async def start(self) -> None:

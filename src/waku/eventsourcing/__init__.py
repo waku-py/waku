@@ -20,10 +20,12 @@ from waku.eventsourcing.exceptions import (
     DuplicateAggregateNameError,
     DuplicateEventTypeError,
     DuplicateIdempotencyKeyError,
+    DuplicateProjectionNameError,
     EventSourcingConfigError,
     EventSourcingError,
     PartialDuplicateAppendError,
     ProjectionError,
+    ProjectionLockedError,
     ProjectionStoppedError,
     RegistryFrozenError,
     SnapshotConfigNotFoundError,
@@ -33,6 +35,7 @@ from waku.eventsourcing.exceptions import (
     StreamNotFoundError,
     StreamTooLargeError,
     UnknownEventTypeError,
+    UnknownProjectionError,
 )
 from waku.eventsourcing.forwarding import (
     AppendedEventsCollector,
@@ -77,6 +80,7 @@ __all__ = [
     'DuplicateAggregateNameError',
     'DuplicateEventTypeError',
     'DuplicateIdempotencyKeyError',
+    'DuplicateProjectionNameError',
     'EventEnvelope',
     'EventMetadata',
     'EventSourcedAggregate',
@@ -103,6 +107,7 @@ __all__ = [
     'PartialDuplicateAppendError',
     'ProjectionError',
     'ProjectionErrorPolicy',
+    'ProjectionLockedError',
     'ProjectionStoppedError',
     'RegistryFrozenError',
     'SnapshotConfigNotFoundError',
@@ -120,5 +125,6 @@ __all__ = [
     'StreamPosition',
     'StreamTooLargeError',
     'UnknownEventTypeError',
+    'UnknownProjectionError',
     'forward',
 ]

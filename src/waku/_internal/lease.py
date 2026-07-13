@@ -1,15 +1,19 @@
+from __future__ import annotations
+
 import abc
 import contextlib
 import uuid
-from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Final, TypeAlias
+from typing import TYPE_CHECKING, Final, TypeAlias
 
 import anyio
 
 from waku._internal.clock import Now, utc_now
 from waku.exceptions import ImproperlyConfiguredError
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 __all__ = [
     'ILease',

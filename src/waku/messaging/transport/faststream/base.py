@@ -21,20 +21,20 @@ if TYPE_CHECKING:
 
 __all__ = ['FastStreamTransportBase']
 
-TMsg = TypeVar('TMsg')
+_BrokerMessageT = TypeVar('_BrokerMessageT')
 
 
-class FastStreamTransportBase(ITransport, abc.ABC, Generic[TMsg]):
+class FastStreamTransportBase(ITransport, abc.ABC, Generic[_BrokerMessageT]):
     """Inbound-dispatch skeleton shared by the FastStream broker transports.
 
     Subclasses supply the broker disposition primitives (``_ack`` / ``_nack`` / ``_reject``); this base owns the
-    decode-then-dispatch flow and never calls ``msg`` directly, so ``TMsg`` needs no bound. ``map_incoming`` accepts
-    ``TMsg`` because the mapper is typed ``IEnvelopeMapper[Any, Any]`` at the dispatch call site.
+    decode-then-dispatch flow and never calls ``msg`` directly, so ``_BrokerMessageT`` needs no bound. ``map_incoming`` accepts
+    ``_BrokerMessageT`` because the mapper is typed ``IEnvelopeMapper[Any, Any]`` at the dispatch call site.
     """
 
     async def _dispatch_inbound(
         self,
-        msg: TMsg,
+        msg: _BrokerMessageT,
         on_message: ConsumeCallback,
         mapper: IEnvelopeMapper[Any, Any],
     ) -> None:
@@ -61,10 +61,10 @@ class FastStreamTransportBase(ITransport, abc.ABC, Generic[TMsg]):
             await self._reject(msg)
 
     @abc.abstractmethod
-    async def _ack(self, msg: TMsg) -> None: ...
+    async def _ack(self, msg: _BrokerMessageT) -> None: ...
 
     @abc.abstractmethod
-    async def _nack(self, msg: TMsg) -> None: ...
+    async def _nack(self, msg: _BrokerMessageT) -> None: ...
 
     @abc.abstractmethod
-    async def _reject(self, msg: TMsg) -> None: ...
+    async def _reject(self, msg: _BrokerMessageT) -> None: ...

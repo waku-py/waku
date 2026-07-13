@@ -34,12 +34,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_T = TypeVar('_T')
+_ValueT = TypeVar('_ValueT')
 
 _EMPTY_OPTIONS = DeliveryOptions()
 
 
-def _override(option_value: _T | None, ctx_value: _T | None) -> _T | None:
+def _override(option_value: _ValueT | None, ctx_value: _ValueT | None) -> _ValueT | None:
     return option_value if option_value is not None else ctx_value
 
 

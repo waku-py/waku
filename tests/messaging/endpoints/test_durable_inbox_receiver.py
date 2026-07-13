@@ -109,7 +109,7 @@ def _receiver(
     *,
     max_requeue_attempts: int = 5,
     max_buffer_size: float = 100,
-    stop_timeout: float = 1.0,
+    stop_timeout: timedelta = timedelta(seconds=1),
 ) -> DurableInboxReceiver:
     return DurableInboxReceiver(
         uri='local://test',

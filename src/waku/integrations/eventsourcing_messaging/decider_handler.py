@@ -36,6 +36,7 @@ class DeciderCommandHandler(
         self._repository = repository
         self._decider = decider
 
+    @override
     async def handle(self, request: RequestT, /) -> ResponseT:
         aggregate_id: str = self._aggregate_id(request)
         command: CommandT = self._to_command(request)

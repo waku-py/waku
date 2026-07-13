@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from dishka import AsyncContainer
 
     from waku._internal.clock import Now
+    from waku.messaging.inbox._internal.drainer import InboxDrainer
     from waku.messaging.inbox.config import InboxConfig
 
 __all__ = [
@@ -21,11 +22,6 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
-
-
-@runtime_checkable
-class _SupportsDrain(Protocol):
-    async def drain_once(self) -> int: ...
 
 
 class InboxRecoveryWorker(PollingAgent):
@@ -45,7 +41,7 @@ class InboxRecoveryWorker(PollingAgent):
         *,
         container: AsyncContainer,
         config: InboxConfig,
-        drainer: _SupportsDrain | None = None,
+        drainer: InboxDrainer,
         now: Now = utc_now,
     ) -> None:
         self._container = container
@@ -68,9 +64,7 @@ class InboxRecoveryWorker(PollingAgent):
             logger.info('Recovered %d stale inbox entries', recovered)
         if cleaned > 0:
             logger.debug('Cleaned %d expired handled entries', cleaned)
-        drained = 0
-        if self._drainer is not None:
-            drained = await self._drainer.drain_once()
-            if drained > 0:
-                logger.info('Drained %d abandoned inbox entries', drained)
+        drained = await self._drainer.drain_once()
+        if drained > 0:
+            logger.info('Drained %d abandoned inbox entries', drained)
         return recovered + cleaned + drained

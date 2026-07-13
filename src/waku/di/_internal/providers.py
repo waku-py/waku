@@ -1,8 +1,14 @@
+from __future__ import annotations
+
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from dishka import AsyncContainer, Provider, Scope
-from dishka.entities.marker import BaseMarker
+
+from waku.exceptions import ImproperlyConfiguredError
+
+if TYPE_CHECKING:
+    from dishka.entities.marker import BaseMarker
 
 __all__ = [
     'activator',
@@ -186,11 +192,11 @@ def many(
         Provider configured for collection resolution.
 
     Raises:
-        ValueError: If no implementations and collect is False.
+        ImproperlyConfiguredError: If no implementations and collect is False.
     """
     if not implementations and not collect:
         msg = 'At least one implementation must be provided when collect=False'
-        raise ValueError(msg)
+        raise ImproperlyConfiguredError(msg)
 
     provider_ = Provider(scope=scope)
     for impl in implementations:

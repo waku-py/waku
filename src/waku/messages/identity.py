@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from waku.exceptions import ImproperlyConfiguredError
+
 __all__ = [
     'MessageIdentity',
 ]
@@ -15,10 +17,10 @@ class MessageIdentity:
     def __post_init__(self) -> None:
         if not self.name:
             msg = 'name must be non-empty'
-            raise ValueError(msg)
+            raise ImproperlyConfiguredError(msg)
         if self.version < 1:
             msg = 'version must be >= 1'
-            raise ValueError(msg)
+            raise ImproperlyConfiguredError(msg)
 
     def __str__(self) -> str:
         if self.version == 1:

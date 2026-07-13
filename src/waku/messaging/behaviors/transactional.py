@@ -15,7 +15,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-_T = TypeVar('_T')
+_ResultT = TypeVar('_ResultT')
 
 
 async def _safe_rollback(uow: IUnitOfWork) -> None:
@@ -25,7 +25,7 @@ async def _safe_rollback(uow: IUnitOfWork) -> None:
         logger.exception('Rollback failed')
 
 
-async def run_in_transaction(uow: IUnitOfWork, depth: TransactionDepth, call_next: CallNext[_T]) -> _T:
+async def run_in_transaction(uow: IUnitOfWork, depth: TransactionDepth, call_next: CallNext[_ResultT]) -> _ResultT:
     """Run *call_next* inside a single physical transaction owned by the outermost frame.
 
     Shared by ``TransactionalBehavior`` (wraps one handler) and ``MessageDispatcher.invoke_event``

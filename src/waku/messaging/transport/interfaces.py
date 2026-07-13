@@ -21,8 +21,8 @@ __all__ = [
     'TransportFactory',
 ]
 
-TIncoming = TypeVar('TIncoming')
-TOutgoing = TypeVar('TOutgoing')
+_IncomingT = TypeVar('_IncomingT')
+_OutgoingT = TypeVar('_OutgoingT')
 
 
 class MalformedMetadataError(Exception):
@@ -57,7 +57,7 @@ class EnvelopeMetadata:
     expires_at: datetime | None = None
 
 
-class IEnvelopeMapper(abc.ABC, Generic[TIncoming, TOutgoing]):
+class IEnvelopeMapper(abc.ABC, Generic[_IncomingT, _OutgoingT]):
     """Generic broker envelope mapper — owns the wire format for both directions.
 
     Broker-specific subtypes specialise the type parameters:
@@ -67,10 +67,10 @@ class IEnvelopeMapper(abc.ABC, Generic[TIncoming, TOutgoing]):
     """
 
     @abc.abstractmethod
-    def map_outgoing(self, payload: dict[str, Any], metadata: EnvelopeMetadata) -> TOutgoing: ...
+    def map_outgoing(self, payload: dict[str, Any], metadata: EnvelopeMetadata) -> _OutgoingT: ...
 
     @abc.abstractmethod
-    async def map_incoming(self, msg: TIncoming) -> tuple[dict[str, Any], EnvelopeMetadata]: ...
+    async def map_incoming(self, msg: _IncomingT) -> tuple[dict[str, Any], EnvelopeMetadata]: ...
 
 
 class Subscription(abc.ABC):

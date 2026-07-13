@@ -167,7 +167,7 @@ async def _make_endpoint(
         handler_subscriptions={_OrderPlaced: frozenset({handler})},
         executor=executor,
         observers=NOOP_OBSERVERS,
-        stop_timeout=0.5,
+        stop_timeout=timedelta(seconds=0.5),
         max_buffer_size=100,
     )
 
@@ -199,7 +199,7 @@ async def _make_endpoint_with_requeue(
         handler_subscriptions=subscriptions,
         executor=executor,
         observers=observers,
-        stop_timeout=0.5,
+        stop_timeout=timedelta(seconds=0.5),
         max_buffer_size=max_buffer_size,
         max_requeue_attempts=max_requeue_attempts,
     )
@@ -225,7 +225,7 @@ async def _make_endpoint_with_pause(
         handler_subscriptions={_OrderPlaced: frozenset({handler})},
         executor=executor,
         observers=NOOP_OBSERVERS,
-        stop_timeout=0.5,
+        stop_timeout=timedelta(seconds=0.5),
         max_buffer_size=100,
         max_requeue_attempts=max_requeue_attempts,
         pause_sleep=sleep,

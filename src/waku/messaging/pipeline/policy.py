@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+import abc
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import TYPE_CHECKING, Any
@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from waku.messaging.config import MessagingConfig
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.contracts.pipeline import IPipelineBehavior
-    from waku.messaging.handler_map import HandlerMap
     from waku.modules import ModuleMetadata
 
 __all__ = [
@@ -47,12 +46,11 @@ class PositionedBehavior:
         return (int(self.position), self.sequence)
 
 
-class IBehaviorPolicy(ABC):
-    @abstractmethod
+class IBehaviorPolicy(abc.ABC):
+    @abc.abstractmethod
     def behaviors_for(
         self,
         handler: HandlerType,
-        handler_map: HandlerMap,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]: ...
 

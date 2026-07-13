@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Generic
 
 import anyio
@@ -55,7 +56,7 @@ class MemoryStreamWorker(Generic[_ItemT]):
         self,
         *,
         max_buffer_size: float = math.inf,
-        stop_timeout: float = 5.0,
+        stop_timeout: timedelta = timedelta(seconds=5),
         max_parallel: int = 1,
     ) -> None:
         self._max_buffer_size = max_buffer_size
@@ -142,11 +143,11 @@ class MemoryStreamWorker(Generic[_ItemT]):
     async def _drain_worker(self, task: asyncio.Task[None]) -> None:
         # asyncio.wait does NOT propagate cancellation — lets us distinguish a graceful drain from a
         # timeout. anyio.fail_after would cancel the task group inside _run on the deadline.
-        done, _pending = await asyncio.wait({task}, timeout=self._stop_timeout)
+        done, _pending = await asyncio.wait({task}, timeout=self._stop_timeout.total_seconds())
         if task not in done:
             logger.warning(
                 'MemoryStreamWorker task did not terminate within %.1fs, cancelling',
-                self._stop_timeout,
+                self._stop_timeout.total_seconds(),
             )
             task.cancel()
         try:

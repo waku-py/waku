@@ -256,7 +256,7 @@ async def test_override_context_and_provider_together() -> None:
 
 async def test_override_raises_for_non_app_scope_container(application: WakuApplication) -> None:
     async with application.container() as request_container:
-        with pytest.raises(ValueError, match='override\\(\\) only supports root'):
+        with pytest.raises(ImproperlyConfiguredError, match='override\\(\\) only supports root'):
             with override(request_container):
                 pass
 

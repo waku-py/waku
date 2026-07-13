@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 import anyio
@@ -23,7 +24,6 @@ from waku.serialization.codec import PayloadCodec
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-    from datetime import timedelta
 
     from dishka import AsyncContainer
 
@@ -40,7 +40,6 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     'DurableInboxReceiver',
-    'build_durable_inbox_receiver',
 ]
 
 # Envelope + the subset of handlers whose inbox row was newly stored (dedup-skipped at persist time).
@@ -76,7 +75,7 @@ class DurableInboxReceiver:
         pause_sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
         circuit_breaker_config: CircuitBreakerConfig | None = None,
         max_buffer_size: float = math.inf,
-        stop_timeout: float = 5.0,
+        stop_timeout: timedelta = timedelta(seconds=5),
     ) -> None:
         self._uri = uri
         self._container = container
@@ -158,7 +157,7 @@ class DurableInboxReceiver:
         return frozenset(fresh)
 
     async def enqueue(self, envelope: MessageEnvelope[Any], fresh: frozenset[HandlerType]) -> None:
-        await self._worker.send((envelope, frozenset(fresh)))
+        await self._worker.send((envelope, fresh))
 
     async def start(self, *, on_drain: Callable[[int], Awaitable[None]] | None = None) -> None:
         await self._worker.start(self._process_work_item, on_drain=on_drain)
@@ -227,32 +226,3 @@ class DurableInboxReceiver:
             outcome=outcome,
             keep_after_handled=self._keep_after_handled,
         )
-
-
-def build_durable_inbox_receiver(  # noqa: PLR0913
-    *,
-    uri: str,
-    container: AsyncContainer,
-    executor: EndpointExecutor,
-    inbox_owner_id: str,
-    keep_after_handled: timedelta,
-    partition_by: PartitionKeyExtractor | None = None,
-    max_requeue_attempts: int = 5,
-    circuit_breaker_config: CircuitBreakerConfig | None = None,
-    pause_sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
-    max_buffer_size: float = math.inf,
-    stop_timeout: float = 5.0,
-) -> DurableInboxReceiver:
-    return DurableInboxReceiver(
-        uri=uri,
-        container=container,
-        executor=executor,
-        inbox_owner_id=inbox_owner_id,
-        keep_after_handled=keep_after_handled,
-        partition_by=partition_by,
-        max_requeue_attempts=max_requeue_attempts,
-        pause_sleep=pause_sleep,
-        circuit_breaker_config=circuit_breaker_config,
-        max_buffer_size=max_buffer_size,
-        stop_timeout=stop_timeout,
-    )

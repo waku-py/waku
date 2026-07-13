@@ -21,12 +21,12 @@ StateT = TypeVar('StateT')
 CommandT = TypeVar('CommandT')
 EventT = TypeVar('EventT', bound=IEvent)
 
-_CommandT_contra = TypeVar('_CommandT_contra', contravariant=True)
+_CommandT = TypeVar('_CommandT', contravariant=True)  # noqa: PLC0105
 
 
-class IDecider(Protocol[StateT, _CommandT_contra, EventT]):
+class IDecider(Protocol[StateT, _CommandT, EventT]):
     def initial_state(self) -> StateT: ...
-    def decide(self, command: _CommandT_contra, state: StateT) -> Sequence[EventT]: ...
+    def decide(self, command: _CommandT, state: StateT) -> Sequence[EventT]: ...
     def evolve(self, state: StateT, event: EventT) -> StateT: ...
 
 

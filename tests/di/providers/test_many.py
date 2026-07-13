@@ -5,6 +5,7 @@ import pytest
 
 from waku import WakuFactory
 from waku.di import Scope, many, scoped
+from waku.exceptions import ImproperlyConfiguredError
 
 from tests.module_utils import create_basic_module
 
@@ -88,7 +89,9 @@ def test_many_provider_empty_implementations_error() -> None:
     class IEmpty(Protocol):
         pass
 
-    with pytest.raises(ValueError, match='At least one implementation must be provided when collect=False'):
+    with pytest.raises(
+        ImproperlyConfiguredError, match='At least one implementation must be provided when collect=False'
+    ):
         many(IEmpty, collect=False)
 
 

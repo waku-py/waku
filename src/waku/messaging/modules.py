@@ -139,7 +139,7 @@ class MessagingModule:
             object_(config_, provided_type=MessagingConfig),
             object_(utc_now, provided_type=Now),
             singleton(MessageTypeRegistry, _build_message_type_registry),
-            singleton(PayloadCodec, _create_envelope_codec),
+            singleton(PayloadCodec, _build_envelope_codec),
             singleton(EnvelopeFactory),
             singleton(HandlerPipelineInvoker),
             singleton(MessageDispatcher),
@@ -266,17 +266,17 @@ def _infer_message_type(handler_type: 'type[MessageHandler[Any, Any]]') -> 'type
                 args = get_args(base)
                 if args and isinstance(args[0], type) and args[0] is not Any:
                     return cast('type[IMessage]', args[0])
-    msg = f'Cannot infer message type from {handler_type.__name__}; use bind(message_type, handler)'
+    msg = f'cannot infer message type from {handler_type.__name__}; use bind(message_type, handler)'
     raise ImproperlyConfiguredError(msg)
 
 
-def _requires_dead_letter_store(registry: HandlerMap, config: MessagingConfig) -> bool:
+def _requires_dead_letter_store(handler_map: HandlerMap, config: MessagingConfig) -> bool:
     if policies_need_dead_letter(config.endpoint_defaults.error_policies):
         return True
-    return any(policies_need_dead_letter(ht.error_policies) for ht in registry.handler_types())
+    return any(policies_need_dead_letter(handler_type.error_policies) for handler_type in handler_map.handler_types())
 
 
-def _effective_mode(entry: LocalQueueEntry, config: MessagingConfig) -> EndpointMode:
+def _resolve_mode(entry: LocalQueueEntry, config: MessagingConfig) -> EndpointMode:
     return config.endpoint_defaults.mode if entry.mode is MISSING else entry.mode  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
 
 
@@ -297,7 +297,7 @@ def _reject_inline_deferred_terminal(config: MessagingConfig) -> None:
     if not policies_have_deferred_terminal(config.endpoint_defaults.error_policies):
         return
     for entry in config.endpoints:
-        if isinstance(entry, LocalQueueEntry) and _effective_mode(entry, config) is EndpointMode.INLINE:
+        if isinstance(entry, LocalQueueEntry) and _resolve_mode(entry, config) is EndpointMode.INLINE:
             msg = f'INLINE endpoint {entry.uri!r} cannot use a requeue/pause error policy; use BUFFERED or DURABLE'
             raise ImproperlyConfiguredError(msg)
 
@@ -307,11 +307,11 @@ def _reject_partition_by_on_non_sequenced_local(config: MessagingConfig) -> None
         if (
             isinstance(entry, LocalQueueEntry)
             and entry.partition_by is not None
-            and _effective_mode(entry, config) is not EndpointMode.DURABLE
+            and _resolve_mode(entry, config) is not EndpointMode.DURABLE
         ):
             msg = (
                 f'local_queue {entry.uri!r} sets partition_by but resolves to '
-                f'{_effective_mode(entry, config).value}; partition_by is only honored on DURABLE local queues '
+                f'{_resolve_mode(entry, config).value}; partition_by is only honored on DURABLE local queues '
                 '(and broker endpoints) — use EndpointMode.DURABLE or remove partition_by'
             )
             raise ImproperlyConfiguredError(msg)
@@ -343,7 +343,7 @@ def _reject_reserved_invoke_scheme(config: MessagingConfig) -> None:
 def _reject_inline_per_handler_deferred_terminal(config: MessagingConfig, routing_table: RoutingTable) -> None:
     # Post-merge: routing table maps INLINE endpoints to handlers, enabling per-handler checks.
     for entry in config.endpoints:
-        if not (isinstance(entry, LocalQueueEntry) and _effective_mode(entry, config) is EndpointMode.INLINE):
+        if not (isinstance(entry, LocalQueueEntry) and _resolve_mode(entry, config) is EndpointMode.INLINE):
             continue
         handlers = [h for subs in routing_table.endpoint_subscriptions.get(entry.uri, {}).values() for h in subs]
         offender = next((h for h in handlers if policies_have_deferred_terminal(h.error_policies)), None)
@@ -362,13 +362,13 @@ def _validate_transport_schemes(config: MessagingConfig) -> None:
     for uri in referenced:
         scheme, _ = split_destination(uri, default_scheme=default_scheme)
         if scheme not in config.transports:
-            msg = f"No transport registered for scheme '{scheme}' (uri='{uri}')."
+            msg = f"no transport registered for scheme '{scheme}' (uri='{uri}')."
             raise ImproperlyConfiguredError(msg)
 
 
 def _has_durable_local_queue(config: MessagingConfig) -> bool:
     return any(
-        isinstance(entry, LocalQueueEntry) and _effective_mode(entry, config) == EndpointMode.DURABLE
+        isinstance(entry, LocalQueueEntry) and _resolve_mode(entry, config) == EndpointMode.DURABLE
         for entry in config.endpoints
     )
 
@@ -395,7 +395,7 @@ def _requires_sequence_allocator(config: MessagingConfig) -> bool:
         if (
             isinstance(entry, LocalQueueEntry)
             and entry.partition_by is not None
-            and _effective_mode(entry, config) == EndpointMode.DURABLE
+            and _resolve_mode(entry, config) == EndpointMode.DURABLE
         ):
             return True
     return False
@@ -444,12 +444,12 @@ def _build_endpoint_executor_factory(
 
 
 def _build_message_type_registry(
-    registry: HandlerMap,
+    handler_map: HandlerMap,
     config: MessagingConfig,
 ) -> MessageTypeRegistry:
     return MessageTypeRegistry(
         identities=config.message_identities,
-        known_types=registry.message_types(),
+        known_types=handler_map.message_types(),
     )
 
 
@@ -510,7 +510,7 @@ def _build_message_observers(plan: ObserverPlan) -> MessageObservers:
     return plan.global_observers
 
 
-def _create_envelope_codec() -> PayloadCodec:
+def _build_envelope_codec() -> PayloadCodec:
     return PayloadCodec(default_retort, UpcasterChain({}))
 
 
@@ -531,7 +531,7 @@ def _build_router(
     plan: ObserverPlan,
 ) -> MessageRouter:
     endpoints_by_uri = {
-        entry.uri: _create_endpoint(entry, routing_table, container, factory, config, now, plan)
+        entry.uri: _build_endpoint(entry, routing_table, container, factory, config, now, plan)
         for entry in routing_table.entries
         if isinstance(entry, LocalQueueEntry) or entry.send is not None
     }
@@ -544,7 +544,7 @@ def _build_router(
     )
 
 
-def _create_endpoint(
+def _build_endpoint(
     entry: MergedBrokerEndpoint | LocalQueueEntry,
     routing_table: RoutingTable,
     container: AsyncContainer,
@@ -559,7 +559,7 @@ def _create_endpoint(
 
     executor = factory.for_uri(entry.uri)
     subscriptions = routing_table.endpoint_subscriptions.get(entry.uri, {})
-    effective_mode = _effective_mode(entry, config)  # resolve MISSING before the match
+    effective_mode = _resolve_mode(entry, config)  # resolve MISSING before the match
     match effective_mode:
         case EndpointMode.INLINE:
             return InlineEndpoint(
@@ -653,7 +653,7 @@ class HandlerMapAggregator(RegistryAggregator['MessagingExtension', HandlerMap])
         routing_table = RoutingTableBuilder(
             self._config,
             merged_endpoints=merged,
-            aggregated=aggregated,
+            handler_map=aggregated,
             module_routing_map=self._module_routing_map,
         ).build()
         _reject_inline_per_handler_deferred_terminal(self._config, routing_table)
@@ -734,8 +734,8 @@ class HandlerMapAggregator(RegistryAggregator['MessagingExtension', HandlerMap])
         raise ImproperlyConfiguredError(msg)
 
     @staticmethod
-    def _validate_request_handler_counts(registry: HandlerMap) -> None:
-        for msg_type, handlers in registry.items():
+    def _validate_request_handler_counts(handler_map: HandlerMap) -> None:
+        for msg_type, handlers in handler_map.items():
             if issubclass(msg_type, IRequest) and len(handlers) > 1:
                 raise MultipleHandlersRegisteredError(msg_type)
 
@@ -743,20 +743,19 @@ class HandlerMapAggregator(RegistryAggregator['MessagingExtension', HandlerMap])
         self,
         registry: ModuleMetadataRegistry,
         owning_module: 'ModuleType',
-        aggregated: HandlerMap,
+        handler_map: HandlerMap,
     ) -> None:
         # Chains resolved once at registration; behavior TYPES instantiated per-scope by the invoker.
         # Extra policies (e.g. ES forwarding) contributed via BehaviorPolicyExtension.
         contributed = tuple(ext.policy for _module, ext in registry.find_extensions(BehaviorPolicyExtension))
         plan = build_behavior_plan(
-            tuple(aggregated.handler_types()),
+            tuple(handler_map.handler_types()),
             (*self._policies, *contributed),
-            aggregated,
             self._config,
         )
         registry.add_provider(owning_module, object_(plan, provided_type=BehaviorPlan))
 
-        for handler_type in aggregated.handler_types():
+        for handler_type in handler_map.handler_types():
             for behavior_type in plan.for_handler(handler_type):
                 if behavior_type not in self._seen_behaviors:
                     self._seen_behaviors.add(behavior_type)
@@ -764,12 +763,12 @@ class HandlerMapAggregator(RegistryAggregator['MessagingExtension', HandlerMap])
 
     @staticmethod
     def _handler_providers(
-        reg: HandlerMap,
+        handler_map: HandlerMap,
         seen_handlers: 'set[HandlerType]',
         seen_behaviors: set[type[IPipelineBehavior[Any, Any]]],
     ) -> Iterator[Provider]:
         # Each handler/behavior registers once across all modules; duplicates would be rejected by dishka.
-        for handler_type in reg.handler_types():
+        for handler_type in handler_map.handler_types():
             if handler_type in seen_handlers:
                 continue
             seen_handlers.add(handler_type)
@@ -910,7 +909,7 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
         merged = await app.container.get(tuple[MergedBrokerEndpoint, ...])
         codec = await app.container.get(PayloadCodec)
         type_registry = await app.container.get(MessageTypeRegistry)
-        message_registry = await app.container.get(HandlerMap)
+        handler_map = await app.container.get(HandlerMap)
         factory = await app.container.get(EndpointExecutorFactory)
         for ep in merged:
             if ep.listen is None:
@@ -922,7 +921,7 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
                 registry=registry,
                 codec=codec,
                 type_registry=type_registry,
-                message_registry=message_registry,
+                handler_map=handler_map,
                 inbox=inbox,
                 config=self._config,
             )

@@ -201,7 +201,7 @@ def _endpoint(  # noqa: PLR0913 -- test helper mirroring DurableLocalQueueEndpoi
         observers=observers,
         container=container,
         inbox_config_keep_after_handled_seconds=300.0,
-        stop_timeout=1.0,
+        stop_timeout=timedelta(seconds=1.0),
         max_buffer_size=math.inf,
         partition_by=partition_by,
         inbox_owner_id=inbox_owner_id,

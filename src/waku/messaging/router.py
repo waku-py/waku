@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from datetime import timedelta
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, TypeAlias
 
@@ -133,7 +134,7 @@ def local_queue(  # noqa: PLR0913 -- one keyword per LocalQueueEntry field
     *,
     mode: EndpointMode | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
     max_parallel: int = 1,
-    stop_timeout: float = 5.0,
+    stop_timeout: timedelta = timedelta(seconds=5),
     max_buffer_size: float = math.inf,
     partition_by: Callable[[IMessage], str | None] | None = None,
     circuit_breaker: CircuitBreakerConfig | MISSING | None = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows

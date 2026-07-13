@@ -30,12 +30,12 @@ class InboundListener:
         *,
         codec: PayloadCodec,
         type_registry: MessageTypeRegistry,
-        registry: HandlerMap,
+        handler_map: HandlerMap,
         receiver: DurableInboxReceiver,
     ) -> None:
         self._codec = codec
         self._type_registry = type_registry
-        self._registry = registry
+        self._registry = handler_map
         self._receiver = receiver
         self._backpressure: IListenerBackpressure = NoOpBackpressure()
 

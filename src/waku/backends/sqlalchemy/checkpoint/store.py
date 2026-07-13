@@ -22,6 +22,8 @@ __all__ = [
 
 
 class SqlAlchemyCheckpointStore(ICheckpointStore):
+    __slots__ = ('_checkpoints', '_session')
+
     def __init__(self, session: AsyncSession, checkpoints_table: Table) -> None:
         self._session = session
         self._checkpoints = checkpoints_table

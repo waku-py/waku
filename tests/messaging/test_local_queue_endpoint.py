@@ -65,7 +65,7 @@ def stopped_endpoint(noop_executor: EndpointExecutor) -> LocalQueueEndpoint:
         handler_subscriptions={},
         executor=noop_executor,
         observers=NOOP_OBSERVERS,
-        stop_timeout=1.0,
+        stop_timeout=timedelta(seconds=1.0),
         max_buffer_size=0,
     )
 
@@ -106,7 +106,7 @@ class TestLocalQueueLifecycle:
                 await blocked.wait()
 
         config = MessagingConfig(
-            endpoints=[local_queue('slow-q', stop_timeout=0.05)],
+            endpoints=[local_queue('slow-q', stop_timeout=timedelta(seconds=0.05))],
             routing=[route(SlowEvent).to('slow-q')],
         )
 
@@ -177,7 +177,7 @@ class TestLocalQueueOnSent:
             handler_subscriptions={},
             executor=noop_executor,
             observers=MessageObservers([spy]),
-            stop_timeout=1.0,
+            stop_timeout=timedelta(seconds=1.0),
             max_buffer_size=math.inf,
         )
         await endpoint.start()
@@ -198,7 +198,7 @@ class TestLocalQueueOnSent:
             handler_subscriptions={},
             executor=noop_executor,
             observers=MessageObservers([spy]),
-            stop_timeout=1.0,
+            stop_timeout=timedelta(seconds=1.0),
             max_buffer_size=0,
         )
         # Endpoint never started -> the worker rejects the send, mirroring the stopped path.
@@ -292,7 +292,7 @@ class TestLocalQueueCircuitBreaker:
             handler_subscriptions={_CbEvent: frozenset([_CbHandler])},
             executor=executor,
             observers=NOOP_OBSERVERS,
-            stop_timeout=1.0,
+            stop_timeout=timedelta(seconds=1.0),
             max_buffer_size=math.inf,
             circuit_breaker_config=CircuitBreakerConfig(
                 minimum_throughput=2,

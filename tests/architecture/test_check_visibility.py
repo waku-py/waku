@@ -202,6 +202,63 @@ class TestUnderscoreImportTargets:
         assert check_visibility(pkg) == []
 
 
+class TestTypeVarNaming:
+    @staticmethod
+    def test_bare_private_typevar_is_flagged(tmp_path: Path) -> None:
+        pkg = _write_tree(
+            tmp_path,
+            {
+                '__init__.py': '__all__ = []\n',
+                'leaf.py': "__all__ = []\n\nfrom typing import TypeVar\n\n_T = TypeVar('_T')\n",
+            },
+        )
+
+        assert check_visibility(pkg) == [Violation(kind='typevar_name', module='pkg.leaf', name='_T')]
+
+    @staticmethod
+    def test_descriptive_and_variance_suffixed_private_typevars_are_clean(tmp_path: Path) -> None:
+        pkg = _write_tree(
+            tmp_path,
+            {
+                '__init__.py': '__all__ = []\n',
+                'leaf.py': (
+                    '__all__ = []\n\n'
+                    'from typing import TypeVar\n\n'
+                    "_ValueT = TypeVar('_ValueT')\n"
+                    "_ResponseT_co = TypeVar('_ResponseT_co', covariant=True)\n"
+                    "_CommandT_contra = TypeVar('_CommandT_contra', contravariant=True)\n"
+                ),
+            },
+        )
+
+        assert check_visibility(pkg) == []
+
+    @staticmethod
+    def test_public_typevar_never_imported_elsewhere_is_flagged(tmp_path: Path) -> None:
+        pkg = _write_tree(
+            tmp_path,
+            {
+                '__init__.py': '__all__ = []\n',
+                'leaf.py': "__all__ = []\n\nfrom typing import TypeVar\n\nFooT = TypeVar('FooT')\n",
+            },
+        )
+
+        assert check_visibility(pkg) == [Violation(kind='typevar_public_unimported', module='pkg.leaf', name='FooT')]
+
+    @staticmethod
+    def test_public_typevar_reused_by_import_is_clean(tmp_path: Path) -> None:
+        pkg = _write_tree(
+            tmp_path,
+            {
+                '__init__.py': '__all__ = []\n',
+                'defs.py': "__all__ = []\n\nfrom typing import TypeVar\n\nStateT = TypeVar('StateT')\n",
+                'reader.py': '__all__ = []\n\nfrom pkg.defs import StateT\n',
+            },
+        )
+
+        assert check_visibility(pkg) == []
+
+
 class TestRealTree:
     @staticmethod
     def test_src_waku_has_zero_violations() -> None:

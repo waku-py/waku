@@ -12,12 +12,12 @@ __all__ = [
     'PipelineExecutor',
 ]
 
-_T_co = TypeVar('_T_co', covariant=True)
-_T = TypeVar('_T')
+_ResponseT_co = TypeVar('_ResponseT_co', covariant=True)
+_ResponseT = TypeVar('_ResponseT')
 
 
-class _MessageHandler(Protocol[_T_co]):
-    async def handle(self, message: Any, /) -> _T_co: ...
+class _MessageHandler(Protocol[_ResponseT_co]):
+    async def handle(self, message: Any, /) -> _ResponseT_co: ...
 
 
 class PipelineExecutor:
@@ -25,16 +25,16 @@ class PipelineExecutor:
     async def execute(
         *,
         message: IMessage,
-        handler: _MessageHandler[_T],
-        behaviors: Sequence[IPipelineBehavior[Any, _T]],
-    ) -> _T:
-        async def terminal() -> _T:
+        handler: _MessageHandler[_ResponseT],
+        behaviors: Sequence[IPipelineBehavior[Any, _ResponseT]],
+    ) -> _ResponseT:
+        async def terminal() -> _ResponseT:
             return await handler.handle(message)
 
         if not behaviors:
             return await terminal()
 
-        async def step(idx: int) -> _T:
+        async def step(idx: int) -> _ResponseT:
             if idx >= len(behaviors):
                 return await terminal()
             return await behaviors[idx].handle(

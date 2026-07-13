@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from waku.eventsourcing.exceptions import DuplicateProjectionNameError, UnknownProjectionError
+
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
@@ -18,8 +20,7 @@ class CatchUpProjectionRegistry:
         for b in self._bindings:
             name = b.projection.projection_name
             if name in by_name:
-                msg = f'Duplicate projection name {name!r}'
-                raise ValueError(msg)
+                raise DuplicateProjectionNameError(name)
             by_name[name] = b
         self._by_name = by_name
 
@@ -33,8 +34,7 @@ class CatchUpProjectionRegistry:
         try:
             return self._by_name[projection_name]
         except KeyError:
-            msg = f'Projection {projection_name!r} not found'
-            raise ValueError(msg) from None
+            raise UnknownProjectionError(projection_name) from None
 
     def subset(self, projections: Sequence[type[ICatchUpProjection]]) -> CatchUpProjectionRegistry:
         wanted = set(projections)

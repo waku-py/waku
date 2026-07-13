@@ -86,7 +86,7 @@ class _FailureRecord:
 
 
 @dataclass
-class _TrackingOutboxStore(IOutboxStore):
+class _RecordingOutboxStore(IOutboxStore):
     pending: list[OutboxMessage] = field(default_factory=list)
     dispatched_ids: list[UUID] = field(default_factory=list)
     dead_lettered_ids: list[UUID] = field(default_factory=list)
@@ -170,8 +170,8 @@ def _make_outbox_message(envelope: MessageEnvelope[Any], *, group_id: str | None
     )
 
 
-def _make_pending_store(*, group_id: str | None = None) -> tuple[_TrackingOutboxStore, OutboxMessage]:
-    store = _TrackingOutboxStore()
+def _make_pending_store(*, group_id: str | None = None) -> tuple[_RecordingOutboxStore, OutboxMessage]:
+    store = _RecordingOutboxStore()
     envelope = make_envelope(_TestEvent(value='test'))
     msg = _make_outbox_message(envelope, group_id=group_id)
     store.pending.append(msg)
@@ -295,7 +295,7 @@ class TestOutboxRelay:
         # Dispatch-only relay (D9): recover_stuck/cleanup_dispatched moved to DurabilityMaintenanceAgent.
         # Even with the eager recovery/cleanup intervals set, the relay never touches them — only
         # fetch_head_of_queue runs.
-        store = _TrackingOutboxStore(cleanup_count=3)
+        store = _RecordingOutboxStore(cleanup_count=3)
         transport = RecordingTransport()
         config = OutboxRelayConfig(
             polling=PollingConfig(poll_interval_min_seconds=0.01),
@@ -313,7 +313,7 @@ class TestOutboxRelay:
 
     @staticmethod
     async def test_no_messages_is_noop() -> None:
-        store = _TrackingOutboxStore()
+        store = _RecordingOutboxStore()
         transport = RecordingTransport()
 
         # Asserting an absence: wait for one full poll cycle (the relay actually ran), then confirm
@@ -326,7 +326,7 @@ class TestOutboxRelay:
 
     @staticmethod
     async def test_stop_cancels_sleep_immediately() -> None:
-        store = _TrackingOutboxStore()
+        store = _RecordingOutboxStore()
         transport = RecordingTransport()
 
         slow_config = OutboxRelayConfig(
@@ -414,7 +414,7 @@ class TestOutboxRelay:
     async def test_stop_cancels_when_relay_does_not_terminate(caplog: pytest.LogCaptureFixture) -> None:
         transport = RecordingTransport()
 
-        class _BlockingOutboxStore(_TrackingOutboxStore):
+        class _BlockingOutboxStore(_RecordingOutboxStore):
             def __init__(self) -> None:
                 super().__init__()
                 self.fetch_entered = anyio.Event()
@@ -448,7 +448,7 @@ class TestOutboxRelay:
 
     @staticmethod
     async def test_stop_without_start_is_noop() -> None:
-        store = _TrackingOutboxStore()
+        store = _RecordingOutboxStore()
         transport = RecordingTransport()
 
         async with make_async_container(RelayDepsProvider(store, transport)) as container:
@@ -640,7 +640,7 @@ class TestDispatchMessageMetadata:
             correlation_id=envelope.correlation_id,
             causation_id=envelope.causation_id,
         )
-        store = _TrackingOutboxStore()
+        store = _RecordingOutboxStore()
         store.pending.append(msg)
         transport = RecordingTransport()
         async with _run_relay(RelayDepsProvider(store, transport)):
@@ -742,7 +742,7 @@ class TestRelayExpiration:
     async def test_expired_message_is_discarded_before_send() -> None:
         # A durable message whose delivery deadline elapsed while queued is DISCARDED at the relay,
         # never shipped to the broker (Wolverine DurableSendingAgent.SplitByExpiration parity).
-        store = _TrackingOutboxStore()
+        store = _RecordingOutboxStore()
         msg = _make_outbox_message(make_envelope(_TestEvent(value='stale'), expires_at=_PAST))
         store.pending.append(msg)
         transport = RecordingTransport()
@@ -757,7 +757,7 @@ class TestRelayExpiration:
     @staticmethod
     async def test_unexpired_message_is_sent() -> None:
         # Regression guard: a deadline still in the future must NOT be over-discarded.
-        store = _TrackingOutboxStore()
+        store = _RecordingOutboxStore()
         msg = _make_outbox_message(make_envelope(_TestEvent(value='fresh'), expires_at=_FUTURE))
         store.pending.append(msg)
         transport = RecordingTransport()
@@ -772,7 +772,7 @@ class TestRelayExpiration:
     @staticmethod
     async def test_message_with_no_expiry_is_sent() -> None:
         # The common case: no deadline set -> always sent.
-        store = _TrackingOutboxStore()
+        store = _RecordingOutboxStore()
         msg = _make_outbox_message(make_envelope(_TestEvent(value='eternal')))
         store.pending.append(msg)
         transport = RecordingTransport()

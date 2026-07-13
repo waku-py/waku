@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002  # Dishka needs runtime access
+from typing_extensions import override
 
 from waku.backends.sqlalchemy.dead_letter.tables import dead_letter_insert_values, dead_letter_table
 from waku.backends.sqlalchemy.outbox.tables import OUTBOX_IDEMPOTENCY_CONSTRAINT, outbox_messages_table
@@ -29,6 +30,7 @@ class SqlAlchemyOutboxStore(IOutboxStore):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    @override
     async def save_batch(self, messages: Sequence[OutboxMessage]) -> None:
         if not messages:
             return
@@ -53,6 +55,7 @@ class SqlAlchemyOutboxStore(IOutboxStore):
         stmt = insert(_t).values(values).on_conflict_do_nothing(constraint=OUTBOX_IDEMPOTENCY_CONSTRAINT)
         await self._session.execute(stmt)
 
+    @override
     async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
         now = func.now()
         pending = _t.c.status == OutboxStatus.PENDING.value
@@ -113,6 +116,7 @@ class SqlAlchemyOutboxStore(IOutboxStore):
         result = await self._session.execute(stmt)
         return [_row_to_model(row) for row in result.fetchall()]
 
+    @override
     async def mark_dispatched(self, message_id: UUID) -> None:
         stmt = (
             update(_t)
@@ -121,6 +125,7 @@ class SqlAlchemyOutboxStore(IOutboxStore):
         )
         await self._session.execute(stmt)
 
+    @override
     async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry) -> None:
         # The dead-letter table is the single quarantine home: delete + insert in ONE transaction (no
         # outbox tombstone). Deleting frees the (idempotency_key, destination) pair so a later replay
@@ -130,6 +135,7 @@ class SqlAlchemyOutboxStore(IOutboxStore):
             insert(dead_letter_table).values(**dead_letter_insert_values(entry)),
         )
 
+    @override
     async def mark_failed(self, message_id: UUID, error: str, next_retry_at: datetime | None = None) -> None:
         status = OutboxStatus.PENDING if next_retry_at is not None else OutboxStatus.FAILED
         stmt = (
@@ -144,10 +150,12 @@ class SqlAlchemyOutboxStore(IOutboxStore):
         )
         await self._session.execute(stmt)
 
+    @override
     async def mark_discarded(self, message_id: UUID, error: str) -> None:
         stmt = update(_t).where(_t.c.id == message_id).values(status=OutboxStatus.DISCARDED.value, last_error=error)
         await self._session.execute(stmt)
 
+    @override
     async def recover_stuck(self, threshold: timedelta) -> int:
         cutoff = func.now() - threshold
         stmt = (
@@ -159,6 +167,7 @@ class SqlAlchemyOutboxStore(IOutboxStore):
         result = await self._session.execute(stmt)
         return result.rowcount  # type: ignore[attr-defined,no-any-return]
 
+    @override
     async def cleanup_dispatched(self, older_than: timedelta) -> int:
         cutoff = func.now() - older_than
         stmt = delete(_t).where(_t.c.status == OutboxStatus.DISPATCHED.value).where(_t.c.dispatched_at < cutoff)

@@ -62,7 +62,7 @@ class LocalQueueEndpoint(Endpoint):
         handler_subscriptions: HandlerSubscriptions,
         executor: EndpointExecutor,
         observers: MessageObservers,
-        stop_timeout: float,
+        stop_timeout: timedelta,
         max_buffer_size: float,
         max_parallel: int = 1,
         max_requeue_attempts: int = 5,  # BUFFERED dead-letters at the bound (no inbox row to recover from)

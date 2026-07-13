@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import abc
 import enum
 import math
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Final, TypeAlias
 
 from waku._internal.sentinel import MISSING
@@ -45,7 +46,7 @@ class LocalQueueEntry:
     uri: str
     mode: EndpointMode | MISSING = MISSING  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
     max_parallel: int = 1
-    stop_timeout: float = 5.0
+    stop_timeout: timedelta = timedelta(seconds=5)
     max_buffer_size: float = math.inf
     partition_by: Callable[[IMessage], str | None] | None = None
     circuit_breaker: CircuitBreakerConfig | MISSING | None = MISSING  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
@@ -66,7 +67,7 @@ class BrokerEndpointEntry:
 EndpointEntry: TypeAlias = LocalQueueEntry | BrokerEndpointEntry
 
 
-class Endpoint(ABC):
+class Endpoint(abc.ABC):
     __slots__ = ('_uri',)
 
     def __init__(self, uri: str) -> None:
@@ -92,7 +93,7 @@ class Endpoint(ABC):
         """
         return False
 
-    @abstractmethod
+    @abc.abstractmethod
     async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None:
         """Dispatch an envelope to this endpoint.
 

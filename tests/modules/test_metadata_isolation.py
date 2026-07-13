@@ -7,6 +7,7 @@ from typing_extensions import override
 
 from waku import WakuFactory, module
 from waku.di import object_
+from waku.exceptions import ImproperlyConfiguredError
 from waku.extensions import OnModuleConfigure, OnModuleRegistration
 from waku.modules._internal.metadata import DynamicModule, ModuleCompiler
 
@@ -108,8 +109,20 @@ class _BoomConfigure(OnModuleConfigure):
 
 def test_hook_attribute_error_propagates_instead_of_being_relabeled_not_a_module() -> None:
     # A real AttributeError raised inside an on_module_configure hook must surface with its own
-    # message/traceback, not be swallowed and relabeled as a misleading "is not module" ValueError.
+    # message/traceback, not be swallowed and relabeled as a misleading "is not a module" ImproperlyConfiguredError.
     dynamic = DynamicModule(parent_module=_ChildModule, extensions=[_BoomConfigure()])
 
     with pytest.raises(AttributeError, match='boom'):
         ModuleCompiler().extract_metadata(dynamic)
+
+
+class _PlainClass:
+    pass
+
+
+def test_source_without_module_metadata_raises_improperly_configured() -> None:
+    # A source that was never decorated with @module carries no attached metadata, so
+    # _require_module_metadata surfaces it as an ImproperlyConfiguredError ("is not a module"),
+    # not a bare builtin exception.
+    with pytest.raises(ImproperlyConfiguredError, match='is not a module'):
+        ModuleCompiler().extract_metadata(_PlainClass)

@@ -90,7 +90,7 @@ class MessageTypeRegistry:
     def _register(self, cls: type[IMessage], identity: MessageIdentity) -> None:
         existing = self._name_to_type.get(identity.name)
         if existing is not None and existing is not cls:
-            msg = f'Duplicate message identity {identity.name!r}: {existing.__qualname__} and {cls.__qualname__}'
+            msg = f'duplicate message identity {identity.name!r}: {existing.__qualname__} and {cls.__qualname__}'
             raise ImproperlyConfiguredError(msg)
         self._type_to_identity[cls] = identity
         self._name_to_type[identity.name] = cls

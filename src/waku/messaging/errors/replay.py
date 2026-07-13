@@ -85,7 +85,7 @@ class ReplayExecutor:
         self._scopes = scopes
         # Drainer parity: the same FQN mapping the inbox writes as `destination`.
         self._handler_by_fqn: dict[str, HandlerType] = {
-            handler_destination(ht): ht for ht in handler_map.handler_types()
+            handler_destination(handler_type): handler_type for handler_type in handler_map.handler_types()
         }
 
     async def replay(self, entry: DeadLetterEntry) -> bool:

@@ -33,6 +33,8 @@ class InMemoryOutboxStore(IOutboxStore):
     (server-assigned ascending). Not thread-safe.
     """
 
+    __slots__ = ('_dead_letters', 'messages')
+
     def __init__(self, dead_letters: IDeadLetterStore) -> None:
         self.messages: list[OutboxMessage] = []
         self._dead_letters = dead_letters

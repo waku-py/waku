@@ -28,9 +28,6 @@ class _Raiser(IMessageObserver):
         raise RuntimeError(msg)
 
 
-pytestmark = pytest.mark.anyio
-
-
 async def test_fanout_invokes_all_observers() -> None:
     a, b = _Recorder(), _Recorder()
     await MessageObservers([a, b]).sent(cast('MessageEnvelope[Any]', object()), 'queue-a')

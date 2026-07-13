@@ -28,6 +28,8 @@ class InMemoryInboxStore(IInboxStore):
     Not thread-safe.
     """
 
+    __slots__ = ('_dead_letters', 'entries')
+
     def __init__(self, dead_letters: IDeadLetterStore) -> None:
         self.entries: dict[tuple[UUID, str], InboxEntry] = {}
         self._dead_letters = dead_letters

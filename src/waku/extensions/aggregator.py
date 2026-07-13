@@ -15,11 +15,11 @@ if TYPE_CHECKING:
 
 __all__ = ['RegistryAggregator']
 
-TExt = TypeVar('TExt')
-TRegistry = TypeVar('TRegistry')
+_ExtT = TypeVar('_ExtT')
+_RegistryT = TypeVar('_RegistryT')
 
 
-class RegistryAggregator(OnModuleRegistration, ABC, Generic[TExt, TRegistry]):
+class RegistryAggregator(OnModuleRegistration, ABC, Generic[_ExtT, _RegistryT]):
     """Shared ``OnModuleRegistration`` scaffold for cross-module registry merging.
 
     Captures the common spine: discover the module extensions of a type, merge their registries,
@@ -32,21 +32,21 @@ class RegistryAggregator(OnModuleRegistration, ABC, Generic[TExt, TRegistry]):
     __slots__ = ()
 
     @abstractmethod
-    def _extension_type(self) -> type[TExt]: ...
+    def _extension_type(self) -> type[_ExtT]: ...
 
     @abstractmethod
-    def _new_registry(self) -> TRegistry: ...
+    def _new_registry(self) -> _RegistryT: ...
 
     @abstractmethod
-    def _merge(self, aggregated: TRegistry, ext: TExt, module_type: ModuleType) -> None: ...
+    def _merge(self, aggregated: _RegistryT, ext: _ExtT, module_type: ModuleType) -> None: ...
 
     @abstractmethod
-    def _extension_providers(self, ext: TExt) -> Iterator[Provider]: ...
+    def _extension_providers(self, ext: _ExtT) -> Iterator[Provider]: ...
 
     @abstractmethod
     def _finalize(
         self,
-        aggregated: TRegistry,
+        aggregated: _RegistryT,
         registry: ModuleMetadataRegistry,
         owning_module: ModuleType,
     ) -> None: ...

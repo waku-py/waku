@@ -21,7 +21,7 @@ __all__ = [
     'TrackingMessageObserver',
 ]
 
-_TMsg = TypeVar('_TMsg', bound=IMessage)
+_MessageT = TypeVar('_MessageT', bound=IMessage)
 
 
 class TrackingEvent(enum.Enum):
@@ -95,7 +95,7 @@ class MessageTracker:
         """The ``EXECUTED`` records whose payload is an instance of ``message_type`` (subclass-tolerant)."""
         return tuple(record for record in self.executed if isinstance(record.payload, message_type))
 
-    def single(self, message_type: type[_TMsg]) -> _TMsg:
+    def single(self, message_type: type[_MessageT]) -> _MessageT:
         """The sole recorded payload of ``message_type``, deduped by ``message_id``.
 
         A normal send-then-execute flow records both a ``SENT`` and an ``EXECUTED`` envelope for one message, so
@@ -104,7 +104,7 @@ class MessageTracker:
         Raises:
             ValueError: If zero or more than one distinct message of ``message_type`` was recorded.
         """
-        by_id: dict[UUID, _TMsg] = {}
+        by_id: dict[UUID, _MessageT] = {}
         for record in self._records:
             if isinstance(record.payload, message_type):
                 by_id[record.message_id] = record.payload

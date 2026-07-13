@@ -175,7 +175,7 @@ class TestBindInfersMessageType:
             async def handle(self, request: T, /) -> Any:  # pragma: no cover
                 ...
 
-        with pytest.raises(ImproperlyConfiguredError, match='Cannot infer message type'):
+        with pytest.raises(ImproperlyConfiguredError, match='cannot infer message type'):
             MessagingExtension().bind(_GenericHandler)
 
     @staticmethod
@@ -190,7 +190,7 @@ class TestBindInfersMessageType:
             async def handle(self, message: Any, /) -> Any:  # pragma: no cover
                 ...
 
-        with pytest.raises(ImproperlyConfiguredError, match='Cannot infer message type'):
+        with pytest.raises(ImproperlyConfiguredError, match='cannot infer message type'):
             MessagingExtension().bind(_AnyHandler)
 
     @staticmethod

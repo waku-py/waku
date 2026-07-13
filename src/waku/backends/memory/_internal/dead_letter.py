@@ -26,6 +26,8 @@ class InMemoryDeadLetterStore(IDeadLetterStore):
     the same filter set. Not thread-safe.
     """
 
+    __slots__ = ('entries',)
+
     def __init__(self) -> None:
         self.entries: dict[UUID, DeadLetterEntry] = {}
 

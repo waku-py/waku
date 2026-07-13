@@ -116,7 +116,7 @@ def _receiver(container: AsyncContainer, executor: EndpointExecutor) -> DurableI
         keep_after_handled=timedelta(seconds=300),
         max_requeue_attempts=5,
         max_buffer_size=100,
-        stop_timeout=1.0,
+        stop_timeout=timedelta(seconds=1.0),
     )
 
 
@@ -130,7 +130,7 @@ def _listener(container: AsyncContainer) -> tuple[InboundListener, DurableInboxR
     return InboundListener(
         codec=codec,
         type_registry=type_registry,
-        registry=registry,
+        handler_map=registry,
         receiver=receiver,
     ), receiver
 
@@ -231,7 +231,7 @@ async def test_unknown_type_with_no_handler_acks() -> None:
         listener = InboundListener(
             codec=codec,
             type_registry=type_registry,
-            registry=registry,
+            handler_map=registry,
             receiver=_receiver(container, executor),
         )
 
@@ -296,9 +296,9 @@ async def test_consume_pauses_listener_when_buffer_crosses_high_watermark() -> N
             inbox_owner_id='node-a:1',
             keep_after_handled=timedelta(seconds=300),
             max_buffer_size=10,
-            stop_timeout=1.0,
+            stop_timeout=timedelta(seconds=1.0),
         )
-        listener = InboundListener(codec=codec, type_registry=type_registry, registry=registry, receiver=receiver)
+        listener = InboundListener(codec=codec, type_registry=type_registry, handler_map=registry, receiver=receiver)
         sub = _FakeSub()
         listener.attach_backpressure(ListenerBackpressure(subscription=sub, limits=BufferingLimits(high=1, low=0)))
 

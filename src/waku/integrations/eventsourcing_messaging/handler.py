@@ -29,6 +29,7 @@ class EventSourcedCommandHandler(
     ) -> None:
         self._repository = repository
 
+    @override
     async def handle(self, request: RequestT, /) -> ResponseT:
         aggregate_id: str = self._aggregate_id(request)
         is_creation: bool = self._is_creation_command(request)

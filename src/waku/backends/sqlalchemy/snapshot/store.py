@@ -24,6 +24,8 @@ __all__ = [
 
 
 class SqlAlchemySnapshotStore(ISnapshotStore):
+    __slots__ = ('_session', '_snapshots')
+
     def __init__(self, session: AsyncSession, snapshots_table: Table) -> None:
         self._session = session
         self._snapshots = snapshots_table

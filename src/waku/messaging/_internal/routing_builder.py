@@ -41,12 +41,12 @@ class RoutingTableBuilder:
         config: MessagingConfig,
         *,
         merged_endpoints: tuple[MergedBrokerEndpoint, ...] = (),
-        aggregated: HandlerMap,
+        handler_map: HandlerMap,
         module_routing_map: ModuleRoutingMap,
     ) -> None:
         self._config = config
         self._merged_endpoints = merged_endpoints
-        self._registry = aggregated
+        self._registry = handler_map
         self._module_routing_map = module_routing_map
         self._type_routes: defaultdict[type[IMessage], list[str]] = defaultdict(list)
         self._endpoint_handlers: defaultdict[str, defaultdict[type[IMessage], set[HandlerType]]] = defaultdict(
@@ -148,7 +148,7 @@ class RoutingTableBuilder:
     @staticmethod
     def _validate_endpoint_uri(uri: str, known: Mapping[str, MergedBrokerEndpoint | LocalQueueEntry]) -> None:
         if uri not in known:
-            msg = f"Route references unknown endpoint URI '{uri}'. Known endpoints: {sorted(known)}"
+            msg = f"route references unknown endpoint URI '{uri}'. Known endpoints: {sorted(known)}"
             raise ImproperlyConfiguredError(msg)
         entry = known[uri]
         if isinstance(entry, MergedBrokerEndpoint) and entry.send is None:

@@ -12,7 +12,6 @@ from waku.messaging.pipeline.policy import IBehaviorPolicy, Position, Positioned
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from waku.messaging import HandlerMap
     from waku.messaging.config import MessagingConfig
     from waku.messaging.contracts.handler import HandlerType
 
@@ -31,7 +30,6 @@ class ForwardingPolicy(IBehaviorPolicy):
     def behaviors_for(
         self,
         handler: HandlerType,
-        handler_map: HandlerMap,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]:
         if issubclass(handler, _ES_COMMAND_HANDLER_BASES):

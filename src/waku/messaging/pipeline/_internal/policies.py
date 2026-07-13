@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from waku.messaging.config import MessagingConfig
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.contracts.pipeline import IPipelineBehavior
-    from waku.messaging.handler_map import HandlerMap
 
 __all__ = [
     'DeferredCascadingPolicy',
@@ -91,7 +90,6 @@ class DeferredCascadingPolicy(IBehaviorPolicy):
     def behaviors_for(
         self,
         handler: HandlerType,
-        handler_map: HandlerMap,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]:
         return (PositionedBehavior(DeferredCascadingBehavior, Position.CASCADE_FRAME),)
@@ -109,7 +107,6 @@ class OutboxDrainPolicy(IBehaviorPolicy):
     def behaviors_for(
         self,
         handler: HandlerType,
-        handler_map: HandlerMap,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]:
         return (PositionedBehavior(OutboxCascadingBehavior, Position.OUTBOX_DRAIN),)
@@ -126,7 +123,6 @@ class UserGlobalPolicy(IBehaviorPolicy):
     def behaviors_for(
         self,
         handler: HandlerType,
-        handler_map: HandlerMap,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]:
         return tuple(
@@ -148,7 +144,6 @@ class TransactionalPolicy(IBehaviorPolicy):
     def behaviors_for(
         self,
         handler: HandlerType,
-        handler_map: HandlerMap,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]:
         if _handler_requires_uow(handler, config):
@@ -168,7 +163,6 @@ class HandlerLocalPolicy(IBehaviorPolicy):
     def behaviors_for(
         self,
         handler: HandlerType,
-        handler_map: HandlerMap,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]:
         return tuple(

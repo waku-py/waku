@@ -53,12 +53,12 @@ class TestMessageIdentity:
 
     @staticmethod
     def test_empty_name_rejected() -> None:
-        with pytest.raises(ValueError, match='name must be non-empty'):
+        with pytest.raises(ImproperlyConfiguredError, match='name must be non-empty'):
             MessageIdentity(name='')
 
     @staticmethod
     def test_version_below_1_rejected() -> None:
-        with pytest.raises(ValueError, match='version must be >= 1'):
+        with pytest.raises(ImproperlyConfiguredError, match='version must be >= 1'):
             MessageIdentity(name='x', version=0)
 
 
@@ -174,7 +174,7 @@ class TestMessageTypeRegistryResolveType:
 
     @staticmethod
     def test_duplicate_name_rejected_at_construction() -> None:
-        with pytest.raises(ImproperlyConfiguredError, match='Duplicate message identity'):
+        with pytest.raises(ImproperlyConfiguredError, match='duplicate message identity'):
             MessageTypeRegistry(
                 identities={SampleEvent: 'x', OtherEvent: 'x'},
                 known_types=[SampleEvent, OtherEvent],

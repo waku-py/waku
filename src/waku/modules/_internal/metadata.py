@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, TypeVar, cast, runtime_checkable
 
 from waku._internal.sentinel import MISSING
+from waku.exceptions import ImproperlyConfiguredError
 from waku.extensions import OnModuleConfigure
 
 if TYPE_CHECKING:
@@ -23,7 +24,7 @@ __all__ = [
     'module',
 ]
 
-_T = TypeVar('_T')
+_ClassT = TypeVar('_ClassT')
 
 
 _MODULE_METADATA_KEY: Final = '__module_metadata__'
@@ -65,19 +66,19 @@ class DynamicModule(ModuleMetadata):
 
 
 def _require_module_metadata(module: object, *, source: ModuleType | DynamicModule) -> ModuleMetadata:
-    """Read a module's attached metadata, raising ``ValueError`` only when it is genuinely absent.
+    """Read a module's attached metadata, raising ``ImproperlyConfiguredError`` only when it is genuinely absent.
 
     Probing for the attribute (instead of wrapping the whole extraction) keeps a real ``AttributeError``
     from an ``on_module_configure`` hook propagating with its own traceback, rather than being swallowed
-    and relabeled "is not module".
+    and relabeled "is not a module".
 
     Raises:
-        ValueError: If *module* has no attached module metadata (i.e. *source* is not a module).
+        ImproperlyConfiguredError: If *module* has no attached module metadata (i.e. *source* is not a module).
     """
     metadata = getattr(module, _MODULE_METADATA_KEY, MISSING)
     if metadata is MISSING:
-        msg = f'{type(source).__name__} is not module'
-        raise ValueError(msg)
+        msg = f'{type(source).__name__} is not a module'
+        raise ImproperlyConfiguredError(msg)
     return cast('ModuleMetadata', metadata)
 
 
@@ -88,7 +89,7 @@ def module(
     exports: Sequence[type[object] | ModuleType | DynamicModule] = (),
     extensions: Sequence[ModuleExtension] = (),
     is_global: bool = False,
-) -> Callable[[type[_T]], type[_T]]:
+) -> Callable[[type[_ClassT]], type[_ClassT]]:
     """Decorator to define a module.
 
     Args:
@@ -99,7 +100,7 @@ def module(
         is_global: Whether this module is global or not.
     """
 
-    def decorator(cls: type[_T]) -> type[_T]:
+    def decorator(cls: type[_ClassT]) -> type[_ClassT]:
         metadata = ModuleMetadata(
             providers=list(providers),
             imports=list(imports),

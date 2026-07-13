@@ -34,9 +34,6 @@ def _envelope(payload: IMessage) -> MessageEnvelope[Any]:
     )
 
 
-pytestmark = pytest.mark.anyio
-
-
 async def test_executed_success_logs_info_with_fields_and_audit(caplog: pytest.LogCaptureFixture) -> None:
     obs = LoggingMessageObserver(AuditedMemberResolver(overrides={}))
     with caplog.at_level(logging.DEBUG, logger='waku.message.Transfer'):

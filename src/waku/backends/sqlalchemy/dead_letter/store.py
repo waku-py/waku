@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002  # Dishka needs runtime access
+from typing_extensions import override
 
 from waku.backends.sqlalchemy.dead_letter.tables import dead_letter_insert_values, dead_letter_table
 from waku.messaging.durability import IDeadLetterStore
@@ -34,18 +35,22 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    @override
     async def save(self, entry: DeadLetterEntry) -> None:
         await self._session.execute(insert(_t).values(**dead_letter_insert_values(entry)))
 
+    @override
     async def fetch(self, batch_size: int = 100) -> Sequence[DeadLetterEntry]:
         stmt = select(*_t.c).order_by(_t.c.created_at.asc()).limit(batch_size)
         result = await self._session.execute(stmt)
         return [_row_to_model(row) for row in result.fetchall()]
 
+    @override
     async def mark_replayed(self, entry_id: UUID) -> None:
         stmt = update(_t).where(_t.c.id == entry_id).values(status=DeadLetterStatus.REPLAYED.value)
         await self._session.execute(stmt)
 
+    @override
     async def mark_replay_failed(self, entry_id: UUID, error: str) -> None:
         stmt = (
             update(_t)
@@ -58,6 +63,7 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
         )
         await self._session.execute(stmt)
 
+    @override
     async def fetch_one(self, entry_id: UUID) -> DeadLetterEntry:
         stmt = select(*_t.c).where(_t.c.id == entry_id)
         result = await self._session.execute(stmt)
@@ -67,6 +73,7 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
             raise KeyError(msg)
         return _row_to_model(row)
 
+    @override
     async def claim_replayable(self, batch_size: int, max_replay_count: int) -> Sequence[DeadLetterEntry]:
         stmt = (
             select(*_t.c)
@@ -86,6 +93,7 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
         result = await self._session.execute(stmt)
         return [_row_to_model(row) for row in result.fetchall()]
 
+    @override
     async def query(self, filters: DeadLetterQuery) -> Sequence[DeadLetterEntry]:
         stmt = select(*_t.c)
         if filters.status is not None:
@@ -102,9 +110,11 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
         result = await self._session.execute(stmt)
         return [_row_to_model(row) for row in result.fetchall()]
 
+    @override
     async def delete(self, entry_id: UUID) -> None:
         await self._session.execute(delete(_t).where(_t.c.id == entry_id))
 
+    @override
     async def purge(self, older_than: datetime) -> int:
         stmt = delete(_t).where(_t.c.created_at < older_than)
         result = await self._session.execute(stmt)

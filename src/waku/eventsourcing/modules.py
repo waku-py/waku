@@ -225,7 +225,7 @@ class EventSourcingModule:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class EventSourcingExtension(OnModuleConfigure):
     _bindings: list[AggregateBinding] = field(default_factory=list, init=False)
     _decider_bindings: list[DeciderBinding] = field(default_factory=list, init=False)

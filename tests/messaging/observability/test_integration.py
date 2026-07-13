@@ -47,8 +47,6 @@ from tests.messaging.helpers import FakeUoW, RecordingAllocator, RecordingTransp
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import FakeOutboxStore
 
-pytestmark = pytest.mark.anyio
-
 
 @dataclass(frozen=True, slots=True)
 class _Ping(IRequest[None]):
@@ -297,7 +295,7 @@ async def test_durable_and_drainer_paths_fire_executing_and_executed(caplog: pyt
             calls.append(event.order_id)
 
     config = MessagingConfig(
-        endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0)],
+        endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=timedelta(seconds=1.0))],
         routing=[route(_Ordered).to('orders')],
         inbox=InboxConfig(owner_id='node-a:1', recovery_interval=timedelta(seconds=0.01)),
         global_pipeline_behaviors=[TransactionalBehavior],

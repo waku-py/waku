@@ -37,7 +37,7 @@ def split_destination(uri: str, *, default_scheme: str | None) -> tuple[str, str
     else:
         scheme, queue = default_scheme, uri
     if not scheme or not queue:
-        msg = f"Transport destination '{uri}' needs both a scheme and a queue (e.g. 'rabbitmq://orders')."
+        msg = f"transport destination '{uri}' needs both a scheme and a queue (e.g. 'rabbitmq://orders')."
         raise ImproperlyConfiguredError(msg)
     return scheme, queue
 
@@ -101,7 +101,7 @@ class TransportRegistry:
         scheme, _ = split_destination(uri, default_scheme=self._default_scheme)
         transport = self._transports.get(scheme)
         if transport is None:
-            msg = f"No transport registered for scheme '{scheme}' (uri='{uri}')."
+            msg = f"no transport registered for scheme '{scheme}' (uri='{uri}')."
             raise ImproperlyConfiguredError(msg)
         return transport
 

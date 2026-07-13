@@ -297,7 +297,7 @@ async def test_tenant_id_survives_inbox_dead_letter_replay_to_handler_context() 
     dlq = InMemoryDeadLetterStore()
     inbox = InMemoryInboxStore(dlq)
     config = MessagingConfig(
-        endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0)],
+        endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=timedelta(seconds=1.0))],
         routing=[route(_OrderPlaced).to('orders')],
         inbox=InboxConfig(owner_id='test-node:1'),
         dead_letter=DeadLetterConfig(),
@@ -414,7 +414,7 @@ async def test_inbox_poison_dead_letter_replays() -> None:
     dlq = InMemoryDeadLetterStore()
     inbox = InMemoryInboxStore(dlq)
     config = MessagingConfig(
-        endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=1.0)],
+        endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=timedelta(seconds=1.0))],
         routing=[route(_OrderPlaced).to('orders')],
         inbox=InboxConfig(owner_id='test-node:1'),
         dead_letter=DeadLetterConfig(),

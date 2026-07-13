@@ -1,13 +1,16 @@
-from typing import Any, TypeVar, cast
+from __future__ import annotations
 
-from adaptix import Retort
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
-from waku.messages import MessageIdentity
-from waku.serialization.upcasting.chain import UpcasterChain
+if TYPE_CHECKING:
+    from adaptix import Retort
+
+    from waku.messages import MessageIdentity
+    from waku.serialization.upcasting.chain import UpcasterChain
 
 __all__ = ['PayloadCodec']
 
-_T = TypeVar('_T')
+_TargetT = TypeVar('_TargetT')
 
 
 class PayloadCodec:
@@ -20,12 +23,12 @@ class PayloadCodec:
     def encode(self, value: object, value_type: type[Any]) -> dict[str, Any]:
         return cast('dict[str, Any]', self._retort.dump(value, value_type))
 
-    def decode(self, data: dict[str, Any], target: type[_T], identity: MessageIdentity) -> _T:
+    def decode(self, data: dict[str, Any], target: type[_TargetT], identity: MessageIdentity) -> _TargetT:
         upcasted = self._chain.upcast(identity.name, data, identity.version)
         return self._retort.load(upcasted, target)
 
-    def load(self, data: dict[str, Any], target: type[_T]) -> _T:
+    def load(self, data: dict[str, Any], target: type[_TargetT]) -> _TargetT:
         return self._retort.load(data, target)
 
-    def extend(self, *, recipe: list[Any]) -> 'PayloadCodec':
+    def extend(self, *, recipe: list[Any]) -> PayloadCodec:
         return PayloadCodec(self._retort.extend(recipe=recipe), self._chain)

@@ -12,7 +12,7 @@ from waku.messaging._internal.identifiers import EndpointUri
 from waku.messaging._internal.partition import resolve_group_id
 from waku.messaging._internal.transaction import unit_of_work_scope
 from waku.messaging.durability import IInboxStore
-from waku.messaging.endpoints._internal.durable_inbox_receiver import build_durable_inbox_receiver
+from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
@@ -62,7 +62,7 @@ class DurableLocalQueueEndpoint(Endpoint):
         container: AsyncContainer,
         inbox_config_keep_after_handled_seconds: float,
         inbox_owner_id: str,
-        stop_timeout: float,
+        stop_timeout: timedelta,
         max_buffer_size: float,
         partition_by: PartitionKeyExtractor | None = None,
         max_requeue_attempts: int = 5,
@@ -76,7 +76,7 @@ class DurableLocalQueueEndpoint(Endpoint):
         self._container = container
         self._partition_by = partition_by
         self._now = now
-        self._receiver = build_durable_inbox_receiver(
+        self._receiver = DurableInboxReceiver(
             uri=uri,
             container=container,
             executor=executor,

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from waku.exceptions import WakuError
 
 __all__ = ['ValidationError']

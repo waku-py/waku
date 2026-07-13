@@ -11,18 +11,18 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_T = TypeVar('_T')
+_ResultT = TypeVar('_ResultT')
 
 
 async def execute_with_optimistic_retry(
-    attempt_fn: Callable[[], Awaitable[_T]],
+    attempt_fn: Callable[[], Awaitable[_ResultT]],
     *,
     max_attempts: int,
     is_creation: bool = False,
     request_name: str,
     aggregate_id: str,
     attempt_context: Callable[[], AbstractAsyncContextManager[Any]],
-) -> _T:
+) -> _ResultT:
     for attempt in range(1, max_attempts + 1):
         if attempt > 1:
             logger.info(

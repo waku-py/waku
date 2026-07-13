@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from waku.messaging.partition import PartitionKeyExtractor
     from waku.messaging.transport.interfaces import IEnvelopeMapper
 
-_T = TypeVar('_T')
+_ValueT = TypeVar('_ValueT')
 
 __all__ = [
     'MergedBrokerEndpoint',
@@ -79,8 +79,8 @@ def _merge_fragments(
     )
 
 
-def _resolve_unique(uri: str, values: Iterable[_T | MISSING], conflict_message: str) -> _T | None:  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
-    distinct: list[_T] = []
+def _resolve_unique(uri: str, values: Iterable[_ValueT | MISSING], conflict_message: str) -> _ValueT | None:  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+    distinct: list[_ValueT] = []
     for value in values:
         if value is MISSING:
             continue
@@ -93,7 +93,7 @@ def _resolve_unique(uri: str, values: Iterable[_T | MISSING], conflict_message: 
     return distinct[0] if distinct else None
 
 
-def _resolve_aspect(uri: str, aspects: Iterable[_T | None], aspect_name: str) -> _T | None:
+def _resolve_aspect(uri: str, aspects: Iterable[_ValueT | None], aspect_name: str) -> _ValueT | None:
     present = [aspect for aspect in aspects if aspect is not None]
     if len(present) > 1:
         msg = f"endpoint '{uri}': conflicting {aspect_name} declarations"

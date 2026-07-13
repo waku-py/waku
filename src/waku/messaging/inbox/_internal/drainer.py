@@ -159,7 +159,7 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
     type_registry = await container.get(MessageTypeRegistry)
     factory = await container.get(EndpointExecutorFactory)
 
-    handler_by_fqn = {handler_destination(ht): ht for ht in registry.handler_types()}
+    handler_by_fqn = {handler_destination(handler_type): handler_type for handler_type in registry.handler_types()}
 
     return InboxDrainer(
         container=container,

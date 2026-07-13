@@ -10,7 +10,7 @@ from typing_extensions import override
 from waku._internal.sentinel import MISSING
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging._internal.circuit_breaker import CircuitBreaker
-from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver, build_durable_inbox_receiver
+from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
 from waku.messaging.inbox._internal.listener import InboundListener
 from waku.messaging.inbox._internal.noop_backpressure import NoOpBackpressure
 from waku.messaging.inbox.backpressure import IListenerBackpressure, ListenerBackpressure
@@ -226,11 +226,11 @@ def create_listening_agent(  # noqa: PLR0913
     registry: TransportRegistry,
     codec: PayloadCodec,
     type_registry: MessageTypeRegistry,
-    message_registry: HandlerMap,
+    handler_map: HandlerMap,
     inbox: InboxConfig,
     config: MessagingConfig,
 ) -> ListeningAgent:
-    """Assemble the passive listen-half graph of one URI — the listen-side analog of ``_create_endpoint``.
+    """Assemble the passive listen-half graph of one URI — the listen-side analog of ``_build_endpoint``.
 
     Raises:
         ImproperlyConfiguredError: The merged endpoint carries no listen aspect.
@@ -239,7 +239,7 @@ def create_listening_agent(  # noqa: PLR0913
     if listen is None:
         msg = f"endpoint '{merged.uri}' declares no listen aspect; create_listening_agent requires one"
         raise ImproperlyConfiguredError(msg)
-    receiver = build_durable_inbox_receiver(
+    receiver = DurableInboxReceiver(
         uri=merged.uri,
         container=container,
         executor=executor_factory.for_uri(merged.uri),
@@ -252,7 +252,7 @@ def create_listening_agent(  # noqa: PLR0913
     listener = InboundListener(
         codec=codec,
         type_registry=type_registry,
-        registry=message_registry,
+        handler_map=handler_map,
         receiver=receiver,
     )
     return ListeningAgent(

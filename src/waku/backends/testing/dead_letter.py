@@ -83,7 +83,7 @@ class DeadLetterStoreContract:
         assert fetched[0].message_id == original_message_id
 
     async def test_message_id_none_when_not_provided(self, dlq_store: IDeadLetterStore) -> None:
-        # Legacy rows (before message_id column) have message_id=None.
+        # message_id is optional; callers that omit it read back None.
         entry = _make_entry()
         await dlq_store.save(entry)
 

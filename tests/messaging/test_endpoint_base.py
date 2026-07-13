@@ -26,13 +26,13 @@ class TestEndpointEntryFactories:
         entry = local_queue('q://test')
         assert isinstance(entry, LocalQueueEntry)
         assert entry.uri == 'q://test'
-        assert entry.stop_timeout == 5.0
+        assert entry.stop_timeout == timedelta(seconds=5)
         assert entry.max_buffer_size == math.inf
 
     @staticmethod
     def test_local_queue_with_custom_timeout() -> None:
-        entry = local_queue('q://test', stop_timeout=10.0)
-        assert entry.stop_timeout == 10.0
+        entry = local_queue('q://test', stop_timeout=timedelta(seconds=10.0))
+        assert entry.stop_timeout == timedelta(seconds=10)
 
     @staticmethod
     def test_local_queue_with_custom_buffer_size() -> None:

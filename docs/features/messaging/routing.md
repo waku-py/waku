@@ -75,7 +75,7 @@ The string argument is the endpoint **URI** — a logical name you reference in 
 | Parameter        | Type    | Default      | Description                             |
 |------------------|---------|--------------|-----------------------------------------|
 | `uri`            | `str`   | *(required)* | Logical name for route declarations     |
-| `stop_timeout`   | `float` | `5.0`        | Seconds to wait for queue drain on stop |
+| `stop_timeout`   | `timedelta` | `timedelta(seconds=5)` | Time to wait for queue drain on stop    |
 | `max_buffer_size`| `float` | `math.inf`   | Maximum number of buffered messages     |
 
 !!! tip "When to use local queues"
@@ -263,6 +263,8 @@ Each dispatch method interacts with routing differently:
 A multi-module setup with named local queues and module-level routing:
 
 ```python linenums="1"
+from datetime import timedelta
+
 from waku import module
 from waku.messaging import (
     MessagingConfig,
@@ -298,7 +300,7 @@ class PaymentsModule:
         MessagingModule.register(
             MessagingConfig(
                 endpoints=[
-                    local_queue('emails', stop_timeout=10.0),
+                    local_queue('emails', stop_timeout=timedelta(seconds=10)),
                     local_queue('analytics'),
                 ],
                 routing=[

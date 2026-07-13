@@ -11,6 +11,7 @@ underscore-prefixed filenames outside ``_internal/``, and zero underscore import
 from __future__ import annotations
 
 import ast
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,6 +37,12 @@ DEFAULT_DUAL_HOME_ALLOWLIST: frozenset[tuple[str, str]] = frozenset({
 
 _DEFINED_HERE = ('', '')
 
+# TypeVar/ParamSpec/TypeVarTuple naming: module-local (leading ``_``) must read ``_SomethingT`` — a
+# descriptive name ending in the ``T``/``P``/``Ts`` role suffix, plus the ``_co``/``_contra`` variance
+# tail where ``PLC0105`` requires it. Bare ``_T``/``_P`` and undescriptive names are rejected.
+_TYPEVAR_FACTORIES: frozenset[str] = frozenset({'TypeVar', 'ParamSpec', 'TypeVarTuple'})
+_PRIVATE_TYPEVAR_RE = re.compile(r'^_[A-Z]\w*(?:T|P|Ts)(?:_co|_contra)?$')
+
 
 @dataclass(frozen=True, slots=True)
 class Violation:
@@ -58,6 +65,7 @@ class _Module:
     bindings: dict[str, tuple[str, str]]
     has_body: bool
     import_targets: tuple[str, ...]
+    typevar_defs: tuple[str, ...]
 
 
 def _is_dunder(name: str) -> bool:
@@ -119,6 +127,19 @@ def _collect_import_targets(tree: ast.Module) -> tuple[str, ...]:
     return tuple(targets)
 
 
+def _collect_typevar_defs(tree: ast.Module) -> tuple[str, ...]:
+    names: list[str] = []
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
+            continue
+        func = node.value.func
+        factory = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else None
+        if factory not in _TYPEVAR_FACTORIES:
+            continue
+        names.extend(target.id for target in node.targets if isinstance(target, ast.Name))
+    return tuple(names)
+
+
 def _module_body_is_structural(tree: ast.Module) -> bool:
     return all(
         isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)
@@ -150,6 +171,7 @@ def _parse_module(root: Path, path: Path) -> _Module:
         bindings=bindings,
         has_body=not _module_body_is_structural(tree),
         import_targets=_collect_import_targets(tree),
+        typevar_defs=_collect_typevar_defs(tree),
     )
 
 
@@ -212,6 +234,35 @@ def _state_violations(
     ]
 
 
+def _typevar_violations(modules: dict[str, _Module]) -> list[Violation]:
+    """Flag TypeVars that break the naming doctrine.
+
+    ``PLC0105``/``PYI001``/``N`` rules stop at variance-suffix and casing; none can express
+    "public shape only if cross-module-imported", which needs the whole-project import graph. A
+    public-shaped TypeVar (no leading ``_``) is only justified when another module imports it — the
+    resolved reuse-by-import set below. Anything else must be module-local (leading ``_``) and match
+    ``_PRIVATE_TYPEVAR_RE``.
+    """
+    reused: set[tuple[str, str]] = set()
+    for mod in modules.values():
+        for local_name, binding in mod.bindings.items():
+            if binding == _DEFINED_HERE:
+                continue
+            resolved = _resolve(modules, mod.name, local_name)
+            if resolved[0] != mod.name:
+                reused.add(resolved)
+
+    violations: list[Violation] = []
+    for mod in modules.values():
+        for name in mod.typevar_defs:
+            if name.startswith('_'):
+                if not _PRIVATE_TYPEVAR_RE.match(name):
+                    violations.append(Violation(kind='typevar_name', module=mod.name, name=name))
+            elif (mod.name, name) not in reused:
+                violations.append(Violation(kind='typevar_public_unimported', module=mod.name, name=name))
+    return violations
+
+
 def check_visibility(
     src_root: Path,
     *,
@@ -244,6 +295,8 @@ def check_visibility(
         violations.extend(_underscore_import_violations(mod))
         if not mod.is_internal:
             violations.extend(_state_violations(mod, modules, facade_exports))
+
+    violations.extend(_typevar_violations(modules))
 
     return sorted(violations, key=lambda v: (v.kind, v.module, v.name))
 

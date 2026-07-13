@@ -181,7 +181,7 @@ class TestInvokeObservability:
         ):
             spy = _HookSpy()
             dispatcher = MessageDispatcher(
-                registry=await app.container.get(HandlerMap),
+                handler_map=await app.container.get(HandlerMap),
                 invoker=await app.container.get(HandlerPipelineInvoker),
                 observers=MessageObservers([spy]),
             )
@@ -211,7 +211,7 @@ class TestInvokeObservability:
         ):
             spy = _HookSpy()
             dispatcher = MessageDispatcher(
-                registry=await app.container.get(HandlerMap),
+                handler_map=await app.container.get(HandlerMap),
                 invoker=await app.container.get(HandlerPipelineInvoker),
                 observers=MessageObservers([spy]),
             )
@@ -242,7 +242,7 @@ class TestInvokeObservability:
         ):
             spy = _HookSpy()
             dispatcher = MessageDispatcher(
-                registry=await app.container.get(HandlerMap),
+                handler_map=await app.container.get(HandlerMap),
                 invoker=await app.container.get(HandlerPipelineInvoker),
                 observers=MessageObservers([spy]),
             )
@@ -265,7 +265,7 @@ class TestInvokeObservability:
         ):
             spy = _HookSpy()
             dispatcher = MessageDispatcher(
-                registry=await app.container.get(HandlerMap),
+                handler_map=await app.container.get(HandlerMap),
                 invoker=await app.container.get(HandlerPipelineInvoker),
                 observers=MessageObservers([spy]),
             )

@@ -153,6 +153,7 @@ Application extensions: `OnApplicationInit`, `AfterApplicationInit`, `OnApplicat
 - Single quotes for strings (ruff enforced)
 - No relative imports (ruff `ban-relative-imports = "all"`)
 - ruff with `extend-select = ["ALL"]` - nearly every rule enabled
+- TypeVars: `_SomethingT` (leading `_` + descriptive name + `T`/`P`/`Ts` suffix) for module-local TypeVars; public reusable ones keep `SomethingT` (no leading `_`). Variance suffix `_co`/`_contra` only where `PLC0105` requires it. Enforced by `scripts/check_visibility.py`.
 
 ## Testing
 

@@ -74,7 +74,7 @@ class Matchable(Protocol):
     def predicate(self) -> Callable[[Exception], bool] | None: ...
 
 
-_P = TypeVar('_P', bound=Matchable)
+_MatchableT = TypeVar('_MatchableT', bound=Matchable)
 
 
 def walk_stages(stages: Sequence[RetryStage], attempt: int) -> PolicyOutcome:
@@ -117,9 +117,9 @@ def _retry_outcome(stage: RetryStage, stage_local_attempt: int) -> PolicyOutcome
     return PolicyOutcome(action=RetryAction.RETRY)
 
 
-def best_match(policies: Sequence[_P], exc: Exception) -> _P | None:
+def best_match(policies: Sequence[_MatchableT], exc: Exception) -> _MatchableT | None:
     # Specificity: predicate > type-only > any; first match wins on ties.
-    best: _P | None = None
+    best: _MatchableT | None = None
     best_score = -1
     for policy in policies:
         if _policy_matches(policy, exc) and (score := _specificity(policy)) > best_score:

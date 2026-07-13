@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 import anyio
@@ -26,7 +27,7 @@ class _Ping(IMessage):
 class TestMemoryStreamWorkerLifecycle:
     @staticmethod
     async def test_send_before_start_returns_false() -> None:
-        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=0.5)
+        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=timedelta(seconds=0.5))
 
         accepted = await worker.send(make_envelope(_Ping(tag='a')))
 
@@ -41,7 +42,7 @@ class TestMemoryStreamWorkerLifecycle:
             received.append(envelope.payload.tag)
             processed.set()
 
-        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=0.5)
+        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=timedelta(seconds=0.5))
         await worker.start(handler)
         accepted = await worker.send(make_envelope(_Ping(tag='a')))
         await processed.wait()
@@ -52,13 +53,13 @@ class TestMemoryStreamWorkerLifecycle:
 
     @staticmethod
     async def test_stop_without_start_is_noop() -> None:
-        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=0.5)
+        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=timedelta(seconds=0.5))
 
         await worker.stop()
 
     @staticmethod
     async def test_send_after_stop_returns_false() -> None:
-        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=0.5)
+        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=timedelta(seconds=0.5))
         await worker.start(_noop)
         await worker.stop()
 
@@ -90,7 +91,7 @@ class TestMemoryStreamWorkerConcurrency:
             async with lock:
                 in_flight -= 1
 
-        worker = MemoryStreamWorker(max_buffer_size=10, stop_timeout=1.0, max_parallel=1)
+        worker = MemoryStreamWorker(max_buffer_size=10, stop_timeout=timedelta(seconds=1.0), max_parallel=1)
         await worker.start(handler)
         for i in range(5):
             await worker.send(make_envelope(_Ping(tag=str(i))))
@@ -122,7 +123,7 @@ class TestMemoryStreamWorkerConcurrency:
             async with lock:
                 in_flight -= 1
 
-        worker = MemoryStreamWorker(max_buffer_size=20, stop_timeout=2.0, max_parallel=parallelism)
+        worker = MemoryStreamWorker(max_buffer_size=20, stop_timeout=timedelta(seconds=2.0), max_parallel=parallelism)
         await worker.start(handler)
         for i in range(overflow):
             await worker.send(make_envelope(_Ping(tag=str(i))))
@@ -154,7 +155,9 @@ class TestMemoryStreamWorkerDepth:
         async def handler(_item: int) -> None:  # noqa: RUF029
             processed.set()
 
-        worker: MemoryStreamWorker[int] = MemoryStreamWorker(max_buffer_size=4, stop_timeout=1.0, max_parallel=1)
+        worker: MemoryStreamWorker[int] = MemoryStreamWorker(
+            max_buffer_size=4, stop_timeout=timedelta(seconds=1.0), max_parallel=1
+        )
         await worker.start(handler, on_drain=on_drain)
         await worker.send(1)
         with anyio.fail_after(5):
@@ -177,7 +180,7 @@ class TestMemoryStreamWorkerErrorIsolation:
             seen.append(envelope.payload.tag)
             processed.set()
 
-        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=0.5)
+        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=timedelta(seconds=0.5))
         with caplog.at_level(logging.ERROR, logger='waku.messaging.endpoints._internal.worker'):
             await worker.start(flaky_handler)
             await worker.send(make_envelope(_Ping(tag='boom')))
@@ -199,7 +202,7 @@ class TestMemoryStreamWorkerPauseResume:
             received.append(envelope.payload.tag)
             processed.set()
 
-        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=1.0)
+        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=timedelta(seconds=1.0))
         await worker.start(handler)
         token = await worker.pause()
         await worker.send(make_envelope(_Ping(tag='a')))
@@ -225,7 +228,7 @@ class TestMemoryStreamWorkerPauseTokens:
             received.append(envelope.payload.tag)
             processed.set()
 
-        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=1.0)
+        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=timedelta(seconds=1.0))
         await worker.start(handler)
         token_a = await worker.pause()
         token_b = await worker.pause()
@@ -242,7 +245,7 @@ class TestMemoryStreamWorkerPauseTokens:
 
     @staticmethod
     async def test_stop_force_resumes_with_token_still_held() -> None:
-        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=1.0)
+        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=timedelta(seconds=1.0))
         await worker.start(_noop)
         await worker.pause()  # token intentionally leaked
         await worker.stop()  # must not hang waiting on a paused consumer
@@ -251,7 +254,7 @@ class TestMemoryStreamWorkerPauseTokens:
 class TestMemoryStreamWorkerTrySend:
     @staticmethod
     async def test_try_send_returns_false_before_start() -> None:
-        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=0.5)
+        worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=timedelta(seconds=0.5))
 
         assert worker.try_send(make_envelope(_Ping(tag='a'))) is False
 
@@ -264,7 +267,7 @@ class TestMemoryStreamWorkerTrySend:
             started.set()
             await release.wait()
 
-        worker = MemoryStreamWorker(max_buffer_size=1, stop_timeout=1.0, max_parallel=1)
+        worker = MemoryStreamWorker(max_buffer_size=1, stop_timeout=timedelta(seconds=1.0), max_parallel=1)
         await worker.start(blocking_handler)
         assert await worker.send(make_envelope(_Ping(tag='held'))) is True
         with anyio.fail_after(5):

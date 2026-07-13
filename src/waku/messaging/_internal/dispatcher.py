@@ -26,11 +26,11 @@ class MessageDispatcher:
 
     def __init__(
         self,
-        registry: HandlerMap,
+        handler_map: HandlerMap,
         invoker: HandlerPipelineInvoker,
         observers: MessageObservers,
     ) -> None:
-        self._registry = registry
+        self._registry = handler_map
         self._invoker = invoker
         self._observers = observers
 

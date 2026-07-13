@@ -8,7 +8,7 @@ import anyio
 
 from waku._internal.adaptive_interval import AdaptiveInterval
 from waku._internal.shutdown import wait_for_shutdown
-from waku.eventsourcing.exceptions import ProjectionError
+from waku.eventsourcing.exceptions import ProjectionError, ProjectionLockedError
 from waku.eventsourcing.projection._internal.processor import CycleOutcome, ProjectionProcessor
 from waku.eventsourcing.projection.config import PollingConfig
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
@@ -78,8 +78,7 @@ class CatchUpProjectionRunner:
 
         async with self._lock.acquire(projection_name) as acquired:
             if not acquired:
-                msg = f'Projection {projection_name!r} is locked by another instance'
-                raise RuntimeError(msg)
+                raise ProjectionLockedError(projection_name)
 
             async with self._container() as scope:
                 projection = await scope.get(binding.projection)

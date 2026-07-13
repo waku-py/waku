@@ -11,6 +11,7 @@ from typing_extensions import override
 from waku import module
 from waku._internal.lease import ILease, InMemoryLease
 from waku.di import object_
+from waku.eventsourcing.exceptions import ProjectionLockedError, UnknownProjectionError
 from waku.eventsourcing.projection.config import PollingConfig
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ProjectionErrorPolicy
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
@@ -230,11 +231,13 @@ async def test_rebuild_resets_and_reprocesses(
         pytest.param(
             InMemoryLease,
             'nonexistent',
-            ValueError,
+            UnknownProjectionError,
             "Projection 'nonexistent' not found",
             id='unknown',
         ),
-        pytest.param(AlwaysLockedLock, 'recording', RuntimeError, 'is locked by another instance', id='locked'),
+        pytest.param(
+            AlwaysLockedLock, 'recording', ProjectionLockedError, 'is locked by another instance', id='locked'
+        ),
     ],
 )
 async def test_rebuild_error_cases(

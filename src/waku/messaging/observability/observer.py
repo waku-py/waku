@@ -1,5 +1,5 @@
+import abc
 import logging
-from abc import ABC
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import timedelta
 from functools import partial
@@ -18,7 +18,7 @@ INVOKE_DESTINATION: Final[str] = 'invoke://inline'
 executions. The ``invoke`` scheme is reserved: no transport or endpoint may register it."""
 
 
-class IMessageObserver(ABC):  # noqa: B024 -- intentionally no abstract method: every hook is opt-in
+class IMessageObserver(abc.ABC):  # noqa: B024 -- intentionally no abstract method: every hook is opt-in
     """Side-channel observer of message lifecycle. Implement only the events you need (defaults no-op).
 
     Implementations MUST NOT raise (the fan-out swallows, but raising wastes work). The envelope is read-only.
