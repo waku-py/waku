@@ -32,8 +32,8 @@ class InboxRecoveryWorker(PollingAgent):
     """Reclaims stale inbox entries and purges expired HANDLED rows. Runs PER POD.
 
     ``cleanup_handled`` is an idempotent set-DELETE — concurrent pods racing on the same rows is harmless
-    (unlike outbox relay, which claims-and-sends). Scheduled promotion runs on the sibling
-    ``ScheduledPromotionWorker`` so the two concerns have independent timers.
+    (unlike outbox relay, which claims-and-sends). Scheduled promotion runs on the
+    ``DurabilityMaintenanceAgent``'s promotion poller so the two concerns have independent timers.
     """
 
     placement = Placement.PER_POD

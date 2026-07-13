@@ -5,9 +5,10 @@ from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from typing import Any
 
 from sqlalchemy import MetaData
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from typing_extensions import override
 
+from waku._internal.lease import ILease
 from waku._internal.provider_scan import provided_type_hints
 from waku.backends.sqlalchemy.checkpoint.store import SqlAlchemyCheckpointStore
 from waku.backends.sqlalchemy.checkpoint.tables import CheckpointTables, bind_checkpoint_tables
@@ -17,6 +18,8 @@ from waku.backends.sqlalchemy.event_store.store import make_sqlalchemy_event_sto
 from waku.backends.sqlalchemy.event_store.tables import EventStoreTables, bind_event_store_tables
 from waku.backends.sqlalchemy.inbox.store import SqlAlchemyInboxStore
 from waku.backends.sqlalchemy.inbox.tables import bind_inbox_tables
+from waku.backends.sqlalchemy.lease.store import PostgresLease
+from waku.backends.sqlalchemy.lease.tables import bind_lease_tables
 from waku.backends.sqlalchemy.outbox.store import SqlAlchemyOutboxStore
 from waku.backends.sqlalchemy.outbox.tables import bind_outbox_tables
 from waku.backends.sqlalchemy.sequence.allocator import SqlAlchemySequenceAllocator
@@ -24,7 +27,7 @@ from waku.backends.sqlalchemy.sequence.tables import bind_sequence_tables
 from waku.backends.sqlalchemy.snapshot.store import SqlAlchemySnapshotStore
 from waku.backends.sqlalchemy.snapshot.tables import SnapshotTables, bind_snapshot_tables
 from waku.backends.sqlalchemy.uow import SqlAlchemyUnitOfWork
-from waku.di import Has, scoped
+from waku.di import Has, Marker, activator, object_, scoped, singleton
 from waku.eventsourcing.contracts.event import IMetadataEnricher
 from waku.eventsourcing.forwarding import IAppendedEvents
 from waku.eventsourcing.modules import EventSourcingConfig
@@ -32,6 +35,7 @@ from waku.eventsourcing.projection.interfaces import IProjection
 from waku.eventsourcing.serialization.interfaces import IEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventStore, ISnapshotStore
+from waku.exceptions import ImproperlyConfiguredError
 from waku.extensions import OnModuleRegistration
 from waku.messaging.config import MessagingConfig
 from waku.messaging.durability import (
@@ -49,6 +53,26 @@ from waku.uow import IUnitOfWork
 
 __all__ = ['SqlAlchemyBackend']
 
+# Value-aware gate for the ILease provider: the activator injects the already-registered MessagingConfig
+# and reads .leadership (a VALUE that provided_type_hints/Has cannot see), activating this marker only
+# when leadership is configured. Registered only when engine= is passed (the graph-completeness gate) AND
+# MessagingConfig is present (the activator's own dependency) — so a leadership-off app is graph-identical.
+LeadershipActive = Marker('waku.leadership_active')
+
+
+def _leadership_active(config: MessagingConfig) -> bool:
+    return config.leadership is not None
+
+
+def _build_postgres_lease(engine: AsyncEngine, config: MessagingConfig) -> ILease:
+    # Factory function so dishka introspects THIS signature, not PostgresLease.__init__ (whose
+    # non-optional AsyncEngine is fine here, but the factory keeps the pattern uniform with the rest).
+    leadership = config.leadership
+    if leadership is None:  # pragma: no cover -- the activator gates this factory off when leadership is None
+        msg = 'leadership lease built without LeadershipConfig'
+        raise ImproperlyConfiguredError(msg)
+    return PostgresLease(engine, leadership.lease)
+
 
 class _SqlAlchemyBackendWiring(OnModuleRegistration):
     """Registration-time wiring: binds the ACTIVE subsystems' tables and contributes the ES facets.
@@ -61,14 +85,15 @@ class _SqlAlchemyBackendWiring(OnModuleRegistration):
     follows subsystem presence, never polluting a single-subsystem app's schema.
     """
 
-    __slots__ = ('_checkpoints_table', '_event_tables', '_metadata', '_snapshots_table')
+    __slots__ = ('_checkpoints_table', '_engine', '_event_tables', '_metadata', '_snapshots_table')
 
     _event_tables: EventStoreTables
     _snapshots_table: SnapshotTables
     _checkpoints_table: CheckpointTables
 
-    def __init__(self, metadata: MetaData) -> None:
+    def __init__(self, metadata: MetaData, engine: AsyncEngine | None) -> None:
         self._metadata = metadata
+        self._engine = engine
 
     @override
     def on_module_registration(
@@ -83,6 +108,14 @@ class _SqlAlchemyBackendWiring(OnModuleRegistration):
             bind_inbox_tables(self._metadata)
             bind_dead_letter_tables(self._metadata)
             bind_sequence_tables(self._metadata)
+            if self._engine is not None:
+                # Leadership lease wiring, gated on engine= (D5: nothing enters the graph without it,
+                # so a leadership-off app that passes no engine= is graph-identical to today). The
+                # activator (secondary gate) keeps the provider INERT when leadership is None even here.
+                bind_lease_tables(self._metadata)
+                registry.add_provider(owning_module, object_(self._engine, provided_type=AsyncEngine))
+                registry.add_provider(owning_module, activator(_leadership_active, LeadershipActive))
+                registry.add_provider(owning_module, singleton(ILease, _build_postgres_lease, when=LeadershipActive))
         if EventSourcingConfig in provided:
             self._event_tables = bind_event_store_tables(self._metadata)
             self._snapshots_table = bind_snapshot_tables(self._metadata)
@@ -142,6 +175,7 @@ class SqlAlchemyBackend:
         *,
         session_factory: Callable[..., AsyncSession] | Callable[..., AsyncIterator[AsyncSession]],
         metadata: MetaData | None = None,
+        engine: AsyncEngine | None = None,
     ) -> DynamicModule:
         """Register the backend.
 
@@ -151,8 +185,12 @@ class SqlAlchemyBackend:
             metadata: Optional ``MetaData`` the active subsystems' tables are bound into (for your
                 DDL, e.g. ``metadata.create_all``). When omitted, bind the tables you provision
                 yourself via the exported ``bind_*_tables`` helpers — table names are what matter.
+            engine: The ``AsyncEngine`` the leadership lease runs its AUTOCOMMIT heartbeat over (it
+                outlives any request transaction, so it must not share the scoped ``AsyncSession``).
+                Required only when ``MessagingConfig.leadership`` is set; omitting it when leadership
+                is off is byte-identical to not passing it — nothing lease-related enters the graph.
         """
-        wiring = _SqlAlchemyBackendWiring(metadata if metadata is not None else MetaData())
+        wiring = _SqlAlchemyBackendWiring(metadata if metadata is not None else MetaData(), engine)
         return DynamicModule(
             parent_module=cls,
             providers=[

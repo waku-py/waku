@@ -29,6 +29,7 @@ and `MessagingModule.register(MessagingConfig())` are equivalent.
 | `dead_letter` | `DeadLetterConfig \| None` | `None` | Dead-letter retention, auto-replay, worker cadence (see [Error handling](../features/messaging/error-handling.md)) |
 | `outbox` | `OutboxConfig \| None` | `None` | Outbox relay tuning (see [Outbox](../features/messaging/outbox.md)) |
 | `inbox` | `InboxConfig \| None` | `None` | Durable inbox knobs for external listeners (see [Durable inbox](../features/messaging/inbox.md)) |
+| `leadership` | `LeadershipConfig \| None` | `None` | Opt-in cluster leader election gating durability maintenance to one node (see below) |
 | `message_identities` | `Mapping[type[IMessage], str \| MessageIdentity]` | `{}` | Third-party type-name overrides for types you can't annotate; default path is the ClassVar |
 | `audited_members` | `Mapping[type[IMessage], Sequence[str]]` | `{}` | Third-party audit-member overrides; names must be annotated fields (see [Observability](../features/messaging/observability.md)) |
 | `observers` | `Sequence[type[IMessageObserver]]` | `()` | Global message observers (fire on every message incl. `invoke()`), DI-constructed at app scope |
@@ -48,6 +49,24 @@ per-endpoint or per-handler value.
 | `backpressure` | `BufferingLimits \| None` | `None` | Fallback in-memory watermark for inbound listeners; a listener's own `backpressure` shadows this |
 | `execution_timeout` | `timedelta \| None` | `timedelta(seconds=60)` | Default-on 60s per-handler deadline; `None` disables. Per-handler `execution_timeout` overrides |
 | `max_requeue_attempts` | `int` | `5` | Fallback requeue/pause budget for `local_queue` entries without an explicit value |
+
+### LeadershipConfig
+
+Nested under `MessagingConfig.leadership`. When set, exactly one node holds the `role` lease and runs
+the `DurabilityMaintenanceAgent` (outbox recovery-sweep and cleanup, dead-letter auto-replay and purge,
+scheduled promotion); standbys take over within one lease expiry when the holder stops renewing. When
+`leadership` is `None` (the default), every node runs the maintenance agent unconditionally — the
+outbox dispatch loop and inbox recovery stay node-parallel either way.
+
+The SQLAlchemy backend requires an `engine=` argument when `leadership` is set (see
+[Backends](../fundamentals/backends.md)); configuring `leadership` without it fails at startup with
+`ImproperlyConfiguredError`.
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `lease` | `LeaseConfig` | `LeaseConfig()` | Lease timing (`ttl_seconds`, `renew_interval_factor`), re-exported from the `waku.messaging` facade |
+| `role` | `str` | `'waku:leader'` | The lease key; the `waku:` prefix is reserved for framework-owned roles |
+| `stop_timeout` | `timedelta` | `timedelta(seconds=10)` | Grace period for the maintenance agent to stop on shutdown before it is cancelled |
 
 ---
 

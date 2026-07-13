@@ -291,17 +291,25 @@ class TestOutboxRelay:
         assert msg.id in store.failed_ids
 
     @staticmethod
-    async def test_recovery_failure_does_not_crash_loop() -> None:
-        # A recovery-backend failure does not crash the relay loop: the worker logs it, continues, and
-        # still dispatches pending work on a later poll.
-        store, msg = _make_pending_store()
-        store.recover_stuck_error = ConnectionError('recovery backend down')
+    async def test_tick_only_dispatches_no_recover_or_cleanup() -> None:
+        # Dispatch-only relay (D9): recover_stuck/cleanup_dispatched moved to DurabilityMaintenanceAgent.
+        # Even with the eager recovery/cleanup intervals set, the relay never touches them — only
+        # fetch_head_of_queue runs.
+        store = _TrackingOutboxStore(cleanup_count=3)
         transport = RecordingTransport()
-        async with _run_relay(RelayDepsProvider(store, transport)):
-            await wait_until(lambda: store.recovered >= 1 and msg.id in store.dispatched_ids)
+        config = OutboxRelayConfig(
+            polling=PollingConfig(poll_interval_min_seconds=0.01),
+            recovery_interval=timedelta(seconds=0),
+            retention=timedelta(hours=1),
+            cleanup_interval=timedelta(seconds=0),
+        )
 
-        assert store.recovered >= 1
-        assert msg.id in store.dispatched_ids
+        async with _run_relay(RelayDepsProvider(store, transport), config):
+            await wait_until(lambda: store.poll_calls >= 1)
+
+        assert store.recovered == 0  # recover_stuck never called
+        assert store.cleanup_calls == 0  # cleanup_dispatched never called
+        assert store.poll_calls >= 1  # fetch_head_of_queue WAS called
 
     @staticmethod
     async def test_no_messages_is_noop() -> None:
@@ -450,58 +458,6 @@ class TestOutboxRelay:
                 sending_failure_evaluator=make_relay_evaluator(_FAST_CONFIG),
             )
             await relay.stop()
-
-    @staticmethod
-    async def test_recovers_stuck_messages_when_interval_elapsed(caplog: pytest.LogCaptureFixture) -> None:
-        store = _TrackingOutboxStore()
-        transport = RecordingTransport()
-
-        recovered_count = 5
-
-        async def _recover_stuck_with_results(_threshold: timedelta) -> int:  # noqa: RUF029
-            return recovered_count
-
-        store.recover_stuck = _recover_stuck_with_results  # type: ignore[assignment]
-
-        config = OutboxRelayConfig(
-            polling=PollingConfig(poll_interval_min_seconds=0.01),
-            recovery_interval=timedelta(seconds=0),
-        )
-
-        with caplog.at_level(logging.INFO, logger='waku.messaging.outbox.relay'):
-            async with _run_relay(RelayDepsProvider(store, transport), config):
-                await wait_until(lambda: 'Recovered 5 stuck messages' in caplog.text)
-
-        assert 'Recovered 5 stuck messages' in caplog.text
-
-    @staticmethod
-    async def test_purges_dispatched_messages_when_retention_elapsed(caplog: pytest.LogCaptureFixture) -> None:
-        store = _TrackingOutboxStore(cleanup_count=3)
-        transport = RecordingTransport()
-
-        config = OutboxRelayConfig(
-            polling=PollingConfig(poll_interval_min_seconds=0.01),
-            retention=timedelta(hours=1),
-            cleanup_interval=timedelta(seconds=0),
-        )
-
-        with caplog.at_level(logging.INFO, logger='waku.messaging.outbox.relay'):
-            async with _run_relay(RelayDepsProvider(store, transport), config):
-                await wait_until(lambda: 'Purged 3 dispatched outbox messages older than retention' in caplog.text)
-
-        assert 'Purged 3 dispatched outbox messages older than retention' in caplog.text
-
-    @staticmethod
-    async def test_does_not_purge_dispatched_messages_when_retention_unset() -> None:
-        store = _TrackingOutboxStore(cleanup_count=3)
-        transport = RecordingTransport()
-
-        config = OutboxRelayConfig(polling=PollingConfig(poll_interval_min_seconds=0.01))
-
-        async with _run_relay(RelayDepsProvider(store, transport), config):
-            await wait_until(lambda: store.poll_calls >= 1)
-
-        assert store.cleanup_calls == 0
 
     @staticmethod
     async def test_discard_policy_marks_discarded() -> None:

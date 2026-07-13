@@ -97,7 +97,6 @@ Error policies, dead-letter models, replay, and the DLQ worker.
 `DeadLetterEntry` ·
 `DeadLetterQuery` ·
 `DeadLetterStatus` ·
-`DeadLetterWorker` ·
 `DuplicateErrorPolicyError` ·
 `ErrorPolicy` ·
 `ErrorPolicyEvaluator` ·

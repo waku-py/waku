@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
+from waku._internal.lease import LeaseConfig
 from waku._internal.polling import PollingConfig
 from waku.messaging.endpoints.base import EndpointMode
 from waku.messaging.outbox.relay import OutboxRelayConfig
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
 __all__ = [
     'DeadLetterConfig',
     'EndpointDefaults',
+    'LeadershipConfig',
     'MessagingConfig',
     'OutboxConfig',
 ]
@@ -74,6 +76,21 @@ class EndpointDefaults:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class LeadershipConfig:
+    """Opt-in cluster leader election, gating the ``DurabilityMaintenanceAgent`` to one node at a time.
+
+    When ``MessagingConfig.leadership`` is set, exactly one node holds the ``role`` lease and runs the
+    maintenance agent; standbys wait to take over on lease expiry/steal. When unset (the default),
+    every node runs the maintenance agent unconditionally (today's behaviour).
+    """
+
+    lease: LeaseConfig = LeaseConfig()  # noqa: RUF009 — ttl + renew_interval_factor + renew<ttl invariant, reused
+    role: str = 'waku:leader'
+    """The lease key — the reserved ``waku:`` prefix is framework-owned; parameterized for future per-subsystem leaders."""
+    stop_timeout: timedelta = timedelta(seconds=10)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class MessagingConfig:
     global_pipeline_behaviors: Sequence[type[IPipelineBehavior[Any, Any]]] = ()
     """Always-run behaviors composed (outer) around every handler."""
@@ -87,6 +104,9 @@ class MessagingConfig:
     dead_letter: DeadLetterConfig | None = None
     outbox: OutboxConfig | None = None
     inbox: InboxConfig | None = None
+    leadership: LeadershipConfig | None = None
+    """Opt-in cluster leader election gating the durability maintenance agent (see :class:`LeadershipConfig`).
+    Default ``None`` = every node runs maintenance unconditionally (today's behaviour)."""
     message_identities: Mapping[type[IMessage], str | MessageIdentity] = field(default_factory=dict)
     """Third-party override for types you can't annotate; the default path is the ClassVar."""
     audited_members: Mapping[type[IMessage], Sequence[str]] = field(default_factory=dict)

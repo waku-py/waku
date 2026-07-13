@@ -27,6 +27,11 @@ DEFAULT_DUAL_HOME_ALLOWLIST: frozenset[tuple[str, str]] = frozenset({
     # waku.eventsourcing.projection) via waku._internal.polling to avoid an ES -> messaging edge.
     # Append-only; every addition requires dex sign-off.
     ('waku._internal.polling', 'PollingConfig'),
+    # Leader-election spec §4.2 (dex, 2026-07-13): LeaseConfig is deliberately dual-homed
+    # (waku.messaging via LeadershipConfig.lease + waku.eventsourcing.projection) via
+    # waku._internal.lease, so messaging leadership users tune the lease from their own facade
+    # without an ES -> messaging edge — the exact PollingConfig precedent.
+    ('waku._internal.lease', 'LeaseConfig'),
 })
 
 _DEFINED_HERE = ('', '')

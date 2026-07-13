@@ -70,6 +70,14 @@ bind_event_store_tables(metadata)
 # async with engine.begin() as conn: await conn.run_sync(metadata.create_all)
 ```
 
+`engine` is required only when [`MessagingConfig.leadership`](../reference/configuration.md#leadershipconfig)
+is set: the leadership lease heartbeats over its own AUTOCOMMIT connections, which outlive any request
+transaction and so cannot share the scoped `AsyncSession`. Pass
+`SqlAlchemyBackend.register(session_factory=create_session, engine=engine, metadata=metadata)`. Omitting
+it when leadership is off is byte-identical to not passing it — nothing lease-related enters the graph.
+Configuring `leadership` without an `engine=` fails at `after_app_init` with `ImproperlyConfiguredError`
+naming the missing engine.
+
 Never register two backends in one app — two providers for one store port fail the container build.
 
 ## Memory backend

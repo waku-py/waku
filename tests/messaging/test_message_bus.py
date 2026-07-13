@@ -28,6 +28,7 @@ from waku.messaging import (
     ResponseT,
     TransactionalBehavior,
 )
+from waku.messaging._internal.maintenance import DurabilityMaintenanceLifecycleExtension
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import get_message_context
 from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
@@ -39,7 +40,6 @@ from waku.messaging.exceptions import (
     MultipleHandlersRegisteredError,
     NoRouteError,
 )
-from waku.messaging.modules import DeadLetterLifecycleExtension
 from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.pipeline._internal.plan import BehaviorPlan
 from waku.messaging.router import external_endpoint, listen, local_queue
@@ -594,17 +594,17 @@ class TestMessagingConfigValidation:
             pass  # the lifecycle hooks start + stop the worker without error
 
     @staticmethod
-    def test_no_dead_letter_worker_when_store_only() -> None:
+    def test_no_maintenance_owner_when_dead_letter_store_only() -> None:
         dynamic = MessagingModule.register(
             MessagingConfig(dead_letter=DeadLetterConfig()),
         )
-        assert not any(isinstance(ext, DeadLetterLifecycleExtension) for ext in dynamic.extensions)
+        assert not any(isinstance(ext, DurabilityMaintenanceLifecycleExtension) for ext in dynamic.extensions)
 
     @staticmethod
-    def test_dead_letter_worker_when_retention_set() -> None:
+    def test_maintenance_owner_when_dead_letter_retention_set() -> None:
         dynamic = MessagingModule.register(
             MessagingConfig(
                 dead_letter=DeadLetterConfig(retention=timedelta(days=30)),
             ),
         )
-        assert any(isinstance(ext, DeadLetterLifecycleExtension) for ext in dynamic.extensions)
+        assert any(isinstance(ext, DurabilityMaintenanceLifecycleExtension) for ext in dynamic.extensions)

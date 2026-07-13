@@ -20,8 +20,8 @@ __all__ = [
 class InboxStatus(enum.StrEnum):
     INCOMING = 'INCOMING'
     HANDLED = 'HANDLED'
-    # A scheduled entry waits until NOW() >= execution_time, when ScheduledPromotionWorker
-    # promotes it to INCOMING.
+    # A scheduled entry waits until NOW() >= execution_time, when the maintenance agent's promotion
+    # poller promotes it to INCOMING.
     SCHEDULED = 'SCHEDULED'
 
 

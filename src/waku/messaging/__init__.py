@@ -1,7 +1,8 @@
+from waku._internal.lease import LeaseConfig
 from waku._internal.polling import PollingConfig
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
-from waku.messaging.config import DeadLetterConfig, EndpointDefaults, MessagingConfig, OutboxConfig
+from waku.messaging.config import DeadLetterConfig, EndpointDefaults, LeadershipConfig, MessagingConfig, OutboxConfig
 from waku.messaging.context import MessageContext, get_message_context, try_get_message_context
 from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.contracts.handler import HandlerType
@@ -66,6 +67,8 @@ __all__ = [
     'ISender',
     'ISequenceAllocator',
     'InboxConfig',
+    'LeadershipConfig',
+    'LeaseConfig',
     'LoggingMessageObserver',
     'MapFrozenError',
     'MessageContext',

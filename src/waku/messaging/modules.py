@@ -35,11 +35,12 @@ from waku.messaging._internal.dispatch import IEndpointDispatch
 from waku.messaging._internal.dispatcher import MessageDispatcher
 from waku.messaging._internal.envelope_factory import EnvelopeFactory
 from waku.messaging._internal.identity import MessageTypeRegistry
+from waku.messaging._internal.maintenance import DurabilityMaintenanceLifecycleExtension, LeadershipCoordinator
 from waku.messaging._internal.outbox_cascading import DeferredCascadeFlusher
 from waku.messaging._internal.routing_builder import RoutingTableBuilder
 from waku.messaging._internal.transaction import TransactionDepth
 from waku.messaging.behaviors.transactional import TransactionalBehavior
-from waku.messaging.config import DeadLetterConfig, MessagingConfig
+from waku.messaging.config import MessagingConfig
 from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.contracts.request import IRequest
@@ -63,13 +64,11 @@ from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import policies_have_deferred_terminal, policies_need_dead_letter
 from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.errors.replay import ReplayExecutor
-from waku.messaging.errors.worker import DeadLetterWorker
 from waku.messaging.exceptions import HandlerAlreadyRegisteredError, MultipleHandlersRegisteredError
 from waku.messaging.handler import MessageHandler
 from waku.messaging.handler_map import HandlerMap
 from waku.messaging.inbox._internal.drainer import build_inbox_drainer
 from waku.messaging.inbox._internal.recovery import InboxRecoveryWorker
-from waku.messaging.inbox._internal.scheduled import ScheduledPromotionWorker
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.interfaces import IMessageBus
 from waku.messaging.observability.audit import AuditedMemberResolver
@@ -168,10 +167,11 @@ class MessagingModule:
             extensions.append(OutboxRelayLifecycleExtension(config_.outbox.relay))
         if config_.inbox is not None:
             extensions.append(InboxRecoveryLifecycleExtension(config_.inbox))
-        if config_.dead_letter is not None and (
-            config_.dead_letter.auto_replay_enabled or config_.dead_letter.retention is not None
-        ):
-            extensions.append(DeadLetterLifecycleExtension(config_.dead_letter))
+        if _has_maintenance_work(config_):
+            if config_.leadership is not None:
+                extensions.append(LeadershipCoordinator(config_))
+            else:
+                extensions.append(DurabilityMaintenanceLifecycleExtension(config_))
         return DynamicModule(
             parent_module=cls,
             providers=providers,
@@ -372,6 +372,19 @@ def _has_durable_local_queue(config: MessagingConfig) -> bool:
     return any(
         isinstance(entry, LocalQueueEntry) and _effective_mode(entry, config) == EndpointMode.DURABLE
         for entry in config.endpoints
+    )
+
+
+def _has_maintenance_work(config: MessagingConfig) -> bool:
+    # Whether DurabilityMaintenanceAgent has any configured sub-poller (outbox recover+cleanup, DLQ
+    # replay+purge, scheduled promotion). Mirrors the agent's own per-concern gating.
+    return (
+        config.outbox is not None
+        or config.inbox is not None
+        or (
+            config.dead_letter is not None
+            and (config.dead_letter.auto_replay_enabled or config.dead_letter.retention is not None)
+        )
     )
 
 
@@ -697,8 +710,8 @@ class HandlerMapAggregator(RegistryAggregator['MessagingExtension', HandlerMap])
 
     def _require_sequence_allocator_when_active(self, provided: 'frozenset[Any]') -> None:
         # The allocator's CONSUMER activation condition, not just the user's partition intent: the
-        # ScheduledPromotionWorker resolves ISequenceAllocator every tick once inbox is active, and
-        # partition_by endpoints consume it on the outbox path. Conforming backends provide it
+        # maintenance agent's promotion poller resolves ISequenceAllocator every tick once inbox is
+        # active, and partition_by endpoints consume it on the outbox path. Conforming backends provide it
         # unconditionally (R4), so only allocator-less manual assembly fails — at registration.
         if not (_requires_sequence_allocator(self._config) or self._config.inbox is not None):
             return
@@ -834,12 +847,11 @@ class OutboxRelayLifecycleExtension(AfterApplicationInit, OnApplicationShutdown)
 
 
 class InboxRecoveryLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
-    __slots__ = ('_config', '_promotion', '_worker')
+    __slots__ = ('_config', '_worker')
 
     def __init__(self, config: InboxConfig) -> None:
         self._config = config
         self._worker: InboxRecoveryWorker | None = None
-        self._promotion: ScheduledPromotionWorker | None = None
 
     @override
     async def after_app_init(self, app: 'WakuApplication') -> None:
@@ -851,29 +863,6 @@ class InboxRecoveryLifecycleExtension(AfterApplicationInit, OnApplicationShutdow
             drainer=drainer,
             now=now,
         )
-        # Sibling worker: started/stopped here so both inbox-recovery timers travel together (M4+ leader election).
-        self._promotion = ScheduledPromotionWorker(container=app.container, config=self._config, now=now)
-        await self._worker.start()
-        await self._promotion.start()
-
-    @override
-    async def on_app_shutdown(self, app: 'WakuApplication') -> None:
-        if self._promotion is not None:
-            await self._promotion.stop()
-        if self._worker is not None:
-            await self._worker.stop()
-
-
-class DeadLetterLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
-    __slots__ = ('_config', '_worker')
-
-    def __init__(self, config: DeadLetterConfig) -> None:
-        self._config = config
-        self._worker: DeadLetterWorker | None = None
-
-    @override
-    async def after_app_init(self, app: 'WakuApplication') -> None:
-        self._worker = DeadLetterWorker(container=app.container, config=self._config)
         await self._worker.start()
 
     @override
