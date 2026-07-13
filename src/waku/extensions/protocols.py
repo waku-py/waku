@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, runtime_checkable
+from typing import TYPE_CHECKING, Any, Final, Protocol, TypeAlias, runtime_checkable
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -134,6 +134,15 @@ class OnModuleDestroy(Protocol):
 
     async def on_module_destroy(self, module: Module) -> None: ...
 
+
+APP_LIFECYCLE_EXTENSIONS: Final = (OnApplicationInit, OnContainerBuilt, AfterApplicationInit, OnApplicationShutdown)
+"""The runtime application-lifecycle hook protocols — the single authority for "is this a runtime app
+hook?".
+
+Deliberately excludes ``OnModuleRegistration`` (a registration-phase hook, not a runtime lifecycle one),
+so promoting a module extension to an application extension never mistakes a registration hook for a
+runtime one. Used as the ``isinstance`` tuple by the factory's module-extension promotion guard.
+"""
 
 ApplicationExtension: TypeAlias = (
     OnApplicationInit | OnContainerBuilt | AfterApplicationInit | OnApplicationShutdown | OnModuleRegistration

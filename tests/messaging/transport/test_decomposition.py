@@ -11,7 +11,7 @@ from waku._internal.retort import default_retort
 from waku.messages import IEvent
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging.contracts.envelope import MessageEnvelope
-from waku.messaging.errors.dead_letter import DeadLetterEntry
+from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.inbox.models import InboxEntry
 from waku.messaging.outbox.models import OutboxMessage
 from waku.messaging.transport._internal.wire import (
@@ -466,6 +466,7 @@ def _make_dlq_entry(**overrides: object) -> DeadLetterEntry:
         'message_type': 'test.FailedEvent',
         'payload': {'key': 'value'},
         'destination': 'test://dead',
+        'destination_kind': DeadLetterDestinationKind.ENDPOINT,
         'correlation_id': corr,
         'causation_id': caus,
         'error_type': 'RuntimeError',
@@ -620,17 +621,6 @@ class TestWireMetadataFromEntry:
 
         with pytest.raises(MalformedMetadataError):
             wire_metadata_from_entry(entry)
-
-    @staticmethod
-    def test_null_correlation_and_causation_fall_back_to_entry_id() -> None:
-        # A NULL correlation_id/causation_id column must not produce '' — UUID('') crashes
-        # rebuild_envelope. The fallback to str(entry.id) yields a valid UUID string instead.
-        entry = _make_inbox_entry(correlation_id=None, causation_id=None, metadata=_make_meta_json())
-
-        result = wire_metadata_from_entry(entry)
-
-        assert result.correlation_id == str(entry.id)
-        assert result.causation_id == str(entry.id)
 
     @staticmethod
     def test_dlq_group_id_from_typed_column() -> None:

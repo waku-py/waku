@@ -2,17 +2,15 @@ from __future__ import annotations
 
 from collections import deque
 from enum import StrEnum
-from itertools import chain
-from typing import TYPE_CHECKING, Final, Protocol, get_origin
+from typing import TYPE_CHECKING, Final, get_origin
 
+from waku._internal.provider_scan import provided_type_hints_of
 from waku.modules import HasModuleMetadata
 from waku.modules._internal.metadata import DynamicModule
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from uuid import UUID
-
-    from dishka.entities.key import DependencyKey
 
     from waku.modules import ModuleRegistry
     from waku.modules._internal.module import Module
@@ -21,11 +19,6 @@ if TYPE_CHECKING:
 __all__ = ['ModuleTypesExtractor']
 
 _MODULE_TYPES: Final = (HasModuleMetadata, DynamicModule)
-
-
-class _HasProvides(Protocol):
-    @property
-    def provides(self) -> DependencyKey: ...
 
 
 class _CachePrefix(StrEnum):
@@ -72,14 +65,7 @@ class ModuleTypesExtractor:
 
     @staticmethod
     def _extract_provided_types(module: Module) -> set[type[object]]:
-        provider = module.provider
-        deps: chain[_HasProvides] = chain(
-            provider.factories,
-            provider.aliases,
-            provider.decorators,
-            provider.factory_union_mode,
-        )
-        return {dep.provides.type_hint for dep in deps}
+        return set(provided_type_hints_of(module.provider))
 
 
 def _is_type_like(obj: object) -> bool:

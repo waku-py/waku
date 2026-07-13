@@ -51,13 +51,10 @@ class OutboxMessage:
     next_retry_at: datetime | None = None
 
     @property
-    def message_id(self) -> UUID | None:
+    def message_id(self) -> UUID:
         """Original envelope message_id (``idempotency_key`` is ``str(envelope.message_id)``).
 
-        ``None`` if the key is not a UUID (foreign/backfilled row) — the row still dead-letters
-        cleanly instead of crashing the relay tick.
+        The key is always a UUID string; a non-UUID key is real corruption, so the raised
+        :exc:`ValueError` propagates loud rather than silently losing identity.
         """
-        try:
-            return UUID(self.idempotency_key)
-        except ValueError:
-            return None
+        return UUID(self.idempotency_key)

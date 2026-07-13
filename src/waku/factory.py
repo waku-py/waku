@@ -11,12 +11,9 @@ from dishka import STRICT_VALIDATION, make_async_container
 from waku.application import WakuApplication
 from waku.extensions import (
     DEFAULT_EXTENSIONS,
-    AfterApplicationInit,
     ExtensionRegistry,
-    OnApplicationInit,
-    OnApplicationShutdown,
-    OnContainerBuilt,
 )
+from waku.extensions.protocols import APP_LIFECYCLE_EXTENSIONS
 from waku.modules import ModuleRegistryBuilder
 
 if TYPE_CHECKING:
@@ -82,10 +79,7 @@ class WakuFactory:
         for module in modules:
             for module_extension in module.extensions:
                 extension_registry.register_module_extension(module.target, module_extension)
-                if isinstance(
-                    module_extension,
-                    (OnApplicationInit, OnContainerBuilt, AfterApplicationInit, OnApplicationShutdown),
-                ):
+                if isinstance(module_extension, APP_LIFECYCLE_EXTENSIONS):
                     extension_registry.register_application_extension(module_extension)
         return extension_registry
 

@@ -45,14 +45,13 @@ class IOutgoingMessages(Protocol):
 class IOutgoingMessagesFrames(Protocol):
     """Framework-internal frame lifecycle + deferred-bucket API.
 
-    Consumed by ``CascadingBehavior`` (push/pop/discard around pipeline dispatch,
-    no-outbox path) and by the per-destination outbox family:
-    ``OutboxCascadingBehavior`` (inner) calls ``drain_current_frame``, dispatches
-    each cascade's outbox-backed destinations pre-commit, and calls ``defer`` for
-    cascades that also (or only) resolve to non-durable destinations;
-    ``DeferredCascadingBehavior`` (outer) calls ``drain_deferred`` to flush those
-    non-durable legs post-commit. NOT exported from ``waku.messaging`` — handler
-    authors must not depend on this.
+    Consumed by the cascade family: ``DeferredCascadingBehavior`` (outer) owns the
+    frame (push/pop/discard around pipeline dispatch) and calls ``drain_deferred`` to
+    flush non-durable legs post-commit; ``OutboxCascadingBehavior`` (inner) calls
+    ``drain_current_frame``, dispatches each cascade's outbox-backed destinations
+    pre-commit, and calls ``defer`` for cascades that also (or only) resolve to
+    non-durable destinations. NOT exported from ``waku.messaging`` — handler authors
+    must not depend on this.
     """
 
     def push_frame(self) -> None: ...
@@ -88,19 +87,19 @@ class OutgoingMessages(IOutgoingMessages, IOutgoingMessagesFrames):
         self._current_frame.append(PendingMessage(message=event, action=Action.PUBLISH))
 
     def push_frame(self) -> None:
-        """Start a new nesting level. Called by ``CascadingBehavior`` before dispatch."""
+        """Start a new nesting level. Called by ``DeferredCascadingBehavior`` before dispatch."""
         self._frames.append([])
 
     def pop_frame(self) -> list[PendingMessage]:
-        """Complete current level, return its messages. Called by ``CascadingBehavior`` after pipeline success.
+        """Complete current level, return its messages. Called by ``DeferredCascadingBehavior`` after success.
 
-        Paired with ``push_frame`` by ``CascadingBehavior`` (push on entry, pop on success /
+        Paired with ``push_frame`` by ``DeferredCascadingBehavior`` (push on entry, pop on success /
         discard on failure); an unpaired ``pop_frame``/``discard_frame`` raises ``IndexError``.
         """
         return self._frames.pop()
 
     def discard_frame(self) -> None:
-        """Discard current level's messages. Called by ``CascadingBehavior`` on pipeline failure."""
+        """Discard current level's messages. Called by ``DeferredCascadingBehavior`` on pipeline failure."""
         self._frames.pop()
 
     def drain_current_frame(self) -> list[PendingMessage]:

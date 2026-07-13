@@ -27,6 +27,8 @@ def _scheduled_entry(execution_time: datetime | None, **overrides: Any) -> Inbox
         'message_type': 'test.Event',
         'source_uri': 'local://orders',
         'destination': 'tests.messaging.HandlerA',
+        'correlation_id': str(uuid4()),
+        'causation_id': str(uuid4()),
         'status': InboxStatus.SCHEDULED,
         'execution_time': execution_time,
         'owner_id': None,

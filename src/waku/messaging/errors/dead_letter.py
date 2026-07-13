@@ -65,7 +65,7 @@ class DeadLetterEntry:
     message_type: str
     payload: dict[str, Any]
     destination: str
-    destination_kind: DeadLetterDestinationKind = DeadLetterDestinationKind.ENDPOINT
+    destination_kind: DeadLetterDestinationKind
     correlation_id: str
     causation_id: str
     error_type: str

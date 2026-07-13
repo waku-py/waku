@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any
 from typing_extensions import override
 
 from waku.exceptions import ImproperlyConfiguredError
-from waku.messaging._internal.cascading import CascadingBehavior
 from waku.messaging._internal.outbox_cascading import DeferredCascadingBehavior, OutboxCascadingBehavior
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.errors.policy import policies_need_dead_letter
@@ -20,7 +19,6 @@ if TYPE_CHECKING:
     from waku.messaging.handler_map import HandlerMap
 
 __all__ = [
-    'CascadingPolicy',
     'DeferredCascadingPolicy',
     'HandlerLocalPolicy',
     'OutboxDrainPolicy',
@@ -81,23 +79,13 @@ def _resolve_transactional_behavior(
     raise ImproperlyConfiguredError(msg)
 
 
-class CascadingPolicy(IBehaviorPolicy):
-    """No-outbox path: CascadingBehavior outermost (post-commit). Attaches only when outbox is None."""
-
-    @override
-    def behaviors_for(
-        self,
-        handler: HandlerType,
-        handler_map: HandlerMap,
-        config: MessagingConfig,
-    ) -> Sequence[PositionedBehavior]:
-        if config.outbox is not None:
-            return ()
-        return (PositionedBehavior(CascadingBehavior, Position.CASCADE_FRAME),)
-
-
 class DeferredCascadingPolicy(IBehaviorPolicy):
-    """Outbox path: DeferredCascadingBehavior outermost (owns frame, post-commit flush)."""
+    """DeferredCascadingBehavior outermost (owns the cascade frame, depth-aware post-commit flush).
+
+    Attaches on every handler: with no outbox the durability split is empty and the flusher drains the
+    fully-deferred bucket; with an outbox it flushes the non-durable legs after the durable ones
+    committed in-tx. One cascade subsystem, no outbox-presence fork.
+    """
 
     @override
     def behaviors_for(
@@ -106,13 +94,16 @@ class DeferredCascadingPolicy(IBehaviorPolicy):
         handler_map: HandlerMap,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]:
-        if config.outbox is None:
-            return ()
         return (PositionedBehavior(DeferredCascadingBehavior, Position.CASCADE_FRAME),)
 
 
 class OutboxDrainPolicy(IBehaviorPolicy):
-    """Outbox path: OutboxCascadingBehavior innermost-global (inside TransactionalBehavior)."""
+    """OutboxCascadingBehavior innermost-global (inside TransactionalBehavior).
+
+    Attaches on every handler: it splits each cascade's destinations by durability, dispatching the
+    outbox-backed legs in-tx and deferring the rest. With no outbox every leg is non-durable, so it
+    defers the whole batch to the post-commit flush — the same net delivery as the durable path.
+    """
 
     @override
     def behaviors_for(
@@ -121,8 +112,6 @@ class OutboxDrainPolicy(IBehaviorPolicy):
         handler_map: HandlerMap,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]:
-        if config.outbox is None:
-            return ()
         return (PositionedBehavior(OutboxCascadingBehavior, Position.OUTBOX_DRAIN),)
 
 

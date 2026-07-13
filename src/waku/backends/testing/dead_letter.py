@@ -6,7 +6,12 @@ from uuid import uuid4
 
 import pytest
 
-from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, DeadLetterStatus
+from waku.messaging.errors.dead_letter import (
+    DeadLetterDestinationKind,
+    DeadLetterEntry,
+    DeadLetterQuery,
+    DeadLetterStatus,
+)
 
 if TYPE_CHECKING:
     from waku.messaging.durability import IDeadLetterStore
@@ -20,6 +25,7 @@ def _make_entry(**overrides: object) -> DeadLetterEntry:
         'message_type': 'test.FailedEvent',
         'payload': {'key': 'value'},
         'destination': 'test://dead',
+        'destination_kind': DeadLetterDestinationKind.ENDPOINT,
         'correlation_id': str(uuid4()),
         'causation_id': str(uuid4()),
         'error_type': 'RuntimeError',

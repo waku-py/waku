@@ -26,6 +26,8 @@ def _make_entry(**overrides: object) -> InboxEntry:
         'message_type': 'test.Event',
         'source_uri': 'local://orders',
         'destination': 'tests.messaging.HandlerA',
+        'correlation_id': str(uuid4()),
+        'causation_id': str(uuid4()),
     }
     return InboxEntry(**(defaults | overrides))  # type: ignore[arg-type]
 

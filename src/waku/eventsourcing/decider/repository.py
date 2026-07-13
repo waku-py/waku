@@ -4,19 +4,17 @@ import abc
 import logging
 import types
 import typing
-import uuid
 from typing import ClassVar, Final, Generic, cast
 
 from waku.eventsourcing._internal.introspection import is_abstract, is_type_alias, resolve_generic_args
-from waku.eventsourcing._internal.stream_helpers import read_aggregate_stream
+from waku.eventsourcing._internal.stream_helpers import build_append, read_aggregate_stream
 from waku.eventsourcing.contracts.aggregate import (  # Dishka needs runtime access
     CommandT,
     EventT,
     IDecider,
     StateT,
 )
-from waku.eventsourcing.contracts.event import EventEnvelope, StoredEvent
-from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
+from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import EventSourcingConfigError
 from waku.eventsourcing.serialization.interfaces import (
     ISnapshotStateSerializer,  # noqa: TC001  # Dishka needs runtime access
@@ -27,6 +25,9 @@ from waku.eventsourcing.store.interfaces import (
     IEventStore,  # noqa: TC001  # Dishka needs runtime access
     ISnapshotStore,  # noqa: TC001  # Dishka needs runtime access
 )
+
+if typing.TYPE_CHECKING:
+    from waku.eventsourcing.contracts.event import StoredEvent
 
 __all__ = [
     'DeciderRepository',
@@ -101,14 +102,11 @@ class DeciderRepository(abc.ABC, Generic[StateT, CommandT, EventT]):
         if not events:
             return expected_version
         stream_id = self._stream_id(aggregate_id)
-        envelopes = [
-            EventEnvelope(
-                domain_event=e,
-                idempotency_key=f'{idempotency_key}:{i}' if idempotency_key else str(uuid.uuid4()),
-            )
-            for i, e in enumerate(events)
-        ]
-        expected = Exact(version=expected_version) if expected_version >= 0 else NoStream()
+        envelopes, expected = build_append(
+            events,
+            expected_version=expected_version,
+            idempotency_key=idempotency_key,
+        )
         new_version = await self._event_store.append_to_stream(stream_id, envelopes, expected_version=expected)
         logger.debug(
             'Saved %d events to %s/%s, version %d',

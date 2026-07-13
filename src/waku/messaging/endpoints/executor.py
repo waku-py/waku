@@ -7,11 +7,10 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any, TypeAlias, assert_never
 
 import anyio
-from dishka.exceptions import NoFactoryError
 
 from waku._internal.clock import utc_now
 from waku._internal.sentinel import MISSING
-from waku.messaging._internal.uow import NoOpUnitOfWork
+from waku.messaging._internal.uow import resolve_uow
 from waku.messaging.context import message_context_scope
 from waku.messaging.durability import IDeadLetterStore
 from waku.messaging.endpoints.outcome import ExecutionOutcome
@@ -21,7 +20,6 @@ from waku.messaging.errors.policy import RetryAction
 from waku.messaging.exceptions import HandlerTimeoutError
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
-from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -237,10 +235,7 @@ class EndpointExecutor:
         async with self._container() as scope:
             store = await scope.get(IDeadLetterStore)
             codec = await scope.get(PayloadCodec)
-            try:
-                uow: IUnitOfWork = await scope.get(IUnitOfWork)
-            except NoFactoryError:
-                uow = NoOpUnitOfWork()
+            uow = await resolve_uow(scope)
             entry = DeadLetterEntry.from_failure(
                 message_type=envelope.message_type,
                 payload=encode_payload(envelope, codec),

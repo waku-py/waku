@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import abc
 import logging
-import uuid
 from typing import TYPE_CHECKING, ClassVar, Generic
 
 from waku.eventsourcing._internal.introspection import is_abstract, resolve_generic_args
-from waku.eventsourcing._internal.stream_helpers import read_aggregate_stream
+from waku.eventsourcing._internal.stream_helpers import build_append, read_aggregate_stream
 from waku.eventsourcing.contracts.aggregate import AggregateT
-from waku.eventsourcing.contracts.event import EventEnvelope
-from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
+from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import AggregateNotFoundError
 from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Dishka needs runtime access
 
@@ -78,14 +76,11 @@ class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
         if not events:
             return aggregate.version, []
 
-        envelopes = [
-            EventEnvelope(
-                domain_event=event,
-                idempotency_key=f'{idempotency_key}:{i}' if idempotency_key else str(uuid.uuid4()),
-            )
-            for i, event in enumerate(events)
-        ]
-        expected = Exact(version=aggregate.version) if aggregate.version >= 0 else NoStream()
+        envelopes, expected = build_append(
+            events,
+            expected_version=aggregate.version,
+            idempotency_key=idempotency_key,
+        )
         new_version = await self._event_store.append_to_stream(stream_id, envelopes, expected_version=expected)
         aggregate.mark_persisted(new_version)
         logger.debug(

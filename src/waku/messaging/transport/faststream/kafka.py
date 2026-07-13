@@ -97,9 +97,8 @@ class DefaultKafkaEnvelopeMapper(IKafkaEnvelopeMapper):
         # Kafka message key takes precedence over the group_id header (Wolverine key-takes-precedence rule).
         raw_message = cast('Any', msg.raw_message)  # raw_message not typed on KafkaMessage; pyrefly: ignore
         raw_key: bytes | None = raw_message.key
-        # Truthy guard: an empty-bytes key ``b''`` is treated as no-key so the header group_id is kept.
-        # Real aiokafka yields None for keyless messages; this hardens the field against empty-bytes edge cases.
-        if raw_key:
+        # aiokafka yields None (never b'') for a keyless message; keep the header group_id in that case.
+        if raw_key is not None:
             meta = dataclasses.replace(meta, group_id=raw_key.decode())
         return payload, meta
 

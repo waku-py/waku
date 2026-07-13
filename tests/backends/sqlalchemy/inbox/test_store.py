@@ -33,6 +33,8 @@ def _make_entry(**overrides: object) -> InboxEntry:
         'message_type': 'test.Event',
         'source_uri': 'local://orders',
         'destination': 'tests.messaging.HandlerA',
+        'correlation_id': str(uuid4()),
+        'causation_id': str(uuid4()),
     }
     return InboxEntry(**(defaults | overrides))  # type: ignore[arg-type]
 
@@ -400,16 +402,14 @@ class TestMetadataColumns:
         assert claimed[0].metadata == meta_payload
 
     @staticmethod
-    async def test_correlation_causation_default_to_none(pg_session: AsyncSession) -> None:
+    async def test_metadata_defaults_to_none(pg_session: AsyncSession) -> None:
         store = SqlAlchemyInboxStore(pg_session)
-        entry = _make_entry()
+        entry = _make_entry(metadata=None)
         await store.store_incoming(entry)
         await pg_session.flush()
 
         claimed = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
 
-        assert claimed[0].correlation_id is None
-        assert claimed[0].causation_id is None
         assert claimed[0].metadata is None
 
 

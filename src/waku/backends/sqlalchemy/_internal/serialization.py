@@ -26,10 +26,12 @@ def serialize_metadata(metadata: EventMetadata) -> dict[str, Any]:
 
 
 def deserialize_metadata(data: dict[str, Any]) -> EventMetadata:
+    # serialize_metadata always writes exactly these three keys, so read them directly — a missing
+    # key is a corrupt row we wrote, and the KeyError surfaces it rather than being silently defaulted.
     return EventMetadata(
-        correlation_id=data.get('correlation_id'),
-        causation_id=data.get('causation_id'),
-        extra=data.get('extra', {}),
+        correlation_id=data['correlation_id'],
+        causation_id=data['causation_id'],
+        extra=data['extra'],
     )
 
 

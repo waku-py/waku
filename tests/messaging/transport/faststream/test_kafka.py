@@ -585,30 +585,6 @@ class TestDefaultKafkaEnvelopeMapperIncoming:
 
         assert meta.group_id is None
 
-    @staticmethod
-    async def test_map_incoming_empty_bytes_key_falls_back_to_header_group_id(mocker: MockerFixture) -> None:
-        # W1 guard: an empty-bytes key b'' must NOT override the header group_id with ''.
-        # Real aiokafka yields None for keyless messages; b'' is an edge case that should be ignored.
-        msg = mocker.MagicMock()
-        msg.decode = mocker.AsyncMock(return_value={})
-        msg.headers = {
-            'message_id': 'm',
-            'correlation_id': 'c',
-            'causation_id': 'x',
-            'message_type': 't',
-            'content-type': WIRE_CONTENT_TYPE,
-            'group_id': 'header-group',
-        }
-        raw_msg = mocker.MagicMock()
-        raw_msg.key = b''
-        msg.raw_message = raw_msg
-
-        mapper = DefaultKafkaEnvelopeMapper()
-        _, meta = await mapper.map_incoming(msg)
-
-        # Empty-bytes key is falsy — header group_id is preserved, not replaced with ''.
-        assert meta.group_id == 'header-group'
-
 
 _CUSTOM_PAYLOAD: dict[str, Any] = {'custom': True}
 _CUSTOM_METADATA = EnvelopeMetadata(

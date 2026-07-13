@@ -4,6 +4,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, TypeVar, cast, runtime_checkable
 
+from waku._internal.sentinel import MISSING
 from waku.extensions import OnModuleConfigure
 
 if TYPE_CHECKING:
@@ -63,6 +64,23 @@ class DynamicModule(ModuleMetadata):
         return hash(self.id)
 
 
+def _require_module_metadata(module: object, *, source: ModuleType | DynamicModule) -> ModuleMetadata:
+    """Read a module's attached metadata, raising ``ValueError`` only when it is genuinely absent.
+
+    Probing for the attribute (instead of wrapping the whole extraction) keeps a real ``AttributeError``
+    from an ``on_module_configure`` hook propagating with its own traceback, rather than being swallowed
+    and relabeled "is not module".
+
+    Raises:
+        ValueError: If *module* has no attached module metadata (i.e. *source* is not a module).
+    """
+    metadata = getattr(module, _MODULE_METADATA_KEY, MISSING)
+    if metadata is MISSING:
+        msg = f'{type(source).__name__} is not module'
+        raise ValueError(msg)
+    return cast('ModuleMetadata', metadata)
+
+
 def module(
     *,
     providers: Sequence[Provider] = (),
@@ -113,18 +131,14 @@ class ModuleCompiler:
     def extract_metadata(self, module_type: ModuleType | DynamicModule) -> tuple[ModuleType, ModuleMetadata]:
         key = cast('Hashable', module_type)
         if key not in self._cache:
-            try:
-                self._cache[key] = self._extract_metadata(module_type)
-            except AttributeError:
-                msg = f'{type(module_type).__name__} is not module'
-                raise ValueError(msg) from None
+            self._cache[key] = self._extract_metadata(module_type)
         return self._cache[key]
 
     @staticmethod
     def _extract_metadata(module_type: ModuleType | DynamicModule) -> tuple[ModuleType, ModuleMetadata]:
         if isinstance(module_type, DynamicModule):
             parent_module = module_type.parent_module
-            parent_metadata = cast('ModuleMetadata', getattr(parent_module, _MODULE_METADATA_KEY))
+            parent_metadata = _require_module_metadata(parent_module, source=module_type)
             metadata = ModuleMetadata(
                 providers=[*parent_metadata.providers, *module_type.providers],
                 imports=[*parent_metadata.imports, *module_type.imports],
@@ -138,4 +152,4 @@ class ModuleCompiler:
                     extension.on_module_configure(metadata)
             return parent_module, metadata
 
-        return module_type, cast('ModuleMetadata', getattr(module_type, _MODULE_METADATA_KEY))
+        return module_type, _require_module_metadata(module_type, source=module_type)

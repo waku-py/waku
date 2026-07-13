@@ -43,6 +43,8 @@ def _seed(inbox: FakeInboxStore) -> tuple[UUID, str]:
         message_type='tests.Event',
         source_uri=EndpointUri('local://q'),
         destination=HandlerDestination(destination),
+        correlation_id=str(uuid4()),
+        causation_id=str(uuid4()),
         owner_id='node-a:1',
     )
     return entry_id, destination

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
+import pytest
 from typing_extensions import override
 
 from waku import WakuFactory, module
@@ -96,3 +97,19 @@ def test_extract_metadata_idempotent_configure_within_compiler() -> None:
 
     assert ext.calls == 1
     assert first[1] is second[1]
+
+
+class _BoomConfigure(OnModuleConfigure):
+    @override
+    def on_module_configure(self, metadata: ModuleMetadata) -> None:
+        msg = 'boom'
+        raise AttributeError(msg)
+
+
+def test_hook_attribute_error_propagates_instead_of_being_relabeled_not_a_module() -> None:
+    # A real AttributeError raised inside an on_module_configure hook must surface with its own
+    # message/traceback, not be swallowed and relabeled as a misleading "is not module" ValueError.
+    dynamic = DynamicModule(parent_module=_ChildModule, extensions=[_BoomConfigure()])
+
+    with pytest.raises(AttributeError, match='boom'):
+        ModuleCompiler().extract_metadata(dynamic)

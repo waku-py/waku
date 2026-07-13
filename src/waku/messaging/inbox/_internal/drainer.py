@@ -175,15 +175,14 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
 
 
 def _poison_dead_letter(entry: InboxEntry, reason: str, attempt: int) -> DeadLetterEntry:
-    # Read correlation/causation from the typed columns (populated by persist/store_scheduled).
-    # Fall back to message_id when the column is NULL (e.g. legacy rows written before decomposition).
+    # correlation/causation come from the typed columns (populated by persist/store_scheduled).
     return DeadLetterEntry.from_failure(
         message_type=entry.message_type,
         payload=entry.payload,
         destination=entry.destination,
         destination_kind=DeadLetterDestinationKind.HANDLER,
-        correlation_id=entry.correlation_id if entry.correlation_id is not None else str(entry.id),
-        causation_id=entry.causation_id if entry.causation_id is not None else str(entry.id),
+        correlation_id=entry.correlation_id,
+        causation_id=entry.causation_id,
         exc=InboxPoisonError(reason),
         attempt=attempt,
         message_id=entry.message_id,

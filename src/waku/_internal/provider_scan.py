@@ -13,11 +13,13 @@ from itertools import chain
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from dishka.entities.key import DependencyKey
 
     from waku.modules import ModuleMetadataRegistry
 
-__all__ = ['provided_type_hints']
+__all__ = ['provided_type_hints', 'provided_type_hints_of']
 
 
 class _HasProvides(Protocol):
@@ -25,16 +27,39 @@ class _HasProvides(Protocol):
     def provides(self) -> DependencyKey: ...
 
 
+class _ProviderLike(Protocol):
+    @property
+    def factories(self) -> Iterable[_HasProvides]: ...
+    @property
+    def aliases(self) -> Iterable[_HasProvides]: ...
+    @property
+    def decorators(self) -> Iterable[_HasProvides]: ...
+    @property
+    def factory_union_mode(self) -> Iterable[_HasProvides]: ...
+
+
+def provided_type_hints_of(provider: _ProviderLike) -> Iterable[Any]:
+    """Yield every type hint one provider-like's dep sources provide.
+
+    Folds dishka's complete provided-type contract (factories, aliases, decorators,
+    ``factory_union_mode``) into each dep's ``provides.type_hint`` — the single iteration shared by
+    the registration-time backend scan and the accessibility validator.
+    """
+    deps: chain[_HasProvides] = chain(
+        provider.factories,
+        provider.aliases,
+        provider.decorators,
+        provider.factory_union_mode,
+    )
+    return [dep.provides.type_hint for dep in deps]
+
+
 def provided_type_hints(registry: ModuleMetadataRegistry) -> frozenset[Any]:
     """Return every type hint provided by any collected module's providers."""
-    hints: set[Any] = set()
-    for module_type in registry.modules:
-        for provider in registry.get_metadata(module_type).providers:
-            deps: chain[_HasProvides] = chain(
-                provider.factories,
-                provider.aliases,
-                provider.decorators,
-                provider.factory_union_mode,
-            )
-            hints.update(dep.provides.type_hint for dep in deps)
-    return frozenset(hints)
+    return frozenset(
+        chain.from_iterable(
+            provided_type_hints_of(provider)
+            for module_type in registry.modules
+            for provider in registry.get_metadata(module_type).providers
+        )
+    )

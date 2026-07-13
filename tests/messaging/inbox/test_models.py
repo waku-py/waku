@@ -17,6 +17,8 @@ def _make_entry(**overrides: Any) -> InboxEntry:
         'message_type': 'test.Event',
         'source_uri': EndpointUri('local://orders'),
         'destination': HandlerDestination('tests.messaging.HandlerA'),
+        'correlation_id': str(uuid4()),
+        'causation_id': str(uuid4()),
     }
     kwargs.update(overrides)
     return InboxEntry(**kwargs)

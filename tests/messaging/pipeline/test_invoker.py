@@ -16,7 +16,7 @@ from waku.messaging import (
     MessagingModule,
     ResponseT,
 )
-from waku.messaging._internal.cascading import CascadingBehavior
+from waku.messaging._internal.outbox_cascading import DeferredCascadingBehavior, OutboxCascadingBehavior
 from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
 from waku.messaging.pipeline._internal.plan import BehaviorPlan
 from waku.testing import create_test_app
@@ -107,9 +107,11 @@ async def test_handler_without_behaviors_uses_only_global() -> None:
     assert called == ['global', 'handle']
 
 
-async def test_cascading_behavior_is_outermost_in_resolved_chain() -> None:
-    # Regression pin: CascadingBehavior must be index 0 (outermost) so its post-commit
-    # flush wraps every other behavior, incl. a user TransactionalBehavior's commit.
+async def test_deferred_cascading_behavior_is_outermost_in_resolved_chain() -> None:
+    # Regression pin: DeferredCascadingBehavior must be index 0 (outermost) so its depth-aware
+    # post-commit flush wraps every other behavior, incl. a user TransactionalBehavior's commit;
+    # OutboxCascadingBehavior sits inner (OUTBOX_DRAIN), inside any user globals, where it splits
+    # each cascade by durability.
     global_b = _make_tracking_behavior('global', [])
 
     class _H(EventHandler[_Evt]):
@@ -123,8 +125,9 @@ async def test_cascading_behavior_is_outermost_in_resolved_chain() -> None:
         plan = await app.container.get(BehaviorPlan)
 
     chain = plan.for_handler(_H)
-    assert chain[0] is CascadingBehavior
+    assert chain[0] is DeferredCascadingBehavior
     assert chain[1] is global_b
+    assert chain[-1] is OutboxCascadingBehavior
 
 
 async def test_two_handlers_of_same_event_have_independent_chains() -> None:

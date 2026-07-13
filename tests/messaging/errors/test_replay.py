@@ -335,6 +335,7 @@ async def test_replay_reconstruct_and_compare_all_metadata_fields() -> None:
         message_type=envelope.message_type,
         payload=encode_payload(envelope, codec),
         destination='local://dlq',
+        destination_kind=DeadLetterDestinationKind.ENDPOINT,
         correlation_id=envelope.correlation_id,
         causation_id=envelope.causation_id,
         error_type='RuntimeError',

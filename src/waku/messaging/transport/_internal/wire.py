@@ -191,16 +191,15 @@ def wire_metadata_from_entry(entry: OutboxMessage | InboxEntry | DeadLetterEntry
     A ``None`` metadata blob yields a minimal :class:`EnvelopeMetadata` (typed columns + defaults). A
     present-but-corrupt blob raises :exc:`MalformedMetadataError` so the caller can quarantine the row.
     """
-    # message_id coalesce (load-bearing in the current schema): OutboxMessage.message_id is UUID|None
-    # (None when idempotency_key is not a UUID, e.g. a foreign row) and DeadLetterEntry.message_id is a
-    # nullable column — fall back to the entry's own id so rebuild receives a valid UUID string.
+    # message_id coalesce (load-bearing for the DeadLetterEntry arm, whose message_id column is nullable):
+    # OutboxMessage.message_id is unconditionally UUID (parsed from idempotency_key, raising on corruption)
+    # and InboxEntry.message_id is its own id — only DeadLetterEntry.message_id can be None, in which case
+    # fall back to the entry's own id so rebuild receives a valid UUID string.
     raw_message_id = entry.message_id
     message_id = str(raw_message_id) if raw_message_id is not None else str(entry.id)
-    # correlation/causation coalesce (load-bearing for InboxEntry, whose columns are nullable str|None):
-    # fall back to str(entry.id) so rebuild_envelope receives a valid UUID string rather than '' (UUID('')
-    # crashes). No-op for Outbox/DLQ, whose columns are required str.
-    correlation_id = entry.correlation_id if entry.correlation_id is not None else str(entry.id)
-    causation_id = entry.causation_id if entry.causation_id is not None else str(entry.id)
+    # correlation/causation are required str on every entry type — read them directly.
+    correlation_id = entry.correlation_id
+    causation_id = entry.causation_id
 
     wire = _load_wire_metadata(entry.metadata)
 

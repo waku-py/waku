@@ -38,7 +38,6 @@ dead_letter_table = Table(
         'destination_kind',
         EnumFromValues(DeadLetterDestinationKind),
         nullable=False,
-        server_default=DeadLetterDestinationKind.ENDPOINT.value,
     ),
     Column('correlation_id', Text, nullable=False),
     Column('causation_id', Text, nullable=False),
@@ -62,14 +61,15 @@ dead_letter_table = Table(
 
 
 def dead_letter_insert_values(entry: DeadLetterEntry) -> dict[str, Any]:
-    """The full wire-field column set the outbox/inbox stores persist when dead-lettering a message.
+    """The single ``DeadLetterEntry -> dead_letter_messages`` column mapping.
 
-    Carries ``message_id``/``group_id``/``metadata``/``destination_kind`` so a
-    ``move_to_dead_letter``-persisted row rebuilds a valid envelope on replay (non-None timestamp,
-    original ``message_id``, partition key). ``status``/``replay_count``/``created_at`` fall back to
-    their server-defaults — a fresh dead letter is ``PENDING``/``0``.
+    Every write path (the direct ``save`` and the outbox/inbox ``move_to_dead_letter`` paths) goes
+    through this one authority. Carries ``message_id``/``group_id``/``metadata``/``destination_kind``
+    so a persisted row rebuilds a valid envelope on replay, and ``status``/``replay_count`` from the
+    entry itself (a fresh dead letter is ``PENDING``/``0``, but a pre-failed entry round-trips its own
+    state). ``created_at`` is carried only when set — an unset value keeps the server-side ``now()``.
     """
-    return {
+    values: dict[str, Any] = {
         'id': entry.id,
         'message_type': entry.message_type,
         'payload': entry.payload,
@@ -80,10 +80,17 @@ def dead_letter_insert_values(entry: DeadLetterEntry) -> dict[str, Any]:
         'error_type': entry.error_type,
         'error_message': entry.error_message,
         'retry_count': entry.retry_count,
+        'status': entry.status,
+        'replay_count': entry.replay_count,
         'message_id': entry.message_id,
         'group_id': entry.group_id,
         'metadata': entry.metadata,
     }
+    if entry.created_at is not None:
+        # Honor an explicit creation instant (mirrors the memory store); None keeps the
+        # server-side now() default.
+        values['created_at'] = entry.created_at
+    return values
 
 
 @dataclass(frozen=True, slots=True)

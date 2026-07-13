@@ -83,22 +83,6 @@ class TestDeadLetterEntry:
         assert entry.destination_kind is DeadLetterDestinationKind.HANDLER
 
     @staticmethod
-    def test_default_destination_kind_is_endpoint() -> None:
-        # Legacy-row + server-default parity: a bare entry (no destination_kind) is an ENDPOINT one.
-        entry = DeadLetterEntry(
-            id=uuid4(),
-            message_type='test.FailedEvent',
-            payload={'key': 'value'},
-            destination='test://dead',
-            correlation_id=str(uuid4()),
-            causation_id=str(uuid4()),
-            error_type='RuntimeError',
-            error_message='boom',
-            retry_count=1,
-        )
-        assert entry.destination_kind is DeadLetterDestinationKind.ENDPOINT
-
-    @staticmethod
     def test_from_failure_stores_group_id_and_message_id() -> None:
         original_id = uuid4()
         entry = DeadLetterEntry.from_failure(

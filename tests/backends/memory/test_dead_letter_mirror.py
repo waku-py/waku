@@ -60,6 +60,8 @@ async def test_memory_inbox_move_to_dead_letter_visible_in_shared_dlq() -> None:
         message_type='test.Event',
         source_uri=EndpointUri('local://orders'),
         destination=HandlerDestination('tests.messaging.HandlerA'),
+        correlation_id=str(uuid4()),
+        causation_id=str(uuid4()),
     )
     await inbox.store_incoming(entry)
     dead_letter = _dead_letter(entry.destination, DeadLetterDestinationKind.HANDLER)

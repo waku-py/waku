@@ -6,7 +6,6 @@ from typing import Any
 from typing_extensions import override
 
 from waku.messaging import CallNext, HandlerMap, IPipelineBehavior, IRequest, MessageT, RequestHandler, ResponseT
-from waku.messaging._internal.cascading import CascadingBehavior
 from waku.messaging._internal.outbox_cascading import DeferredCascadingBehavior, OutboxCascadingBehavior
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import MessagingConfig, OutboxConfig
@@ -46,13 +45,21 @@ class _Other(RequestHandler[_Cmd, None]):
     async def handle(self, request: _Cmd, /) -> None: ...
 
 
-def test_plan_for_no_outbox_handler_matches_legacy_global_then_local() -> None:
+def test_plan_for_no_outbox_handler_matches_unified_cascade_chain() -> None:
+    # After the cascade collapse the no-outbox plan is identical to the outbox plan: one cascade
+    # subsystem (DeferredCascadingBehavior owns the frame, OutboxCascadingBehavior splits/defers)
+    # attaches regardless of outbox presence.
     config = MessagingConfig(global_pipeline_behaviors=(TransactionalBehavior,))
     plan = build_behavior_plan([_Handler], _FRAMEWORK_POLICIES, HandlerMap(), config)
-    assert plan.for_handler(_Handler) == (CascadingBehavior, TransactionalBehavior, _SomeBehavior)
+    assert plan.for_handler(_Handler) == (
+        DeferredCascadingBehavior,
+        TransactionalBehavior,
+        OutboxCascadingBehavior,
+        _SomeBehavior,
+    )
 
 
-def test_plan_for_outbox_handler_matches_legacy_chain() -> None:
+def test_plan_for_outbox_handler_matches_unified_cascade_chain() -> None:
     config = MessagingConfig(
         global_pipeline_behaviors=(TransactionalBehavior,),
         outbox=OutboxConfig(),

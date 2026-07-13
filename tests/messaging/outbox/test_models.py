@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
+
 from waku.messaging.outbox.models import OutboxMessage
 
 
@@ -29,5 +31,8 @@ def test_message_id_parses_valid_idempotency_key() -> None:
     assert _make_message(str(original)).message_id == original
 
 
-def test_message_id_is_none_for_non_uuid_idempotency_key() -> None:
-    assert _make_message('not-a-uuid').message_id is None
+def test_message_id_raises_for_non_uuid_idempotency_key() -> None:
+    # idempotency_key is always str(envelope.message_id) — a non-UUID key is real corruption,
+    # so accessing message_id must fail loud rather than silently lose identity.
+    with pytest.raises(ValueError, match='badly formed'):
+        _ = _make_message('not-a-uuid').message_id

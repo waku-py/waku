@@ -601,36 +601,6 @@ class TestRelayDispatchQuarantine:
         assert uow.rollback_count == 1
 
     @staticmethod
-    async def test_relay_dead_letters_poison_row_without_crashing() -> None:
-        # A foreign/backfilled row whose idempotency_key is not a UUID must quarantine cleanly
-        # (DeadLetterEntry.message_id=None) instead of crashing the tick and poison-looping.
-        store = _TrackingOutboxStore()
-        envelope = make_envelope(_TestEvent(value='poison'))
-        msg = _make_outbox_message(envelope)
-        msg = OutboxMessage(
-            id=msg.id,
-            idempotency_key='☠',
-            message_type=msg.message_type,
-            payload=msg.payload,
-            metadata=msg.metadata,
-            destination=msg.destination,
-            correlation_id=msg.correlation_id,
-            causation_id=msg.causation_id,
-        )
-        store.pending.append(msg)
-
-        async with _run_relay(
-            RelayDepsProvider(store, _FailingTransport()),
-            _EXHAUST_ON_FIRST_FAILURE_CONFIG,
-        ):
-            await wait_until(lambda: msg.id in store.dead_lettered_ids)
-
-        assert msg.id in store.dead_lettered_ids
-        assert len(store.dead_letter_entries) == 1
-        assert store.dead_letter_entries[0].message_id is None
-        assert not store.pending
-
-    @staticmethod
     async def test_relay_dead_letters_corrupt_metadata_blob_without_sending() -> None:
         # A row whose persisted metadata blob is corrupt (non-integer message_version) is deterministic
         # poison, not a transient send failure: it dead-letters immediately and the broker is never

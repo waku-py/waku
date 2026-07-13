@@ -39,8 +39,8 @@ class InboxEntry:
     destination: HandlerDestination
     status: InboxStatus = InboxStatus.INCOMING
     owner_id: str | None = None
-    correlation_id: str | None = None
-    causation_id: str | None = None
+    correlation_id: str
+    causation_id: str
     metadata: dict[str, Any] | None = None
     # Scheduled entries carry the due time; the promotion worker gates on
     # NOW() >= execution_time (SCHEDULED -> INCOMING when due). __post_init__ enforces

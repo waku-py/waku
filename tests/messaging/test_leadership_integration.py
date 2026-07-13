@@ -251,6 +251,8 @@ class TestOverlapIsSafe:
                 message_type='test.Event',
                 source_uri=EndpointUri('local://orders'),
                 destination=HandlerDestination('tests.messaging.HandlerA'),
+                correlation_id=str(uuid4()),
+                causation_id=str(uuid4()),
                 status=InboxStatus.SCHEDULED,
                 execution_time=datetime.now(tz=UTC) - timedelta(minutes=1),
                 owner_id=None,

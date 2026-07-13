@@ -18,7 +18,7 @@ from waku.messaging._internal.maintenance import (
 )
 from waku.messaging.config import DeadLetterConfig, MessagingConfig, OutboxConfig
 from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
-from waku.messaging.errors.dead_letter import DeadLetterEntry
+from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.outbox.relay import OutboxRelayConfig
@@ -177,6 +177,7 @@ def _dlq_entry() -> DeadLetterEntry:
         message_type='test.Event',
         payload={'test': True},
         destination='local://dlq',
+        destination_kind=DeadLetterDestinationKind.ENDPOINT,
         correlation_id='c',
         causation_id='c2',
         error_type='RuntimeError',

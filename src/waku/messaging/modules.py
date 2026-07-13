@@ -80,7 +80,6 @@ from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
 from waku.messaging.pipeline._internal.plan import BehaviorPlan, build_behavior_plan
 from waku.messaging.pipeline._internal.policies import (
-    CascadingPolicy,
     DeferredCascadingPolicy,
     HandlerLocalPolicy,
     OutboxDrainPolicy,
@@ -115,7 +114,6 @@ _HandlerProviders: TypeAlias = tuple[Provider, ...]
 
 # Declaration order is the tie-break within a Position tier; ES forwarding contributed by the ES module.
 _FRAMEWORK_POLICIES: tuple[IBehaviorPolicy, ...] = (
-    CascadingPolicy(),
     DeferredCascadingPolicy(),
     UserGlobalPolicy(),
     OutboxDrainPolicy(),
@@ -462,12 +460,22 @@ def _build_audited_member_resolver(config: MessagingConfig) -> AuditedMemberReso
     return resolver
 
 
+def _endpoint_observer_types(config: MessagingConfig) -> tuple[type[IMessageObserver], ...]:
+    """Observer types declared on individual endpoints, in declaration order.
+
+    The single enumeration of ``config.endpoints[*].observers`` shared by the ``many()`` registration
+    list and the plan builder — the two derive different outputs (ordered construction list vs. runtime
+    instance partition) from this one input.
+    """
+    return tuple(t for entry in config.endpoints for t in entry.observers)
+
+
 def _declared_observer_types(config: MessagingConfig) -> tuple[type[IMessageObserver], ...]:
     return tuple(
         dict.fromkeys((
             LoggingMessageObserver,
             *config.observers,
-            *(t for entry in config.endpoints for t in entry.observers),
+            *_endpoint_observer_types(config),
         ))
     )
 
@@ -479,7 +487,7 @@ def _build_observer_plan(
 ) -> ObserverPlan:
     always_global = {LoggingMessageObserver, *config.observers}
     # merged's observer types are a dedup union of the SAME config.endpoints fragments already covered above.
-    declared_endpoint = {t for entry in config.endpoints for t in entry.observers}
+    declared_endpoint = set(_endpoint_observer_types(config))
     endpoint_only = declared_endpoint - always_global
 
     global_list = [obs for obs in observers if type(obs) not in endpoint_only]
@@ -572,17 +580,18 @@ def _create_endpoint(
                 circuit_breaker_config=_resolve_circuit_breaker(entry, config),
             )
         case EndpointMode.DURABLE:
-            if config.inbox is None:
-                msg = 'EndpointMode.DURABLE requires inbox in MessagingConfig'
-                raise ImproperlyConfiguredError(msg)
+            # config.inbox is guaranteed present here by _validate_config (a DURABLE local queue
+            # requires an inbox). Narrow the type off that single validated invariant rather than
+            # re-asserting the business rule a second time.
+            inbox = cast('InboxConfig', config.inbox)
             return DurableLocalQueueEndpoint(
                 uri=entry.uri,
                 handler_subscriptions=subscriptions,
                 executor=executor,
                 observers=observers,
                 container=container,
-                inbox_config_keep_after_handled_seconds=config.inbox.keep_after_handled.total_seconds(),
-                inbox_owner_id=config.inbox.resolve_owner_id(),
+                inbox_config_keep_after_handled_seconds=inbox.keep_after_handled.total_seconds(),
+                inbox_owner_id=inbox.resolve_owner_id(),
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,
                 partition_by=entry.partition_by,

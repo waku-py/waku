@@ -2,18 +2,15 @@ import time
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
-from dishka.exceptions import NoFactoryError
-
 from waku.messaging._internal.outbox_cascading import DeferredCascadeFlusher
 from waku.messaging._internal.transaction import TransactionDepth
-from waku.messaging._internal.uow import NoOpUnitOfWork
+from waku.messaging._internal.uow import resolve_uow
 from waku.messaging.behaviors.transactional import run_in_transaction
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.exceptions import HandlerNotFoundError
 from waku.messaging.handler_map import HandlerMap
 from waku.messaging.observability.observer import INVOKE_DESTINATION, MessageObservers
 from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
-from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from waku.di import AsyncContainer
@@ -83,7 +80,7 @@ class MessageDispatcher:
             for handler_type in handlers:
                 await self._observed_invoke(scope, envelope, handler_type)
 
-        uow = await self._resolve_uow(scope)
+        uow = await resolve_uow(scope)
         depth = await scope.get(TransactionDepth)
         await run_in_transaction(uow, depth, _run_all)
         # The fan-out frame keeps depth >= 1 for every per-handler pipeline, so the per-handler
@@ -129,13 +126,3 @@ class MessageDispatcher:
             envelope, INVOKE_DESTINATION, handler_type, ExecutionOutcome.SUCCESS, None, duration
         )
         return result
-
-    @staticmethod
-    async def _resolve_uow(scope: 'AsyncContainer') -> 'IUnitOfWork':
-        # Null-provisioning seam (not the doctrine's target): a real UoW when registered, else the null
-        # UoW. The noop is NOT put on the IUnitOfWork DI key — that would defeat the UoW presence checks.
-        try:
-            uow: IUnitOfWork = await scope.get(IUnitOfWork)
-        except NoFactoryError:
-            return NoOpUnitOfWork()
-        return uow
