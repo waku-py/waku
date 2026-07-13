@@ -2,21 +2,21 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from waku.exceptions import ImproperlyConfiguredError
+
 if TYPE_CHECKING:
-    from collections.abc import Iterator
     from uuid import UUID
 
     from waku.di import BaseProvider
     from waku.modules._internal.metadata import DynamicModule, ModuleCompiler, ModuleType
     from waku.modules._internal.module import Module
-    from waku.modules._internal.registry_builder import AdjacencyMatrix
 
 
 __all__ = ['ModuleRegistry']
 
 
 class ModuleRegistry:
-    """Immutable registry and graph for module queries, traversal, and lookups."""
+    """Immutable registry for module queries and lookups."""
 
     def __init__(
         self,
@@ -25,21 +25,29 @@ class ModuleRegistry:
         root_module: Module,
         modules: dict[UUID, Module],
         providers: list[BaseProvider],
-        adjacency: AdjacencyMatrix,
     ) -> None:
         self._compiler = compiler
         self._root_module = root_module
         self._modules = modules
         self._providers = tuple(providers)
-        self._adjacency = adjacency
         self._parent_to_module = self._build_parent_mapping(modules)
 
     @staticmethod
     def _build_parent_mapping(modules: dict[UUID, Module]) -> dict[type, Module]:
-        """Build mapping from parent module classes to their registered DynamicModule instances."""
+        """Build mapping from parent module classes to their registered DynamicModule instances.
+
+        Raises:
+            ImproperlyConfiguredError: If more than one registered module shares the same parent class.
+        """
         mapping: dict[type, Module] = {}
         for mod in modules.values():
             if isinstance(mod.target, type):
+                if mod.target in mapping:
+                    msg = (
+                        f'Multiple modules are registered for parent class {mod.target.__name__!r}; '
+                        f'a parent class may back at most one registered module per application.'
+                    )
+                    raise ImproperlyConfiguredError(msg)
                 mapping[mod.target] = mod
         return mapping
 
@@ -75,34 +83,3 @@ class ModuleRegistry:
             msg = f'Module with ID {module_id} is not registered in the graph.'
             raise KeyError(msg)
         return module
-
-    def traverse(self, from_: Module | None = None) -> Iterator[Module]:
-        """Traverse the module graph in depth-first post-order (children before parent) recursively.
-
-        Args:
-            from_: Start module (default: root)
-
-        Yields:
-            Module: Each traversed module (post-order)
-        """
-        start_module = from_ or self._root_module
-        visited: set[UUID] = set()
-
-        def _dfs(module: Module) -> Iterator[Module]:
-            if module.id in visited:
-                return
-
-            visited.add(module.id)
-
-            # Process children first (maintain original order)
-            neighbor_ids = self._adjacency[module.id]
-            for neighbor_id in neighbor_ids:
-                if neighbor_id == module.id:
-                    continue
-                neighbor = self.get_by_id(neighbor_id)
-                yield from _dfs(neighbor)
-
-            # Process current module after children (post-order)
-            yield module
-
-        yield from _dfs(start_module)

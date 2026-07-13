@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from collections import OrderedDict, defaultdict
 from dataclasses import replace as _replace_dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Final, TypeAlias
-from uuid import UUID
+from typing import TYPE_CHECKING, Any, Final
 
+from waku.exceptions import ImproperlyConfiguredError
 from waku.extensions import OnModuleRegistration
 from waku.modules._internal.metadata import ModuleCompiler, ModuleMetadata, ModuleType
 from waku.modules._internal.metadata_registry import ModuleMetadataRegistry
@@ -14,19 +13,14 @@ from waku.modules._internal.registry import ModuleRegistry
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+    from uuid import UUID
 
     from waku import DynamicModule
     from waku.di import BaseProvider
     from waku.extensions import ApplicationExtension
 
 
-__all__ = [
-    'AdjacencyMatrix',
-    'ModuleRegistryBuilder',
-]
-
-
-AdjacencyMatrix: TypeAlias = dict[UUID, OrderedDict[UUID, str]]
+__all__ = ['ModuleRegistryBuilder']
 
 
 class ModuleRegistryBuilder:
@@ -47,36 +41,42 @@ class ModuleRegistryBuilder:
         self._metadata_cache: dict[ModuleType | DynamicModule, tuple[ModuleType, ModuleMetadata]] = {}
 
     def build(self) -> ModuleRegistry:
-        modules, adjacency = self._collect_modules()
+        modules = self._collect_modules()
         self._execute_registration_hooks(modules)
         root_module = self._register_modules(modules)
-        return self._build_registry(root_module, adjacency)
+        return self._build_registry(root_module)
 
-    def _collect_modules(self) -> tuple[list[tuple[ModuleType, ModuleMetadata]], AdjacencyMatrix]:
+    def _collect_modules(self) -> list[tuple[ModuleType, ModuleMetadata]]:
         visited: set[UUID] = set()
+        visiting: set[UUID] = set()
+        path: list[tuple[UUID, str]] = []
         post_order: list[tuple[ModuleType, ModuleMetadata]] = []
-        adjacency: AdjacencyMatrix = defaultdict(OrderedDict)
-        self._collect_modules_recursive(self._root_module_type, visited, post_order, adjacency)
-        return post_order, adjacency
+        self._collect_modules_recursive(self._root_module_type, visited, visiting, path, post_order)
+        return post_order
 
     def _collect_modules_recursive(
         self,
         current_type: ModuleType | DynamicModule,
         visited: set[UUID],
+        visiting: set[UUID],
+        path: list[tuple[UUID, str]],
         post_order: list[tuple[ModuleType, ModuleMetadata]],
-        adjacency: AdjacencyMatrix,
     ) -> None:
         type_, metadata = self._get_metadata(current_type)
         if metadata.id in visited:
             return
+        if metadata.id in visiting:
+            start = next(i for i, (module_id, _) in enumerate(path) if module_id == metadata.id)
+            chain = [name for _, name in path[start:]] + [type_.__name__]
+            msg = f'Circular module dependency detected: {" -> ".join(chain)}'
+            raise ImproperlyConfiguredError(msg)
 
-        adjacency[metadata.id][metadata.id] = type_.__name__
-
+        visiting.add(metadata.id)
+        path.append((metadata.id, type_.__name__))
         for imported in metadata.imports:
-            imported_type, imported_metadata = self._get_metadata(imported)
-            adjacency[metadata.id][imported_metadata.id] = imported_type.__name__
-            if imported_metadata.id not in visited:
-                self._collect_modules_recursive(imported, visited, post_order, adjacency)
+            self._collect_modules_recursive(imported, visited, visiting, path, post_order)
+        path.pop()
+        visiting.discard(metadata.id)
 
         # Isolate build-phase mutations (add_provider, is_global) from cached originals
         post_order.append((type_, self._copy_metadata(metadata)))
@@ -135,11 +135,10 @@ class ModuleRegistryBuilder:
             extensions=list(metadata.extensions),
         )
 
-    def _build_registry(self, root_module: Module, adjacency: AdjacencyMatrix) -> ModuleRegistry:
+    def _build_registry(self, root_module: Module) -> ModuleRegistry:
         return ModuleRegistry(
             compiler=self._compiler,
             modules=self._modules,
             providers=self._providers,
             root_module=root_module,
-            adjacency=adjacency,
         )

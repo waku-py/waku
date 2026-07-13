@@ -139,6 +139,22 @@ async def test_create_test_app_rejects_conditional_override() -> None:
             pass
 
 
+async def test_create_test_app_override_leaves_provider_reusable_as_plain_provider() -> None:
+    shared = singleton(IService, FakeService)
+
+    @module(providers=[singleton(IService, RealService)])
+    class BaseModule:
+        pass
+
+    async with create_test_app(base=BaseModule, providers=[shared]) as app:
+        service = await app.container.get(IService)
+        assert service.get_value() == 'fake'
+
+    async with create_test_app(providers=[shared]) as app:
+        service = await app.container.get(IService)
+        assert service.get_value() == 'fake'
+
+
 async def test_create_test_app_base_module_without_override() -> None:
     @module(providers=[singleton(IService, RealService)])
     class BaseModule:

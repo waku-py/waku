@@ -163,7 +163,6 @@ def contextual(
     return provider_
 
 
-# TODO(inbox):  # noqa: FIX002
 def many(
     interface: Any,
     *implementations: Any,

@@ -367,6 +367,29 @@ async def test_sequential_overrides_on_same_container() -> None:
             assert isinstance(service, SomeService)
 
 
+async def test_override_leaves_caller_provider_reusable_as_plain_provider() -> None:
+    shared = singleton(ISomeService, FakeSomeService)
+
+    AppModule = create_basic_module(
+        providers=[scoped(ISomeService, SomeService)],
+        name='AppModule',
+    )
+    application = WakuFactory(AppModule).create()
+
+    async with application:
+        with override(application.container, shared):
+            async with application.container() as request_container:
+                overrode_service = await request_container.get(ISomeService)
+                assert isinstance(overrode_service, FakeSomeService)
+
+    PlainModule = create_basic_module(providers=[shared], name='PlainModule')
+    plain_application = WakuFactory(PlainModule).create()
+
+    async with plain_application:
+        service = await plain_application.container.get(ISomeService)
+        assert isinstance(service, FakeSomeService)
+
+
 async def test_override_nonexistent_type_raises() -> None:
     class Unregistered:
         pass

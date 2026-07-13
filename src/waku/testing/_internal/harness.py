@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import copy
 from contextlib import asynccontextmanager, contextmanager
 from itertools import chain
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
 
 from dishka import STRICT_VALIDATION, Scope, make_async_container
 from dishka.async_container import CONTAINER_KEY
+from dishka.dependency_source import ContextVariable
 from dishka.entities.factory_type import FactoryType
 from dishka.entities.marker import BaseMarker, BoolMarker
 
@@ -32,6 +34,9 @@ __all__ = [
     'create_test_app',
     'override',
 ]
+
+
+_ProviderT = TypeVar('_ProviderT', bound=BaseProvider)
 
 
 class _HasOverride(Protocol):
@@ -89,13 +94,13 @@ def override(
         )
         raise ValueError(msg)
 
-    _mark_as_overrides(providers)
+    marked = tuple(_as_override(provider) for provider in providers)
 
     original_context = container._context or {}  # noqa: SLF001
     merged_context = {**original_context, **(context or {})}
     new_container = make_async_container(
         _container_provider(container),
-        *providers,
+        *marked,
         context=merged_context,
         start_scope=container.scope,
         validation_settings=STRICT_VALIDATION,
@@ -218,9 +223,7 @@ async def create_test_app(
     if base is not None:
         all_imports.insert(0, base)
 
-    override_providers = list(providers)
-    if base is not None:
-        _mark_as_overrides(override_providers)
+    override_providers = [_as_override(provider) for provider in providers] if base is not None else list(providers)
 
     @module(
         providers=override_providers,
@@ -235,14 +238,24 @@ async def create_test_app(
         yield app
 
 
-def _mark_as_overrides(providers: Sequence[BaseProvider]) -> None:
-    for prov in providers:
-        for factory in chain[_HasOverride](prov.factories, prov.aliases):
-            # dishka forbids combining `when=` with an override: an override replaces base providers
-            # unconditionally, so a conditional one would silently drop its activation condition.
-            if factory.when_active is not None:
-                msg = 'A conditional provider (declared with `when=`) cannot be used as an override.'
-                raise ImproperlyConfiguredError(msg)
-            factory.when_override = BoolMarker(True)  # noqa: FBT003
-        for context_var in prov.context_vars:
-            context_var.override = True
+def _as_override(provider: _ProviderT) -> _ProviderT:
+    """Build an override-marked copy of a provider, leaving the caller's object untouched.
+
+    Raises:
+        ImproperlyConfiguredError: If the provider is conditional (declared with `when=`).
+    """
+    for factory in chain[_HasOverride](provider.factories, provider.aliases):
+        # dishka forbids combining `when=` with an override: an override replaces base providers
+        # unconditionally, so a conditional one would silently drop its activation condition.
+        if factory.when_active is not None:
+            msg = 'A conditional provider (declared with `when=`) cannot be used as an override.'
+            raise ImproperlyConfiguredError(msg)
+
+    marked = copy.copy(provider)
+    marked.factories = [factory.replace(when_override=BoolMarker(True)) for factory in provider.factories]  # noqa: FBT003
+    marked.aliases = [alias.replace(when_override=BoolMarker(True)) for alias in provider.aliases]  # noqa: FBT003
+    marked.context_vars = [
+        ContextVariable(provides=context_var.provides, scope=context_var.scope, override=True)
+        for context_var in provider.context_vars
+    ]
+    return marked
