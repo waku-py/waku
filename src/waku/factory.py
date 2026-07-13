@@ -41,6 +41,8 @@ class ContainerConfig:
 
 
 class WakuFactory:
+    """Builds a ``WakuApplication`` from a root module: module registry, DI container, extensions."""
+
     def __init__(
         self,
         root_module_type: ModuleType,

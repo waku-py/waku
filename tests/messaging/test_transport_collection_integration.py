@@ -36,7 +36,7 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, RecordingAllocator
+from tests.messaging.helpers import RecordingAllocator, RecordingUoW
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -77,7 +77,7 @@ class TestTransportCollectionIntegration:
             create_test_app(
                 imports=[MessagingModule.register(config), TestModule],
                 providers=[
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(outbox, provided_type=IOutboxStore),
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),

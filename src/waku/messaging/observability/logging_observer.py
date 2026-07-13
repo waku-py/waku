@@ -1,6 +1,6 @@
 import logging
 from datetime import timedelta
-from typing import Any
+from typing import Any, Final
 
 from typing_extensions import override
 
@@ -12,13 +12,16 @@ from waku.messaging.observability.observer import INVOKE_DESTINATION, IMessageOb
 
 __all__ = ['LoggingMessageObserver']
 
-_LOGGER_ROOT = 'waku.message'
-_FAILURE_OUTCOMES = frozenset({
+_LOGGER_ROOT: Final[str] = 'waku.message'
+_FAILURE_OUTCOMES: Final[frozenset[ExecutionOutcome]] = frozenset({
     ExecutionOutcome.DEAD_LETTERED,
     ExecutionOutcome.DEAD_LETTER_FAILED,
     ExecutionOutcome.FAILED_NO_POLICY,
 })
-_WARNING_OUTCOMES = frozenset({ExecutionOutcome.REQUEUED, ExecutionOutcome.PAUSED})
+_WARNING_OUTCOMES: Final[frozenset[ExecutionOutcome]] = frozenset({
+    ExecutionOutcome.REQUEUED,
+    ExecutionOutcome.PAUSED,
+})
 
 
 def _executed_level(outcome: ExecutionOutcome) -> int:

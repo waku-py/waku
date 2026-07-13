@@ -26,7 +26,7 @@ from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW
+from tests.messaging.helpers import RecordingUoW
 
 
 async def _ok() -> str:  # noqa: RUF029
@@ -41,7 +41,7 @@ async def _fail() -> str:  # noqa: RUF029
 class TestTransactionalBehavior:
     @staticmethod
     async def test_commits_on_success() -> None:
-        uow = FakeUoW()
+        uow = RecordingUoW()
         behavior = TransactionalBehavior(uow, TransactionDepth())
 
         result = await behavior.handle('msg', call_next=_ok)
@@ -52,7 +52,7 @@ class TestTransactionalBehavior:
 
     @staticmethod
     async def test_rolls_back_on_handler_error() -> None:
-        uow = FakeUoW()
+        uow = RecordingUoW()
         behavior = TransactionalBehavior(uow, TransactionDepth())
 
         with pytest.raises(ValueError, match='handler broke'):
@@ -63,7 +63,7 @@ class TestTransactionalBehavior:
 
     @staticmethod
     async def test_rolls_back_on_commit_error() -> None:
-        uow = FakeUoW(commit_error=RuntimeError('commit failed'))
+        uow = RecordingUoW(commit_error=RuntimeError('commit failed'))
         behavior = TransactionalBehavior(uow, TransactionDepth())
 
         with pytest.raises(RuntimeError, match='commit failed'):
@@ -73,7 +73,7 @@ class TestTransactionalBehavior:
 
     @staticmethod
     async def test_logs_and_reraises_when_rollback_fails_after_handler_error(caplog: Any) -> None:
-        uow = FakeUoW(rollback_error=RuntimeError('rollback exploded'))
+        uow = RecordingUoW(rollback_error=RuntimeError('rollback exploded'))
         behavior = TransactionalBehavior(uow, TransactionDepth())
 
         with (
@@ -86,7 +86,7 @@ class TestTransactionalBehavior:
 
     @staticmethod
     async def test_logs_and_reraises_when_rollback_fails_after_commit_error(caplog: Any) -> None:
-        uow = FakeUoW(commit_error=RuntimeError('commit boom'), rollback_error=OSError('rollback boom'))
+        uow = RecordingUoW(commit_error=RuntimeError('commit boom'), rollback_error=OSError('rollback boom'))
         behavior = TransactionalBehavior(uow, TransactionDepth())
 
         with (
@@ -101,7 +101,7 @@ class TestTransactionalBehavior:
 class TestNestingAwareTransactional:
     @staticmethod
     async def test_single_level_commits_once() -> None:
-        uow = FakeUoW()
+        uow = RecordingUoW()
         depth = TransactionDepth()
         behavior = TransactionalBehavior(uow, depth)
 
@@ -111,7 +111,7 @@ class TestNestingAwareTransactional:
 
     @staticmethod
     async def test_nested_behaviors_share_one_commit() -> None:
-        uow = FakeUoW()
+        uow = RecordingUoW()
         depth = TransactionDepth()
         outer = TransactionalBehavior(uow, depth)
         inner = TransactionalBehavior(uow, depth)
@@ -126,7 +126,7 @@ class TestNestingAwareTransactional:
 
     @staticmethod
     async def test_inner_failure_rolls_back_once_at_outer() -> None:
-        uow = FakeUoW()
+        uow = RecordingUoW()
         depth = TransactionDepth()
         outer = TransactionalBehavior(uow, depth)
         inner = TransactionalBehavior(uow, depth)
@@ -142,7 +142,7 @@ class TestNestingAwareTransactional:
 
     @staticmethod
     async def test_outer_commit_forced_rollback_when_caught_inner_failure() -> None:
-        uow = FakeUoW()
+        uow = RecordingUoW()
         depth = TransactionDepth()
         outer = TransactionalBehavior(uow, depth)
         inner = TransactionalBehavior(uow, depth)
@@ -169,7 +169,7 @@ class _TxRequest(IRequest[None]):
 class TestTransactionalBehaviorViaDI:
     @staticmethod
     async def test_wired_via_global_pipeline_behaviors_commits_on_success() -> None:
-        uow = FakeUoW()
+        uow = RecordingUoW()
 
         class _Handler(RequestHandler[_TxRequest, None]):
             @override
@@ -191,7 +191,7 @@ class TestTransactionalBehaviorViaDI:
 
     @staticmethod
     async def test_wired_via_global_pipeline_behaviors_rolls_back_on_handler_error() -> None:
-        uow = FakeUoW()
+        uow = RecordingUoW()
 
         class _Handler(RequestHandler[_TxRequest, None]):
             @override
@@ -216,7 +216,7 @@ class TestTransactionalBehaviorViaDI:
 
     @staticmethod
     async def test_declared_subclass_resolves_via_di_and_commits() -> None:
-        uow = FakeUoW()
+        uow = RecordingUoW()
         recorder: list[Any] = []
 
         class _RecordingTransactional(TransactionalBehavior):

@@ -30,14 +30,14 @@ def split_destination(uri: str, *, default_scheme: str | None) -> tuple[str, str
         scheme, queue = uri.split('://', 1)
     elif default_scheme is None:
         msg = (
-            f"Cannot resolve bare destination '{uri}': no default scheme is set. "
+            f'Cannot resolve bare destination {uri!r}: no default scheme is set. '
             'Register exactly one transport or pass default_scheme explicitly.'
         )
         raise ImproperlyConfiguredError(msg)
     else:
         scheme, queue = default_scheme, uri
     if not scheme or not queue:
-        msg = f"transport destination '{uri}' needs both a scheme and a queue (e.g. 'rabbitmq://orders')."
+        msg = f"transport destination {uri!r} needs both a scheme and a queue (e.g. 'rabbitmq://orders')."
         raise ImproperlyConfiguredError(msg)
     return scheme, queue
 
@@ -101,7 +101,7 @@ class TransportRegistry:
         scheme, _ = split_destination(uri, default_scheme=self._default_scheme)
         transport = self._transports.get(scheme)
         if transport is None:
-            msg = f"no transport registered for scheme '{scheme}' (uri='{uri}')."
+            msg = f'no transport registered for scheme {scheme!r} (uri={uri!r}).'
             raise ImproperlyConfiguredError(msg)
         return transport
 
@@ -115,7 +115,7 @@ class TransportRegistry:
             if not isinstance(mapper, family):
                 scheme = split_destination(uri, default_scheme=self._default_scheme)[0]
                 msg = (
-                    f"Envelope mapper {type(mapper).__name__} configured for '{uri}' does not match "
-                    f"the '{scheme}' transport: expected an instance of {family.__name__}."
+                    f'Envelope mapper {type(mapper).__name__} configured for {uri!r} does not match '
+                    f'the {scheme!r} transport: expected an instance of {family.__name__}.'
                 )
                 raise ImproperlyConfiguredError(msg)

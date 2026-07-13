@@ -6,7 +6,7 @@ import contextlib
 import enum
 import time
 from collections import deque
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import anyio
 from typing_extensions import override
@@ -24,7 +24,7 @@ __all__ = [
     'CircuitState',
 ]
 
-_FAILURE_OUTCOMES = frozenset({
+_FAILURE_OUTCOMES: Final[frozenset[ExecutionOutcome]] = frozenset({
     ExecutionOutcome.DEAD_LETTERED,
     ExecutionOutcome.DEAD_LETTER_FAILED,
     ExecutionOutcome.FAILED_NO_POLICY,

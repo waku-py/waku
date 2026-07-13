@@ -27,9 +27,9 @@ from waku.uow import IUnitOfWork
 from tests._wait import ControllableSleep, wait_until
 from tests.messaging.helpers import (
     NOOP_OBSERVERS,
-    FakeUoW,
     RecordingAllocator,
     RecordingDeadLetterStore,
+    RecordingUoW,
     make_codec,
     make_envelope,
 )
@@ -157,7 +157,7 @@ class _EndpointDepsProvider(Provider):
         self._inbox = inbox
         self._dlq = dlq
         self._codec = make_codec()
-        self._uow: IUnitOfWork = FakeUoW()
+        self._uow: IUnitOfWork = RecordingUoW()
         self._allocator = allocator or RecordingAllocator()
 
     @provide

@@ -461,6 +461,15 @@ class SqlAlchemyEventStore(IEventStore):
 
 
 def make_sqlalchemy_event_store(tables: EventStoreTables) -> SqlAlchemyEventStoreFactory:
+    """Bind the event-store tables and return a factory that builds a ``SqlAlchemyEventStore`` per session.
+
+    Args:
+        tables: The bound event-store tables (streams and events) the store reads and writes.
+
+    Returns:
+        A factory callable that assembles a ``SqlAlchemyEventStore`` from a session and its collaborators.
+    """
+
     def factory(  # noqa: PLR0913
         session: AsyncSession,
         serializer: IEventSerializer,

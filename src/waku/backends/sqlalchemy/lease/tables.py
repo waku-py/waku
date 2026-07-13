@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy import Column, MetaData, Table, Text, func
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 
-__all__ = ['bind_lease_tables']
+__all__ = [
+    'LeaseTables',
+    'bind_lease_tables',
+]
 
 # The one shared lease table, keyed by an opaque `name`. The `waku:` name prefix is reserved for
 # framework-owned roles (e.g. a future `'waku:leader'` leadership row); projection lease names are
@@ -21,7 +26,16 @@ waku_leases_table = Table(
 )
 
 
-def bind_lease_tables(metadata: MetaData) -> Table:
-    if waku_leases_table.name in metadata.tables:
-        return metadata.tables[waku_leases_table.name]
-    return waku_leases_table.to_metadata(metadata)
+@dataclass(frozen=True, slots=True)
+class LeaseTables:
+    leases: Table
+
+
+def bind_lease_tables(metadata: MetaData) -> LeaseTables:
+    """Bind the lease table onto ``metadata``, returning the bound-table wrapper (idempotent)."""
+    leases = (
+        metadata.tables[waku_leases_table.name]
+        if waku_leases_table.name in metadata.tables
+        else waku_leases_table.to_metadata(metadata)
+    )
+    return LeaseTables(leases=leases)

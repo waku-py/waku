@@ -3,7 +3,7 @@ from __future__ import annotations
 import enum
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Generic, Protocol, Self, TypeVar
+from typing import TYPE_CHECKING, Any, Final, Generic, Protocol, Self, TypeVar
 
 from waku._internal.adaptive_interval import calculate_backoff_with_jitter
 
@@ -30,11 +30,11 @@ class RetryAction(enum.Enum):
     PAUSE = 'PAUSE'
 
 
-_TERMINAL_ACTIONS = frozenset({RetryAction.DISCARD, RetryAction.DEAD_LETTER})
-_RETRY_ACTIONS = frozenset({RetryAction.RETRY, RetryAction.RETRY_WITH_BACKOFF})
+_TERMINAL_ACTIONS: Final[frozenset[RetryAction]] = frozenset({RetryAction.DISCARD, RetryAction.DEAD_LETTER})
+_RETRY_ACTIONS: Final[frozenset[RetryAction]] = frozenset({RetryAction.RETRY, RetryAction.RETRY_WITH_BACKOFF})
 # Deferred-terminal: message survives — endpoint re-delivers (and PAUSE also halts the listener);
 # not retried inline, not dropped. Chain ends but `exhausted=False`.
-DEFERRED_TERMINAL_ACTIONS = frozenset({RetryAction.REQUEUE, RetryAction.PAUSE})
+DEFERRED_TERMINAL_ACTIONS: Final[frozenset[RetryAction]] = frozenset({RetryAction.REQUEUE, RetryAction.PAUSE})
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

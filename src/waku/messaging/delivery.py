@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from waku.messaging.exceptions import ConflictingDeliveryOptionsError
 
@@ -14,7 +14,7 @@ __all__ = [
     'DeliveryOptions',
 ]
 
-_ZERO = timedelta(0)
+_ZERO: Final[timedelta] = timedelta(0)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

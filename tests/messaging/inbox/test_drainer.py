@@ -30,7 +30,13 @@ from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, RecordingAllocator, RecordingDeadLetterStore, make_codec, make_envelope
+from tests.messaging.helpers import (
+    RecordingAllocator,
+    RecordingDeadLetterStore,
+    RecordingUoW,
+    make_codec,
+    make_envelope,
+)
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
@@ -187,7 +193,7 @@ async def test_drain_crash_recovery_rebuilds_envelope_from_decomposed_row() -> N
     inbox.entries[entry.id, entry.destination] = entry
 
     executor = _CapturingExecutor()
-    async with make_async_container(_Deps(inbox, FakeUoW())) as container:
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
         processed = await _drainer(container, executor).drain_once()
 
     assert processed == 1
@@ -204,7 +210,7 @@ async def test_drain_executes_and_marks_handled_on_success() -> None:
     inbox = FakeInboxStore()
     entry = _abandoned_entry(inbox)
     executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
-    async with make_async_container(_Deps(inbox, FakeUoW())) as container:
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
         processed = await _drainer(container, executor).drain_once()
     assert processed == 1
     assert executor.calls == [(entry.message_type, _RecordingHandler)]
@@ -215,7 +221,7 @@ async def test_drain_deletes_row_on_dead_letter() -> None:
     inbox = FakeInboxStore()
     entry = _abandoned_entry(inbox)
     executor = _StubExecutor(return_value=ExecutionOutcome.DEAD_LETTERED)
-    async with make_async_container(_Deps(inbox, FakeUoW())) as container:
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
         await _drainer(container, executor).drain_once()
     # delete must be the outcome of execution, not a bypass that skips the handler
     assert executor.calls == [(entry.message_type, _RecordingHandler)]
@@ -226,7 +232,7 @@ async def test_drain_poison_unknown_handler_under_cap_bumps_attempts_and_leaves_
     inbox = FakeInboxStore()
     entry = _abandoned_entry(inbox, destination='tests.GoneHandler')
     executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
-    async with make_async_container(_Deps(inbox, FakeUoW())) as container:
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
         processed = await _drainer(container, executor, max_attempts=3).drain_once()
     assert processed == 0
     assert executor.calls == []
@@ -241,7 +247,7 @@ async def test_drain_poison_unrebuildable_payload_bumps_attempts() -> None:
     inbox = FakeInboxStore()
     entry = _abandoned_entry(inbox)
     inbox.entries[entry.id, entry.destination] = replace(entry, metadata=None)
-    async with make_async_container(_Deps(inbox, FakeUoW())) as container:
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
         processed = await _drainer(
             container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3
         ).drain_once()
@@ -253,7 +259,7 @@ async def test_drain_poison_at_cap_dead_letters_and_deletes() -> None:
     inbox = FakeInboxStore()
     dlq = RecordingDeadLetterStore()
     entry = _abandoned_entry(inbox, destination='tests.GoneHandler', attempts=2)
-    async with make_async_container(_Deps(inbox, FakeUoW()), _DlqProvider(dlq)) as container:
+    async with make_async_container(_Deps(inbox, RecordingUoW()), _DlqProvider(dlq)) as container:
         await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
     assert (entry.id, entry.destination) not in inbox.entries
     assert len(dlq.entries) == 1
@@ -271,7 +277,7 @@ async def test_drain_poison_corrupt_metadata_blob_at_cap_dead_letters() -> None:
         entry,
         metadata={'message_version': 'abc', 'timestamp': '2026-06-29T10:00:00+00:00', 'headers': {}},
     )
-    async with make_async_container(_Deps(inbox, FakeUoW()), _DlqProvider(dlq)) as container:
+    async with make_async_container(_Deps(inbox, RecordingUoW()), _DlqProvider(dlq)) as container:
         await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
     assert (entry.id, entry.destination) not in inbox.entries
     assert len(dlq.entries) == 1
@@ -283,7 +289,9 @@ async def test_drain_poison_at_cap_discards_and_deletes(caplog: pytest.LogCaptur
     # deletes the row and (N5) emits the discarding WARN naming the loss before the drop.
     inbox = FakeInboxStore()
     entry = _abandoned_entry(inbox, destination='tests.GoneHandler', attempts=2)
-    async with make_async_container(_Deps(inbox, FakeUoW()), _DlqProvider(DiscardingDeadLetterStore())) as container:
+    async with make_async_container(
+        _Deps(inbox, RecordingUoW()), _DlqProvider(DiscardingDeadLetterStore())
+    ) as container:
         with caplog.at_level(logging.WARNING, logger='waku.messaging.errors._internal.discarding_store'):
             await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
     assert (entry.id, entry.destination) not in inbox.entries
@@ -295,7 +303,7 @@ async def test_drain_isolates_poison_from_healthy_entries_in_a_batch() -> None:
     good = _abandoned_entry(inbox)
     poison = _abandoned_entry(inbox, destination='tests.GoneHandler')
     executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
-    async with make_async_container(_Deps(inbox, FakeUoW())) as container:
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
         processed = await _drainer(container, executor, max_attempts=3).drain_once()
     assert processed == 1
     assert inbox.entries[good.id, good.destination].status is InboxStatus.HANDLED
@@ -309,7 +317,7 @@ async def test_drain_skips_already_owned_incoming() -> None:
     # no re-execution). Empty-inbox alone can't distinguish "skips owned" from "nothing to claim".
     inbox.entries[entry.id, entry.destination] = replace(entry, owner_id='other-node:1')
     executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
-    async with make_async_container(_Deps(inbox, FakeUoW())) as container:
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
         processed = await _drainer(container, executor).drain_once()
     assert processed == 0
     assert executor.calls == []
@@ -328,7 +336,7 @@ async def test_drain_logs_and_continues_when_an_entry_raises() -> None:
     good = _abandoned_entry(inbox)
     poison = _abandoned_entry(inbox, destination='tests.GoneHandler')
     executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
-    async with make_async_container(_Deps(inbox, FakeUoW())) as container:
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
         processed = await _drainer(container, executor, max_attempts=3).drain_once()
     assert processed == 1
     assert inbox.entries[good.id, good.destination].status is InboxStatus.HANDLED
@@ -341,7 +349,7 @@ async def test_drain_deferred_terminal_under_cap_bumps_attempts_and_leaves_claim
     inbox = FakeInboxStore()
     entry = _abandoned_entry(inbox)
     executor = _StubExecutor(return_value=ExecutionOutcome.REQUEUED)
-    async with make_async_container(_Deps(inbox, FakeUoW())) as container:
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
         processed = await _drainer(container, executor, max_attempts=3).drain_once()
     assert processed == 0
     assert executor.calls == [(entry.message_type, _RecordingHandler)]  # the handler DID run
@@ -355,7 +363,7 @@ async def test_drain_deferred_terminal_at_cap_dead_letters() -> None:
     dlq = RecordingDeadLetterStore()
     entry = _abandoned_entry(inbox, attempts=2)
     executor = _StubExecutor(return_value=ExecutionOutcome.PAUSED)
-    async with make_async_container(_Deps(inbox, FakeUoW()), _DlqProvider(dlq)) as container:
+    async with make_async_container(_Deps(inbox, RecordingUoW()), _DlqProvider(dlq)) as container:
         await _drainer(container, executor, max_attempts=3).drain_once()
     assert (entry.id, entry.destination) not in inbox.entries  # bounded -> dead-lettered + deleted at the cap
     assert len(dlq.entries) == 1
@@ -381,7 +389,7 @@ async def test_drain_poison_at_cap_reads_correlation_from_typed_columns_not_payl
         correlation_id=expected_correlation,
         causation_id=expected_causation,
     )
-    async with make_async_container(_Deps(inbox, FakeUoW()), _DlqProvider(dlq)) as container:
+    async with make_async_container(_Deps(inbox, RecordingUoW()), _DlqProvider(dlq)) as container:
         await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
     assert len(dlq.entries) == 1
     assert dlq.entries[0].correlation_id == expected_correlation
@@ -403,7 +411,7 @@ async def test_drain_crash_recovery_keyed_on_scheme_qualified_source_uri() -> No
         factory_calls.append(source_uri)
         return executor
 
-    async with make_async_container(_Deps(inbox, FakeUoW())) as container:
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
         drainer = InboxDrainer(
             container=container,
             codec=_CODEC,
@@ -449,7 +457,7 @@ async def test_build_inbox_drainer_executor_enforces_config_deadline() -> None:
         imports=[MessagingModule.register(config)],
         extensions=[MessagingExtension().bind(_DrainCheckpointHandler)],
         providers=[
-            object_(FakeUoW(), provided_type=IUnitOfWork),
+            object_(RecordingUoW(), provided_type=IUnitOfWork),
             object_(fake_inbox, provided_type=IInboxStore),
             object_(RecordingAllocator(), provided_type=ISequenceAllocator),
         ],

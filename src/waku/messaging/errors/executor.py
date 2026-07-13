@@ -26,6 +26,8 @@ class FailureContext:
 
 
 class ErrorPolicyEvaluator:
+    """Resolves the error policy for a failure and walks its escalation stages to an outcome."""
+
     __slots__ = ('_registry',)
 
     def __init__(self, registry: ErrorPolicyRegistry) -> None:

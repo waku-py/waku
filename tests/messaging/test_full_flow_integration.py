@@ -48,10 +48,10 @@ from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
 from tests.messaging.helpers import (
-    FakeUoW,
     RecordingAllocator,
     RecordingDeadLetterStore,
     RecordingTransport,
+    RecordingUoW,
     RelayDepsProvider,
     make_codec,
     make_envelope,
@@ -114,7 +114,10 @@ class TestEndToEndOutboxFlow:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config), TestModule],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), scoped(IOutboxStore, InMemoryOutboxStore)],
+                providers=[
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
+                    scoped(IOutboxStore, InMemoryOutboxStore),
+                ],
             ) as app,
             app.container() as c,
         ):
@@ -163,7 +166,7 @@ class TestErrorPolicyIntegration:
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
                 providers=[
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(dl_store, provided_type=IDeadLetterStore),
                 ],
             ) as app,
@@ -204,7 +207,10 @@ class TestOutboxRelayLifecycleIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config), TestModule],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(outbox, provided_type=IOutboxStore)],
+                providers=[
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
+                    object_(outbox, provided_type=IOutboxStore),
+                ],
             ) as app,
             app.container() as c,
         ):
@@ -284,7 +290,7 @@ class TestTransportStartupOrdering:
 
         async with create_test_app(
             imports=[MessagingModule.register(config), TestModule],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(outbox, provided_type=IOutboxStore)],
+            providers=[object_(RecordingUoW(), provided_type=IUnitOfWork), object_(outbox, provided_type=IOutboxStore)],
         ):
             await wait_until(lambda: len(transport.sent) == 1)
 
@@ -312,7 +318,7 @@ class TestMessageIdentityPropagation:
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_OrderPlacedHandler)],
                 providers=[
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(store, provided_type=IOutboxStore),
                 ],
             ) as app,
@@ -342,7 +348,7 @@ class TestMessageIdentityPropagation:
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_OrderPlacedHandler)],
                 providers=[
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(store, provided_type=IOutboxStore),
                 ],
             ) as app,
@@ -560,7 +566,7 @@ class TestGroupIdPropagation:
             create_test_app(
                 imports=[MessagingModule.register(config), TestModule],
                 providers=[
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     object_(outbox, provided_type=IOutboxStore),
                 ],
@@ -602,7 +608,7 @@ class TestPartitionOrderingEndToEnd:
             create_test_app(
                 imports=[MessagingModule.register(config), TestModule],
                 providers=[
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     object_(outbox, provided_type=IOutboxStore),
                 ],
@@ -654,7 +660,7 @@ class TestMultiDestinationFanOut:
             create_test_app(
                 imports=[MessagingModule.register(config), TestModule],
                 providers=[
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     object_(outbox, provided_type=IOutboxStore),
                 ],

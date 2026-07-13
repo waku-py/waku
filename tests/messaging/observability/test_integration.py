@@ -43,9 +43,9 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, RecordingAllocator, RecordingTransport, make_envelope
+from tests.messaging.helpers import RecordingAllocator, RecordingTransport, RecordingUoW, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
-from tests.messaging.outbox.fake_store import FakeOutboxStore
+from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -305,7 +305,7 @@ async def test_durable_and_drainer_paths_fire_executing_and_executed(caplog: pyt
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_DurableHandler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
             ],
@@ -537,8 +537,8 @@ async def test_external_endpoint_declared_observer_fires_on_sent() -> None:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_OrderedHandler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
-                scoped(IOutboxStore, FakeOutboxStore),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
+                scoped(IOutboxStore, RecordingOutboxStore),
                 singleton(_EndpointSink),
             ],
         ) as app,

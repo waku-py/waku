@@ -14,6 +14,8 @@ __all__ = ['CatchUpProjectionRegistry']
 
 
 class CatchUpProjectionRegistry:
+    """Registry of catch-up projection bindings, keyed by unique projection name."""
+
     def __init__(self, bindings: tuple[CatchUpProjectionBinding, ...]) -> None:
         self._bindings = bindings
         by_name: dict[str, CatchUpProjectionBinding] = {}

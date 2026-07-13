@@ -194,6 +194,7 @@ SQLAlchemy durability backend: entry point, store adapters, tables.
 `EnumFromValues` ·
 `EventStoreTables` ·
 `InboxTables` ·
+`LeaseTables` ·
 `OutboxTables` ·
 `PostgresAdvisoryLease` ·
 `PostgresLease` ·
@@ -216,9 +217,7 @@ SQLAlchemy durability backend: entry point, store adapters, tables.
 `bind_outbox_tables` ·
 `bind_sequence_tables` ·
 `bind_snapshot_tables` ·
-`make_sqlalchemy_checkpoint_store` ·
-`make_sqlalchemy_event_store` ·
-`make_sqlalchemy_snapshot_store`
+`make_sqlalchemy_event_store`
 
 ## `waku.backends.memory`
 

@@ -5,7 +5,7 @@ import contextlib
 import logging
 import time
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import anyio
 from typing_extensions import override
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 # Per-node jitter carried over from ScheduledPromotionWorker: multi-pod FOR UPDATE SKIP LOCKED
 # claims don't stomp (Wolverine parity). Harmless under a single leader-owned agent.
-_PROMOTION_JITTER_FACTOR = 0.1
+_PROMOTION_JITTER_FACTOR: Final[float] = 0.1
 
 
 class _OutboxMaintenancePoller(PollingAgent):

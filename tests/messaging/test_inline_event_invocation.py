@@ -29,8 +29,8 @@ from waku.messaging.exceptions import HandlerNotFoundError
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW
-from tests.messaging.outbox.fake_store import FakeOutboxStore
+from tests.messaging.helpers import RecordingUoW
+from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
@@ -53,7 +53,9 @@ class _AuditLogged(IEvent):  # routed to an INLINE local_queue -> non-durable ca
     order: str
 
 
-def _transactional_app(uow: FakeUoW, extension: MessagingExtension) -> AbstractAsyncContextManager[WakuApplication]:
+def _transactional_app(
+    uow: RecordingUoW, extension: MessagingExtension
+) -> AbstractAsyncContextManager[WakuApplication]:
     return create_test_app(
         providers=[object_(uow, provided_type=IUnitOfWork)],
         imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[TransactionalBehavior]))],
@@ -61,8 +63,8 @@ def _transactional_app(uow: FakeUoW, extension: MessagingExtension) -> AbstractA
     )
 
 
-def _fresh_uow() -> FakeUoW:
-    return FakeUoW()
+def _fresh_uow() -> RecordingUoW:
+    return RecordingUoW()
 
 
 def _cascading_app(extension: MessagingExtension) -> AbstractAsyncContextManager[WakuApplication]:
@@ -76,7 +78,7 @@ def _cascading_app(extension: MessagingExtension) -> AbstractAsyncContextManager
         global_pipeline_behaviors=[TransactionalBehavior],
     )
     return create_test_app(
-        providers=[scoped(IUnitOfWork, _fresh_uow), scoped(IOutboxStore, FakeOutboxStore)],
+        providers=[scoped(IUnitOfWork, _fresh_uow), scoped(IOutboxStore, RecordingOutboxStore)],
         imports=[MessagingModule.register(config)],
         extensions=[extension],
     )
@@ -163,7 +165,7 @@ class TestInvokeEventEndToEnd:
 class TestInvokeEventAtomicity:
     @staticmethod
     async def test_fan_out_commits_once_over_all_handlers() -> None:
-        uow = FakeUoW()
+        uow = RecordingUoW()
         seen: set[str] = set()
 
         class HandlerA(EventHandler[_OrderShipped]):
@@ -190,7 +192,7 @@ class TestInvokeEventAtomicity:
 
     @staticmethod
     async def test_handler_failure_rolls_back_once_and_does_not_commit() -> None:
-        uow = FakeUoW()
+        uow = RecordingUoW()
 
         class OkHandler(EventHandler[_OrderShipped]):
             @override
@@ -215,7 +217,7 @@ class TestInvokeEventAtomicity:
 
     @staticmethod
     async def test_nested_invoke_joins_same_transaction() -> None:
-        uow = FakeUoW()
+        uow = RecordingUoW()
 
         class ShippedHandler(EventHandler[_OrderShipped]):
             def __init__(self, bus: IMessageBus) -> None:
@@ -249,7 +251,7 @@ class TestInvokeEventAtomicity:
 
     @staticmethod
     async def test_nested_invoke_event_defers_non_durable_cascade_past_the_outer_commit() -> None:
-        seen: dict[str, FakeUoW] = {}
+        seen: dict[str, RecordingUoW] = {}
         commits_when_subscriber_ran: list[int] = []
 
         class ShippedHandler(EventHandler[_OrderShipped]):
@@ -267,7 +269,7 @@ class TestInvokeEventAtomicity:
 
             @override
             async def handle(self, request: _PlaceOrder, /) -> None:
-                seen['uow'] = cast('FakeUoW', self._uow)
+                seen['uow'] = cast('RecordingUoW', self._uow)
                 self._outgoing.publish(_AuditLogged(order=request.order))  # non-durable cascade
 
         class AuditSubscriber(EventHandler[_AuditLogged]):
@@ -290,7 +292,7 @@ class TestInvokeEventAtomicity:
 
     @staticmethod
     async def test_nested_invoke_event_rollback_discards_the_non_durable_cascade() -> None:
-        seen: dict[str, FakeUoW] = {}
+        seen: dict[str, RecordingUoW] = {}
 
         class ShippedHandler(EventHandler[_OrderShipped]):
             def __init__(self, bus: IMessageBus) -> None:
@@ -313,7 +315,7 @@ class TestInvokeEventAtomicity:
 
             @override
             async def handle(self, request: _PlaceOrder, /) -> None:
-                seen['uow'] = cast('FakeUoW', self._uow)
+                seen['uow'] = cast('RecordingUoW', self._uow)
                 self._outgoing.publish(_AuditLogged(order=request.order))  # staged, then rolled back
 
         class AuditSubscriber(EventHandler[_AuditLogged]):

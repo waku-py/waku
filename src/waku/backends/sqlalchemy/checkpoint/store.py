@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from sqlalchemy import (  # Dishka needs runtime access
     Table,
@@ -12,13 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002  # Dishka needs r
 from waku.eventsourcing.projection.checkpoint import Checkpoint
 from waku.eventsourcing.store.interfaces import ICheckpointStore
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
-__all__ = [
-    'SqlAlchemyCheckpointStore',
-    'make_sqlalchemy_checkpoint_store',
-]
+__all__ = ['SqlAlchemyCheckpointStore']
 
 
 class SqlAlchemyCheckpointStore(ICheckpointStore):
@@ -55,12 +49,3 @@ class SqlAlchemyCheckpointStore(ICheckpointStore):
         )
         await self._session.execute(stmt)
         await self._session.flush()
-
-
-def make_sqlalchemy_checkpoint_store(
-    checkpoints_table: Table,
-) -> Callable[..., SqlAlchemyCheckpointStore]:
-    def factory(session: AsyncSession) -> SqlAlchemyCheckpointStore:
-        return SqlAlchemyCheckpointStore(session, checkpoints_table)
-
-    return factory

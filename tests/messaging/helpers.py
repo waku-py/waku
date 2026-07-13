@@ -79,7 +79,7 @@ NOOP_EVALUATOR = ErrorPolicyEvaluator(registry=ErrorPolicyRegistry(handler_polic
 NOOP_OBSERVERS = MessageObservers([])
 
 
-class FakeUoW(IUnitOfWork):
+class RecordingUoW(IUnitOfWork):
     def __init__(
         self,
         *,
@@ -274,7 +274,7 @@ class RelayDepsProvider(Provider):
         super().__init__()
         self._store = store
         self._registry = TransportRegistry({'test': transport}, external_mappers=external_mappers)
-        self._uow: IUnitOfWork = uow or FakeUoW()
+        self._uow: IUnitOfWork = uow or RecordingUoW()
 
     @provide
     def outbox_store(self) -> IOutboxStore:

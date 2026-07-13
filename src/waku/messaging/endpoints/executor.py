@@ -4,7 +4,7 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, TypeAlias, assert_never
+from typing import TYPE_CHECKING, Any, Final, TypeAlias, assert_never
 
 import anyio
 
@@ -43,7 +43,10 @@ logger = logging.getLogger(__name__)
 
 
 # Outcomes the endpoint re-delivers instead of finalizing.
-DEFERRED_TERMINAL_OUTCOMES = frozenset({ExecutionOutcome.REQUEUED, ExecutionOutcome.PAUSED})
+DEFERRED_TERMINAL_OUTCOMES: Final[frozenset[ExecutionOutcome]] = frozenset({
+    ExecutionOutcome.REQUEUED,
+    ExecutionOutcome.PAUSED,
+})
 
 
 @dataclass(frozen=True, slots=True)

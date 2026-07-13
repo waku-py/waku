@@ -41,9 +41,9 @@ from waku.uow import IUnitOfWork
 from tests._wait import wait_until
 from tests.messaging.helpers import (
     FailingDeadLetterStore,
-    FakeUoW,
     RecordingAllocator,
     RecordingDeadLetterStore,
+    RecordingUoW,
     make_envelope,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
@@ -152,7 +152,7 @@ class TestDurableInboxIntegration:
                 imports=[MessagingModule.register(_durable_config())],
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
                 providers=[
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 ],
@@ -177,7 +177,7 @@ class TestDurableInboxIntegration:
                 imports=[MessagingModule.register(_durable_config())],
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
                 providers=[
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 ],
@@ -207,7 +207,7 @@ class TestDurableInboxIntegration:
                     MessagingExtension().bind(_RecordingHandler, _SecondRecordingHandler),
                 ],
                 providers=[
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 ],
@@ -235,7 +235,7 @@ class TestDurableInboxIntegration:
                 imports=[MessagingModule.register(_dlq_failing_config())],
                 extensions=[MessagingExtension().bind(_FailingOrderHandler)],
                 providers=[
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     scoped(IDeadLetterStore, FailingDeadLetterStore),
@@ -268,7 +268,7 @@ class TestDurableInboxIntegration:
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
                 providers=[
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 ],
@@ -300,7 +300,7 @@ class TestDurableInboxIntegration:
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
                 providers=[
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 ],
@@ -394,7 +394,7 @@ class TestDurableInboxIntegration:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_BlockingHandler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(dlq, provided_type=IDeadLetterStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
@@ -438,7 +438,7 @@ class TestDurableInboxIntegration:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_RecordingHandler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(dlq, provided_type=IDeadLetterStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
@@ -492,7 +492,7 @@ class TestDurableInboxIntegration:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_RecordingHandler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 singleton(_EndpointSink),
@@ -539,7 +539,7 @@ class TestDurableInboxIntegration:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_RecordingHandler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
             ],
@@ -585,7 +585,7 @@ class TestDurableInboxIntegration:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_RecordingHandler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(allocator, provided_type=ISequenceAllocator),
             ],

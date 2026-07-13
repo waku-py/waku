@@ -34,7 +34,7 @@ from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, RecordingAllocator, make_envelope
+from tests.messaging.helpers import RecordingAllocator, RecordingUoW, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -75,7 +75,7 @@ class TestInboundIntegration:
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
                 providers=[
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     singleton(MessageTracker),

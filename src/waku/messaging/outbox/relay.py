@@ -4,7 +4,7 @@ import logging
 import traceback
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, assert_never
+from typing import TYPE_CHECKING, Final, assert_never
 
 from typing_extensions import override
 
@@ -34,9 +34,9 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_STUCK_THRESHOLD = timedelta(minutes=5)
-_DEFAULT_RECOVERY_INTERVAL = timedelta(minutes=1)
-_DEFAULT_CLEANUP_INTERVAL = timedelta(hours=1)
+_DEFAULT_STUCK_THRESHOLD: Final[timedelta] = timedelta(minutes=5)
+_DEFAULT_RECOVERY_INTERVAL: Final[timedelta] = timedelta(minutes=1)
+_DEFAULT_CLEANUP_INTERVAL: Final[timedelta] = timedelta(hours=1)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

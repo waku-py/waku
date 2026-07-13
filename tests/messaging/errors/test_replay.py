@@ -25,15 +25,15 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests.messaging.helpers import (
-    FakeUoW,
     RecordingAllocator,
     RecordingDeadLetterStore,
     RecordingTransport,
+    RecordingUoW,
     make_codec,
     make_envelope,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
-from tests.messaging.outbox.fake_store import FakeOutboxStore
+from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 if TYPE_CHECKING:
     from waku.di import AsyncContainer
@@ -192,11 +192,11 @@ async def test_replay_bidirectional_endpoint_dispatches() -> None:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_DlqEventHandler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox_store, provided_type=IInboxStore),
                 object_(dlq_store, provided_type=IDeadLetterStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
-                scoped(IOutboxStore, FakeOutboxStore),
+                scoped(IOutboxStore, RecordingOutboxStore),
             ],
         ) as app,
         app.container() as scope,
@@ -242,7 +242,7 @@ async def test_replay_handler_kind_dispatches_resolved_handler() -> None:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_DlqEventHandler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(dlq_store, provided_type=IDeadLetterStore),
             ],
         ) as app,

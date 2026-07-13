@@ -4,7 +4,7 @@ from sqlalchemy import MetaData
 
 from waku.backends.sqlalchemy.checkpoint.tables import CheckpointTables, bind_checkpoint_tables
 from waku.backends.sqlalchemy.event_store.tables import bind_event_store_tables
-from waku.backends.sqlalchemy.lease.tables import bind_lease_tables
+from waku.backends.sqlalchemy.lease.tables import LeaseTables, bind_lease_tables
 from waku.backends.sqlalchemy.snapshot.tables import SnapshotTables, bind_snapshot_tables
 
 
@@ -69,13 +69,15 @@ def test_bind_checkpoint_tables_idempotent() -> None:
     assert first.checkpoints is second.checkpoints
 
 
-def test_bind_lease_tables() -> None:
+def test_bind_lease_tables_returns_wrapper() -> None:
     metadata = MetaData()
 
     result = bind_lease_tables(metadata)
 
+    assert isinstance(result, LeaseTables)
     assert 'waku_leases' in metadata.tables
-    assert result is metadata.tables['waku_leases']
+    assert result.leases is metadata.tables['waku_leases']
+    assert result.leases.name == 'waku_leases'
 
 
 def test_bind_lease_tables_idempotent() -> None:
@@ -84,4 +86,4 @@ def test_bind_lease_tables_idempotent() -> None:
     first = bind_lease_tables(metadata)
     second = bind_lease_tables(metadata)
 
-    assert first is second
+    assert first.leases is second.leases

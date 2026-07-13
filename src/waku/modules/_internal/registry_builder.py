@@ -24,6 +24,8 @@ __all__ = ['ModuleRegistryBuilder']
 
 
 class ModuleRegistryBuilder:
+    """Builds the module registry from a root module: compiles modules and orders them topologically."""
+
     def __init__(
         self,
         root_module_type: ModuleType,

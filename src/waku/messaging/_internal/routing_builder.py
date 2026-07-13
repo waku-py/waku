@@ -92,14 +92,14 @@ class RoutingTableBuilder:
 
         handlers = self._registry.get_handler_types(msg_type)
         if not handlers:
-            msg = f"route() references '{msg_type.__qualname__}' which has no registered handlers"
+            msg = f'route() references {msg_type.__qualname__!r} which has no registered handlers'
             raise ImproperlyConfiguredError(msg)
         self._endpoint_handlers[descriptor.endpoint_uri][msg_type].update(handlers)
 
     def _apply_module_route(self, descriptor: ModuleRouteDescriptor) -> None:
         module_type = descriptor.module_type
         if module_type not in self._module_routing_map:
-            msg = f"route_module() references module '{module_type.__qualname__}' which has no registered handlers"
+            msg = f'route_module() references module {module_type.__qualname__!r} which has no registered handlers'
             raise ImproperlyConfiguredError(msg)
 
         for msg_type, handler_types in self._module_routing_map[module_type].items():
@@ -148,12 +148,12 @@ class RoutingTableBuilder:
     @staticmethod
     def _validate_endpoint_uri(uri: str, known: Mapping[str, MergedBrokerEndpoint | LocalQueueEntry]) -> None:
         if uri not in known:
-            msg = f"route references unknown endpoint URI '{uri}'. Known endpoints: {sorted(known)}"
+            msg = f'route references unknown endpoint URI {uri!r}. Known endpoints: {sorted(known)}'
             raise ImproperlyConfiguredError(msg)
         entry = known[uri]
         if isinstance(entry, MergedBrokerEndpoint) and entry.send is None:
             msg = (
-                f"Route targets '{uri}', a listen-only endpoint (no send aspect); cannot dispatch to it — "
+                f'Route targets {uri!r}, a listen-only endpoint (no send aspect); cannot dispatch to it — '
                 'declare external_endpoint(...) for this URI or route elsewhere'
             )
             raise ImproperlyConfiguredError(msg)

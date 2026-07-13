@@ -15,6 +15,17 @@ def check_expected_version(
     *,
     exists: bool,
 ) -> None:
+    """Assert the stream matches the expected-version precondition before an append.
+
+    Args:
+        stream_id: The stream being appended to.
+        expected: The optimistic-concurrency precondition to enforce.
+        current_version: The stream's current version.
+        exists: Whether the stream already exists.
+
+    Raises:
+        ConcurrencyConflictError: The precondition does not hold.
+    """
     match expected:
         case AnyVersion():
             return

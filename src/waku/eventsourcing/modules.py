@@ -189,6 +189,8 @@ class _ForwardingValidationExtension(OnContainerBuilt):
 
 @module()
 class EventSourcingModule:
+    """Event-sourcing module: ``register(config)`` wires the event store, projections, and snapshots."""
+
     @classmethod
     def register(cls, config: EventSourcingConfig, /) -> DynamicModule:
         providers: list[Provider] = [

@@ -32,7 +32,7 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, RecordingAllocator, make_envelope
+from tests.messaging.helpers import RecordingAllocator, RecordingUoW, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -75,7 +75,7 @@ class TestKafkaInboundIntegration:
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
                 providers=[
                     object_(inbox, provided_type=IInboxStore),
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 ],
             ),

@@ -14,9 +14,9 @@ from waku.messaging.router import external_endpoint
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, RecordingTransport
+from tests.messaging.helpers import RecordingTransport, RecordingUoW
 from tests.messaging.inbox.fake_store import FakeInboxStore
-from tests.messaging.outbox.fake_store import FakeOutboxStore
+from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 
 @pytest.mark.parametrize(
@@ -61,7 +61,7 @@ async def test_active_inbox_without_allocator_names_the_backend_fix() -> None:
     with pytest.raises(ImproperlyConfiguredError, match='ISequenceAllocator') as exc_info:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), scoped(IInboxStore, FakeInboxStore)],
+            providers=[object_(RecordingUoW(), provided_type=IUnitOfWork), scoped(IInboxStore, FakeInboxStore)],
         ):
             pass  # pragma: no cover
 
@@ -79,8 +79,8 @@ async def test_partition_by_endpoint_without_backend_names_the_fix() -> None:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
-                object_(FakeOutboxStore(), provided_type=IOutboxStore),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
+                object_(RecordingOutboxStore(), provided_type=IOutboxStore),
             ],
         ):
             pass  # pragma: no cover

@@ -32,9 +32,9 @@ from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMappe
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, RecordingTransport
+from tests.messaging.helpers import RecordingTransport, RecordingUoW
 from tests.messaging.inbox.fake_store import FakeInboxStore
-from tests.messaging.outbox.fake_store import FakeOutboxStore
+from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 
 @dataclass(frozen=True)
@@ -49,7 +49,7 @@ class _DummyNotifHandler(EventHandler[_Notif]):
 
 
 def _store_providers() -> tuple[Provider, ...]:
-    return (scoped(IOutboxStore, FakeOutboxStore), scoped(IInboxStore, FakeInboxStore))
+    return (scoped(IOutboxStore, RecordingOutboxStore), scoped(IInboxStore, FakeInboxStore))
 
 
 class TestRoutingBranches:
@@ -67,7 +67,7 @@ class TestRoutingBranches:
             create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_DummyNotifHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), *_store_providers()],
+                providers=[object_(RecordingUoW(), provided_type=IUnitOfWork), *_store_providers()],
             ) as app,
             app.container() as container,
         ):
@@ -163,7 +163,7 @@ class TestMergedEndpointRegistryProjection:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), *_store_providers()],
+                providers=[object_(RecordingUoW(), provided_type=IUnitOfWork), *_store_providers()],
             ) as app,
             app.container() as container,
         ):
@@ -187,7 +187,7 @@ class TestMergedEndpointSendRouting:
             create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_DummyNotifHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), *_store_providers()],
+                providers=[object_(RecordingUoW(), provided_type=IUnitOfWork), *_store_providers()],
             ) as app,
             app.container() as container,
         ):
@@ -217,6 +217,6 @@ class TestMergedEndpointListenOnlyRouting:
             async with create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_DummyNotifHandler)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), *_store_providers()],
+                providers=[object_(RecordingUoW(), provided_type=IUnitOfWork), *_store_providers()],
             ):
                 pass  # pragma: no cover

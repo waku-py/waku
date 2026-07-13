@@ -20,7 +20,7 @@ from waku.messaging.transport.faststream.rabbitmq import FastStreamRabbitTranspo
 from waku.uow import IUnitOfWork
 
 from tests._lifecycle import LifecycleRecorder
-from tests.messaging.helpers import FakeUoW, RecordingAllocator
+from tests.messaging.helpers import RecordingAllocator, RecordingUoW
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -36,7 +36,7 @@ async def test_consumer_only_app_run_drives_graceful_shutdown() -> None:
     @module(
         imports=[MessagingModule.register(config)],
         providers=[
-            object_(FakeUoW(), provided_type=IUnitOfWork),
+            object_(RecordingUoW(), provided_type=IUnitOfWork),
             object_(RecordingAllocator(), provided_type=ISequenceAllocator),
             scoped(IInboxStore, FakeInboxStore),
         ],

@@ -26,8 +26,8 @@ from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMappe
 
 from tests._wait import wait_until
 from tests.messaging.helpers import (
-    FakeUoW,
     RecordingTransport,
+    RecordingUoW,
     RelayDepsProvider,
     StubSubscription,
     make_codec,
@@ -586,7 +586,7 @@ class TestRelayDispatchQuarantine:
         # which would let a DLQ replay double-deliver.
         store, msg = _make_pending_store()
         store.mark_dispatched_error = ConnectionError('db down after send')
-        uow = FakeUoW()
+        uow = RecordingUoW()
         transport = RecordingTransport()
 
         async with _run_relay(RelayDepsProvider(store, transport, uow=uow)):

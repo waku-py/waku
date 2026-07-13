@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from sqlalchemy import (  # Dishka needs runtime access
     Table,
@@ -14,13 +14,7 @@ from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.snapshot.interfaces import Snapshot
 from waku.eventsourcing.store.interfaces import ISnapshotStore
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
-__all__ = [
-    'SqlAlchemySnapshotStore',
-    'make_sqlalchemy_snapshot_store',
-]
+__all__ = ['SqlAlchemySnapshotStore']
 
 
 class SqlAlchemySnapshotStore(ISnapshotStore):
@@ -65,12 +59,3 @@ class SqlAlchemySnapshotStore(ISnapshotStore):
         )
         await self._session.execute(stmt)
         await self._session.flush()
-
-
-def make_sqlalchemy_snapshot_store(
-    snapshots_table: Table,
-) -> Callable[..., SqlAlchemySnapshotStore]:
-    def factory(session: AsyncSession) -> SqlAlchemySnapshotStore:
-        return SqlAlchemySnapshotStore(session, snapshots_table)
-
-    return factory

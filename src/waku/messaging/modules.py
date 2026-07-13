@@ -1,5 +1,5 @@
 from collections.abc import Iterator, Sequence
-from typing import TYPE_CHECKING, Any, Self, TypeAlias, assert_never, cast, get_args, get_origin, overload
+from typing import TYPE_CHECKING, Any, Final, Self, TypeAlias, assert_never, cast, get_args, get_origin, overload
 
 from typing_extensions import override
 
@@ -113,7 +113,7 @@ __all__ = [
 _HandlerProviders: TypeAlias = tuple[Provider, ...]
 
 # Declaration order is the tie-break within a Position tier; ES forwarding contributed by the ES module.
-_FRAMEWORK_POLICIES: tuple[IBehaviorPolicy, ...] = (
+_FRAMEWORK_POLICIES: Final[tuple[IBehaviorPolicy, ...]] = (
     DeferredCascadingPolicy(),
     UserGlobalPolicy(),
     OutboxDrainPolicy(),
@@ -124,6 +124,8 @@ _FRAMEWORK_POLICIES: tuple[IBehaviorPolicy, ...] = (
 
 @module()
 class MessagingModule:
+    """Messaging module: ``register(config)`` wires the message bus, routing, and durability providers."""
+
     @classmethod
     def register(cls, config: MessagingConfig | None = None, /) -> DynamicModule:
         config_ = config or MessagingConfig()
@@ -362,7 +364,7 @@ def _validate_transport_schemes(config: MessagingConfig) -> None:
     for uri in referenced:
         scheme, _ = split_destination(uri, default_scheme=default_scheme)
         if scheme not in config.transports:
-            msg = f"no transport registered for scheme '{scheme}' (uri='{uri}')."
+            msg = f'no transport registered for scheme {scheme!r} (uri={uri!r}).'
             raise ImproperlyConfiguredError(msg)
 
 

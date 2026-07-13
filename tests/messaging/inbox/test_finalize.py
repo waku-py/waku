@@ -13,7 +13,7 @@ from waku.messaging.inbox._internal.finalize import apply_inbox_outcome
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW
+from tests.messaging.helpers import RecordingUoW
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -52,7 +52,7 @@ def _seed(inbox: FakeInboxStore) -> tuple[UUID, str]:
 
 async def test_success_marks_handled() -> None:
     inbox = FakeInboxStore()
-    uow = FakeUoW()
+    uow = RecordingUoW()
     entry_id, destination = _seed(inbox)
     async with make_async_container(_Deps(inbox, uow)) as container:
         await apply_inbox_outcome(
@@ -72,7 +72,7 @@ async def test_success_marks_handled() -> None:
 )
 async def test_non_success_deletes(outcome: ExecutionOutcome) -> None:
     inbox = FakeInboxStore()
-    uow = FakeUoW()
+    uow = RecordingUoW()
     entry_id, destination = _seed(inbox)
     async with make_async_container(_Deps(inbox, uow)) as container:
         await apply_inbox_outcome(
@@ -88,7 +88,7 @@ async def test_non_success_deletes(outcome: ExecutionOutcome) -> None:
 
 async def test_deferred_terminal_outcome_rolls_back() -> None:
     inbox = FakeInboxStore()
-    uow = FakeUoW()
+    uow = RecordingUoW()
     entry_id, destination = _seed(inbox)
     async with make_async_container(_Deps(inbox, uow)) as container:
         with pytest.raises(RuntimeError, match='must be intercepted'):
@@ -105,7 +105,7 @@ async def test_deferred_terminal_outcome_rolls_back() -> None:
 
 async def test_success_outcome_commits_without_rollback() -> None:
     inbox = FakeInboxStore()
-    uow = FakeUoW()
+    uow = RecordingUoW()
     entry_id, destination = _seed(inbox)
     async with make_async_container(_Deps(inbox, uow)) as container:
         await apply_inbox_outcome(
@@ -123,7 +123,7 @@ async def test_success_outcome_commits_without_rollback() -> None:
 async def test_dead_letter_failed_keeps_row() -> None:
     # ERR-2: a failed durable DLQ write must NOT delete the inbox row — recovery re-drains it.
     inbox = FakeInboxStore()
-    uow = FakeUoW()
+    uow = RecordingUoW()
     entry_id, destination = _seed(inbox)
     async with make_async_container(_Deps(inbox, uow)) as container:
         await apply_inbox_outcome(

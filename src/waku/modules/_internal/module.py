@@ -18,6 +18,8 @@ __all__ = ['Module']
 
 
 class Module:
+    """A compiled module: its providers, imports, exports, and extensions with a stable identity."""
+
     __slots__ = (
         '_provider',
         'exports',

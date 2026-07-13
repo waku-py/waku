@@ -28,6 +28,7 @@ class CheckpointTables:
 
 
 def bind_checkpoint_tables(metadata: MetaData) -> CheckpointTables:
+    """Bind the projection-checkpoint table onto ``metadata``, returning the bound-table wrapper (idempotent)."""
     checkpoints = (
         metadata.tables[es_checkpoints_table.name]
         if es_checkpoints_table.name in metadata.tables

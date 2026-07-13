@@ -23,8 +23,8 @@ from waku.messaging.durability import IOutboxStore
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, RecordingTransport
-from tests.messaging.outbox.fake_store import FakeOutboxStore
+from tests.messaging.helpers import RecordingTransport, RecordingUoW
+from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +58,10 @@ class TestBusOutboxIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config), TestModule],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), scoped(IOutboxStore, FakeOutboxStore)],
+                providers=[
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
+                    scoped(IOutboxStore, RecordingOutboxStore),
+                ],
             ) as app,
             app.container() as c,
         ):
@@ -66,7 +69,7 @@ class TestBusOutboxIntegration:
             await bus.publish(_OrderPlaced(order_id='123'))
             store = await c.get(IOutboxStore)
 
-        assert isinstance(store, FakeOutboxStore)
+        assert isinstance(store, RecordingOutboxStore)
         assert len(store.saved) == 1
         assert store.saved[0].destination == 'test://events'
 
@@ -87,7 +90,10 @@ class TestBusOutboxIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config), TestModule],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), scoped(IOutboxStore, FakeOutboxStore)],
+                providers=[
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
+                    scoped(IOutboxStore, RecordingOutboxStore),
+                ],
             ) as app,
             app.container() as c,
         ):
@@ -95,6 +101,6 @@ class TestBusOutboxIntegration:
             await bus.send(_OrderPlaced(order_id='456'))
             store = await c.get(IOutboxStore)
 
-        assert isinstance(store, FakeOutboxStore)
+        assert isinstance(store, RecordingOutboxStore)
         assert len(store.saved) == 1
         assert store.saved[0].destination == 'test://events'

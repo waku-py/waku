@@ -59,6 +59,18 @@ def provider(
     cache: bool = True,
     when: BaseMarker | None = None,
 ) -> Provider:
+    """Create a provider registering ``source`` under a scope.
+
+    Args:
+        source: Factory callable or type to provide.
+        scope: Lifetime scope of the created instance.
+        provided_type: Interface to provide as (default: inferred from ``source``).
+        cache: Whether to cache the instance within its scope.
+        when: Optional marker to conditionally activate the provider.
+
+    Returns:
+        A configured provider.
+    """
     provider_ = Provider(scope=scope)
     provider_.provide(source, provides=provided_type, cache=cache, when=when)
     return provider_

@@ -30,6 +30,8 @@ class ISnapshotMigration(abc.ABC):
 
 
 class SnapshotMigrationChain:
+    """Ordered snapshot-state migrations that upgrade a stored snapshot to the current version."""
+
     __slots__ = ('_migrations',)
 
     def __init__(self, migrations: Sequence[ISnapshotMigration]) -> None:

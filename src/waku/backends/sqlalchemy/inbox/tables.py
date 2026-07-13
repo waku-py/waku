@@ -78,6 +78,7 @@ class InboxTables:
 
 
 def bind_inbox_tables(metadata: MetaData) -> InboxTables:
+    """Bind the inbox table onto ``metadata``, returning the bound-table wrapper (idempotent)."""
     entries = (
         metadata.tables[inbox_entries_table.name]
         if inbox_entries_table.name in metadata.tables

@@ -63,10 +63,10 @@ def _merge_fragments(
     observers = tuple(dict.fromkeys(t for fragment in fragments for t in fragment.observers))
 
     if listen is not None and not inbox_configured:
-        msg = f"endpoint '{uri}' declares listen but no inbox is configured"
+        msg = f'endpoint {uri!r} declares listen but no inbox is configured'
         raise ImproperlyConfiguredError(msg)
     if listen is None and send is None:
-        msg = f"endpoint '{uri}' declares neither listen nor send"
+        msg = f'endpoint {uri!r} declares neither listen nor send'
         raise ImproperlyConfiguredError(msg)
 
     return MergedBrokerEndpoint(
@@ -88,7 +88,7 @@ def _resolve_unique(uri: str, values: Iterable[_ValueT | MISSING], conflict_mess
             distinct.append(value)
 
     if len(distinct) > 1:
-        msg = f"endpoint '{uri}': {conflict_message}"
+        msg = f'endpoint {uri!r}: {conflict_message}'
         raise ImproperlyConfiguredError(msg)
     return distinct[0] if distinct else None
 
@@ -96,6 +96,6 @@ def _resolve_unique(uri: str, values: Iterable[_ValueT | MISSING], conflict_mess
 def _resolve_aspect(uri: str, aspects: Iterable[_ValueT | None], aspect_name: str) -> _ValueT | None:
     present = [aspect for aspect in aspects if aspect is not None]
     if len(present) > 1:
-        msg = f"endpoint '{uri}': conflicting {aspect_name} declarations"
+        msg = f'endpoint {uri!r}: conflicting {aspect_name} declarations'
         raise ImproperlyConfiguredError(msg)
     return present[0] if present else None

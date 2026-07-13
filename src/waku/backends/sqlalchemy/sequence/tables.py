@@ -28,6 +28,7 @@ class SequenceTables:
 
 
 def bind_sequence_tables(metadata: MetaData) -> SequenceTables:
+    """Bind the message-sequence table onto ``metadata``, returning the bound-table wrapper (idempotent)."""
     sequences = (
         metadata.tables[message_sequences_table.name]
         if message_sequences_table.name in metadata.tables

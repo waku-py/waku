@@ -47,7 +47,7 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, RecordingAllocator, make_codec, make_envelope
+from tests.messaging.helpers import RecordingAllocator, RecordingUoW, make_codec, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
@@ -123,7 +123,7 @@ class _DepsProvider(Provider):
         super().__init__()
         self._inbox = inbox
         self._codec = make_codec()
-        self._uow: IUnitOfWork = FakeUoW()
+        self._uow: IUnitOfWork = RecordingUoW()
 
     @provide
     def inbox(self) -> IInboxStore:
@@ -472,7 +472,7 @@ class TestCreateListeningAgent:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_FlowHandler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
             ],
@@ -505,7 +505,7 @@ class TestCreateListeningAgent:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IInboxStore, FakeInboxStore),
             ],
@@ -535,7 +535,7 @@ class TestCreateListeningAgent:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_FlowHandler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
             ],

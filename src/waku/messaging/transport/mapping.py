@@ -17,7 +17,7 @@ directly from this module.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from waku.messaging.transport.interfaces import EnvelopeMetadata, MalformedMetadataError
 
@@ -31,10 +31,10 @@ __all__ = [
     'wire_headers_of',
 ]
 
-WIRE_CONTENT_TYPE = 'application/json'
+WIRE_CONTENT_TYPE: Final[str] = 'application/json'
 
 # Keys owned by the framework — a user header under any of these names is silently dropped (reserved wins).
-_RESERVED_KEYS: frozenset[str] = frozenset({
+_RESERVED_KEYS: Final[frozenset[str]] = frozenset({
     'message_id',
     'correlation_id',
     'causation_id',

@@ -31,6 +31,7 @@ class SnapshotTables:
 
 
 def bind_snapshot_tables(metadata: MetaData) -> SnapshotTables:
+    """Bind the snapshot table onto ``metadata``, returning the bound-table wrapper (idempotent)."""
     snapshots = (
         metadata.tables[es_snapshots_table.name]
         if es_snapshots_table.name in metadata.tables

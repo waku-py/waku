@@ -17,7 +17,7 @@ from waku.serialization import UpcasterChain
 from waku.serialization.codec import PayloadCodec
 
 from tests.messaging.helpers import NOOP_OBSERVERS, RecordingAllocator, make_envelope, order_id_partition
-from tests.messaging.outbox.fake_store import FakeOutboxStore
+from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 if TYPE_CHECKING:
     from waku.messaging.contracts.envelope import MessageEnvelope
@@ -37,7 +37,7 @@ class _TestDepsProvider(Provider):
 
     def __init__(
         self,
-        outbox: FakeOutboxStore,
+        outbox: RecordingOutboxStore,
         codec: PayloadCodec,
         allocator: ISequenceAllocator | None = None,
     ) -> None:
@@ -62,7 +62,7 @@ class _TestDepsProvider(Provider):
 class TestExternalEndpoint:
     @staticmethod
     async def test_dispatch_persists_decomposed_message_to_outbox() -> None:
-        outbox = FakeOutboxStore()
+        outbox = RecordingOutboxStore()
         codec = _make_codec()
 
         async with make_async_container(_TestDepsProvider(outbox, codec)) as container:
@@ -109,7 +109,7 @@ class _SentSpy(IMessageObserver):
 class TestExternalEndpointOnSent:
     @staticmethod
     async def test_dispatch_fires_on_sent_after_outbox_write() -> None:
-        outbox = FakeOutboxStore()
+        outbox = RecordingOutboxStore()
         codec = _make_codec()
         spy = _SentSpy()
         async with make_async_container(_TestDepsProvider(outbox, codec)) as container:
@@ -125,7 +125,7 @@ class TestExternalEndpointOnSent:
 class TestExternalEndpointPartitioning:
     @staticmethod
     async def test_envelope_group_id_wins_over_partition_by() -> None:
-        outbox = FakeOutboxStore()
+        outbox = RecordingOutboxStore()
         codec = _make_codec()
         allocator = RecordingAllocator()
         async with make_async_container(_TestDepsProvider(outbox, codec, allocator)) as container:
@@ -142,7 +142,7 @@ class TestExternalEndpointPartitioning:
 
     @staticmethod
     async def test_falls_back_to_partition_by_when_no_envelope_group_id() -> None:
-        outbox = FakeOutboxStore()
+        outbox = RecordingOutboxStore()
         codec = _make_codec()
         allocator = RecordingAllocator()
         async with make_async_container(_TestDepsProvider(outbox, codec, allocator)) as container:
@@ -157,7 +157,7 @@ class TestExternalEndpointPartitioning:
 
     @staticmethod
     async def test_keyless_message_skips_sequence_allocation() -> None:
-        outbox = FakeOutboxStore()
+        outbox = RecordingOutboxStore()
         codec = _make_codec()
         allocator = RecordingAllocator()
         async with make_async_container(_TestDepsProvider(outbox, codec, allocator)) as container:

@@ -29,7 +29,7 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, RecordingAllocator, RecordingTransport, make_envelope
+from tests.messaging.helpers import RecordingAllocator, RecordingTransport, RecordingUoW, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
@@ -106,7 +106,7 @@ class TestListenerMapperOverrideWiring:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IOutboxStore, InMemoryOutboxStore),
                 scoped(IInboxStore, FakeInboxStore),
@@ -131,7 +131,7 @@ class TestListenerMapperOverrideWiring:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IOutboxStore, InMemoryOutboxStore),
                 scoped(IInboxStore, FakeInboxStore),
@@ -168,7 +168,7 @@ class TestBidirectionalEndpointMapperInheritance:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IOutboxStore, InMemoryOutboxStore),
                 scoped(IInboxStore, FakeInboxStore),
@@ -198,7 +198,7 @@ class TestListenerObserverWiring:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_RecordingHandler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 singleton(_EndpointSink),

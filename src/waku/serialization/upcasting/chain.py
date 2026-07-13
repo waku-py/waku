@@ -13,6 +13,8 @@ __all__ = ['UpcasterChain']
 
 
 class UpcasterChain:
+    """Per-event-type ordered upcasters that migrate a stored payload up to the current schema version."""
+
     __slots__ = ('_chains',)
 
     def __init__(self, upcasters_by_type: Mapping[str, Sequence[IPayloadUpcaster]]) -> None:

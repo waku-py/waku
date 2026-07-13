@@ -44,7 +44,7 @@ from waku.uow import IUnitOfWork
 
 from tests.eventsourcing.domain import Note, NoteCreated, NoteEdited, NoteRepository
 from tests.messaging.helpers import RecordingTransport
-from tests.messaging.outbox.fake_store import FakeOutboxStore
+from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -185,7 +185,7 @@ async def _forwarding_app(
                     scoped(ISnapshotStore, InMemorySnapshotStore),
                     scoped(ICheckpointStore, InMemoryCheckpointStore),
                     scoped(IEventStore, make_sqlalchemy_event_store(es_tables)),
-                    scoped(IOutboxStore, FakeOutboxStore),
+                    scoped(IOutboxStore, RecordingOutboxStore),
                 ],
             ) as app,
             app.container() as container,
@@ -206,7 +206,7 @@ async def test_appended_event_forwarded_to_outbox_exactly_once(pg_engine: AsyncE
         outbox = await c.get(IOutboxStore)
         events = await store.read_stream(StreamId.for_aggregate('Note', 'n-1'))
 
-    assert isinstance(outbox, FakeOutboxStore)
+    assert isinstance(outbox, RecordingOutboxStore)
     assert len(events) == 1
     assert len(outbox.saved) == 1
     assert outbox.saved[0].destination == 'test://notes'
@@ -224,7 +224,7 @@ async def test_each_appended_event_forwarded_once_no_double_flush(pg_engine: Asy
 
         outbox = await c.get(IOutboxStore)
 
-    assert isinstance(outbox, FakeOutboxStore)
+    assert isinstance(outbox, RecordingOutboxStore)
     forwarded_types = sorted(m.message_type.rsplit('.', 1)[-1] for m in outbox.saved)
     assert forwarded_types == ['NoteCreated', 'NoteEdited']
 
@@ -239,7 +239,7 @@ async def test_unrouted_appended_event_not_forwarded(pg_engine: AsyncEngine) -> 
         outbox = await c.get(IOutboxStore)
         events = await store.read_stream(StreamId.for_aggregate('Note', 'n-3'))
 
-    assert isinstance(outbox, FakeOutboxStore)
+    assert isinstance(outbox, RecordingOutboxStore)
     assert len(events) == 1  # appended
     assert outbox.saved == []  # but not forwarded (no subscriber)
 
@@ -255,7 +255,7 @@ async def test_rollback_after_append_forwards_nothing(pg_engine: AsyncEngine) ->
         outbox = await c.get(IOutboxStore)
         stream_exists = await store.stream_exists(StreamId.for_aggregate('Note', 'n-4'))
 
-    assert isinstance(outbox, FakeOutboxStore)
+    assert isinstance(outbox, RecordingOutboxStore)
     assert stream_exists is False  # append rolled back
     assert outbox.saved == []  # nothing forwarded (the torn-write fix)
 
@@ -274,7 +274,7 @@ async def test_translation_seam_forwards_integration_event(pg_engine: AsyncEngin
 
         outbox = await c.get(IOutboxStore)
 
-    assert isinstance(outbox, FakeOutboxStore)
+    assert isinstance(outbox, RecordingOutboxStore)
     assert len(outbox.saved) == 1
     assert 'NoteCreatedIntegration' in outbox.saved[0].message_type
 

@@ -50,7 +50,7 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, RecordingAllocator, StubSubscription, make_envelope
+from tests.messaging.helpers import RecordingAllocator, RecordingUoW, StubSubscription, make_envelope
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -133,7 +133,7 @@ async def test_dead_letter_then_replay_reprocesses_message() -> None:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_ChargeHandler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(dl_store, provided_type=IDeadLetterStore),
             ],
         ) as app,
@@ -264,7 +264,7 @@ async def test_tenant_id_survives_outbox_dead_letter_replay_via_metadata_blob() 
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_OrderAuditHandler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(outbox, provided_type=IOutboxStore),
                 object_(dlq, provided_type=IDeadLetterStore),
             ],
@@ -310,7 +310,7 @@ async def test_tenant_id_survives_inbox_dead_letter_replay_to_handler_context() 
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_TenantRecordingHandler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(dlq, provided_type=IDeadLetterStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
@@ -377,7 +377,7 @@ async def test_outbox_exhaustion_dead_letter_replays() -> None:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_OrderAuditHandler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(outbox, provided_type=IOutboxStore),
                 object_(dlq, provided_type=IDeadLetterStore),
             ],
@@ -427,7 +427,7 @@ async def test_inbox_poison_dead_letter_replays() -> None:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_FlakyOrderHandler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(dlq, provided_type=IDeadLetterStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),

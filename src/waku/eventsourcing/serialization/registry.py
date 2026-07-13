@@ -17,6 +17,8 @@ __all__ = ['EventTypeRegistry']
 
 
 class EventTypeRegistry:
+    """Bidirectional registry between event types and their wire identity (name and version)."""
+
     __slots__ = ('_frozen', '_name_to_type', '_type_to_identity')
 
     def __init__(self) -> None:

@@ -19,6 +19,8 @@ LifespanFunc: TypeAlias = (
 
 @final
 class LifespanWrapper:
+    """Adapts a lifespan function into an async context manager run during application startup."""
+
     def __init__(self, lifespan_func: LifespanFunc) -> None:
         self._lifespan_func = lifespan_func
 

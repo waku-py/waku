@@ -14,6 +14,8 @@ _TargetT = TypeVar('_TargetT')
 
 
 class PayloadCodec:
+    """Encodes and decodes message payloads, applying the upcaster chain on decode."""
+
     __slots__ = ('_chain', '_retort')
 
     def __init__(self, retort: Retort, chain: UpcasterChain) -> None:

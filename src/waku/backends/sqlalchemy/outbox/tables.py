@@ -70,6 +70,7 @@ class OutboxTables:
 
 
 def bind_outbox_tables(metadata: MetaData) -> OutboxTables:
+    """Bind the outbox table onto ``metadata``, returning the bound-table wrapper (idempotent)."""
     messages = (
         metadata.tables[outbox_messages_table.name]
         if outbox_messages_table.name in metadata.tables

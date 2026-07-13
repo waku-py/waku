@@ -14,6 +14,8 @@ __all__ = ['HandlerMap']
 
 
 class HandlerMap:
+    """Unified registry mapping each message type to its handler types; freezes after wiring."""
+
     __slots__ = ('_frozen', '_registry')
 
     def __init__(self) -> None:

@@ -30,6 +30,11 @@ __all__ = ['WakuApplication']
 
 
 class WakuApplication:
+    """The running application: owns the DI container, module registry, and extension lifecycle.
+
+    Used as an async context manager; entering runs init hooks and lifespans, exiting shuts down.
+    """
+
     __slots__ = (
         '_container',
         '_exit_stack',

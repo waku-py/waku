@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from waku.messaging.outbox.models import OutboxMessage
 
 
-class FakeOutboxStore(IOutboxStore):
+class RecordingOutboxStore(IOutboxStore):
     def __init__(self) -> None:
         self.saved: list[OutboxMessage] = []
 

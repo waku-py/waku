@@ -28,7 +28,13 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import ControllableSleep, wait_until
-from tests.messaging.helpers import NOOP_EVALUATOR, NOOP_OBSERVERS, FakeUoW, RecordingDeadLetterStore, make_envelope
+from tests.messaging.helpers import (
+    NOOP_EVALUATOR,
+    NOOP_OBSERVERS,
+    RecordingDeadLetterStore,
+    RecordingUoW,
+    make_envelope,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -346,7 +352,7 @@ class TestLocalQueueRequeue:
         async with create_test_app(
             imports=[MessagingModule.register(MessagingConfig(dead_letter=DeadLetterConfig()))],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(dl_store, provided_type=IDeadLetterStore),
             ],
             extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
@@ -406,7 +412,7 @@ class TestLocalQueueRequeue:
         spy = _TerminalSpy()
         config = MessagingConfig(dead_letter=DeadLetterConfig()) if configured else None
         providers = (
-            [object_(FakeUoW(), provided_type=IUnitOfWork), object_(dl_store, provided_type=IDeadLetterStore)]
+            [object_(RecordingUoW(), provided_type=IUnitOfWork), object_(dl_store, provided_type=IDeadLetterStore)]
             if configured
             else []
         )
@@ -467,7 +473,7 @@ class TestLocalQueueRequeue:
         async with create_test_app(
             imports=[MessagingModule.register(MessagingConfig(dead_letter=DeadLetterConfig()))],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(dl_store, provided_type=IDeadLetterStore),
             ],
             extensions=[MessagingExtension().bind(_RecordingHandler, _AlwaysFailingHandler)],
@@ -495,7 +501,7 @@ class TestLocalQueueRequeue:
         async with create_test_app(
             imports=[MessagingModule.register(MessagingConfig(dead_letter=DeadLetterConfig()))],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(dl_store, provided_type=IDeadLetterStore),
             ],
             extensions=[MessagingExtension().bind(_BudgetTwoHandler)],

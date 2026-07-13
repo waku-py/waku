@@ -41,7 +41,7 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, RecordingAllocator, make_envelope
+from tests.messaging.helpers import RecordingAllocator, RecordingUoW, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
@@ -139,7 +139,7 @@ async def test_watermark_pauses_then_resumes_listener_end_to_end() -> None:
         imports=[MessagingModule.register(config)],
         extensions=[MessagingExtension().bind(_BlockingHandler)],
         providers=[
-            object_(FakeUoW(), provided_type=IUnitOfWork),
+            object_(RecordingUoW(), provided_type=IUnitOfWork),
             object_(inbox, provided_type=IInboxStore),
             object_(RecordingAllocator(), provided_type=ISequenceAllocator),
         ],
@@ -185,7 +185,7 @@ async def test_circuit_breaker_pauses_then_resumes_listener_after_pause_time() -
         imports=[MessagingModule.register(config)],
         extensions=[MessagingExtension().bind(_FailingHandler)],
         providers=[
-            object_(FakeUoW(), provided_type=IUnitOfWork),
+            object_(RecordingUoW(), provided_type=IUnitOfWork),
             object_(inbox, provided_type=IInboxStore),
             object_(RecordingAllocator(), provided_type=ISequenceAllocator),
         ],

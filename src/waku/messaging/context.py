@@ -32,6 +32,14 @@ _message_context: ContextVar[MessageContext | None] = ContextVar('_message_conte
 
 
 def get_message_context() -> MessageContext:
+    """Return the active message context.
+
+    Returns:
+        The correlation/causation context for the in-flight message.
+
+    Raises:
+        RuntimeError: Called outside an active ``MessageBus`` operation.
+    """
     ctx = _message_context.get()
     if ctx is None:
         msg = 'No active message context. This function must be called within a MessageBus operation.'
@@ -40,6 +48,7 @@ def get_message_context() -> MessageContext:
 
 
 def try_get_message_context() -> MessageContext | None:
+    """Return the active message context, or ``None`` when no message is in flight."""
     return _message_context.get()
 
 

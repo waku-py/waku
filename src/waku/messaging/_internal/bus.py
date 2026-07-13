@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Final, TypeVar, overload
 
 from typing_extensions import override
 
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 _ValueT = TypeVar('_ValueT')
 
-_EMPTY_OPTIONS = DeliveryOptions()
+_EMPTY_OPTIONS: Final[DeliveryOptions] = DeliveryOptions()
 
 
 def _override(option_value: _ValueT | None, ctx_value: _ValueT | None) -> _ValueT | None:

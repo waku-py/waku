@@ -237,7 +237,7 @@ def create_listening_agent(  # noqa: PLR0913
     """
     listen = merged.listen
     if listen is None:
-        msg = f"endpoint '{merged.uri}' declares no listen aspect; create_listening_agent requires one"
+        msg = f'endpoint {merged.uri!r} declares no listen aspect; create_listening_agent requires one'
         raise ImproperlyConfiguredError(msg)
     receiver = DurableInboxReceiver(
         uri=merged.uri,

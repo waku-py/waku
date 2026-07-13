@@ -65,6 +65,7 @@ es_events_table = Table(
 
 
 def bind_event_store_tables(metadata: MetaData) -> EventStoreTables:
+    """Bind the event-store tables (streams and events) onto ``metadata``, returning the wrapper (idempotent)."""
     streams = (
         metadata.tables[es_streams_table.name]
         if es_streams_table.name in metadata.tables

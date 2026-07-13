@@ -13,7 +13,7 @@ from waku.messaging.inbox.config import InboxConfig
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW
+from tests.messaging.helpers import RecordingUoW
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
@@ -37,7 +37,7 @@ class _RecoveryDepsProvider(Provider):
     def __init__(self, store: IInboxStore) -> None:
         super().__init__()
         self._store = store
-        self._uow: IUnitOfWork = FakeUoW()
+        self._uow: IUnitOfWork = RecordingUoW()
 
     @provide
     def inbox(self) -> IInboxStore:

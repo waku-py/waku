@@ -99,10 +99,26 @@ class ModuleRouteBuilder:
 
 
 def route(message_type: type[IMessage]) -> RouteBuilder:
+    """Begin a per-type route; ``.to(uri)`` binds ``message_type`` to that endpoint.
+
+    Args:
+        message_type: The message type to route.
+
+    Returns:
+        A builder whose ``to(uri)`` completes the binding.
+    """
     return RouteBuilder(message_type)
 
 
 def route_module(module_type: ModuleType) -> ModuleRouteBuilder:
+    """Begin a module-level route; ``.to(uri)`` binds every handler in the module to that endpoint.
+
+    Args:
+        module_type: The module whose handlers are routed.
+
+    Returns:
+        A builder whose ``to(uri)`` completes the binding.
+    """
     return ModuleRouteBuilder(module_type)
 
 
@@ -116,6 +132,11 @@ def listen(
     partition_by: PartitionKeyExtractor | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
     observers: Sequence[type[IMessageObserver]] = (),
 ) -> BrokerEndpointEntry:
+    """Declare a broker endpoint that consumes messages from ``uri`` (the listen side).
+
+    Returns:
+        A broker endpoint entry carrying the listen aspect and per-endpoint overrides.
+    """
     return BrokerEndpointEntry(
         uri=uri,
         mapper=mapper,
@@ -141,6 +162,11 @@ def local_queue(  # noqa: PLR0913 -- one keyword per LocalQueueEntry field
     max_requeue_attempts: int | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
     observers: Sequence[type[IMessageObserver]] = (),
 ) -> LocalQueueEntry:
+    """Declare an in-process local-queue endpoint served by a background worker.
+
+    Returns:
+        A local-queue endpoint entry with its buffering, parallelism, and stop-timeout settings.
+    """
     return LocalQueueEntry(
         uri=uri,
         mode=mode,
@@ -162,6 +188,11 @@ def external_endpoint(
     partition_by: PartitionKeyExtractor | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
     observers: Sequence[type[IMessageObserver]] = (),
 ) -> BrokerEndpointEntry:
+    """Declare a send-only broker endpoint used as a dispatch target (the send side).
+
+    Returns:
+        A broker endpoint entry carrying the send aspect and per-endpoint overrides.
+    """
     return BrokerEndpointEntry(
         uri=uri,
         mapper=mapper,

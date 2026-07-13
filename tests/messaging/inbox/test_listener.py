@@ -29,9 +29,9 @@ from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
 from tests.messaging.helpers import (
-    FakeUoW,
     RecordingAllocator,
     RecordingDeadLetterStore,
+    RecordingUoW,
     make_envelope,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
@@ -65,7 +65,7 @@ class _DepsProvider(Provider):
         super().__init__()
         self._inbox = inbox
         self._dlq = dlq
-        self._uow: IUnitOfWork = FakeUoW()
+        self._uow: IUnitOfWork = RecordingUoW()
         self._allocator: ISequenceAllocator = RecordingAllocator()
         self._codec = _make_codec()
 

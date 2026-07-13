@@ -67,7 +67,7 @@ class NoRouteError(MessagingError):
 
     def __str__(self) -> str:
         return (
-            f"no endpoint routes '{self.message_type.__name__}'; in a single-process app use "
+            f'no endpoint routes {self.message_type.__name__!r}; in a single-process app use '
             f'invoke()/publish(), or add a route(...) for it'
         )
 
@@ -94,7 +94,7 @@ class SchedulingNotSupportedError(MessagingError):
         self.uri = uri
 
     def __str__(self) -> str:
-        return f"endpoint '{self.uri}' does not support scheduled delivery"
+        return f'endpoint {self.uri!r} does not support scheduled delivery'
 
 
 class HandlerAlreadyRegisteredError(ImproperlyConfiguredError):

@@ -28,7 +28,7 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, RecordingAllocator
+from tests.messaging.helpers import RecordingAllocator, RecordingUoW
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
@@ -122,7 +122,7 @@ class TestLeaderRunsAgent:
                 lease,
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
             ),
         ) as app:
             coordinator = LeadershipCoordinator(config)
@@ -269,7 +269,7 @@ class TestOverlapIsSafe:
             providers=[
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
             ],
         ) as app:
             agent_a = DurabilityMaintenanceAgent(container=app.container, config=config)

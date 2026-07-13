@@ -13,6 +13,8 @@ __all__ = ['EventSourcingMessagingModule']
 
 @module()
 class EventSourcingMessagingModule:
+    """Event-sourcing ↔ messaging bridge: wires correlation enrichment and event forwarding."""
+
     @classmethod
     def register(cls, *, enrich_correlation: bool = True) -> DynamicModule:
         """Register the event-sourcing <-> messaging bridge.

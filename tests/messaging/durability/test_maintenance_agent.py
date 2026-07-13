@@ -26,9 +26,9 @@ from waku.messaging.partition import ISequenceAllocator
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import FakeUoW, RecordingAllocator, RecordingDeadLetterStore
+from tests.messaging.helpers import RecordingAllocator, RecordingDeadLetterStore, RecordingUoW
 from tests.messaging.inbox.fake_store import FakeInboxStore
-from tests.messaging.outbox.fake_store import FakeOutboxStore
+from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 _FAST = PollingConfig(poll_interval_min_seconds=0.01, poll_interval_max_seconds=0.05, poll_interval_step_seconds=0.01)
 
 
-class _MaintOutboxStore(FakeOutboxStore):
+class _MaintOutboxStore(RecordingOutboxStore):
     def __init__(
         self,
         *,
@@ -144,7 +144,7 @@ class _MaintenanceDepsProvider(Provider):
         self._inbox = inbox
         self._replayer = replayer
         self._allocator = RecordingAllocator()
-        self._uow: IUnitOfWork = FakeUoW()
+        self._uow: IUnitOfWork = RecordingUoW()
 
     @provide
     def outbox(self) -> IOutboxStore:

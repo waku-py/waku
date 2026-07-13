@@ -47,14 +47,14 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests.messaging.helpers import (
-    FakeUoW,
     RecordingAllocator,
     RecordingDeadLetterStore,
     RecordingTransport,
+    RecordingUoW,
     order_id_partition,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
-from tests.messaging.outbox.fake_store import FakeOutboxStore
+from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -433,7 +433,7 @@ class TestMessagingConfigValidation:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_CommandHandler)],
-            providers=[object_(FakeUoW(), provided_type=IUnitOfWork), scoped(IOutboxStore, FakeOutboxStore)],
+            providers=[object_(RecordingUoW(), provided_type=IUnitOfWork), scoped(IOutboxStore, RecordingOutboxStore)],
         ) as app:
             plan = await app.container.get(BehaviorPlan)
             registry = await app.container.get(HandlerMap)
@@ -455,7 +455,7 @@ class TestMessagingConfigValidation:
             create_test_app(
                 imports=[MessagingModule.register(config)],
                 providers=[
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     scoped(IDeadLetterStore, RecordingDeadLetterStore),
                 ],
             ) as app,
@@ -484,7 +484,10 @@ class TestMessagingConfigValidation:
         with pytest.raises(ImproperlyConfiguredError, match='ISequenceAllocator'):
             async with create_test_app(
                 imports=[MessagingModule.register(config)],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), scoped(IOutboxStore, FakeOutboxStore)],
+                providers=[
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
+                    scoped(IOutboxStore, RecordingOutboxStore),
+                ],
             ):
                 pass  # pragma: no cover
 
@@ -515,7 +518,7 @@ class TestMessagingConfigValidation:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 object_(inbox, provided_type=IInboxStore),
             ],
@@ -535,9 +538,9 @@ class TestMessagingConfigValidation:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
-                scoped(IOutboxStore, FakeOutboxStore),
+                scoped(IOutboxStore, RecordingOutboxStore),
             ],
         ):
             pass
@@ -572,7 +575,7 @@ class TestMessagingConfigValidation:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
             ],
@@ -587,7 +590,7 @@ class TestMessagingConfigValidation:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 scoped(IDeadLetterStore, RecordingDeadLetterStore),
             ],
         ):

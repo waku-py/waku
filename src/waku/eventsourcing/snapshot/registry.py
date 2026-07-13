@@ -25,6 +25,8 @@ class SnapshotConfig:
 
 
 class SnapshotConfigRegistry:
+    """Per-aggregate snapshot configuration, resolved by aggregate name."""
+
     __slots__ = ('_configs',)
 
     def __init__(self, configs: Mapping[str, SnapshotConfig]) -> None:

@@ -99,6 +99,7 @@ class DeadLetterTables:
 
 
 def bind_dead_letter_tables(metadata: MetaData) -> DeadLetterTables:
+    """Bind the dead-letter table onto ``metadata``, returning the bound-table wrapper (idempotent)."""
     messages = (
         metadata.tables[dead_letter_table.name]
         if dead_letter_table.name in metadata.tables

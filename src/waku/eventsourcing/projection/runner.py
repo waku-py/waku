@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 
 class CatchUpProjectionRunner:
+    """Runs catch-up projections under a lease, polling for new events and advancing checkpoints."""
+
     def __init__(
         self,
         container: AsyncContainer,

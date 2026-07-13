@@ -33,8 +33,8 @@ from waku.messaging.endpoints._internal.local_queue import LocalQueueEndpoint
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import FakeUoW, RecordingTransport
-from tests.messaging.outbox.fake_store import FakeOutboxStore
+from tests.messaging.helpers import RecordingTransport, RecordingUoW
+from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -84,15 +84,15 @@ class _NoopLoggedHandler(EventHandler[_OrderLogged]):
     async def handle(self, event: _OrderLogged, /) -> None: ...  # pragma: no cover
 
 
-class _FailingOutboxStore(FakeOutboxStore):
+class _FailingOutboxStore(RecordingOutboxStore):
     @override
     async def save_batch(self, messages: Sequence[OutboxMessage]) -> None:
         msg = 'outbox down'
         raise ConnectionError(msg)
 
 
-def _fresh_uow() -> FakeUoW:
-    return FakeUoW()
+def _fresh_uow() -> RecordingUoW:
+    return RecordingUoW()
 
 
 def _config(*, mixed: bool = False) -> MessagingConfig:
@@ -116,7 +116,7 @@ def _config(*, mixed: bool = False) -> MessagingConfig:
 class TestOutboxCascadingPerDestination:
     @staticmethod
     async def test_durable_cascade_writes_to_outbox_in_handler_transaction() -> None:
-        outbox = FakeOutboxStore()
+        outbox = RecordingOutboxStore()
         logged_done = asyncio.Event()
 
         class PlaceOrderHandler(RequestHandler[_PlaceOrder, None]):
@@ -138,7 +138,10 @@ class TestOutboxCascadingPerDestination:
                 extensions=[
                     MessagingExtension().bind(PlaceOrderHandler).bind(_NoopShippedHandler).bind(LoggedHandler),
                 ],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(outbox, provided_type=IOutboxStore)],
+                providers=[
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
+                    object_(outbox, provided_type=IOutboxStore),
+                ],
             ) as app,
             app.container() as container,
         ):
@@ -151,7 +154,7 @@ class TestOutboxCascadingPerDestination:
 
     @staticmethod
     async def test_non_durable_cascade_flushed_post_commit_via_deferred_bucket() -> None:
-        outbox = FakeOutboxStore()
+        outbox = RecordingOutboxStore()
         logged: list[str] = []
         logged_done = asyncio.Event()
 
@@ -175,7 +178,10 @@ class TestOutboxCascadingPerDestination:
                 extensions=[
                     MessagingExtension().bind(PlaceOrderHandler).bind(_NoopShippedHandler).bind(LoggedHandler),
                 ],
-                providers=[object_(FakeUoW(), provided_type=IUnitOfWork), object_(outbox, provided_type=IOutboxStore)],
+                providers=[
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
+                    object_(outbox, provided_type=IOutboxStore),
+                ],
             ) as app,
             app.container() as container,
         ):
@@ -190,8 +196,8 @@ class TestOutboxCascadingPerDestination:
 
     @staticmethod
     async def test_handler_rollback_removes_durable_and_skips_deferred() -> None:
-        outbox = FakeOutboxStore()
-        uow = FakeUoW()
+        outbox = RecordingOutboxStore()
+        uow = RecordingUoW()
 
         class FailingHandler(RequestHandler[_PlaceOrder, None]):
             def __init__(self, outgoing: IOutgoingMessages) -> None:
@@ -225,14 +231,14 @@ class TestOutboxCascadingPerDestination:
 
         # The cascade frame is drained only AFTER the handler succeeds, so a handler failure
         # never writes the durable cascade nor flushes the deferred one; the tx rolls back.
-        # (`committed` is not asserted: the background outbox relay commits the shared FakeUoW.)
+        # (`committed` is not asserted: the background outbox relay commits the shared RecordingUoW.)
         assert outbox.saved == []
         assert uow.rolled_back is True
 
     @staticmethod
     async def test_durable_dispatch_failure_rolls_back_handler() -> None:
         outbox = _FailingOutboxStore()
-        uow = FakeUoW()
+        uow = RecordingUoW()
 
         class PlaceOrderHandler(RequestHandler[_PlaceOrder, None]):
             def __init__(self, outgoing: IOutgoingMessages) -> None:
@@ -262,15 +268,15 @@ class TestOutboxCascadingPerDestination:
                 await bus.invoke(_PlaceOrder(order_id='o-4'))
 
         # OutboxCascadingBehavior re-raised the durable-write failure -> TransactionalBehavior rolled back.
-        # (`committed` is not asserted: the background outbox relay commits the shared FakeUoW.)
+        # (`committed` is not asserted: the background outbox relay commits the shared RecordingUoW.)
         assert uow.rolled_back is True
 
 
 class TestMixedDurabilityCascade:
     @staticmethod
     async def test_mixed_cascade_writes_durable_leg_in_tx_and_delivers_non_durable_leg_post_commit() -> None:
-        outbox = FakeOutboxStore()
-        seen: dict[str, FakeUoW] = {}
+        outbox = RecordingOutboxStore()
+        seen: dict[str, RecordingUoW] = {}
         delivered_after_commit: list[bool] = []
 
         class PlaceOrderHandler(RequestHandler[_PlaceOrder, None]):
@@ -280,7 +286,7 @@ class TestMixedDurabilityCascade:
 
             @override
             async def handle(self, cmd: _PlaceOrder, /) -> None:
-                seen['uow'] = cast('FakeUoW', self._uow)
+                seen['uow'] = cast('RecordingUoW', self._uow)
                 self._outgoing.publish(_OrderMixed(order_id=cmd.order_id))
 
         class MixedHandler(EventHandler[_OrderMixed]):
@@ -317,7 +323,7 @@ class TestMixedDurabilityCascade:
     @staticmethod
     async def test_mixed_cascade_durable_write_failure_rolls_back_without_non_durable_delivery() -> None:
         outbox = _FailingOutboxStore()
-        uow = FakeUoW()
+        uow = RecordingUoW()
         delivered: list[str] = []
 
         class PlaceOrderHandler(RequestHandler[_PlaceOrder, None]):
@@ -358,8 +364,8 @@ class TestMixedDurabilityCascade:
 
     @staticmethod
     async def test_mixed_cascade_handler_failure_discards_both_legs() -> None:
-        outbox = FakeOutboxStore()
-        uow = FakeUoW()
+        outbox = RecordingOutboxStore()
+        uow = RecordingUoW()
         delivered: list[str] = []
 
         class FailingHandler(RequestHandler[_PlaceOrder, None]):
@@ -405,7 +411,7 @@ class TestCascadeEdgeCases:
     async def test_unrouted_cascaded_send_drops_with_a_warning_not_an_error(
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        outbox = FakeOutboxStore()
+        outbox = RecordingOutboxStore()
 
         class PlaceOrderHandler(RequestHandler[_PlaceOrder, None]):
             def __init__(self, outgoing: IOutgoingMessages) -> None:
@@ -426,7 +432,7 @@ class TestCascadeEdgeCases:
                     MessagingExtension().bind(PlaceOrderHandler).bind(_NoopShippedHandler).bind(LoggedHandler),
                 ],
                 providers=[
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(outbox, provided_type=IOutboxStore),
                 ],
             ) as app,
@@ -447,7 +453,7 @@ class TestCascadeEdgeCases:
         mocker: MockerFixture,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        outbox = FakeOutboxStore()
+        outbox = RecordingOutboxStore()
 
         class PlaceOrderHandler(RequestHandler[_PlaceOrder, None]):
             def __init__(self, outgoing: IOutgoingMessages) -> None:
@@ -475,7 +481,7 @@ class TestCascadeEdgeCases:
                     MessagingExtension().bind(PlaceOrderHandler).bind(_NoopShippedHandler).bind(LoggedHandler),
                 ],
                 providers=[
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(outbox, provided_type=IOutboxStore),
                 ],
             ) as app,

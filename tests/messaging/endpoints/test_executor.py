@@ -38,8 +38,8 @@ from waku.uow import IUnitOfWork
 from tests.messaging.helpers import (
     NOOP_EVALUATOR,
     FailingDeadLetterStore,
-    FakeUoW,
     RecordingDeadLetterStore,
+    RecordingUoW,
     make_envelope,
 )
 
@@ -304,7 +304,7 @@ class TestEndpointExecutorDeadLetter:
     async def test_dead_letter_policy_writes_entry_with_error_details() -> None:
         handler, _ = _make_always_fail_handler()
         dl_store = RecordingDeadLetterStore()
-        uow = FakeUoW()
+        uow = RecordingUoW()
 
         config = MessagingConfig(
             endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
@@ -341,7 +341,7 @@ class TestEndpointExecutorDeadLetter:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(handler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(dl_store, provided_type=IDeadLetterStore),
             ],
         ) as app:
@@ -369,7 +369,7 @@ class TestEndpointExecutorDeadLetter:
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(handler)],
                 providers=[
-                    object_(FakeUoW(), provided_type=IUnitOfWork),
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
                     scoped(IDeadLetterStore, FailingDeadLetterStore),
                 ],
             ) as app:
@@ -472,7 +472,7 @@ class TestHandlerExecutionTimeout:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_BlockingHandler)],
             providers=[
-                object_(FakeUoW(), provided_type=IUnitOfWork),
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(dl_store, provided_type=IDeadLetterStore),
             ],
         ) as app:

@@ -28,6 +28,8 @@ class DuplicateErrorPolicyError(ImproperlyConfiguredError):
 
 
 class ErrorPolicyRegistry:
+    """Per-handler and default error policies; resolves the best match for a handler and exception."""
+
     __slots__ = ('_default_policies', '_handler_policies')
 
     def __init__(
