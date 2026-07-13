@@ -5,6 +5,7 @@ from waku.messaging.transport.interfaces import (
     IListener,
     ISender,
     ITransport,
+    MalformedMetadataError,
     Subscription,
     TransportFactory,
 )
@@ -24,6 +25,7 @@ __all__ = [
     'IListener',
     'ISender',
     'ITransport',
+    'MalformedMetadataError',
     'Subscription',
     'TransportFactory',
     'UnsupportedContentTypeError',

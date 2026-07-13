@@ -16,6 +16,7 @@ from waku.messaging.durability import IOutboxStore
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.sending.evaluator import SendingFailureContext, SendingFailureEvaluator
 from waku.messaging.sending.policy import SendingFailurePolicy
+from waku.messaging.transport import MalformedMetadataError
 from waku.messaging.transport._internal.registry import TransportRegistry, split_destination
 from waku.messaging.transport._internal.wire import wire_metadata_from_entry
 from waku.uow import IUnitOfWork
@@ -131,7 +132,14 @@ class OutboxRelay(PollingAgent):
     async def _dispatch_message(self, scope: AsyncContainer, message: OutboxMessage) -> None:
         store = await scope.get(IOutboxStore)
         uow = await scope.get(IUnitOfWork)
-        metadata = wire_metadata_from_entry(message)
+        try:
+            metadata = wire_metadata_from_entry(message)
+        except MalformedMetadataError as exc:
+            # A corrupt metadata blob is deterministic poison, not a transient broker failure: dead-letter
+            # immediately (the broker is never touched, no sending-retry budget is burned on a row that can
+            # never be rebuilt) — distinct from _on_dispatch_failure's send-side retry policy.
+            await self._handle_exhausted(store, uow, message, exc)
+            return
         if metadata.expires_at is not None and metadata.expires_at <= self._now():
             # The delivery deadline (deliver_by/deliver_within) elapsed while the row sat queued (relay
             # downtime, retries, backpressure). Terminal-DISCARDED (never DLQ'd) before any broker send —

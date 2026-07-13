@@ -15,13 +15,14 @@ from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.inbox.models import InboxEntry
 from waku.messaging.outbox.models import OutboxMessage
 from waku.messaging.transport._internal.wire import (
+    WireMetadata,
     encode_metadata,
     encode_payload,
     envelope_metadata_of,
     rebuild_envelope,
     wire_metadata_from_entry,
 )
-from waku.messaging.transport.interfaces import EnvelopeMetadata
+from waku.messaging.transport.interfaces import EnvelopeMetadata, MalformedMetadataError
 from waku.serialization import UpcasterChain, upcast
 from waku.serialization.codec import PayloadCodec
 
@@ -93,6 +94,45 @@ class TestEncodeMetadata:
 
         assert 'tenant_id' in blob
         assert blob['tenant_id'] is None
+
+    @staticmethod
+    def test_round_trips_through_wire_metadata_single_authority() -> None:
+        # dump/load are inverses over the SAME WireMetadata dataclass — the single-authority property.
+        scheduled = datetime(2026, 8, 1, 9, 30, tzinfo=UTC)
+        expires = datetime(2026, 8, 1, 18, 45, tzinfo=UTC)
+        env = _make_envelope(
+            message_version=7,
+            headers={'trace': 'abc'},
+            tenant_id='t1',
+            scheduled_time=scheduled,
+            expires_at=expires,
+        )
+
+        loaded = default_retort.load(encode_metadata(env), WireMetadata)
+
+        assert loaded == WireMetadata(
+            message_version=7,
+            timestamp=env.timestamp,
+            headers={'trace': 'abc'},
+            scheduled_time=scheduled,
+            expires_at=expires,
+            tenant_id='t1',
+        )
+
+    @staticmethod
+    def test_wire_format_keys_and_iso_datetimes() -> None:
+        # BC guard: the persisted blob's keys + value formats (ISO-8601 datetime strings, int version)
+        # are the on-wire contract. A drift here is a wire break, caught before it ships.
+        env = _make_envelope(message_version=2, tenant_id='t1')
+
+        blob = encode_metadata(env)
+
+        assert set(blob) == {'message_version', 'timestamp', 'headers', 'scheduled_time', 'expires_at', 'tenant_id'}
+        assert blob['message_version'] == 2
+        assert blob['timestamp'] == env.timestamp.isoformat()
+        assert blob['scheduled_time'] is None
+        assert blob['expires_at'] is None
+        assert blob['tenant_id'] == 't1'
 
 
 class TestEnvelopeMetadataOf:
@@ -465,7 +505,7 @@ class TestWireMetadataFromEntry:
 
     @staticmethod
     def test_dlq_falls_back_to_entry_id_when_message_id_column_is_null() -> None:
-        # Legacy DLQ rows written before the message_id column existed have message_id=None.
+        # A DLQ row with a NULL message_id column falls back to the entry's own id.
         entry_id = uuid4()
         entry = _make_dlq_entry(id=entry_id, message_id=None, metadata=_make_meta_json())
 
@@ -553,41 +593,37 @@ class TestWireMetadataFromEntry:
         assert result.expires_at is None
 
     @staticmethod
-    def test_corrupt_metadata_returns_minimal_with_typed_columns() -> None:
-        corr = str(uuid4())
-        caus = str(uuid4())
-        # Corrupt: timestamp value is not a valid isoformat string.
+    def test_corrupt_timestamp_blob_raises_malformed() -> None:
+        # A non-ISO timestamp is genuine corruption (Waku never writes one); the reader fails loud
+        # instead of silently coercing timestamp -> None and rebuilding/upcasting wrong.
         corrupt_meta = {'message_version': 1, 'timestamp': 'NOT-A-DATE', 'headers': {}}
-        entry = _make_inbox_entry(correlation_id=corr, causation_id=caus, metadata=corrupt_meta)
+        entry = _make_inbox_entry(metadata=corrupt_meta)
 
-        result = wire_metadata_from_entry(entry)
-
-        # Must not raise; falls back to minimal — correlation/causation still readable.
-        assert result.correlation_id == str(corr)
-        assert result.causation_id == str(caus)
-        assert result.message_version == 1
-        assert result.timestamp is None
+        with pytest.raises(MalformedMetadataError):
+            wire_metadata_from_entry(entry)
 
     @staticmethod
-    def test_corrupt_timestamp_preserves_message_version_and_headers() -> None:
-        # Per-field fault tolerance: a corrupt timestamp must NOT revert message_version to 1
-        # (wrong version → wrong upcasting → data corruption). Each field parses independently.
-        corrupt_meta: dict[str, object] = {
-            'message_version': 2,
-            'timestamp': 'NOT-A-DATE',
-            'headers': {'x-tenant': 'acme'},
-        }
+    def test_corrupt_message_version_blob_raises_malformed() -> None:
+        # A non-integer message_version silently coerced to 1 under the old reader -> wrong upcasting.
+        # Single-authority load rejects it as poison, even with an otherwise-valid timestamp.
+        corrupt_meta = {'message_version': 'abc', 'timestamp': '2026-06-29T10:00:00+00:00', 'headers': {}}
         entry = _make_outbox_message(metadata=corrupt_meta)
 
-        result = wire_metadata_from_entry(entry)
+        with pytest.raises(MalformedMetadataError):
+            wire_metadata_from_entry(entry)
 
-        assert result.message_version == 2
-        assert result.headers == {'x-tenant': 'acme'}
-        assert result.timestamp is None
+    @staticmethod
+    def test_corrupt_headers_blob_raises_malformed() -> None:
+        # headers must be a str->str mapping; a non-str value is corruption, not a lenient default.
+        corrupt_meta = {'message_version': 1, 'timestamp': '2026-06-29T10:00:00+00:00', 'headers': {'k': 5}}
+        entry = _make_outbox_message(metadata=corrupt_meta)
+
+        with pytest.raises(MalformedMetadataError):
+            wire_metadata_from_entry(entry)
 
     @staticmethod
     def test_null_correlation_and_causation_fall_back_to_entry_id() -> None:
-        # Legacy rows with NULL correlation_id/causation_id must not produce '' — UUID('') crashes
+        # A NULL correlation_id/causation_id column must not produce '' — UUID('') crashes
         # rebuild_envelope. The fallback to str(entry.id) yields a valid UUID string instead.
         entry = _make_inbox_entry(correlation_id=None, causation_id=None, metadata=_make_meta_json())
 
@@ -613,7 +649,8 @@ class TestWireMetadataFromEntry:
         assert result.tenant_id == 't1'
 
     @staticmethod
-    def test_legacy_blob_without_tenant_id_yields_none() -> None:
+    def test_blob_without_tenant_id_yields_none() -> None:
+        # A blob that omits the tenant_id key loads the dataclass default (None) — absent is lenient.
         entry = _make_outbox_message(metadata=_make_meta_json())
 
         result = wire_metadata_from_entry(entry)

@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from waku.messaging.transport.interfaces import EnvelopeMetadata
+from waku.messaging.transport.interfaces import EnvelopeMetadata, MalformedMetadataError
 from waku.messaging.transport.mapping import (
     WIRE_CONTENT_TYPE,
     UnsupportedContentTypeError,
@@ -296,7 +296,9 @@ class TestMetadataFromHeaders:
         assert meta.message_version == 3
 
     @staticmethod
-    def test_non_numeric_message_version_falls_back_to_1() -> None:
+    def test_non_numeric_message_version_raises() -> None:
+        # A present-but-non-numeric reserved message_version is poison (would upcast wrong), treated
+        # exactly like a foreign content-type — the inbound adapter REJECTs.
         headers = {
             'message_id': 'm',
             'correlation_id': 'c',
@@ -305,9 +307,26 @@ class TestMetadataFromHeaders:
             'message_version': 'bad-version',
             'content-type': WIRE_CONTENT_TYPE,
         }
-        meta = metadata_from_headers(headers)
 
-        assert meta.message_version == 1
+        with pytest.raises(MalformedMetadataError):
+            metadata_from_headers(headers)
+
+    @staticmethod
+    def test_absent_required_reserved_header_raises() -> None:
+        # message_id/correlation_id/causation_id/message_type are always emitted by wire_headers_of.
+        # An absent one on the default mapper is poison (was: '' flowing to UUID('')), naming the key.
+        for missing in ('message_id', 'correlation_id', 'causation_id', 'message_type'):
+            headers = {
+                'message_id': 'm',
+                'correlation_id': 'c',
+                'causation_id': 'x',
+                'message_type': 't',
+                'content-type': WIRE_CONTENT_TYPE,
+            }
+            del headers[missing]
+
+            with pytest.raises(MalformedMetadataError, match=missing):
+                metadata_from_headers(headers)
 
     @staticmethod
     def test_absent_content_type_is_lenient() -> None:

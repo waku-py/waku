@@ -260,6 +260,24 @@ async def test_drain_poison_at_cap_dead_letters_and_deletes() -> None:
     assert dlq.entries[0].message_type == entry.message_type
 
 
+async def test_drain_poison_corrupt_metadata_blob_at_cap_dead_letters() -> None:
+    # A row with a corrupt metadata blob (non-integer message_version, valid timestamp) makes
+    # wire_metadata_from_entry raise MalformedMetadataError — the drainer's broad poison net catches
+    # it, bounds by max_attempts, and dead-letters + deletes at the cap. The raise never aborts drain.
+    inbox = FakeInboxStore()
+    dlq = RecordingDeadLetterStore()
+    entry = _abandoned_entry(inbox, attempts=2)
+    inbox.entries[entry.id, entry.destination] = replace(
+        entry,
+        metadata={'message_version': 'abc', 'timestamp': '2026-06-29T10:00:00+00:00', 'headers': {}},
+    )
+    async with make_async_container(_Deps(inbox, FakeUoW()), _DlqProvider(dlq)) as container:
+        await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
+    assert (entry.id, entry.destination) not in inbox.entries
+    assert len(dlq.entries) == 1
+    assert dlq.entries[0].message_type == entry.message_type
+
+
 async def test_drain_poison_at_cap_discards_and_deletes(caplog: pytest.LogCaptureFixture) -> None:
     # dead_letter unconfigured => the always-present DiscardingDeadLetterStore fallback. Poison-at-cap
     # deletes the row and (N5) emits the discarding WARN naming the loss before the drop.

@@ -294,6 +294,44 @@ class TestDispatchInbound:
         assert (msg.acked, msg.nacked, msg.rejected) == (0, 0, 1)
         assert seen == []
 
+    @staticmethod
+    async def test_malformed_message_version_header_is_rejected_via_mapper() -> None:
+        # A present-but-non-numeric message_version → metadata_from_headers raises MalformedMetadataError
+        # → poison reject (commit/skip), never seek-back and never a silent version->1 coercion.
+        _, transport = _make_transport()
+        headers = {**_WIRE_HEADERS, 'message_version': 'not-a-number'}
+        msg = _FakeInboundMessage(headers=headers)
+        seen: list[object] = []
+        mapper = DefaultKafkaEnvelopeMapper()
+
+        async def on_message(payload: dict[str, Any], metadata: object) -> ConsumeDisposition:  # noqa: ARG001, RUF029
+            seen.append(payload)
+            return ConsumeDisposition.ACK
+
+        await transport._dispatch_inbound(cast('KafkaMessage', msg), on_message, mapper)
+
+        assert (msg.acked, msg.nacked, msg.rejected) == (0, 0, 1)
+        assert seen == []
+
+    @staticmethod
+    async def test_absent_required_header_is_rejected_via_mapper() -> None:
+        # An absent required reserved header (message_id) → metadata_from_headers raises
+        # MalformedMetadataError → poison reject, never a silent '' flowing to UUID('').
+        _, transport = _make_transport()
+        headers = {key: value for key, value in _WIRE_HEADERS.items() if key != 'message_id'}
+        msg = _FakeInboundMessage(headers=headers)
+        seen: list[object] = []
+        mapper = DefaultKafkaEnvelopeMapper()
+
+        async def on_message(payload: dict[str, Any], metadata: object) -> ConsumeDisposition:  # noqa: ARG001, RUF029
+            seen.append(payload)
+            return ConsumeDisposition.ACK
+
+        await transport._dispatch_inbound(cast('KafkaMessage', msg), on_message, mapper)
+
+        assert (msg.acked, msg.nacked, msg.rejected) == (0, 0, 1)
+        assert seen == []
+
 
 class TestKafkaSubscriptionPause:
     @staticmethod

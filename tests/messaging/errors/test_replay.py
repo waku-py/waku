@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
@@ -285,6 +285,26 @@ async def test_replay_dispatch_error_marks_failed() -> None:
     assert store.replayed == []
     assert len(store.failures) == 1
     assert 'dispatch boom' in store.failures[0][1]
+
+
+async def test_replay_corrupt_metadata_blob_marks_replay_failed() -> None:
+    # A dead-letter row with a corrupt metadata blob (non-integer message_version) makes
+    # wire_metadata_from_entry raise MalformedMetadataError — the replay worker's broad net records
+    # REPLAY_FAILED and returns False instead of letting the raise reach the worker loop.
+    envelope = make_envelope(_DlqEvent('hi'))
+    entry = replace(
+        _entry_for(envelope, destination='local://dlq'),
+        metadata={'message_version': 'abc', 'timestamp': '2026-06-29T10:00:00+00:00', 'headers': {}},
+    )
+    endpoint = _RecordingEndpoint('local://dlq')
+    store = _ReplayStore()
+    executor = _make_executor(store, endpoint)
+
+    assert await executor.replay(entry) is False
+    assert store.replayed == []
+    assert len(store.failures) == 1
+    assert store.failures[0][0] == entry.id
+    assert endpoint.dispatched == []  # never dispatched — poison caught before the endpoint
 
 
 async def test_replay_by_id_fetches_then_replays() -> None:

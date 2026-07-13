@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
+from adaptix.load_error import LoadError
+
+from waku._internal.retort import default_retort
 from waku.messages import MessageIdentity
 from waku.messaging.contracts.envelope import MessageEnvelope
-from waku.messaging.transport.interfaces import EnvelopeMetadata
+from waku.messaging.transport.interfaces import EnvelopeMetadata, MalformedMetadataError
 
 if TYPE_CHECKING:
     from waku.messaging._internal.identity import MessageTypeRegistry
@@ -16,12 +20,30 @@ if TYPE_CHECKING:
     from waku.serialization.codec import PayloadCodec
 
 __all__ = [
+    'WireMetadata',
     'encode_metadata',
     'encode_payload',
     'envelope_metadata_of',
     'rebuild_envelope',
     'wire_metadata_from_entry',
 ]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WireMetadata:
+    """The six non-column envelope fields carried in the persisted ``metadata`` JSONB blob.
+
+    Single authority for both directions: ``default_retort.dump`` writes the blob and
+    ``default_retort.load`` reads it back. The typed columns (message_id, correlation_id,
+    causation_id, message_type, group_id) live on the row and are never carried here.
+    """
+
+    message_version: int = 1
+    timestamp: datetime | None = None
+    headers: dict[str, str] = field(default_factory=dict)
+    scheduled_time: datetime | None = None
+    expires_at: datetime | None = None
+    tenant_id: str | None = None
 
 
 def encode_payload(envelope: MessageEnvelope[Any], codec: PayloadCodec) -> dict[str, Any]:
@@ -36,22 +58,23 @@ def encode_payload(envelope: MessageEnvelope[Any], codec: PayloadCodec) -> dict[
 def encode_metadata(envelope: MessageEnvelope[Any]) -> dict[str, Any]:
     """Return the ``metadata`` persistence dict for *envelope*.
 
-    Carries the six non-column envelope fields: ``message_version``, ``timestamp``,
-    ``headers``, ``scheduled_time``, ``expires_at``, and ``tenant_id``.  Key names and
-    datetime format (ISO 8601 string) MUST match what :func:`_parse_metadata_json` reads
-    so that :func:`wire_metadata_from_entry` reconstructs the values correctly.
+    Carries the six non-column envelope fields (``message_version``, ``timestamp``, ``headers``,
+    ``scheduled_time``, ``expires_at``, ``tenant_id``) by dumping a :class:`WireMetadata` through
+    ``default_retort`` — the single serialization authority that :func:`wire_metadata_from_entry`
+    loads it back with. Datetimes become ISO-8601 strings.
 
-    Typed columns (correlation_id, causation_id, group_id, message_type) are stored
-    directly on the row and are intentionally excluded here.
+    Typed columns (correlation_id, causation_id, group_id, message_type) are stored directly on the
+    row and are intentionally excluded here.
     """
-    return {
-        'message_version': envelope.message_version,
-        'timestamp': envelope.timestamp.isoformat(),
-        'headers': dict(envelope.headers),
-        'scheduled_time': envelope.scheduled_time.isoformat() if envelope.scheduled_time is not None else None,
-        'expires_at': envelope.expires_at.isoformat() if envelope.expires_at is not None else None,
-        'tenant_id': envelope.tenant_id,
-    }
+    wire = WireMetadata(
+        message_version=envelope.message_version,
+        timestamp=envelope.timestamp,
+        headers=dict(envelope.headers),
+        scheduled_time=envelope.scheduled_time,
+        expires_at=envelope.expires_at,
+        tenant_id=envelope.tenant_id,
+    )
+    return cast('dict[str, Any]', default_retort.dump(wire, WireMetadata))
 
 
 def envelope_metadata_of(envelope: MessageEnvelope[Any]) -> EnvelopeMetadata:
@@ -135,49 +158,23 @@ def rebuild_envelope(
     )
 
 
-def _iso(value: Any) -> datetime | None:
-    """Parse an isoformat string to datetime, or return None if absent."""
-    return datetime.fromisoformat(value) if value is not None else None
+def _load_wire_metadata(raw: dict[str, Any] | None) -> WireMetadata:
+    """Load the persisted ``metadata`` blob into a :class:`WireMetadata`.
 
+    A ``None`` blob (the metadata column is nullable) yields all defaults — the *absent* case is
+    tolerated. A present-but-corrupt blob (wrong-typed or undeserializable field) is poison, never a
+    silent coercion.
 
-def _parse_metadata_json(
-    raw: dict[str, Any],
-) -> tuple[int, datetime | None, dict[str, str], datetime | None, datetime | None, str | None]:
-    """Parse the ``metadata`` JSONB dict into its component fields.
-
-    Returns ``(message_version, timestamp, headers, scheduled_time, expires_at, tenant_id)``.
-    Each field is parsed independently: a corrupt ``timestamp`` falls back to ``None`` without
-    losing a valid ``message_version`` or ``headers`` (which would cause wrong upcasting).
-    Never raises.
+    Raises:
+        MalformedMetadataError: If *raw* is present but wrong-typed or undeserializable.
     """
+    if raw is None:
+        return WireMetadata()
     try:
-        version = int(raw.get('message_version', 1))
-    except (TypeError, ValueError):
-        version = 1
-
-    try:
-        hdrs = dict(raw.get('headers', {}))
-    except (TypeError, ValueError):
-        hdrs = {}
-
-    try:
-        ts = _iso(raw.get('timestamp'))
-    except (TypeError, ValueError):
-        ts = None
-
-    try:
-        sched = _iso(raw.get('scheduled_time'))
-    except (TypeError, ValueError):
-        sched = None
-
-    try:
-        exp = _iso(raw.get('expires_at'))
-    except (TypeError, ValueError):
-        exp = None
-
-    tenant = raw.get('tenant_id')
-
-    return version, ts, hdrs, sched, exp, tenant
+        return default_retort.load(raw, WireMetadata)
+    except LoadError as exc:
+        msg = 'persisted metadata blob is corrupt or undeserializable'
+        raise MalformedMetadataError(msg) from exc
 
 
 def wire_metadata_from_entry(entry: OutboxMessage | InboxEntry | DeadLetterEntry) -> EnvelopeMetadata:
@@ -185,36 +182,27 @@ def wire_metadata_from_entry(entry: OutboxMessage | InboxEntry | DeadLetterEntry
 
     Typed columns (correlation_id, causation_id, group_id, message_type) are the single source of
     truth and are always read directly from the entry. The ``metadata`` JSONB field carries the
-    remaining envelope fields (message_version, timestamp, headers, scheduled_time, expires_at,
-    tenant_id).
+    remaining envelope fields via :class:`WireMetadata`.
 
     ``entry.message_id`` is a uniform accessor across all three entry types: :class:`OutboxMessage`
     (``UUID(idempotency_key)``), :class:`InboxEntry` (``id``), :class:`DeadLetterEntry` (``message_id``
     column). No ``isinstance`` discriminator is needed.
 
-    Fault-tolerant: a ``None`` or unparsable ``metadata`` returns a minimal
-    :class:`EnvelopeMetadata` built from typed columns only — never raises. This ensures the
-    poison/quarantine path can still read correlation/causation even for malformed rows.
+    A ``None`` metadata blob yields a minimal :class:`EnvelopeMetadata` (typed columns + defaults). A
+    present-but-corrupt blob raises :exc:`MalformedMetadataError` so the caller can quarantine the row.
     """
-    # entry.message_id is a uniform accessor: UUID for OutboxMessage/InboxEntry, UUID|None for DeadLetterEntry.
-    # For legacy DLQ rows written before the message_id column existed, fall back to the entry's own id.
+    # message_id coalesce (load-bearing in the current schema): OutboxMessage.message_id is UUID|None
+    # (None when idempotency_key is not a UUID, e.g. a foreign row) and DeadLetterEntry.message_id is a
+    # nullable column — fall back to the entry's own id so rebuild receives a valid UUID string.
     raw_message_id = entry.message_id
     message_id = str(raw_message_id) if raw_message_id is not None else str(entry.id)
-    # Legacy rows with NULL correlation_id/causation_id fall back to str(entry.id) so rebuild_envelope
-    # receives a valid UUID string rather than '' (which crashes UUID('')).
+    # correlation/causation coalesce (load-bearing for InboxEntry, whose columns are nullable str|None):
+    # fall back to str(entry.id) so rebuild_envelope receives a valid UUID string rather than '' (UUID('')
+    # crashes). No-op for Outbox/DLQ, whose columns are required str.
     correlation_id = entry.correlation_id if entry.correlation_id is not None else str(entry.id)
     causation_id = entry.causation_id if entry.causation_id is not None else str(entry.id)
 
-    message_version = 1
-    timestamp: datetime | None = None
-    headers: dict[str, str] = {}
-    scheduled_time: datetime | None = None
-    expires_at: datetime | None = None
-    tenant_id: str | None = None
-
-    raw = entry.metadata
-    if raw is not None:
-        message_version, timestamp, headers, scheduled_time, expires_at, tenant_id = _parse_metadata_json(raw)
+    wire = _load_wire_metadata(entry.metadata)
 
     return EnvelopeMetadata(
         message_id=message_id,
@@ -222,10 +210,10 @@ def wire_metadata_from_entry(entry: OutboxMessage | InboxEntry | DeadLetterEntry
         causation_id=causation_id,
         message_type=entry.message_type,
         group_id=entry.group_id,
-        tenant_id=tenant_id,
-        message_version=message_version,
-        timestamp=timestamp,
-        headers=headers,
-        scheduled_time=scheduled_time,
-        expires_at=expires_at,
+        tenant_id=wire.tenant_id,
+        message_version=wire.message_version,
+        timestamp=wire.timestamp,
+        headers=wire.headers,
+        scheduled_time=wire.scheduled_time,
+        expires_at=wire.expires_at,
     )

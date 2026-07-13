@@ -16,12 +16,22 @@ __all__ = [
     'IListener',
     'ISender',
     'ITransport',
+    'MalformedMetadataError',
     'Subscription',
     'TransportFactory',
 ]
 
 TIncoming = TypeVar('TIncoming')
 TOutgoing = TypeVar('TOutgoing')
+
+
+class MalformedMetadataError(Exception):
+    """Reserved wire metadata (persisted blob OR inbound header) is corrupt or undeserializable.
+
+    A poison signal raised by the persistence reader (``wire_metadata_from_entry``) and the inbound
+    header mapper (``metadata_from_headers``). Each consumer quarantines the message: the relay
+    dead-letters it immediately, the drainer bounds it as poison, the listener/inbound adapter REJECTs.
+    """
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

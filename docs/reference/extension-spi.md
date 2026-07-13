@@ -26,6 +26,7 @@ Broker transports and the wire seam (mappers, metadata, dispositions).
 `IListener` ·
 `ISender` ·
 `ITransport` ·
+`MalformedMetadataError` ·
 `Subscription` ·
 `TransportFactory` ·
 `UnsupportedContentTypeError` ·

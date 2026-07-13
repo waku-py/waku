@@ -19,7 +19,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from waku.messaging.transport.interfaces import EnvelopeMetadata
+from waku.messaging.transport.interfaces import EnvelopeMetadata, MalformedMetadataError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -101,6 +101,22 @@ def _parse_header_dt(headers: Mapping[str, str], key: str) -> datetime | None:
     return datetime.fromisoformat(raw) if raw is not None else None
 
 
+def _require_int(raw: str) -> int:
+    try:
+        return int(raw)
+    except ValueError as exc:
+        msg = f'reserved header message_version must be an integer, got {raw!r}'
+        raise MalformedMetadataError(msg) from exc
+
+
+def _require_header(headers: Mapping[str, str], key: str) -> str:
+    value = headers.get(key)
+    if value is None:
+        msg = f'required reserved header {key!r} is absent'
+        raise MalformedMetadataError(msg)
+    return value
+
+
 def metadata_from_headers(headers: Mapping[str, str]) -> EnvelopeMetadata:
     """Reconstruct ``EnvelopeMetadata`` from inbound broker headers (Wolverine wire format).
 
@@ -109,29 +125,33 @@ def metadata_from_headers(headers: Mapping[str, str]) -> EnvelopeMetadata:
     - An absent ``content-type`` is lenient — the JSON codec is assumed.
     - ``content-type`` is consumed, not echoed into ``metadata.headers``.
 
-    ``message_version`` is cast to ``int``; a non-numeric value falls back silently to ``1`` (prevents the upcaster
-    chain from silently skipping messages with a malformed version header).
+    Fail-loud on corrupt reserved fields (the inbound adapter REJECTs the poison message):
+    - A present-but-non-numeric ``message_version`` raises ``MalformedMetadataError`` (an absent one
+      defaults to ``1`` — the truly-absent case stays lenient).
+    - An absent required reserved header (``message_id``, ``correlation_id``, ``causation_id``,
+      ``message_type`` — always emitted by ``wire_headers_of``) raises ``MalformedMetadataError``
+      naming the key, instead of an empty string flowing to ``UUID('')``.
 
     Raises:
         UnsupportedContentTypeError: When the inbound ``content-type`` header is present and not
             ``application/json``.
+        MalformedMetadataError: When ``message_version`` is present but non-numeric, or a required
+            reserved header is absent.
     """
     content_type = headers.get('content-type', WIRE_CONTENT_TYPE)
     if content_type != WIRE_CONTENT_TYPE:
         raise UnsupportedContentTypeError(content_type)
 
-    try:
-        message_version = int(headers.get('message_version', 1))
-    except ValueError:
-        message_version = 1
+    raw_version = headers.get('message_version')
+    message_version = 1 if raw_version is None else _require_int(raw_version)
 
     user_headers = {key: value for key, value in headers.items() if key not in _RESERVED_KEYS}
 
     return EnvelopeMetadata(
-        message_id=headers.get('message_id', ''),
-        correlation_id=headers.get('correlation_id', ''),
-        causation_id=headers.get('causation_id', ''),
-        message_type=headers.get('message_type', ''),
+        message_id=_require_header(headers, 'message_id'),
+        correlation_id=_require_header(headers, 'correlation_id'),
+        causation_id=_require_header(headers, 'causation_id'),
+        message_type=_require_header(headers, 'message_type'),
         message_version=message_version,
         timestamp=_parse_header_dt(headers, 'timestamp'),
         scheduled_time=_parse_header_dt(headers, 'scheduled_time'),

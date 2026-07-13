@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
@@ -628,6 +628,23 @@ class TestRelayDispatchQuarantine:
         assert msg.id in store.dead_lettered_ids
         assert len(store.dead_letter_entries) == 1
         assert store.dead_letter_entries[0].message_id is None
+        assert not store.pending
+
+    @staticmethod
+    async def test_relay_dead_letters_corrupt_metadata_blob_without_sending() -> None:
+        # A row whose persisted metadata blob is corrupt (non-integer message_version) is deterministic
+        # poison, not a transient send failure: it dead-letters immediately and the broker is never
+        # touched — no send-retry budget burned.
+        store, msg = _make_pending_store()
+        corrupt = replace(msg, metadata={'message_version': 'abc', 'timestamp': None, 'headers': {}})
+        store.pending[:] = [corrupt]
+        transport = RecordingTransport()
+
+        async with _run_relay(RelayDepsProvider(store, transport)):
+            await wait_until(lambda: corrupt.id in store.dead_lettered_ids)
+
+        assert corrupt.id in store.dead_lettered_ids
+        assert transport.sent == []  # broker never touched — corruption is not a send failure
         assert not store.pending
 
 
