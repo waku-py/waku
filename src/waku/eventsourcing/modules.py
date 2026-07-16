@@ -47,6 +47,8 @@ from waku.serialization.upcasting.chain import UpcasterChain
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
 
+    from dishka import Provider as DishkaProvider
+
     from waku.application import WakuApplication
     from waku.eventsourcing.forwarding import ForwardDescriptor
     from waku.eventsourcing.repository import EventSourcedRepository
@@ -193,7 +195,7 @@ class EventSourcingModule:
 
     @classmethod
     def register(cls, config: EventSourcingConfig, /) -> DynamicModule:
-        providers: list[Provider] = [
+        providers: list[DishkaProvider] = [
             # Anchor type for backend gating (`when=Has(EventSourcingConfig)`) and registration-time scans;
             # symmetric with MessagingModule's object_(config_, provided_type=MessagingConfig).
             object_(config, provided_type=EventSourcingConfig),

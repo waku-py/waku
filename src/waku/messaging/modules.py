@@ -101,6 +101,8 @@ from waku.serialization.codec import PayloadCodec
 from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
+    from dishka import Provider as DishkaProvider
+
     from waku.application import WakuApplication
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.handler import HandlerType
@@ -133,7 +135,7 @@ class MessagingModule:
     def register(cls, config: MessagingConfig | None = None, /) -> DynamicModule:
         config_ = config or MessagingConfig()
         cls._validate_config(config_)
-        providers: list[Provider] = [
+        providers: list[DishkaProvider] = [
             scoped(WithParents[IMessageBus], MessageBus),  # ty:ignore[not-subscriptable]
             _endpoint_dispatch_alias(),
             scoped(AnyOf[IOutgoingMessages, IOutgoingMessagesFrames], OutgoingMessages),  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]

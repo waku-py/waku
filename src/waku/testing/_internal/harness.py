@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import copy
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from itertools import chain
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
 
+import anyio
 from dishka import STRICT_VALIDATION, Scope, make_async_container
 from dishka.async_container import CONTAINER_KEY
 from dishka.dependency_source import ContextVariable
@@ -18,7 +19,7 @@ from waku.factory import WakuFactory
 from waku.modules._internal.metadata import module
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Generator, Sequence
+    from collections.abc import AsyncGenerator, Sequence
 
     from dishka import Provider
     from dishka.dependency_source import Factory
@@ -44,12 +45,12 @@ class _HasOverride(Protocol):
     when_override: BaseMarker | None
 
 
-@contextmanager
-def override(
+@asynccontextmanager
+async def override(
     container: AsyncContainer,
     *providers: BaseProvider,
     context: dict[Any, Any] | None = None,
-) -> Generator[None]:
+) -> AsyncGenerator[None]:
     """Temporarily override providers and/or context in an AsyncContainer for testing.
 
     Args:
@@ -74,12 +75,12 @@ def override(
 
 
         # Override providers
-        with override(application.container, singleton(ServiceOverride, provided_type=Service)):
+        async with override(application.container, singleton(ServiceOverride, provided_type=Service)):
             service = await application.container.get(Service)
             assert isinstance(service, ServiceOverride)
 
         # Override context
-        with override(application.container, context={int: 123}):
+        async with override(application.container, context={int: 123}):
             ...
         ```
 
@@ -113,10 +114,16 @@ def override(
 
     _swap(container, new_container)
     container._cache[CONTAINER_KEY] = container  # noqa: SLF001
+    body_error: BaseException | None = None
     try:
         yield
+    except BaseException as error:
+        body_error = error
+        raise
     finally:
         _swap(new_container, container)
+        with anyio.CancelScope(shield=True):
+            await new_container.close(body_error)
 
 
 def _container_provider(container: AsyncContainer) -> BaseProvider:

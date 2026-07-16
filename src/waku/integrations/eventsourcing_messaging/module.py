@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from waku.di import many, object_
 from waku.eventsourcing.contracts.event import IMetadataEnricher
 from waku.eventsourcing.forwarding import ForwardingConsumer
@@ -7,6 +9,9 @@ from waku.integrations.eventsourcing_messaging.correlation_enricher import Corre
 from waku.integrations.eventsourcing_messaging.forwarding_policy import ForwardingPolicy
 from waku.messaging.pipeline.policy import BehaviorPolicyExtension
 from waku.modules._internal.metadata import DynamicModule, module
+
+if TYPE_CHECKING:
+    from dishka import Provider as DishkaProvider
 
 __all__ = ['EventSourcingMessagingModule']
 
@@ -26,7 +31,7 @@ class EventSourcingMessagingModule:
         Args:
             enrich_correlation: Pass ``False`` to opt out of the automatic correlation enrichment.
         """
-        providers = [object_(ForwardingConsumer(), provided_type=ForwardingConsumer)]
+        providers: list[DishkaProvider] = [object_(ForwardingConsumer(), provided_type=ForwardingConsumer)]
         if enrich_correlation:
             providers.append(many(IMetadataEnricher, CorrelationEnricher, collect=False))
         return DynamicModule(

@@ -1,11 +1,23 @@
 from dataclasses import dataclass
-from typing import Protocol, TypeVar
+from typing import Annotated, Generic, Protocol, TypeVar, cast
 
 import pytest
 from typing_extensions import override
 
 from waku import Module, WakuApplication, WakuFactory
-from waku.di import AnyOf, Provider, Scope, contextual, provide, scoped, singleton
+from waku.di import (
+    AnyOf,
+    FromComponent,
+    Has,
+    Marker,
+    Provider,
+    Scope,
+    activator,
+    contextual,
+    provide,
+    scoped,
+    singleton,
+)
 from waku.modules import ModuleType
 from waku.validation import ValidationExtension, ValidationRule
 from waku.validation.rules import DependenciesAccessibleRule, DependencyInaccessibleError
@@ -14,6 +26,71 @@ from tests.data import A, AAliasType, B, DependentService, Service, X, Y, Z
 from tests.module_utils import create_basic_module
 
 _T_co = TypeVar('_T_co', covariant=True)
+_BoxT = TypeVar('_BoxT')
+
+
+@dataclass
+class _Secret:
+    pass
+
+
+class _SecretAlias:
+    pass
+
+
+@dataclass
+class _DecoratedService:
+    pass
+
+
+class _MissingActivation:
+    pass
+
+
+@dataclass
+class _DynamicActivation:
+    enabled: bool = True
+
+
+@dataclass
+class _ActiveSecret:
+    pass
+
+
+@dataclass
+class _InactiveSecret:
+    pass
+
+
+@dataclass
+class _Box(Generic[_BoxT]):
+    value: _BoxT
+
+
+def _decorate_service(service: _DecoratedService, secret: _Secret) -> _DecoratedService:
+    del secret
+    return service
+
+
+def _decorate_target_only(service: _DecoratedService) -> _DecoratedService:
+    return service
+
+
+def _make_int_box() -> _Box[int]:
+    return _Box(1)
+
+
+def _decorate_box(box: _Box[_BoxT], secret: _Secret) -> _Box[_BoxT]:
+    del secret
+    return box
+
+
+def _dynamic_activation_enabled(config: _DynamicActivation) -> bool:
+    return config.enabled
+
+
+def _dynamic_activation() -> _DynamicActivation:
+    return _DynamicActivation()
 
 
 @pytest.fixture
@@ -51,7 +128,7 @@ def application_factory(rule: ValidationRule) -> ApplicationFactoryFunc:
 def assert_single_inaccessible_error(
     exc_info: pytest.ExceptionInfo[BaseException],
     required_type: type,
-    required_by: type,
+    required_by: object,
     from_module: Module,
 ) -> None:
     assert isinstance(exc_info.value, ExceptionGroup)
@@ -405,6 +482,443 @@ async def test_transitive_dependencies_not_accessible(application_factory: Appli
 
     module_c = application.registry.get(ModuleC)
     assert_single_inaccessible_error(exc_info, required_type=ServiceA, required_by=ServiceC, from_module=module_c)
+
+
+async def test_alias_source_must_be_accessible(application_factory: ApplicationFactoryFunc) -> None:
+    alias_provider = Provider()
+    alias_provider.alias(_Secret, provides=_SecretAlias)
+    PrivateModule = create_basic_module(
+        providers=[scoped(_Secret)],
+        name='PrivateModule',
+    )
+    AliasModule = create_basic_module(
+        providers=[alias_provider],
+        imports=[PrivateModule],
+        exports=[_SecretAlias],
+        name='AliasModule',
+    )
+    AppModule = create_basic_module(imports=[AliasModule], name='AppModule')
+
+    application = application_factory(AppModule)
+    with pytest.raises(ExceptionGroup) as exc_info:
+        await application.initialize()
+
+    alias_module = application.registry.get(AliasModule)
+    assert isinstance(exc_info.value, ExceptionGroup)
+    assert len(exc_info.value.exceptions) == 1
+    error = exc_info.value.exceptions[0]
+    assert isinstance(error, DependencyInaccessibleError)
+    assert error.required_type is _Secret
+    assert error.from_module is alias_module
+
+
+async def test_alias_source_can_be_exported(application_factory: ApplicationFactoryFunc) -> None:
+    alias_provider = Provider()
+    alias_provider.alias(_Secret, provides=_SecretAlias)
+    SecretModule = create_basic_module(
+        providers=[scoped(_Secret)],
+        exports=[_Secret],
+        name='SecretModule',
+    )
+    AliasModule = create_basic_module(
+        providers=[alias_provider],
+        imports=[SecretModule],
+        name='AliasModule',
+    )
+    AppModule = create_basic_module(imports=[AliasModule], name='AppModule')
+
+    await application_factory(AppModule).initialize()
+
+
+async def test_inactive_alias_dependencies_are_not_validated(application_factory: ApplicationFactoryFunc) -> None:
+    alias_provider = Provider()
+    alias_provider.alias(_Secret, provides=_SecretAlias, when=Has(_MissingActivation))
+    AliasModule = create_basic_module(providers=[alias_provider], name='AliasModule')
+    AppModule = create_basic_module(imports=[AliasModule], name='AppModule')
+
+    await application_factory(AppModule).initialize()
+
+
+async def test_inactive_alias_does_not_hide_active_alias_dependency(
+    application_factory: ApplicationFactoryFunc,
+) -> None:
+    alias_provider = Provider()
+    alias_provider.alias(_ActiveSecret, provides=_SecretAlias, when=Has(_ActiveSecret))
+    alias_provider.alias(_InactiveSecret, provides=_SecretAlias, when=Has(_MissingActivation))
+    PrivateModule = create_basic_module(
+        providers=[scoped(_ActiveSecret), scoped(_InactiveSecret)],
+        name='PrivateModule',
+    )
+    AliasModule = create_basic_module(
+        providers=[alias_provider],
+        imports=[PrivateModule],
+        name='AliasModule',
+    )
+    AppModule = create_basic_module(imports=[AliasModule], name='AppModule')
+
+    application = application_factory(AppModule)
+    with pytest.raises(ExceptionGroup) as exc_info:
+        await application.initialize()
+
+    alias_module = application.registry.get(AliasModule)
+    assert isinstance(exc_info.value, ExceptionGroup)
+    assert len(exc_info.value.exceptions) == 1
+    error = exc_info.value.exceptions[0]
+    assert isinstance(error, DependencyInaccessibleError)
+    assert error.required_type is _ActiveSecret
+    assert error.from_module is alias_module
+
+
+async def test_inactive_local_factory_does_not_authorize_active_alias_source(
+    application_factory: ApplicationFactoryFunc,
+) -> None:
+    local_provider = Provider(scope=Scope.REQUEST)
+    local_provider.provide(_Secret, when=Has(_MissingActivation))
+    alias_provider = Provider()
+    alias_provider.alias(_Secret, provides=_SecretAlias)
+    PrivateModule = create_basic_module(providers=[scoped(_Secret)], name='PrivateModule')
+    AliasModule = create_basic_module(
+        providers=[local_provider, alias_provider],
+        imports=[PrivateModule],
+        name='AliasModule',
+    )
+    AppModule = create_basic_module(imports=[AliasModule], name='AppModule')
+
+    application = application_factory(AppModule)
+    with pytest.raises(ExceptionGroup) as exc_info:
+        await application.initialize()
+
+    alias_module = application.registry.get(AliasModule)
+    assert len(exc_info.value.exceptions) == 1
+    error = exc_info.value.exceptions[0]
+    assert isinstance(error, DependencyInaccessibleError)
+    assert error.required_type is _Secret
+    assert error.from_module is alias_module
+
+
+async def test_same_type_alias_source_component_must_be_accessible(
+    application_factory: ApplicationFactoryFunc,
+) -> None:
+    private_provider = Provider(scope=Scope.REQUEST)
+    private_provider.provide(
+        _DecoratedService,
+        provides=Annotated[_DecoratedService, FromComponent('private')],
+    )
+    alias_provider = Provider()
+    alias_provider.alias(
+        cast('type', Annotated[_DecoratedService, FromComponent('private')]),
+        provides=_DecoratedService,
+    )
+    PrivateModule = create_basic_module(providers=[private_provider], name='PrivateModule')
+    AliasModule = create_basic_module(
+        providers=[alias_provider],
+        imports=[PrivateModule],
+        name='AliasModule',
+    )
+    AppModule = create_basic_module(imports=[AliasModule], name='AppModule')
+
+    application = application_factory(AppModule)
+    with pytest.raises(ExceptionGroup) as exc_info:
+        await application.initialize()
+
+    alias_module = application.registry.get(AliasModule)
+    assert isinstance(exc_info.value, ExceptionGroup)
+    assert len(exc_info.value.exceptions) == 1
+    error = exc_info.value.exceptions[0]
+    assert isinstance(error, DependencyInaccessibleError)
+    assert error.required_type is _DecoratedService
+    assert error.from_module is alias_module
+
+
+async def test_decorator_dependencies_must_be_accessible(application_factory: ApplicationFactoryFunc) -> None:
+    decorator_provider = Provider(scope=Scope.REQUEST)
+    decorator_provider.provide(_DecoratedService)
+    decorator_provider.decorate(_decorate_service)
+    PrivateModule = create_basic_module(
+        providers=[scoped(_Secret)],
+        name='PrivateModule',
+    )
+    DecoratorModule = create_basic_module(
+        providers=[decorator_provider],
+        imports=[PrivateModule],
+        name='DecoratorModule',
+    )
+    AppModule = create_basic_module(imports=[DecoratorModule], name='AppModule')
+
+    application = application_factory(AppModule)
+    with pytest.raises(ExceptionGroup) as exc_info:
+        await application.initialize()
+
+    decorator_module = application.registry.get(DecoratorModule)
+    assert_single_inaccessible_error(
+        exc_info,
+        required_type=_Secret,
+        required_by=_decorate_service,
+        from_module=decorator_module,
+    )
+
+
+async def test_decorator_dependency_can_be_exported(application_factory: ApplicationFactoryFunc) -> None:
+    decorator_provider = Provider(scope=Scope.REQUEST)
+    decorator_provider.provide(_DecoratedService)
+    decorator_provider.decorate(_decorate_service)
+    SecretModule = create_basic_module(
+        providers=[scoped(_Secret)],
+        exports=[_Secret],
+        name='SecretModule',
+    )
+    DecoratorModule = create_basic_module(
+        providers=[decorator_provider],
+        imports=[SecretModule],
+        name='DecoratorModule',
+    )
+    AppModule = create_basic_module(imports=[DecoratorModule], name='AppModule')
+
+    await application_factory(AppModule).initialize()
+
+
+async def test_inactive_decorator_dependencies_are_not_validated(application_factory: ApplicationFactoryFunc) -> None:
+    decorator_provider = Provider(scope=Scope.REQUEST)
+    decorator_provider.provide(_DecoratedService, when=Has(_MissingActivation))
+    decorator_provider.decorate(_decorate_service, when=Has(_MissingActivation))
+    DecoratorModule = create_basic_module(providers=[decorator_provider], name='DecoratorModule')
+    AppModule = create_basic_module(imports=[DecoratorModule], name='AppModule')
+
+    await application_factory(AppModule).initialize()
+
+
+async def test_inactive_decorator_on_active_target_is_not_validated(
+    application_factory: ApplicationFactoryFunc,
+) -> None:
+    decorator_provider = Provider(scope=Scope.REQUEST)
+    decorator_provider.provide(_DecoratedService)
+    decorator_provider.decorate(_decorate_service, when=Has(_MissingActivation))
+    PrivateModule = create_basic_module(providers=[scoped(_Secret)], name='PrivateModule')
+    DecoratorModule = create_basic_module(
+        providers=[decorator_provider],
+        imports=[PrivateModule],
+        name='DecoratorModule',
+    )
+    AppModule = create_basic_module(imports=[DecoratorModule], name='AppModule')
+
+    await application_factory(AppModule).initialize()
+
+
+async def test_inactive_local_factory_does_not_authorize_active_decorator_target(
+    application_factory: ApplicationFactoryFunc,
+) -> None:
+    decorator_provider = Provider(scope=Scope.REQUEST)
+    decorator_provider.provide(_DecoratedService, when=Has(_MissingActivation))
+    decorator_provider.decorate(_decorate_target_only)
+    PrivateModule = create_basic_module(providers=[scoped(_DecoratedService)], name='PrivateModule')
+    DecoratorModule = create_basic_module(
+        providers=[decorator_provider],
+        imports=[PrivateModule],
+        name='DecoratorModule',
+    )
+    AppModule = create_basic_module(imports=[DecoratorModule], name='AppModule')
+
+    application = application_factory(AppModule)
+    with pytest.raises(ExceptionGroup) as exc_info:
+        await application.initialize()
+
+    decorator_module = application.registry.get(DecoratorModule)
+    assert_single_inaccessible_error(
+        exc_info,
+        required_type=_DecoratedService,
+        required_by=_decorate_target_only,
+        from_module=decorator_module,
+    )
+
+
+async def test_decorator_target_must_be_accessible(application_factory: ApplicationFactoryFunc) -> None:
+    decorator_provider = Provider(scope=Scope.REQUEST)
+    decorator_provider.decorate(_decorate_target_only)
+    PrivateModule = create_basic_module(providers=[scoped(_DecoratedService)], name='PrivateModule')
+    DecoratorModule = create_basic_module(
+        providers=[decorator_provider],
+        imports=[PrivateModule],
+        name='DecoratorModule',
+    )
+    AppModule = create_basic_module(imports=[DecoratorModule], name='AppModule')
+
+    application = application_factory(AppModule)
+    with pytest.raises(ExceptionGroup) as exc_info:
+        await application.initialize()
+
+    decorator_module = application.registry.get(DecoratorModule)
+    assert_single_inaccessible_error(
+        exc_info,
+        required_type=_DecoratedService,
+        required_by=_decorate_target_only,
+        from_module=decorator_module,
+    )
+
+
+async def test_global_decorator_output_does_not_make_its_private_target_accessible(
+    application_factory: ApplicationFactoryFunc,
+) -> None:
+    decorator_provider = Provider(scope=Scope.REQUEST)
+    decorator_provider.decorate(_decorate_target_only)
+    PrivateModule = create_basic_module(providers=[scoped(_DecoratedService)], name='PrivateModule')
+    DecoratorModule = create_basic_module(
+        providers=[decorator_provider],
+        imports=[PrivateModule],
+        is_global=True,
+        name='DecoratorModule',
+    )
+    AppModule = create_basic_module(imports=[DecoratorModule], name='AppModule')
+
+    application = application_factory(AppModule)
+    with pytest.raises(ExceptionGroup) as exc_info:
+        await application.initialize()
+
+    decorator_module = application.registry.get(DecoratorModule)
+    assert_single_inaccessible_error(
+        exc_info,
+        required_type=_DecoratedService,
+        required_by=_decorate_target_only,
+        from_module=decorator_module,
+    )
+
+
+async def test_global_decorator_can_use_a_target_provided_by_its_module(
+    application_factory: ApplicationFactoryFunc,
+) -> None:
+    decorator_provider = Provider(scope=Scope.REQUEST)
+    decorator_provider.provide(_DecoratedService)
+    decorator_provider.decorate(_decorate_target_only)
+    DecoratorModule = create_basic_module(
+        providers=[decorator_provider],
+        is_global=True,
+        name='DecoratorModule',
+    )
+    AppModule = create_basic_module(imports=[DecoratorModule], name='AppModule')
+
+    await application_factory(AppModule).initialize()
+
+
+async def test_inactive_global_decorator_does_not_authorize_private_target(
+    application_factory: ApplicationFactoryFunc,
+) -> None:
+    decorator_provider = Provider(scope=Scope.REQUEST)
+    decorator_provider.decorate(_decorate_target_only, when=Has(_MissingActivation))
+    alias_provider = Provider()
+    alias_provider.alias(_DecoratedService, provides=_SecretAlias)
+    PrivateModule = create_basic_module(providers=[scoped(_DecoratedService)], name='PrivateModule')
+    DecoratorModule = create_basic_module(
+        providers=[decorator_provider],
+        imports=[PrivateModule],
+        is_global=True,
+        name='DecoratorModule',
+    )
+    ConsumerModule = create_basic_module(
+        providers=[alias_provider],
+        imports=[PrivateModule],
+        name='ConsumerModule',
+    )
+    AppModule = create_basic_module(imports=[DecoratorModule, ConsumerModule], name='AppModule')
+
+    application = application_factory(AppModule)
+    with pytest.raises(ExceptionGroup) as exc_info:
+        await application.initialize()
+
+    consumer_module = application.registry.get(ConsumerModule)
+    error = exc_info.value.exceptions[0]
+    assert isinstance(error, DependencyInaccessibleError)
+    assert error.required_type is _DecoratedService
+    assert error.from_module is consumer_module
+
+
+async def test_inactive_exported_decorator_does_not_authorize_private_target(
+    application_factory: ApplicationFactoryFunc,
+) -> None:
+    decorator_provider = Provider(scope=Scope.REQUEST)
+    decorator_provider.decorate(_decorate_target_only, when=Has(_MissingActivation))
+    alias_provider = Provider()
+    alias_provider.alias(_DecoratedService, provides=_SecretAlias)
+    PrivateModule = create_basic_module(providers=[scoped(_DecoratedService)], name='PrivateModule')
+    DecoratorModule = create_basic_module(
+        providers=[decorator_provider],
+        imports=[PrivateModule],
+        exports=[_DecoratedService],
+        name='DecoratorModule',
+    )
+    ConsumerModule = create_basic_module(
+        providers=[alias_provider],
+        imports=[DecoratorModule],
+        name='ConsumerModule',
+    )
+    AppModule = create_basic_module(imports=[ConsumerModule], name='AppModule')
+
+    application = application_factory(AppModule)
+    with pytest.raises(ExceptionGroup) as exc_info:
+        await application.initialize()
+
+    consumer_module = application.registry.get(ConsumerModule)
+    error = exc_info.value.exceptions[0]
+    assert isinstance(error, DependencyInaccessibleError)
+    assert error.required_type is _DecoratedService
+    assert error.from_module is consumer_module
+
+
+async def test_dynamic_decorator_activation_validates_inaccessible_dependencies(
+    application_factory: ApplicationFactoryFunc,
+) -> None:
+    dynamic_marker = Marker('dynamic-decorator')
+    decorator_provider = Provider(scope=Scope.REQUEST)
+    decorator_provider.provide(_DecoratedService)
+    decorator_provider.decorate(_decorate_service, when=dynamic_marker)
+    PrivateModule = create_basic_module(providers=[scoped(_Secret)], name='PrivateModule')
+    DecoratorModule = create_basic_module(
+        providers=[
+            singleton(_dynamic_activation),
+            activator(_dynamic_activation_enabled, dynamic_marker),
+            decorator_provider,
+        ],
+        imports=[PrivateModule],
+        name='DecoratorModule',
+    )
+    AppModule = create_basic_module(imports=[DecoratorModule], name='AppModule')
+
+    application = application_factory(AppModule)
+    with pytest.raises(ExceptionGroup) as exc_info:
+        await application.initialize()
+
+    decorator_module = application.registry.get(DecoratorModule)
+    assert_single_inaccessible_error(
+        exc_info,
+        required_type=_Secret,
+        required_by=_decorate_service,
+        from_module=decorator_module,
+    )
+
+
+async def test_generic_decorator_dependencies_must_be_accessible(
+    application_factory: ApplicationFactoryFunc,
+) -> None:
+    decorator_provider = Provider(scope=Scope.REQUEST)
+    decorator_provider.provide(_make_int_box)
+    decorator_provider.decorate(_decorate_box, when=Has(_Box[int]))
+    PrivateModule = create_basic_module(providers=[scoped(_Secret)], name='PrivateModule')
+    DecoratorModule = create_basic_module(
+        providers=[decorator_provider],
+        imports=[PrivateModule],
+        name='DecoratorModule',
+    )
+    AppModule = create_basic_module(imports=[DecoratorModule], name='AppModule')
+
+    application = application_factory(AppModule)
+    with pytest.raises(ExceptionGroup) as exc_info:
+        await application.initialize()
+
+    decorator_module = application.registry.get(DecoratorModule)
+    assert_single_inaccessible_error(
+        exc_info,
+        required_type=_Secret,
+        required_by=_decorate_box,
+        from_module=decorator_module,
+    )
 
 
 async def test_dependencies_from_indirect_imports_are_not_accessible(

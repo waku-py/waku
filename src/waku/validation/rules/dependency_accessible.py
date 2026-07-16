@@ -1,25 +1,34 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections import deque
+from dataclasses import dataclass
 from itertools import chain
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from dishka.dependency_source import Decorator, Factory
+from dishka.dependency_source.activator import StaticEvaluationUnavailable
 from dishka.entities.component import DEFAULT_COMPONENT
 from dishka.entities.factory_type import FactoryType
-from dishka.entities.marker import BoolMarker
+from dishka.entities.key import DependencyKey
+from dishka.entities.marker import BaseMarker, BoolMarker
+from dishka.graph_builder.activation import StaticEvaluator
 from typing_extensions import override
 
 from waku.di import Scope
+from waku.modules import HasModuleMetadata
+from waku.modules._internal.metadata import DynamicModule
 from waku.validation import ValidationError, ValidationRule
 from waku.validation.rules._internal.cache import LRUCache
-from waku.validation.rules._internal.types_extractor import ModuleTypesExtractor
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Callable, Iterable, Sequence
+    from uuid import UUID
 
     from dishka import AsyncContainer
-    from dishka.dependency_source import Factory
-    from dishka.entities.key import DependencyKey
+    from dishka.entities.component import Component
+    from dishka.entities.scope import BaseScope
+    from dishka.registry import Registry
 
     from waku.modules import ModuleRegistry
     from waku.modules._internal.module import Module
@@ -72,107 +81,230 @@ class AccessibilityStrategy(ABC):
     __slots__ = ()
 
     @abstractmethod
-    def is_accessible(self, required_type: type[object], module: Module) -> bool:
-        """Check if the required type is accessible to the given module."""
+    def is_accessible(
+        self,
+        dependency: DependencyKey,
+        module: Module,
+        excluded_output: DependencyKey | None,
+    ) -> bool:
+        """Check if the dependency is accessible to the given module."""
+
+
+_MODULE_TYPES = (HasModuleMetadata, DynamicModule)
+
+
+def _normalize_key(key: DependencyKey) -> DependencyKey:
+    return DependencyKey(
+        type_hint=key.type_hint,
+        component=_normalize_component(key.component),
+    )
+
+
+def _normalize_component(component: Component | None) -> Component:
+    return component if component is not None else DEFAULT_COMPONENT
+
+
+class _ModuleKeysExtractor:
+    __slots__ = ('_cache', '_validation_factories')
+
+    def __init__(
+        self,
+        cache: LRUCache[set[DependencyKey]],
+        validation_factories: dict[UUID, tuple[_ValidationFactory, ...]],
+    ) -> None:
+        self._cache = cache
+        self._validation_factories = validation_factories
+
+    def get_provided_keys(self, module: Module) -> set[DependencyKey]:
+        return self._cached(
+            f'provided_keys_{module.id}',
+            lambda: self._extract_keys(
+                chain(
+                    (candidate.factory for candidate in self._validation_factories[module.id]),
+                    module.provider.factory_union_mode,
+                )
+            ),
+        )
+
+    def get_origin_keys(self, module: Module) -> set[DependencyKey]:
+        return self._cached(
+            f'origin_keys_{module.id}',
+            lambda: self._extract_keys(
+                chain(
+                    (
+                        candidate.factory
+                        for candidate in self._validation_factories[module.id]
+                        if candidate.excluded_output is None
+                    ),
+                    module.provider.factory_union_mode,
+                )
+            ),
+        )
+
+    def get_context_keys(self, module: Module) -> set[DependencyKey]:
+        return self._cached(
+            f'context_keys_{module.id}',
+            lambda: self._extract_keys(module.provider.context_vars),
+        )
+
+    def get_reexported_keys(self, module: Module, registry: ModuleRegistry) -> set[DependencyKey]:
+        return self._cached(
+            f'reexported_keys_{module.id}',
+            lambda: self._collect_reexported_keys(module, registry),
+        )
+
+    def _collect_reexported_keys(self, module: Module, registry: ModuleRegistry) -> set[DependencyKey]:
+        result: set[DependencyKey] = set()
+        visited: set[object] = set()
+        queue = deque([module])
+
+        while queue:
+            current = queue.popleft()
+            if current.id in visited:
+                continue
+            visited.add(current.id)
+
+            for exported in current.exports:
+                if not isinstance(exported, _MODULE_TYPES):
+                    continue
+                exported_module = registry.get(exported)
+                result.update(
+                    key for key in self.get_provided_keys(exported_module) if key.type_hint in exported_module.exports
+                )
+                queue.append(exported_module)
+
+        return result
+
+    def _cached(self, key: str, compute: Callable[[], set[DependencyKey]]) -> set[DependencyKey]:
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        result = compute()
+        self._cache.put(key, result)
+        return result
+
+    @staticmethod
+    def _extract_keys(sources: Iterable[Any]) -> set[DependencyKey]:
+        return {_normalize_key(source.provides) for source in sources}
 
 
 class GlobalProvidersStrategy(AccessibilityStrategy):
     """Check if type is provided by a global module or APP-scoped context."""
 
-    __slots__ = ('_global_types',)
+    __slots__ = ('_global_context_keys', '_global_modules', '_keys_extractor', '_registry')
 
     def __init__(
         self,
         modules: Sequence[Module],
         container: AsyncContainer,
-        types_extractor: ModuleTypesExtractor,
+        keys_extractor: _ModuleKeysExtractor,
         registry: ModuleRegistry,
     ) -> None:
-        self._global_types = self._build_global_types(modules, container, types_extractor, registry)
+        self._global_modules = tuple(module for module in modules if module.is_global)
+        self._keys_extractor = keys_extractor
+        self._registry = registry
+        self._global_context_keys = self._build_global_context_keys(container)
 
     @override
-    def is_accessible(self, required_type: type[object], module: Module) -> bool:
-        return required_type in self._global_types
+    def is_accessible(
+        self,
+        dependency: DependencyKey,
+        module: Module,
+        excluded_output: DependencyKey | None,
+    ) -> bool:
+        if dependency in self._global_context_keys:
+            return True
+
+        for global_module in self._global_modules:
+            provided_keys = self._keys_extractor.get_provided_keys(global_module)
+            if global_module is module and dependency == excluded_output:
+                provided_keys = self._keys_extractor.get_origin_keys(global_module)
+            if dependency in provided_keys:
+                return True
+            if dependency in self._keys_extractor.get_reexported_keys(global_module, self._registry):
+                return True
+        return False
 
     @staticmethod
-    def _build_global_types(
-        modules: Sequence[Module],
+    def _build_global_context_keys(
         container: AsyncContainer,
-        types_extractor: ModuleTypesExtractor,
-        registry: ModuleRegistry,
-    ) -> frozenset[type[object]]:
-        global_module_types = {
-            provided_type
-            for mod in modules
-            if mod.is_global
-            for provided_type in chain(
-                types_extractor.get_provided_types(mod),
-                types_extractor.get_reexported_types(mod, registry),
-            )
-        }
-
-        global_context_types = {
-            dep.type_hint
-            for dep, factory in container.registry.factories.items()
+    ) -> frozenset[DependencyKey]:
+        return frozenset(
+            _normalize_key(factory.provides)
+            for factory in _container_factories(container)
             if factory.scope is Scope.APP and factory.type is FactoryType.CONTEXT
-        }
-
-        return frozenset(global_module_types | global_context_types)
+        )
 
 
 class LocalProvidersStrategy(AccessibilityStrategy):
     """Check if type is provided by the module itself."""
 
-    __slots__ = ('_types_extractor',)
+    __slots__ = ('_keys_extractor',)
 
-    def __init__(self, types_extractor: ModuleTypesExtractor) -> None:
-        self._types_extractor = types_extractor
+    def __init__(self, keys_extractor: _ModuleKeysExtractor) -> None:
+        self._keys_extractor = keys_extractor
 
     @override
-    def is_accessible(self, required_type: type[object], module: Module) -> bool:
-        return required_type in self._types_extractor.get_provided_types(module)
+    def is_accessible(
+        self,
+        dependency: DependencyKey,
+        module: Module,
+        excluded_output: DependencyKey | None,
+    ) -> bool:
+        # Decorators transform an existing binding; their output cannot prove that their own input is local.
+        return dependency in self._keys_extractor.get_origin_keys(module)
 
 
 class ContextVarsStrategy(AccessibilityStrategy):
     """Check if type is provided by application or request container context."""
 
-    __slots__ = ('_types_extractor',)
+    __slots__ = ('_keys_extractor',)
 
-    def __init__(self, types_extractor: ModuleTypesExtractor) -> None:
-        self._types_extractor = types_extractor
+    def __init__(self, keys_extractor: _ModuleKeysExtractor) -> None:
+        self._keys_extractor = keys_extractor
 
     @override
-    def is_accessible(self, required_type: type[object], module: Module) -> bool:
-        return required_type in self._types_extractor.get_context_vars(module)
+    def is_accessible(
+        self,
+        dependency: DependencyKey,
+        module: Module,
+        excluded_output: DependencyKey | None,
+    ) -> bool:
+        return dependency in self._keys_extractor.get_context_keys(module)
 
 
 class ImportedModulesStrategy(AccessibilityStrategy):
     """Check if type is accessible via imported modules (direct export or re-export)."""
 
-    __slots__ = ('_registry', '_types_extractor')
+    __slots__ = ('_keys_extractor', '_registry')
 
-    def __init__(self, registry: ModuleRegistry, types_extractor: ModuleTypesExtractor) -> None:
+    def __init__(self, registry: ModuleRegistry, keys_extractor: _ModuleKeysExtractor) -> None:
         self._registry = registry
-        self._types_extractor = types_extractor
+        self._keys_extractor = keys_extractor
 
     @override
-    def is_accessible(self, required_type: type[object], module: Module) -> bool:
+    def is_accessible(
+        self,
+        dependency: DependencyKey,
+        module: Module,
+        excluded_output: DependencyKey | None,
+    ) -> bool:
         for imported in module.imports:
             imported_module = self._registry.get(imported)
-            if self._is_directly_exported(required_type, imported_module):
+            if self._is_directly_exported(dependency, imported_module):
                 return True
-            if self._is_reexported(required_type, imported_module):
+            if self._is_reexported(dependency, imported_module):
                 return True
         return False
 
-    def _is_directly_exported(self, required_type: type[object], imported_module: Module) -> bool:
+    def _is_directly_exported(self, dependency: DependencyKey, imported_module: Module) -> bool:
         return (
-            required_type in self._types_extractor.get_provided_types(imported_module)
-            and required_type in imported_module.exports
+            dependency in self._keys_extractor.get_provided_keys(imported_module)
+            and dependency.type_hint in imported_module.exports
         )
 
-    def _is_reexported(self, required_type: type[object], imported_module: Module) -> bool:
-        return required_type in self._types_extractor.get_reexported_types(imported_module, self._registry)
+    def _is_reexported(self, dependency: DependencyKey, imported_module: Module) -> bool:
+        return dependency in self._keys_extractor.get_reexported_keys(imported_module, self._registry)
 
 
 class DependencyAccessChecker:
@@ -187,47 +319,236 @@ class DependencyAccessChecker:
         self,
         dependencies: Sequence[DependencyKey],
         module: Module,
+        excluded_output: DependencyKey | None = None,
     ) -> Iterable[type[object]]:
+        normalized_output = _normalize_key(excluded_output) if excluded_output is not None else None
         for dependency in dependencies:
-            if not self._is_accessible(dependency.type_hint, module):
+            normalized = _normalize_key(dependency)
+            if not self._is_accessible(normalized, module, normalized_output):
                 yield dependency.type_hint
 
-    def _is_accessible(self, required_type: type[object], module: Module) -> bool:
-        return any(strategy.is_accessible(required_type, module) for strategy in self._strategies)
+    def _is_accessible(
+        self,
+        dependency: DependencyKey,
+        module: Module,
+        excluded_output: DependencyKey | None,
+    ) -> bool:
+        return any(strategy.is_accessible(dependency, module, excluded_output) for strategy in self._strategies)
 
 
-def _factory_identity(factory: Factory) -> tuple[object, object, object]:
-    # Normalize: module-side `provides.component` is `None`; container copies use `DEFAULT_COMPONENT`.
-    provides = factory.provides
-    return provides.type_hint, provides.component or DEFAULT_COMPONENT, factory.source
+_FactoryIdentity = tuple[
+    FactoryType,
+    DependencyKey,
+    int,
+    tuple[DependencyKey, ...],
+    tuple[tuple[str, DependencyKey], ...],
+]
 
 
-def _inactive_factory_ids(container: AsyncContainer) -> frozenset[tuple[object, object, object]]:
-    """Return factory ids dishka statically deactivated at build time.
+def _factory_identity(factory: Factory) -> _FactoryIdentity:
+    return (
+        factory.type,
+        _normalize_key(factory.provides),
+        id(factory.source),
+        tuple(_normalize_key(dependency) for dependency in factory.dependencies),
+        tuple((name, _normalize_key(dependency)) for name, dependency in factory.kw_dependencies.items()),
+    )
 
-    dishka 1.10+ marks unreachable factories with ``when_active == when_override == BoolMarker(False)``
-    — mirroring its own graph-validator skip predicate (``when_active=None`` means always-active).
-    Accessibility validation must skip these too, or it flags deps of providers that are never instantiated.
-    """
-    deactivated = BoolMarker(value=False)
-    inactive: set[tuple[object, object, object]] = set()
+
+def _factory_dependencies(factory: Factory) -> tuple[DependencyKey, ...]:
+    return (*factory.dependencies, *factory.kw_dependencies.values())
+
+
+def _is_disabled(factory: Factory) -> bool:
+    disabled = BoolMarker(value=False)
+    return factory.when_active == disabled and factory.when_override == disabled
+
+
+def _container_factories(container: AsyncContainer) -> Iterable[Factory]:
     registry = container.registry
     while registry is not None:
-        for factory in registry.factories.values():
-            if factory.when_active == deactivated and factory.when_override == deactivated:
-                inactive.add(_factory_identity(factory))
+        yield from registry.factories.values()
         registry = registry.child_registry
-    return frozenset(inactive)
+
+
+def _container_registries(container: AsyncContainer) -> tuple[Registry, ...]:
+    registries: list[Registry] = []
+    registry = container.registry
+    while registry is not None:
+        registries.append(registry)
+        registry = registry.child_registry
+    return tuple(registries)
+
+
+class _MarkerProbe:
+    pass
+
+
+class _StaticMarkerEvaluator:
+    __slots__ = ('_container_key', '_context', '_registries', '_start_scope')
+
+    def __init__(self, container: AsyncContainer) -> None:
+        self._registries = _container_registries(container)
+        self._context = dict(container._context or {})  # noqa: SLF001
+        self._container_key = container.registry.container_key
+        self._start_scope = container.registry.scope
+
+    def evaluate(
+        self,
+        marker: BaseMarker,
+        *,
+        scope: BaseScope,
+        component: Component,
+    ) -> bool | None:
+        evaluator = StaticEvaluator(
+            self._registries,
+            self._context,
+            self._container_key,
+            Scope,
+            self._start_scope,
+        )
+        for registry in evaluator.registries.values():
+            registry.factories = dict(registry.factories)
+
+        probe = Factory(
+            dependencies=(),
+            kw_dependencies={},
+            source=True,
+            provides=DependencyKey(_MarkerProbe, component),
+            scope=scope,
+            type_=FactoryType.VALUE,
+            is_to_bind=False,
+            cache=True,
+            allow_static_evaluation=False,
+            when_override=marker,
+            when_active=marker,
+            when_component=component,
+            when_dependencies=(),
+        )
+        evaluator.registries[scope].add_factory(probe)
+        try:
+            return evaluator.activation_container.is_active(probe)
+        except StaticEvaluationUnavailable:
+            return None
+
+    def evaluate_factory(self, factory: Factory, marker: BaseMarker) -> bool | None:
+        component = _normalize_component(factory.when_component or factory.provides.component)
+        if factory.scope is not None:
+            return self.evaluate(marker, scope=factory.scope, component=component)
+
+        results = tuple(
+            self.evaluate(marker, scope=registry.scope, component=component) for registry in self._registries
+        )
+        if any(result is True for result in results):
+            return True
+        if all(result is False for result in results):
+            return False
+        return None
+
+
+@dataclass(frozen=True, slots=True)
+class _ValidationFactory:
+    factory: Factory
+    dependencies: tuple[DependencyKey, ...]
+    excluded_output: DependencyKey | None = None
+
+
+def _validation_factories(
+    module: Module,
+    compiled_factories: Sequence[Factory],
+    marker_evaluator: _StaticMarkerEvaluator,
+) -> Iterable[_ValidationFactory]:
+    seen: set[_FactoryIdentity] = set()
+    candidates = chain(
+        _declared_validation_factories(module, marker_evaluator),
+        _decorator_validation_factories(module, compiled_factories, marker_evaluator),
+    )
+    for candidate in candidates:
+        factory_id = _factory_identity(candidate.factory)
+        if factory_id in seen:
+            continue
+        seen.add(factory_id)
+        yield candidate
+
+
+def _declared_validation_factories(
+    module: Module,
+    marker_evaluator: _StaticMarkerEvaluator,
+) -> Iterable[_ValidationFactory]:
+    for factory in module.provider.factories:
+        candidate = _declared_validation_factory(factory, marker_evaluator)
+        if candidate is not None:
+            yield candidate
+
+    for alias in module.provider.aliases:
+        factory = alias.as_factory(scope=None, component=DEFAULT_COMPONENT)
+        candidate = _declared_validation_factory(factory, marker_evaluator)
+        if candidate is not None:
+            yield candidate
+
+
+def _declared_validation_factory(
+    factory: Factory,
+    marker_evaluator: _StaticMarkerEvaluator,
+) -> _ValidationFactory | None:
+    marker = factory.when_active if factory.when_active is not None else factory.when_override
+    if marker is not None and marker_evaluator.evaluate_factory(factory, marker) is False:
+        return None
+    return _ValidationFactory(factory=factory, dependencies=_factory_dependencies(factory))
+
+
+def _decorator_validation_factories(
+    module: Module,
+    compiled_factories: Sequence[Factory],
+    marker_evaluator: _StaticMarkerEvaluator,
+) -> Iterable[_ValidationFactory]:
+    for decorator in module.provider.decorators:
+        component = _normalize_component(decorator.provides.component)
+        for factory in compiled_factories:
+            if not _is_compiled_decorator_factory(factory, decorator, component):
+                continue
+            if decorator.when is not None and not _is_decorator_active(
+                factory,
+                decorator.when,
+                component,
+                marker_evaluator,
+            ):
+                continue
+            yield _ValidationFactory(
+                factory=factory,
+                dependencies=_factory_dependencies(factory),
+                excluded_output=factory.provides,
+            )
+
+
+def _is_compiled_decorator_factory(factory: Factory, decorator: Decorator, component: Component) -> bool:
+    return (
+        factory.source is decorator.factory.source
+        and factory.type is decorator.factory.type
+        and _normalize_component(factory.provides.component) == component
+        and decorator.match_type(factory.provides.type_hint)
+        and not _is_disabled(factory)
+    )
+
+
+def _is_decorator_active(
+    factory: Factory,
+    marker: BaseMarker,
+    component: Component,
+    marker_evaluator: _StaticMarkerEvaluator,
+) -> bool:
+    if not factory.when_dependencies or factory.scope is None:
+        return False
+    return marker_evaluator.evaluate(marker, scope=factory.scope, component=component) is not False
 
 
 class DependenciesAccessibleRule(ValidationRule):
     """Validates that all dependencies required by providers are accessible."""
 
-    __slots__ = ('_cache', '_types_extractor')
+    __slots__ = ('_cache',)
 
     def __init__(self, cache_size: int = 1000) -> None:
-        self._cache = LRUCache[set[type[object]]](cache_size)
-        self._types_extractor = ModuleTypesExtractor(self._cache)
+        self._cache = LRUCache[set[DependencyKey]](cache_size)
 
     @override
     def validate(self, context: ValidationContext) -> list[ValidationError]:
@@ -236,25 +557,36 @@ class DependenciesAccessibleRule(ValidationRule):
         registry = context.app.registry
         modules = list(registry.modules)
         container = context.app.container
-
+        compiled_factories = tuple(_container_factories(container))
+        marker_evaluator = _StaticMarkerEvaluator(container)
+        validation_factories = {
+            module.id: tuple(
+                _validation_factories(
+                    module,
+                    compiled_factories,
+                    marker_evaluator,
+                )
+            )
+            for module in modules
+        }
+        keys_extractor = _ModuleKeysExtractor(self._cache, validation_factories)
         strategies: list[AccessibilityStrategy] = [
-            GlobalProvidersStrategy(modules, container, self._types_extractor, registry),
-            LocalProvidersStrategy(self._types_extractor),
-            ContextVarsStrategy(self._types_extractor),
-            ImportedModulesStrategy(registry, self._types_extractor),
+            GlobalProvidersStrategy(modules, container, keys_extractor, registry),
+            LocalProvidersStrategy(keys_extractor),
+            ContextVarsStrategy(keys_extractor),
+            ImportedModulesStrategy(registry, keys_extractor),
         ]
 
         checker = DependencyAccessChecker(strategies)
-        inactive_factories = _inactive_factory_ids(container)
         errors: list[ValidationError] = []
 
         for module in modules:
-            for factory in module.provider.factories:
-                if _factory_identity(factory) in inactive_factories:
-                    continue
+            for candidate in validation_factories[module.id]:
+                factory = candidate.factory
                 inaccessible_deps = checker.find_inaccessible_dependencies(
-                    dependencies=factory.dependencies,
+                    dependencies=candidate.dependencies,
                     module=module,
+                    excluded_output=candidate.excluded_output,
                 )
                 errors.extend(
                     DependencyInaccessibleError(

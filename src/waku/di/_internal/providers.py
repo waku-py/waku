@@ -1,26 +1,218 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, overload
 
-from dishka import AsyncContainer, Provider, Scope
+from dishka import (
+    AsyncContainer,
+    Provider as DishkaProvider,
+    Scope,
+    alias as dishka_alias,
+    from_context as dishka_from_context,
+    provide as dishka_provide,
+    provide_all as dishka_provide_all,
+)
+from typing_extensions import override
 
 from waku.exceptions import ImproperlyConfiguredError
 
 if TYPE_CHECKING:
-    from dishka.entities.marker import BaseMarker
+    from dishka.dependency_source import CompositeDependencySource
+    from dishka.entities.component import Component
+    from dishka.entities.marker import BaseMarker, Marker
+    from dishka.entities.scope import BaseScope
 
 __all__ = [
+    'Provider',
     'activator',
+    'alias',
     'contextual',
+    'from_context',
     'is_registered',
     'many',
     'object_',
+    'provide',
+    'provide_all',
     'provider',
     'scoped',
     'singleton',
     'transient',
 ]
+
+
+class Provider(DishkaProvider):
+    """Collect dependency sources without exposing Dishka's override mechanism."""
+
+    @override
+    def provide(  # type: ignore[override]  # Deliberately narrow Dishka's unsafe public signature.
+        self,
+        source: Callable[..., Any] | type,
+        *,
+        scope: BaseScope | None = None,
+        provides: Any = None,
+        cache: bool = True,
+        recursive: bool = False,
+        when: BaseMarker | None = None,
+        allow_static_evaluation: bool = False,
+    ) -> CompositeDependencySource:
+        """Register a dependency factory."""
+        return super().provide(
+            source,
+            scope=scope,
+            provides=provides,
+            cache=cache,
+            recursive=recursive,
+            override=False,
+            when=when,
+            allow_static_evaluation=allow_static_evaluation,
+        )
+
+    @override
+    def provide_all(  # type: ignore[override]  # Deliberately narrow Dishka's unsafe public signature.
+        self,
+        *provides: Any,
+        scope: BaseScope | None = None,
+        cache: bool = True,
+        recursive: bool = False,
+        when: BaseMarker | None = None,
+        allow_static_evaluation: bool = False,
+    ) -> CompositeDependencySource:
+        """Register multiple dependency classes."""
+        return super().provide_all(
+            *provides,
+            scope=scope,
+            cache=cache,
+            recursive=recursive,
+            override=False,
+            when=when,
+            allow_static_evaluation=allow_static_evaluation,
+        )
+
+    @override
+    def alias(  # type: ignore[override]  # Deliberately narrow Dishka's unsafe public signature.
+        self,
+        source: type | Marker,
+        *,
+        provides: Any = None,
+        cache: bool = True,
+        component: Component | None = None,
+        when: BaseMarker | None = None,
+    ) -> CompositeDependencySource:
+        """Register an alias for another dependency."""
+        return super().alias(
+            source,
+            provides=provides,
+            cache=cache,
+            component=component,
+            override=False,
+            when=when,
+        )
+
+    @override
+    def from_context(  # type: ignore[override]  # Deliberately narrow Dishka's unsafe public signature.
+        self,
+        provides: Any,
+        *,
+        scope: BaseScope | None = None,
+    ) -> CompositeDependencySource:
+        """Register a dependency supplied by container context."""
+        return super().from_context(provides, scope=scope, override=False)
+
+
+@overload
+def provide(
+    *,
+    scope: BaseScope | None = None,
+    provides: Any = None,
+    cache: bool = True,
+    recursive: bool = False,
+    when: BaseMarker | None = None,
+    allow_static_evaluation: bool = False,
+) -> Callable[[Callable[..., Any]], CompositeDependencySource]: ...
+
+
+@overload
+def provide(
+    source: Any,
+    *,
+    scope: BaseScope | None = None,
+    provides: Any = None,
+    cache: bool = True,
+    recursive: bool = False,
+    when: BaseMarker | None = None,
+    allow_static_evaluation: bool = False,
+) -> CompositeDependencySource: ...
+
+
+def provide(
+    source: Any | None = None,
+    *,
+    scope: BaseScope | None = None,
+    provides: Any = None,
+    cache: bool = True,
+    recursive: bool = False,
+    when: BaseMarker | None = None,
+    allow_static_evaluation: bool = False,
+) -> CompositeDependencySource | Callable[[Callable[..., Any]], CompositeDependencySource]:
+    """Mark a provider method or class as a dependency factory."""
+    return dishka_provide(
+        source,
+        scope=scope,
+        provides=provides,
+        cache=cache,
+        recursive=recursive,
+        override=False,
+        when=when,
+        allow_static_evaluation=allow_static_evaluation,
+    )
+
+
+def provide_all(
+    *provides: Any,
+    scope: BaseScope | None = None,
+    cache: bool = True,
+    recursive: bool = False,
+    when: BaseMarker | None = None,
+    allow_static_evaluation: bool = False,
+) -> CompositeDependencySource:
+    """Mark multiple classes as dependency factories."""
+    return dishka_provide_all(
+        *provides,
+        scope=scope,
+        cache=cache,
+        recursive=recursive,
+        override=False,
+        when=when,
+        allow_static_evaluation=allow_static_evaluation,
+    )
+
+
+def alias(
+    source: Any,
+    *,
+    provides: Any | None = None,
+    cache: bool = True,
+    component: Component | None = None,
+    when: BaseMarker | None = None,
+) -> CompositeDependencySource:
+    """Mark a dependency as an alias for another dependency."""
+    return dishka_alias(
+        source,
+        provides=provides,
+        cache=cache,
+        component=component,
+        override=False,
+        when=when,
+    )
+
+
+def from_context(
+    provides: Any,
+    *,
+    scope: BaseScope | None = None,
+) -> CompositeDependencySource:
+    """Mark a dependency as supplied by container context."""
+    return dishka_from_context(provides, scope=scope, override=False)
 
 
 async def is_registered(container: AsyncContainer, dependency: Any) -> bool:
