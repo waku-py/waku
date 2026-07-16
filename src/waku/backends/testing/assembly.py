@@ -17,6 +17,7 @@ from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventStore, I
 from waku.messages import IEvent
 from waku.messaging.config import MessagingConfig
 from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore, IOutboxStore
+from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.modules import MessagingModule
 from waku.messaging.outbox.models import OutboxMessage
 from waku.messaging.sequence import ISequenceAllocator
@@ -65,6 +66,19 @@ def _outbox_message() -> OutboxMessage:
         destination='test://conformance',
         correlation_id=str(uuid.uuid4()),
         causation_id=str(uuid.uuid4()),
+    )
+
+
+def _dead_letter_for(message: OutboxMessage) -> DeadLetterEntry:
+    return DeadLetterEntry.from_failure(
+        message_type=message.message_type,
+        payload=message.payload,
+        destination=message.destination,
+        destination_kind=DeadLetterDestinationKind.ENDPOINT,
+        correlation_id=message.correlation_id,
+        causation_id=message.causation_id,
+        exc=RuntimeError('exhausted'),
+        attempt=message.retry_count + 1,
     )
 
 
@@ -178,3 +192,61 @@ class BackendAssemblyContract:
 
             assert await event_store.stream_exists(stream_id) is True
             assert [m.id for m in await outbox.fetch_head_of_queue(batch_size=10)] == [message.id]
+
+    async def test_outbox_dead_letter_move_rolls_back_source_and_destination_together(
+        self,
+        app: WakuApplication,
+    ) -> None:
+        if not self.supports_rollback:
+            pytest.skip('backend opts out: its IUnitOfWork does not stage-and-roll-back real writes')
+        message = _outbox_message()
+        dead_letter = _dead_letter_for(message)
+
+        async with app.container() as scope:
+            outbox = await scope.get(IOutboxStore)
+            await outbox.save_batch([message])
+            await (await scope.get(IUnitOfWork)).commit()
+
+        async with app.container() as scope:
+            outbox = await scope.get(IOutboxStore)
+            claimed = await outbox.fetch_head_of_queue(batch_size=10)
+            await outbox.move_to_dead_letter(claimed[0].id, dead_letter)
+            await (await scope.get(IUnitOfWork)).rollback()
+
+        async with app.container() as scope:
+            outbox = await scope.get(IOutboxStore)
+            dead_letters = await scope.get(IDeadLetterStore)
+
+            assert [entry.id for entry in await outbox.fetch_head_of_queue(batch_size=10)] == [message.id]
+            with pytest.raises(KeyError, match=str(dead_letter.id)):
+                await dead_letters.fetch_one(dead_letter.id)
+
+    async def test_outbox_dead_letter_move_commits_source_and_destination_together(
+        self,
+        app: WakuApplication,
+    ) -> None:
+        if not self.supports_rollback:
+            pytest.skip('backend opts out: its IUnitOfWork does not stage-and-commit real writes')
+        message = _outbox_message()
+        dead_letter = _dead_letter_for(message)
+
+        async with app.container() as scope:
+            outbox = await scope.get(IOutboxStore)
+            await outbox.save_batch([message])
+            await (await scope.get(IUnitOfWork)).commit()
+
+        async with app.container() as scope:
+            outbox = await scope.get(IOutboxStore)
+            claimed = await outbox.fetch_head_of_queue(batch_size=10)
+            await outbox.move_to_dead_letter(claimed[0].id, dead_letter)
+            await (await scope.get(IUnitOfWork)).commit()
+
+        async with app.container() as scope:
+            outbox = await scope.get(IOutboxStore)
+            dead_letters = await scope.get(IDeadLetterStore)
+
+            assert await outbox.fetch_head_of_queue(batch_size=10) == []
+            persisted = await dead_letters.fetch_one(dead_letter.id)
+            assert persisted.id == dead_letter.id
+            assert persisted.payload == dead_letter.payload
+            assert persisted.destination == dead_letter.destination
