@@ -634,6 +634,15 @@ to `_internal/polling.py`) — removed the `waku.di → waku.uow` layering inver
   cleanup; deferred non-durable cascades flush only after committed success. Fresh Slice A verification: 654 focused
   tests and `task all` with 4646 passed / 24 skipped / 98.99% coverage; test-engineer, code-reviewer, and code-architect
   approved the final diff with no Critical/Important findings.
+- [x] Transaction-execution architecture migration ✅ DONE (2026-07-16, Tasks 1–8 + inbox-owner return slice + two
+  test-drift fixes, per-task reviewed checkpoints on `feat/messaging-transport`): every transactional owner (endpoint
+  execution, replay/reprocess/inbox recovery/maintenance, outbox relay, durable inbox/local-queue/drainer/finalize,
+  projection runner) runs each phase as a fresh one-shot `TransactionExecution` in a fresh child scope with typed
+  `Committed`/`RolledBack`/`Aborted` evidence; failed rollback is uniformly fatal through the single
+  `TransactionExecutionError` signal; the legacy helpers (`unit_of_work_scope`, `transaction_scope`,
+  `commit_uow`/`rollback_uow`, `TransactionCleanupError`, `CompletedExecutionError`) are deleted with zero surviving
+  references. Fresh full gate: `task all` 4976 passed / 18 skipped / 98.61% coverage, 12/12 import contracts, Pyrefly
+  0 diagnostics, docs gate green.
 - [ ] Duplicated `PollingConfig` default-tuning literal across `OutboxRelayConfig` (`relay.py:45-50`) and
   `DeadLetterConfig` (`config.py:53-58`) — extract one shared default.
 - [ ] **Coverage gap:** `waku/di/` was NOT a holistic-review cluster (audited only via its consumers). Audit the

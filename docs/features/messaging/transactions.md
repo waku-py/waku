@@ -62,8 +62,10 @@ from waku.backends.sqlalchemy import SqlAlchemyBackend
 
 Success therefore means the commit completed, not merely that the handler returned. Likewise, a retry, absorbed failure,
 or fallback result is allowed only after rollback completed. If that cleanup fails, the cleanup error escapes instead of
-the framework reporting a normal retry/fallback/failure result. When a primary failure or cancellation is already being
-preserved, a rollback failure is logged and the primary failure remains authoritative.
+the framework reporting a normal retry/fallback/failure result. When a handler failure or cancellation is already being
+preserved and that shielded rollback itself fails, the cleanup failure is never swallowed: a cancellation stays
+authoritative and carries the rollback failure as its cause, while a preserved ordinary failure gives way to the escaping
+cleanup error, which retains the original failure as context.
 
 ### Nested rollback-only failure
 

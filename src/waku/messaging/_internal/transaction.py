@@ -1,16 +1,6 @@
 from __future__ import annotations
 
-__all__ = ['CompletedExecutionError', 'TransactionDepth']
-
-
-class CompletedExecutionError(Exception):
-    """Carry a failure raised after a handler execution completed successfully."""
-
-    __slots__ = ('error',)
-
-    def __init__(self, error: BaseException) -> None:
-        super().__init__('A completed handler execution failed during scope teardown')
-        self.error = error
+__all__ = ['TransactionDepth']
 
 
 class TransactionDepth:
