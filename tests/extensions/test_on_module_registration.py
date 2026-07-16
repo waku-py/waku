@@ -172,8 +172,6 @@ def test_hook_receives_context() -> None:
 
 
 def test_providers_belong_to_owning_module() -> None:
-    """Test that providers from hooks belong to the owning module (not floating)."""
-
     class RegistryContributor(OnModuleRegistration):
         @override
         def on_module_registration(
@@ -199,7 +197,6 @@ def test_providers_belong_to_owning_module() -> None:
 
 
 def test_find_extensions_discovers_cross_module() -> None:
-    """Test that find_extensions can discover extensions across all modules."""
     found_extensions: list[str] = []
 
     class MarkerExtension(OnModuleRegistration):

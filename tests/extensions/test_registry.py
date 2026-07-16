@@ -58,8 +58,7 @@ class OnModuleDestroyExt(OnModuleDestroy):
         pass  # pragma: no cover
 
 
-def test_register_application_extension() -> None:
-    """Should register application extensions and retrieve them by type."""
+def test_registers_and_retrieves_application_extensions_by_type() -> None:
     # Arrange
     registry = ExtensionRegistry()
 
@@ -86,8 +85,6 @@ def test_register_application_extension() -> None:
 
 
 def test_get_multi_protocol_app_extensions() -> None:
-    """Should return application extensions that implement multiple protocols."""
-
     # Arrange
     class MultiAppExt(OnApplicationInit, AfterApplicationInit):
         @override
@@ -107,8 +104,7 @@ def test_get_multi_protocol_app_extensions() -> None:
     assert registry.get_application_extensions(AfterApplicationInit) == [multi_ext]
 
 
-def test_get_application_extensions_no_match() -> None:
-    """Should return empty list when no extensions match the protocol."""
+def test_get_application_extensions_returns_empty_list_when_no_match() -> None:
     # Arrange
     registry_empty = ExtensionRegistry()
     # Act & Assert
@@ -116,8 +112,7 @@ def test_get_application_extensions_no_match() -> None:
     assert result == []
 
 
-def test_register_module_extension_with_target() -> None:
-    """Should register module extensions with targets and retrieve them appropriately."""
+def test_registered_module_extensions_are_scoped_by_target_module() -> None:
     # Arrange
     registry = ExtensionRegistry()
 
@@ -139,8 +134,6 @@ def test_register_module_extension_with_target() -> None:
 
 
 def test_get_multi_protocol_module_extensions() -> None:
-    """Should return module extensions that implement multiple protocols."""
-
     # Arrange
     class MultiModuleExt(OnModuleInit, OnModuleDestroy):
         @override
@@ -161,8 +154,7 @@ def test_get_multi_protocol_module_extensions() -> None:
     assert registry.get_module_extensions(SomeModule, OnModuleDestroy) == [multi_ext]
 
 
-def test_get_module_extensions_no_match() -> None:
-    """Should return empty list when module has extensions but none match the queried protocol."""
+def test_get_module_extensions_returns_empty_list_when_none_match_protocol() -> None:
     # Arrange
     registry = ExtensionRegistry()
     SomeModule = create_basic_module(name='SomeModule')

@@ -1,5 +1,3 @@
-"""Tests for module extensions."""
-
 from waku import WakuFactory
 from waku.di import scoped
 
@@ -8,7 +6,6 @@ from tests.module_utils import create_basic_module
 
 
 async def test_module_extensions_initialization_and_destruction_order() -> None:
-    """Module extensions should be called in correct order during initialization and destruction."""
     calls: list[tuple[type, type]] = []
 
     GlobalModule = create_basic_module(
@@ -71,7 +68,6 @@ async def test_module_extensions_initialization_and_destruction_order() -> None:
 
 
 def test_module_configure_extension_idempotency() -> None:
-    """Module configuration should be applied only once regardless of multiple factory creations."""
     SomeModule = create_basic_module(
         extensions=[AddDepOnConfigure(scoped(A))],
         name='SomeModule',

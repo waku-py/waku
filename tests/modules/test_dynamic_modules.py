@@ -1,5 +1,3 @@
-"""Tests for dynamic module functionality."""
-
 from waku import WakuFactory
 from waku.di import scoped
 
@@ -8,7 +6,6 @@ from tests.module_utils import create_basic_module, create_dynamic_module
 
 
 def test_dynamic_module_configuration() -> None:
-    """Dynamic modules should properly handle configuration extensions."""
     SomeDynamicModule = create_dynamic_module(
         extensions=[AddDepOnConfigure(scoped(A))],
         name='SomeDynamicModule',
@@ -22,8 +19,7 @@ def test_dynamic_module_configuration() -> None:
     assert len(application.registry.get(SomeDynamicModule).providers) == 1
 
 
-def test_module_configuration_with_multiple_import_paths() -> None:
-    """Module configuration should be applied only once when imported through multiple paths."""
+def test_module_configuration_applied_once_across_multiple_import_paths() -> None:
     SomeModule = create_dynamic_module(
         extensions=[AddDepOnConfigure(scoped(A))],
         name='SomeModule',

@@ -16,7 +16,6 @@ from tests.module_utils import create_basic_module
 
 
 async def test_module_init_extension_lifecycle(mocker: MockerFixture) -> None:
-    """Module extensions should be called in correct order during module initialization."""
     on_module_configure_mock = mocker.stub()
     on_module_init_mock = mocker.async_stub()
 
@@ -47,8 +46,9 @@ async def test_module_init_extension_lifecycle(mocker: MockerFixture) -> None:
     assert isinstance(on_module_init_mock.call_args[0][0], Module)
 
 
-async def test_application_init_extensions_single_call(mocker: MockerFixture) -> None:
-    """Application init extensions should be called exactly once even with multiple initializations."""
+async def test_application_init_extensions_called_once_despite_multiple_initialize_calls(
+    mocker: MockerFixture,
+) -> None:
     on_app_init_mock = mocker.async_stub()
     after_app_init_mock = mocker.async_stub()
 
