@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from sqlalchemy import BigInteger, Column, MetaData, Table, Text, func
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 
+from waku.backends.sqlalchemy._internal.tables import bind_or_reuse
+
 __all__ = [
     'CheckpointTables',
     'bind_checkpoint_tables',
@@ -29,9 +31,4 @@ class CheckpointTables:
 
 def bind_checkpoint_tables(metadata: MetaData) -> CheckpointTables:
     """Bind the projection-checkpoint table onto ``metadata``, returning the bound-table wrapper (idempotent)."""
-    checkpoints = (
-        metadata.tables[es_checkpoints_table.name]
-        if es_checkpoints_table.name in metadata.tables
-        else es_checkpoints_table.to_metadata(metadata)
-    )
-    return CheckpointTables(checkpoints=checkpoints)
+    return CheckpointTables(checkpoints=bind_or_reuse(metadata, es_checkpoints_table))

@@ -7,13 +7,12 @@ from sqlalchemy import MetaData
 
 from waku.backends.sqlalchemy.event_store.store import SqlAlchemyEventStore
 from waku.backends.sqlalchemy.event_store.tables import bind_event_store_tables
+from waku.backends.testing import ItemAdded, OrderCreated, make_envelope
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
 from waku.eventsourcing.exceptions import ConcurrencyConflictError
 from waku.eventsourcing.forwarding import AppendedEventsCollector
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.serialization.upcasting.chain import UpcasterChain
-
-from tests.eventsourcing.store.domain import ItemAdded, OrderCreated, make_envelope
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession

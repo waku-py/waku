@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 from sqlalchemy import BigInteger, Column, MetaData, Table, Text
 
+from waku.backends.sqlalchemy._internal.tables import bind_or_reuse
+
 __all__ = [
     'SequenceTables',
     'bind_sequence_tables',
@@ -29,9 +31,4 @@ class SequenceTables:
 
 def bind_sequence_tables(metadata: MetaData) -> SequenceTables:
     """Bind the message-sequence table onto ``metadata``, returning the bound-table wrapper (idempotent)."""
-    sequences = (
-        metadata.tables[message_sequences_table.name]
-        if message_sequences_table.name in metadata.tables
-        else message_sequences_table.to_metadata(metadata)
-    )
-    return SequenceTables(sequences=sequences)
+    return SequenceTables(sequences=bind_or_reuse(metadata, message_sequences_table))

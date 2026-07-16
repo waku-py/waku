@@ -15,6 +15,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 
+from waku.backends.sqlalchemy._internal.tables import bind_or_reuse
 from waku.backends.sqlalchemy.column_types import EnumFromValues
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterStatus
 
@@ -110,9 +111,4 @@ class DeadLetterTables:
 
 def bind_dead_letter_tables(metadata: MetaData) -> DeadLetterTables:
     """Bind the dead-letter table onto ``metadata``, returning the bound-table wrapper (idempotent)."""
-    messages = (
-        metadata.tables[dead_letter_table.name]
-        if dead_letter_table.name in metadata.tables
-        else dead_letter_table.to_metadata(metadata)
-    )
-    return DeadLetterTables(messages=messages)
+    return DeadLetterTables(messages=bind_or_reuse(metadata, dead_letter_table))

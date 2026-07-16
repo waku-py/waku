@@ -16,7 +16,6 @@ from waku.backends.sqlalchemy.outbox.store import SqlAlchemyOutboxStore
 from waku.backends.sqlalchemy.outbox.tables import bind_outbox_tables
 from waku.backends.sqlalchemy.uow import SqlAlchemyUnitOfWork
 from waku.messaging.durability import IOutboxStore
-from waku.messaging.outbox.models import OutboxMessage
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
 from waku.messaging.transport._internal.registry import TransportRegistry
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper, ITransport, Subscription
@@ -26,27 +25,17 @@ from tests._wait import wait_until
 from tests.messaging.helpers import StubSubscription, make_relay_evaluator
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from sqlalchemy.ext.asyncio import AsyncEngine
 
+    from waku.messaging.outbox.models import OutboxMessage
     from waku.messaging.transport.inbound import ConsumeCallback
 
 # End-to-end acceptance test for cluster-wide per-group FIFO under two concurrent relays sharing one
 # PostgreSQL engine. Reverting only the `head_eligible` predicate in SqlAlchemyOutboxStore makes relay-B
 # promote and send G.seq2 while G.seq1 is gated (out of order) -> relay-B claims 1 (not 0) and the final
 # order assertion breaks. (Confirm once via `git stash push -- src/.../outbox/sqla/store.py`.)
-
-
-def _make_message(**overrides: object) -> OutboxMessage:
-    defaults = {
-        'id': uuid4(),
-        'idempotency_key': str(uuid4()),
-        'message_type': 'test.Event',
-        'payload': {'test': True},
-        'destination': 'test://dest',
-        'correlation_id': str(uuid4()),
-        'causation_id': str(uuid4()),
-    }
-    return OutboxMessage(**(defaults | overrides))  # type: ignore[arg-type]
 
 
 class _GatedOrderingTransport(ITransport):
@@ -127,7 +116,10 @@ class _PgRelayProvider(Provider):
         return self._registry
 
 
-async def test_two_relays_dispatch_group_in_order(pg_engine: AsyncEngine) -> None:
+async def test_two_relays_dispatch_group_in_order(
+    pg_engine: AsyncEngine,
+    make_message: Callable[..., OutboxMessage],
+) -> None:
     metadata = MetaData()
     bind_outbox_tables(metadata)
     bind_dead_letter_tables(metadata)  # a dispatch failure would write a dead-letter row
@@ -137,7 +129,7 @@ async def test_two_relays_dispatch_group_in_order(pg_engine: AsyncEngine) -> Non
         seq_ids = [uuid4(), uuid4(), uuid4()]
         async with AsyncSession(pg_engine, expire_on_commit=False) as seed:
             await SqlAlchemyOutboxStore(seed).save_batch([
-                _make_message(idempotency_key=str(mid), group_id='G', sequence_number=i + 1)
+                make_message(idempotency_key=str(mid), group_id='G', sequence_number=i + 1)
                 for i, mid in enumerate(seq_ids)
             ])
             await seed.commit()

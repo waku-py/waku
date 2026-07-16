@@ -8,7 +8,7 @@ from typing_extensions import override
 
 from waku.backends.sqlalchemy.event_store.store import SqlAlchemyEventStore
 from waku.backends.sqlalchemy.event_store.tables import bind_event_store_tables
-from waku.backends.testing import EventStoreContract
+from waku.backends.testing import EventStoreContract, ItemAdded, OrderCreated, make_envelope
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
 from waku.eventsourcing.exceptions import PartialDuplicateAppendError
@@ -18,8 +18,6 @@ from waku.eventsourcing.snapshot.in_memory import InMemorySnapshotStore
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.exceptions import ImproperlyConfiguredError
 from waku.serialization.upcasting.chain import UpcasterChain
-
-from tests.eventsourcing.store.domain import ItemAdded, OrderCreated, make_envelope
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

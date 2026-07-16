@@ -7,13 +7,12 @@ from sqlalchemy import MetaData
 
 from waku.backends.sqlalchemy.event_store.store import SqlAlchemyEventStore
 from waku.backends.sqlalchemy.event_store.tables import bind_event_store_tables
+from waku.backends.testing import ItemAdded, OrderCreated, OrderShipped
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.serialization.upcasting.chain import UpcasterChain
-
-from tests.eventsourcing.store.domain import ItemAdded, OrderCreated, OrderShipped
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

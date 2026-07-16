@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
+    from sqlalchemy import Select
     from sqlalchemy.engine import CursorResult
 
 
@@ -123,20 +124,7 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
             .limit(1)
             .with_for_update(skip_locked=True)
         )
-        result = await self._session.execute(stmt)
-        row = result.fetchone()
-        if row is None:
-            return None
-        await self._session.execute(
-            update(_t)
-            .where(_t.c.id == row.id)
-            .values(replay_owner_id=owner_id, replay_lease_expires_at=lease_expires_at)
-        )
-        return dataclasses.replace(
-            _row_to_model(row),
-            replay_owner_id=owner_id,
-            replay_lease_expires_at=lease_expires_at,
-        )
+        return await self._lease_claimed_row(stmt, owner_id=owner_id, lease_expires_at=lease_expires_at)
 
     @override
     async def claim_replay(
@@ -157,6 +145,15 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
             )
             .with_for_update(skip_locked=True)
         )
+        return await self._lease_claimed_row(stmt, owner_id=owner_id, lease_expires_at=lease_expires_at)
+
+    async def _lease_claimed_row(
+        self,
+        stmt: Select[Any],
+        *,
+        owner_id: str,
+        lease_expires_at: datetime,
+    ) -> DeadLetterEntry | None:
         result = await self._session.execute(stmt)
         row = result.fetchone()
         if row is None:

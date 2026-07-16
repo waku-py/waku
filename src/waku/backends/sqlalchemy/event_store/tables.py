@@ -17,6 +17,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 
+from waku.backends.sqlalchemy._internal.tables import bind_or_reuse
+
 __all__ = [
     'EventStoreTables',
     'bind_event_store_tables',
@@ -66,14 +68,7 @@ es_events_table = Table(
 
 def bind_event_store_tables(metadata: MetaData) -> EventStoreTables:
     """Bind the event-store tables (streams and events) onto ``metadata``, returning the wrapper (idempotent)."""
-    streams = (
-        metadata.tables[es_streams_table.name]
-        if es_streams_table.name in metadata.tables
-        else es_streams_table.to_metadata(metadata)
+    return EventStoreTables(
+        streams=bind_or_reuse(metadata, es_streams_table),
+        events=bind_or_reuse(metadata, es_events_table),
     )
-    events = (
-        metadata.tables[es_events_table.name]
-        if es_events_table.name in metadata.tables
-        else es_events_table.to_metadata(metadata)
-    )
-    return EventStoreTables(streams=streams, events=events)

@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from sqlalchemy import Column, Integer, MetaData, Table, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 
+from waku.backends.sqlalchemy._internal.tables import bind_or_reuse
+
 __all__ = [
     'SnapshotTables',
     'bind_snapshot_tables',
@@ -32,9 +34,4 @@ class SnapshotTables:
 
 def bind_snapshot_tables(metadata: MetaData) -> SnapshotTables:
     """Bind the snapshot table onto ``metadata``, returning the bound-table wrapper (idempotent)."""
-    snapshots = (
-        metadata.tables[es_snapshots_table.name]
-        if es_snapshots_table.name in metadata.tables
-        else es_snapshots_table.to_metadata(metadata)
-    )
-    return SnapshotTables(snapshots=snapshots)
+    return SnapshotTables(snapshots=bind_or_reuse(metadata, es_snapshots_table))

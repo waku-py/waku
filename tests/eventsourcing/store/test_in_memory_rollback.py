@@ -7,13 +7,12 @@ import anyio
 import pytest
 from typing_extensions import override
 
+from waku.backends.testing import ItemAdded, OrderCreated
 from waku.eventsourcing.contracts.event import EventEnvelope, StoredEvent
 from waku.eventsourcing.contracts.stream import AnyVersion, Exact, NoStream, StreamId
 from waku.eventsourcing.projection.interfaces import IProjection
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
-
-from tests.eventsourcing.store.domain import ItemAdded, OrderCreated
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

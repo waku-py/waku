@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from sqlalchemy import Column, MetaData, Table, Text, func
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 
+from waku.backends.sqlalchemy._internal.tables import bind_or_reuse
+
 __all__ = [
     'LeaseTables',
     'bind_lease_tables',
@@ -33,9 +35,4 @@ class LeaseTables:
 
 def bind_lease_tables(metadata: MetaData) -> LeaseTables:
     """Bind the lease table onto ``metadata``, returning the bound-table wrapper (idempotent)."""
-    leases = (
-        metadata.tables[waku_leases_table.name]
-        if waku_leases_table.name in metadata.tables
-        else waku_leases_table.to_metadata(metadata)
-    )
-    return LeaseTables(leases=leases)
+    return LeaseTables(leases=bind_or_reuse(metadata, waku_leases_table))

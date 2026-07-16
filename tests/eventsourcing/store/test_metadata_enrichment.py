@@ -5,10 +5,9 @@ from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
+from waku.backends.testing import OrderCreated, make_envelope
 from waku.eventsourcing.contracts.event import EventEnvelope, EventMetadata, IMetadataEnricher
 from waku.eventsourcing.contracts.stream import NoStream, StreamId
-
-from tests.eventsourcing.store.domain import OrderCreated, make_envelope
 
 if TYPE_CHECKING:
     from tests.eventsourcing.store.conftest import EventStoreFactory

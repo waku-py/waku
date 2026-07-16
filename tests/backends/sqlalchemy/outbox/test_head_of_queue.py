@@ -2,53 +2,35 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
-from uuid import uuid4
 
-import pytest
 from sqlalchemy import MetaData, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from waku.backends.sqlalchemy.outbox.store import SqlAlchemyOutboxStore
 from waku.backends.sqlalchemy.outbox.tables import bind_outbox_tables
-from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
-
-from tests.backends.sqlalchemy.conftest import pg_session_for
+from waku.messaging.outbox.models import OutboxStatus
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import Callable
 
     from sqlalchemy.ext.asyncio import AsyncEngine
 
-
-@pytest.fixture
-async def pg_session(pg_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
-    async with pg_session_for(pg_engine, bind_outbox_tables) as session:
-        yield session
-
-
-def _make_message(**overrides: object) -> OutboxMessage:
-    defaults = {
-        'id': uuid4(),
-        'idempotency_key': str(uuid4()),
-        'message_type': 'test.Event',
-        'payload': {'test': True},
-        'destination': 'test://dest',
-        'correlation_id': str(uuid4()),
-        'causation_id': str(uuid4()),
-    }
-    return OutboxMessage(**(defaults | overrides))  # type: ignore[arg-type]
+    from waku.messaging.outbox.models import OutboxMessage
 
 
 class TestFetchHeadOfQueue:
     @staticmethod
-    async def test_returns_only_oldest_per_group(pg_session: AsyncSession) -> None:
+    async def test_returns_only_oldest_per_group(
+        pg_session: AsyncSession,
+        make_message: Callable[..., OutboxMessage],
+    ) -> None:
         store = SqlAlchemyOutboxStore(pg_session)
         await store.save_batch([
-            _make_message(group_id='order-A', sequence_number=1),
-            _make_message(group_id='order-A', sequence_number=2),
-            _make_message(group_id='order-A', sequence_number=3),
-            _make_message(group_id='order-B', sequence_number=1),
-            _make_message(group_id='order-B', sequence_number=2),
+            make_message(group_id='order-A', sequence_number=1),
+            make_message(group_id='order-A', sequence_number=2),
+            make_message(group_id='order-A', sequence_number=3),
+            make_message(group_id='order-B', sequence_number=1),
+            make_message(group_id='order-B', sequence_number=2),
         ])
         await pg_session.flush()
 
@@ -61,12 +43,15 @@ class TestFetchHeadOfQueue:
         assert all(m.status == OutboxStatus.PROCESSING for m in fetched)
 
     @staticmethod
-    async def test_keyless_messages_are_claimed_up_to_batch_size_unordered(pg_session: AsyncSession) -> None:
+    async def test_keyless_messages_are_claimed_up_to_batch_size_unordered(
+        pg_session: AsyncSession,
+        make_message: Callable[..., OutboxMessage],
+    ) -> None:
         # Keyless (group_id IS NULL) messages bypass sequencing: claimed in parallel, batch-limited,
         # NO ordering guarantee (created_at within one tx is constant, so order is intentionally
         # unasserted — Decision B: keyless = unordered).
         store = SqlAlchemyOutboxStore(pg_session)
-        keyless = [_make_message() for _ in range(3)]
+        keyless = [make_message() for _ in range(3)]
         await store.save_batch(keyless)
         await pg_session.flush()
 
@@ -78,12 +63,15 @@ class TestFetchHeadOfQueue:
         assert {m.id for m in fetched} <= {m.id for m in keyless}
 
     @staticmethod
-    async def test_mixed_partitioned_and_unpartitioned(pg_session: AsyncSession) -> None:
+    async def test_mixed_partitioned_and_unpartitioned(
+        pg_session: AsyncSession,
+        make_message: Callable[..., OutboxMessage],
+    ) -> None:
         store = SqlAlchemyOutboxStore(pg_session)
         await store.save_batch([
-            _make_message(group_id='g', sequence_number=1),
-            _make_message(group_id='g', sequence_number=2),
-            _make_message(),
+            make_message(group_id='g', sequence_number=1),
+            make_message(group_id='g', sequence_number=2),
+            make_message(),
         ])
         await pg_session.flush()
 
@@ -94,11 +82,14 @@ class TestFetchHeadOfQueue:
         assert sorted([m.group_id for m in fetched], key=lambda g: g or '') == [None, 'g']
 
     @staticmethod
-    async def test_next_call_returns_next_head_after_dispatch(pg_session: AsyncSession) -> None:
+    async def test_next_call_returns_next_head_after_dispatch(
+        pg_session: AsyncSession,
+        make_message: Callable[..., OutboxMessage],
+    ) -> None:
         store = SqlAlchemyOutboxStore(pg_session)
         await store.save_batch([
-            _make_message(group_id='g', sequence_number=1),
-            _make_message(group_id='g', sequence_number=2),
+            make_message(group_id='g', sequence_number=1),
+            make_message(group_id='g', sequence_number=2),
         ])
         await pg_session.flush()
 
@@ -113,11 +104,14 @@ class TestFetchHeadOfQueue:
         assert second[0].sequence_number == 2
 
     @staticmethod
-    async def test_failed_group_head_blocks_successor_until_ready(pg_session: AsyncSession) -> None:
+    async def test_failed_group_head_blocks_successor_until_ready(
+        pg_session: AsyncSession,
+        make_message: Callable[..., OutboxMessage],
+    ) -> None:
         store = SqlAlchemyOutboxStore(pg_session)
         # Two messages in ONE group: head seq=1, successor seq=2.
-        head = _make_message(group_id='order-1', sequence_number=1)
-        successor = _make_message(group_id='order-1', sequence_number=2)
+        head = make_message(group_id='order-1', sequence_number=1)
+        successor = make_message(group_id='order-1', sequence_number=2)
         await store.save_batch([head, successor])
         await pg_session.flush()
 
@@ -133,15 +127,18 @@ class TestFetchHeadOfQueue:
         assert successor.id not in claimed_ids
 
     @staticmethod
-    async def test_backoff_head_blocks_successor_while_other_groups_flow(pg_session: AsyncSession) -> None:
+    async def test_backoff_head_blocks_successor_while_other_groups_flow(
+        pg_session: AsyncSession,
+        make_message: Callable[..., OutboxMessage],
+    ) -> None:
         # Widening head selection to {PENDING, PROCESSING} must not disturb the readiness gate: a
         # not-ready (backoff) PENDING head still blocks its own successor, while OTHER groups + keyless
         # flow. Green before and after — guards the TXN-1 readiness behaviour against the predicate change.
         store = SqlAlchemyOutboxStore(pg_session)
-        g_head = _make_message(group_id='G', sequence_number=1)
-        g_succ = _make_message(group_id='G', sequence_number=2)
-        h_head = _make_message(group_id='H', sequence_number=1)
-        keyless = _make_message()
+        g_head = make_message(group_id='G', sequence_number=1)
+        g_succ = make_message(group_id='G', sequence_number=2)
+        h_head = make_message(group_id='H', sequence_number=1)
+        keyless = make_message()
         await store.save_batch([g_head, g_succ, h_head, keyless])
         await pg_session.flush()
 
@@ -158,7 +155,10 @@ class TestFetchHeadOfQueue:
         assert keyless.id in claimed_ids
 
     @staticmethod
-    async def test_committed_processing_head_blocks_successor_across_sessions(pg_engine: AsyncEngine) -> None:
+    async def test_committed_processing_head_blocks_successor_across_sessions(
+        pg_engine: AsyncEngine,
+        make_message: Callable[..., OutboxMessage],
+    ) -> None:
         # The live I2 bug: relay-A claims a group head PROCESSING and COMMITS before dispatch; relay-B
         # must NOT promote the successor while the predecessor is in flight. Two sessions over one engine
         # model the two concurrent relays. Reverting head_eligible makes B claim G.seq2 -> this goes red.
@@ -167,8 +167,8 @@ class TestFetchHeadOfQueue:
         async with pg_engine.begin() as conn:
             await conn.run_sync(metadata.create_all)
         try:
-            g1 = _make_message(group_id='G', sequence_number=1)
-            g2 = _make_message(group_id='G', sequence_number=2)
+            g1 = make_message(group_id='G', sequence_number=1)
+            g2 = make_message(group_id='G', sequence_number=2)
             async with AsyncSession(pg_engine, expire_on_commit=False) as seed:
                 await SqlAlchemyOutboxStore(seed).save_batch([g1, g2])
                 await seed.commit()
@@ -182,8 +182,8 @@ class TestFetchHeadOfQueue:
                 # Independently seed another group H + a keyless row so B has non-G work available.
                 async with AsyncSession(pg_engine, expire_on_commit=False) as seed2:
                     await SqlAlchemyOutboxStore(seed2).save_batch([
-                        _make_message(group_id='H', sequence_number=1),
-                        _make_message(),
+                        make_message(group_id='H', sequence_number=1),
+                        make_message(),
                     ])
                     await seed2.commit()
 
@@ -209,7 +209,10 @@ class TestFetchHeadOfQueue:
                 await conn.run_sync(metadata.drop_all)
 
     @staticmethod
-    async def test_fetch_head_of_queue_skip_locked(pg_engine: AsyncEngine) -> None:
+    async def test_fetch_head_of_queue_skip_locked(
+        pg_engine: AsyncEngine,
+        make_message: Callable[..., OutboxMessage],
+    ) -> None:
         # Concurrent claim safety: while one worker holds the claimed head in an open tx, a second
         # worker's fetch is SKIPPED (not blocked) and never double-claims it. Mirrors
         # test_claim_replayable_skip_locked; the final phase diverges because fetch_head_of_queue is a
@@ -221,7 +224,7 @@ class TestFetchHeadOfQueue:
             await conn.run_sync(metadata.create_all)
         try:
             async with AsyncSession(pg_engine, expire_on_commit=False) as seed:
-                await SqlAlchemyOutboxStore(seed).save_batch([_make_message(group_id='g1', sequence_number=1)])
+                await SqlAlchemyOutboxStore(seed).save_batch([make_message(group_id='g1', sequence_number=1)])
                 await seed.commit()
             async with (
                 AsyncSession(pg_engine, expire_on_commit=False) as s1,

@@ -1,40 +1,19 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from uuid import uuid4
 
-import pytest
 from sqlalchemy import select
 
 from waku.backends.sqlalchemy.outbox.store import SqlAlchemyOutboxStore
-from waku.backends.sqlalchemy.outbox.tables import bind_outbox_tables, outbox_messages_table
-from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
-
-from tests.backends.sqlalchemy.conftest import pg_session_for
+from waku.backends.sqlalchemy.outbox.tables import outbox_messages_table
+from waku.messaging.outbox.models import OutboxStatus
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import Callable
 
-    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+    from sqlalchemy.ext.asyncio import AsyncSession
 
-
-@pytest.fixture
-async def pg_session(pg_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
-    async with pg_session_for(pg_engine, bind_outbox_tables) as session:
-        yield session
-
-
-def _make_message(**overrides: object) -> OutboxMessage:
-    defaults = {
-        'id': uuid4(),
-        'idempotency_key': str(uuid4()),
-        'message_type': 'test.Event',
-        'payload': {'test': True},
-        'destination': 'test://dest',
-        'correlation_id': str(uuid4()),
-        'causation_id': str(uuid4()),
-    }
-    return OutboxMessage(**(defaults | overrides))  # type: ignore[arg-type]
+    from waku.messaging.outbox.models import OutboxMessage
 
 
 class TestSqlAlchemyOutboxStore:
@@ -42,9 +21,12 @@ class TestSqlAlchemyOutboxStore:
     # contract suite (tests/messaging/outbox/test_store_contract.py, parametrized fake|sqlalchemy).
     # What remains here is the SQL-specific raw-column persistence check.
     @staticmethod
-    async def test_mark_discarded_persists_status_and_error(pg_session: AsyncSession) -> None:
+    async def test_mark_discarded_persists_status_and_error(
+        pg_session: AsyncSession,
+        make_message: Callable[..., OutboxMessage],
+    ) -> None:
         store = SqlAlchemyOutboxStore(pg_session)
-        msg = _make_message()
+        msg = make_message()
         await store.save_batch([msg])
         await pg_session.flush()
 
@@ -62,7 +44,10 @@ class TestSqlAlchemyOutboxStore:
         assert row.last_error == 'transport gave up'
 
     @staticmethod
-    async def test_metadata_column_round_trips(pg_session: AsyncSession) -> None:
+    async def test_metadata_column_round_trips(
+        pg_session: AsyncSession,
+        make_message: Callable[..., OutboxMessage],
+    ) -> None:
         store = SqlAlchemyOutboxStore(pg_session)
         meta_payload = {
             'message_version': 2,
@@ -71,7 +56,7 @@ class TestSqlAlchemyOutboxStore:
             'scheduled_time': None,
             'expires_at': None,
         }
-        msg = _make_message(metadata=meta_payload)
+        msg = make_message(metadata=meta_payload)
         await store.save_batch([msg])
         await pg_session.flush()
 
@@ -80,9 +65,12 @@ class TestSqlAlchemyOutboxStore:
         assert fetched[0].metadata == meta_payload
 
     @staticmethod
-    async def test_metadata_column_defaults_to_none(pg_session: AsyncSession) -> None:
+    async def test_metadata_column_defaults_to_none(
+        pg_session: AsyncSession,
+        make_message: Callable[..., OutboxMessage],
+    ) -> None:
         store = SqlAlchemyOutboxStore(pg_session)
-        msg = _make_message()
+        msg = make_message()
         await store.save_batch([msg])
         await pg_session.flush()
 

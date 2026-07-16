@@ -16,6 +16,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 
+from waku.backends.sqlalchemy._internal.tables import bind_or_reuse
 from waku.backends.sqlalchemy.column_types import EnumFromValues
 from waku.messaging.outbox.models import OutboxStatus
 
@@ -71,9 +72,4 @@ class OutboxTables:
 
 def bind_outbox_tables(metadata: MetaData) -> OutboxTables:
     """Bind the outbox table onto ``metadata``, returning the bound-table wrapper (idempotent)."""
-    messages = (
-        metadata.tables[outbox_messages_table.name]
-        if outbox_messages_table.name in metadata.tables
-        else outbox_messages_table.to_metadata(metadata)
-    )
-    return OutboxTables(messages=messages)
+    return OutboxTables(messages=bind_or_reuse(metadata, outbox_messages_table))

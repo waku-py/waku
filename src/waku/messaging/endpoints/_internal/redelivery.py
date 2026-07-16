@@ -14,11 +14,13 @@ if TYPE_CHECKING:
     from waku.messaging._internal.pauser import TimedPauser
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
+    from waku.messaging.endpoints._internal.execution import IEndpointExecution
     from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
 
 __all__ = [
     'RedeliveryCoordinator',
     'RedeliveryHooks',
+    'process_work_item',
 ]
 
 # Envelope + the single failing handler it is re-delivered to on each requeue.
@@ -138,6 +140,28 @@ class RedeliveryCoordinator:
         if intent.pause_duration is not None:  # re-enqueued; halt the listener for the PAUSE duration
             await self._timed_pauser.pause(intent.pause_duration)
         return None
+
+
+async def process_work_item(
+    work_item: _WorkItem,
+    *,
+    executor: IEndpointExecution,
+    coordinator: RedeliveryCoordinator,
+    emit_terminal: Callable[[MessageEnvelope[Any], HandlerType, TerminalIntent, ExecutionOutcome], Awaitable[None]],
+) -> None:
+    """Drive one queued work item through execute -> redelivery decision -> terminal materialization.
+
+    Shared by BUFFERED (:class:`LocalQueueEndpoint`) and DURABLE (:class:`DurableInboxReceiver`) workers;
+    both feed the same execute/coordinate/emit sequence per (message, handler) while owning their own
+    persistence lifecycle around it.
+    """
+    envelope, handler_types = work_item
+    for handler_type in handler_types:
+        intent = await executor.execute(envelope, handler_type)
+        evidence = await coordinator.handle_intent(envelope, handler_type, intent)
+        if evidence is not None:
+            terminal_intent, outcome = evidence
+            await emit_terminal(envelope, handler_type, terminal_intent, outcome)
 
 
 def _budget_exhausted_intent(

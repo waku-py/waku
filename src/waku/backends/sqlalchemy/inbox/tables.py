@@ -15,6 +15,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
 
+from waku.backends.sqlalchemy._internal.tables import bind_or_reuse
 from waku.backends.sqlalchemy.column_types import EnumFromValues
 from waku.messaging.inbox.models import InboxStatus
 
@@ -79,9 +80,4 @@ class InboxTables:
 
 def bind_inbox_tables(metadata: MetaData) -> InboxTables:
     """Bind the inbox table onto ``metadata``, returning the bound-table wrapper (idempotent)."""
-    entries = (
-        metadata.tables[inbox_entries_table.name]
-        if inbox_entries_table.name in metadata.tables
-        else inbox_entries_table.to_metadata(metadata)
-    )
-    return InboxTables(entries=entries)
+    return InboxTables(entries=bind_or_reuse(metadata, inbox_entries_table))

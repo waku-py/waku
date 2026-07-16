@@ -17,7 +17,11 @@ from waku.messaging._internal.circuit_breaker import CircuitBreaker, ICircuitBre
 from waku.messaging._internal.partition import resolve_and_allocate
 from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints._internal.execution import ExecutionResult, TerminalIntent, TerminalIntentKind
-from waku.messaging.endpoints._internal.redelivery import RedeliveryCoordinator, RedeliveryHooks
+from waku.messaging.endpoints._internal.redelivery import (
+    RedeliveryCoordinator,
+    RedeliveryHooks,
+    process_work_item,
+)
 from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.inbox import EndpointUri
@@ -182,13 +186,12 @@ class DurableInboxReceiver:
             await self._worker.resume(token)
 
     async def _process_work_item(self, work_item: _WorkItem) -> None:
-        envelope, handler_types = work_item
-        for handler_type in handler_types:
-            intent = await self._executor.execute(envelope, handler_type)
-            evidence = await self._redelivery.handle_intent(envelope, handler_type, intent)
-            if evidence is not None:
-                terminal_intent, outcome = evidence
-                await self._emit_terminal(envelope, handler_type, terminal_intent, outcome)
+        await process_work_item(
+            work_item,
+            executor=self._executor,
+            coordinator=self._redelivery,
+            emit_terminal=self._emit_terminal,
+        )
 
     async def _record_requeue_attempt(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> None:
         destination = handler_destination(handler_type)
