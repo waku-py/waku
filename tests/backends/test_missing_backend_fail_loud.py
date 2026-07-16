@@ -20,18 +20,17 @@ from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 
 @pytest.mark.parametrize(
-    ('config', 'missing_port'),
+    'config',
     [
-        pytest.param(MessagingConfig(outbox=OutboxConfig()), 'IOutboxStore', id='outbox'),
-        pytest.param(MessagingConfig(inbox=InboxConfig()), 'IInboxStore', id='inbox'),
-        pytest.param(MessagingConfig(dead_letter=DeadLetterConfig()), 'IDeadLetterStore', id='dead_letter'),
+        pytest.param(MessagingConfig(outbox=OutboxConfig()), id='outbox'),
+        pytest.param(MessagingConfig(inbox=InboxConfig()), id='inbox'),
+        pytest.param(MessagingConfig(dead_letter=DeadLetterConfig()), id='dead_letter'),
     ],
 )
 async def test_durable_messaging_config_without_backend_names_the_fix(
     config: MessagingConfig,
-    missing_port: str,
 ) -> None:
-    with pytest.raises(ImproperlyConfiguredError, match=missing_port) as exc_info:
+    with pytest.raises(ImproperlyConfiguredError, match='IDurabilityStore') as exc_info:
         async with create_test_app(imports=[MessagingModule.register(config)]):
             pass  # pragma: no cover
 
@@ -55,10 +54,10 @@ def _partition_key(_message: IMessage) -> str:  # pragma: no cover - never calle
     return 'k'
 
 
-async def test_active_inbox_without_allocator_names_the_backend_fix() -> None:
+async def test_active_inbox_without_backend_names_the_backend_fix() -> None:
     config = MessagingConfig(inbox=InboxConfig())
 
-    with pytest.raises(ImproperlyConfiguredError, match='ISequenceAllocator') as exc_info:
+    with pytest.raises(ImproperlyConfiguredError, match='IDurabilityStore') as exc_info:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             providers=[object_(RecordingUoW(), provided_type=IUnitOfWork), scoped(IInboxStore, FakeInboxStore)],
@@ -75,7 +74,7 @@ async def test_partition_by_endpoint_without_backend_names_the_fix() -> None:
         transports={'rabbitmq': RecordingTransport},
     )
 
-    with pytest.raises(ImproperlyConfiguredError, match='ISequenceAllocator') as exc_info:
+    with pytest.raises(ImproperlyConfiguredError, match='IDurabilityStore') as exc_info:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             providers=[
