@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+from typing_extensions import override
 
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.testing import AggregateSpec
@@ -39,6 +40,7 @@ class CounterAggregate(EventSourcedAggregate):
     def noop(self) -> None:
         pass
 
+    @override
     def _apply(self, event: IEvent) -> None:
         match event:
             case Incremented(amount=a):

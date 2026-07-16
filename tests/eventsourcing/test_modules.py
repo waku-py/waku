@@ -71,6 +71,7 @@ class Item(EventSourcedAggregate):
     def create(self, name: str) -> None:  # pragma: no cover
         self._raise_event(ItemCreated(name=name))
 
+    @override
     def _apply(self, event: IEvent) -> None:  # pragma: no cover
         match event:
             case ItemCreated(name=name):
@@ -161,6 +162,7 @@ async def test_event_type_descriptor_with_custom_name_and_aliases() -> None:
 class SearchIndexProjection(ICatchUpProjection):
     projection_name = 'search_index'
 
+    @override
     async def project(self, events: Sequence[StoredEvent], /) -> None:  # pragma: no cover
         pass
 
@@ -168,6 +170,7 @@ class SearchIndexProjection(ICatchUpProjection):
 class ItemListProjection(IProjection):
     projection_name = 'item_list'
 
+    @override
     async def project(self, events: Sequence[StoredEvent], /) -> None:  # pragma: no cover
         pass
 
@@ -335,6 +338,7 @@ class ItemLog(EventSourcedAggregate):
         super().__init__()
         self.entries: list[str] = []
 
+    @override
     def _apply(self, event: IEvent) -> None:  # pragma: no cover
         match event:
             case ItemCreated(name=name):
@@ -823,6 +827,7 @@ class FilteredProjection(ICatchUpProjection):
     projection_name = 'filtered'
     event_types = (ItemCreated,)
 
+    @override
     async def project(self, events: Sequence[StoredEvent], /) -> None:  # pragma: no cover
         pass
 

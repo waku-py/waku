@@ -73,9 +73,9 @@ _native_type_alias_factory: typing.Any = vars(typing).get('TypeAliasType')
 
 @pytest.mark.skipif(sys.version_info < (3, 12), reason='PEP 695 type aliases require Python 3.12+')
 async def test_bind_decider_resolves_repository_parametrized_with_pep695_type_alias() -> None:
-    counter_event = _native_type_alias_factory('counter_event', Incremented)
+    counter_event: typing.Any = _native_type_alias_factory('counter_event', Incremented)
 
-    class AliasCounterRepository(DeciderRepository[CounterState, Increment, counter_event]):  # type: ignore[valid-type]
+    class AliasCounterRepository(DeciderRepository[CounterState, Increment, counter_event]):
         aggregate_name = 'AliasCounter'
 
     @module(

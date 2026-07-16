@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from uuid import uuid4
 
+from typing_extensions import override
+
 from waku import module
 from waku._internal.polling import PollingConfig
 from waku.backends.memory import MemoryBackend
@@ -37,6 +39,7 @@ class _NotePublished(IEvent):
 
 
 class _NotePublishedHandler(EventHandler[_NotePublished]):
+    @override
     async def handle(self, event: _NotePublished, /) -> None: ...
 
 

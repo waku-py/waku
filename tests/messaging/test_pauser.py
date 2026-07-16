@@ -24,10 +24,10 @@ async def test_two_timed_pausers_keep_gate_closed_until_both_release() -> None:
     # The gate must NOT open while the long token is still held.
     for _ in range(10):
         await anyio.lowlevel.checkpoint()
-    assert registry.paused is True
+    assert registry.paused
 
     long_sleep.released.set()
-    await wait_until(lambda: registry.paused is False)
+    await wait_until(lambda: not registry.paused)
     await short.aclose()
     await long.aclose()
 

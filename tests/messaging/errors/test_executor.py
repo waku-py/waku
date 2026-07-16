@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from typing_extensions import override
+
 from waku.messages import IEvent
 from waku.messaging.errors.executor import ErrorPolicyEvaluator, FailureContext
 from waku.messaging.errors.policy import ErrorPolicy, RetryAction
@@ -20,6 +22,7 @@ class _SampleEvent(IEvent):
 
 
 class _SampleHandler(EventHandler[_SampleEvent]):
+    @override
     async def handle(self, message: _SampleEvent) -> None:
         pass
 

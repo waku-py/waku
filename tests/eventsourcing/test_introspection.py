@@ -129,9 +129,9 @@ _native_type_alias_factory: typing.Any = vars(typing).get('TypeAliasType')
 
 @pytest.mark.skipif(sys.version_info < (3, 12), reason='PEP 695 type aliases require Python 3.12+')
 def test_native_type_alias_state_infers_aggregate_name() -> None:
-    native_aliased_state = _native_type_alias_factory('AliasedState', StateA | StateB)
+    native_aliased_state: typing.Any = _native_type_alias_factory('AliasedState', StateA | StateB)
 
-    class _NativeAliasRepo(DeciderRepository[native_aliased_state, Command, Event]):  # type: ignore[valid-type]
+    class _NativeAliasRepo(DeciderRepository[native_aliased_state, Command, Event]):
         pass
 
     assert _NativeAliasRepo.aggregate_name == 'Aliased'

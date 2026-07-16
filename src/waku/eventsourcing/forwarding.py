@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, final
 
+from typing_extensions import override
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
@@ -61,12 +63,15 @@ class AppendedEventsCollector(IAppendedEvents):
     def __init__(self) -> None:
         self._events: list[StoredEvent] = []
 
+    @override
     def clear(self) -> None:
         self._events.clear()
 
+    @override
     def record(self, stored_events: Sequence[StoredEvent], /) -> None:
         self._events.extend(stored_events)
 
+    @override
     def drain(self) -> list[StoredEvent]:
         drained = list(self._events)
         self._events.clear()

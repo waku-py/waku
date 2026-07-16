@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self
 
+from typing_extensions import override
+
 from waku.messaging._internal.escalation import (
     DEFERRED_TERMINAL_ACTIONS,
     ActionBuilder,
@@ -61,6 +63,7 @@ class ErrorPolicy(EscalationChain['ErrorPolicy']):
     """
 
     @classmethod
+    @override
     def on_exception(
         cls,
         exception_type: type[Exception],
@@ -70,6 +73,7 @@ class ErrorPolicy(EscalationChain['ErrorPolicy']):
         return _ErrorActionBuilder(cls, exception_type, when)
 
     @classmethod
+    @override
     def on_any_exception(
         cls,
         *,

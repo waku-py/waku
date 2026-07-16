@@ -654,12 +654,14 @@ class TestDispatchMessageMetadata:
         assert metadata.timestamp.isoformat() == envelope.timestamp.isoformat()
         assert metadata.headers == {'x-tenant': 'acme'}
         assert metadata.scheduled_time is not None
-        assert metadata.scheduled_time.isoformat() == envelope.scheduled_time.isoformat()  # type: ignore[union-attr]
+        assert envelope.scheduled_time is not None
+        assert metadata.scheduled_time.isoformat() == envelope.scheduled_time.isoformat()
         assert metadata.expires_at is not None
-        assert metadata.expires_at.isoformat() == envelope.expires_at.isoformat()  # type: ignore[union-attr]
+        assert envelope.expires_at is not None
+        assert metadata.expires_at.isoformat() == envelope.expires_at.isoformat()
         # Typed columns — these live on the row, NOT in metadata, and must reach the transport.
-        assert metadata.correlation_id == str(envelope.correlation_id)
-        assert metadata.causation_id == str(envelope.causation_id)
+        assert metadata.correlation_id == envelope.correlation_id
+        assert metadata.causation_id == envelope.causation_id
         assert metadata.message_id == str(envelope.message_id)
         assert metadata.message_type == envelope.message_type
         assert metadata.group_id == envelope.group_id

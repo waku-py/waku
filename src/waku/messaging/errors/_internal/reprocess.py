@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from waku.di import AsyncContainer  # noqa: TC001  # dishka introspects __init__ at container-build time
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
 
 __all__ = ['ReprocessScopeOpener']
 
@@ -28,6 +28,6 @@ class ReprocessScopeOpener:
         self._container = container
 
     @asynccontextmanager
-    async def fresh_scope(self) -> AsyncIterator[AsyncContainer]:
+    async def fresh_scope(self) -> AsyncGenerator[AsyncContainer]:
         async with self._container() as scope:
             yield scope

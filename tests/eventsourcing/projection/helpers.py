@@ -31,6 +31,14 @@ class OtherEvent(IEvent):
     label: str
 
 
+def sample_event_values(events: Sequence[StoredEvent]) -> list[int]:
+    values: list[int] = []
+    for event in events:
+        assert isinstance(event.data, SampleEvent)
+        values.append(event.data.value)
+    return values
+
+
 class RecordingProjection(ICatchUpProjection):
     projection_name = 'recording'
 
@@ -193,7 +201,7 @@ class PoisonProjection(ICatchUpProjection):
     @override
     async def project(self, events: Sequence[StoredEvent], /) -> None:
         self.batches.append(list(events))
-        values = [e.data.value for e in events]  # type: ignore[attr-defined]
+        values = sample_event_values(events)
         if self._session is not None:
             self._session.write(values)
         if self._poison_value in values:

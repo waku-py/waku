@@ -44,7 +44,7 @@ from tests.messaging.helpers import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Callable
+    from collections.abc import AsyncGenerator, Awaitable, Callable
     from typing import Any
 
     from waku.application import WakuApplication
@@ -649,7 +649,7 @@ async def _executor(
     *,
     observers: MessageObservers,
     monotonic: Callable[[], float] = time.perf_counter,
-) -> AsyncIterator[EndpointExecutor]:
+) -> AsyncGenerator[EndpointExecutor]:
     async with create_test_app(
         imports=[MessagingModule.register()],
         extensions=[MessagingExtension().bind(_PingHandler)],

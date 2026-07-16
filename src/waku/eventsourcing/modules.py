@@ -323,6 +323,7 @@ class EventSourcingExtension(OnModuleConfigure):
             if binding.snapshot is not None:
                 yield binding.repository.aggregate_name, binding.snapshot
 
+    @override
     def on_module_configure(self, metadata: ModuleMetadata) -> None:
         for binding in self._bindings:
             repo_type = binding.repository

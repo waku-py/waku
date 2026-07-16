@@ -4,6 +4,8 @@ import math
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
+from typing_extensions import override
+
 from waku._internal.sentinel import MISSING
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
 from waku.messaging.endpoints.base import BrokerEndpointEntry, EndpointMode, LocalQueueEntry
@@ -112,9 +114,11 @@ class TestLocalQueueObservers:
 
 
 class _StubMapper(IEnvelopeMapper[Any, Any]):
-    def map_outgoing(self, payload: dict[str, Any], metadata: EnvelopeMetadata) -> Any:  # noqa: ARG002, PLR6301
+    @override
+    def map_outgoing(self, payload: dict[str, Any], metadata: EnvelopeMetadata) -> Any:
         return payload
 
+    @override
     async def map_incoming(self, msg: Any) -> tuple[dict[str, Any], EnvelopeMetadata]:
         raise NotImplementedError
 

@@ -7,7 +7,7 @@ from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable
+    from collections.abc import AsyncGenerator, Callable
 
     from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 async def pg_session_for(
     pg_engine: AsyncEngine,
     *binders: Callable[[MetaData], object],
-) -> AsyncIterator[AsyncSession]:
+) -> AsyncGenerator[AsyncSession]:
     metadata = MetaData()
     for binder in binders:
         binder(metadata)

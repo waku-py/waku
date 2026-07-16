@@ -8,6 +8,7 @@ from sqlalchemy import (  # Dishka needs runtime access
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002  # Dishka needs runtime access
+from typing_extensions import override
 
 from waku.eventsourcing.projection.checkpoint import Checkpoint
 from waku.eventsourcing.store.interfaces import ICheckpointStore
@@ -22,6 +23,7 @@ class SqlAlchemyCheckpointStore(ICheckpointStore):
         self._session = session
         self._checkpoints = checkpoints_table
 
+    @override
     async def load(self, projection_name: str, /) -> Checkpoint | None:
         query = select(self._checkpoints).where(self._checkpoints.c.projection_name == projection_name)
         result = await self._session.execute(query)
@@ -34,6 +36,7 @@ class SqlAlchemyCheckpointStore(ICheckpointStore):
             updated_at=row.updated_at,
         )
 
+    @override
     async def save(self, checkpoint: Checkpoint, /) -> None:
         stmt = pg_insert(self._checkpoints).values(
             projection_name=checkpoint.projection_name,

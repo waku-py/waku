@@ -23,11 +23,13 @@ class OrderPlaced(IEvent):
 
 
 class _PrimaryHandler(EventHandler[OrderPlaced]):
+    @override
     async def handle(self, message: OrderPlaced) -> None:
         pass
 
 
 class _SecondaryHandler(EventHandler[OrderPlaced]):
+    @override
     async def handle(self, message: OrderPlaced) -> None:
         pass
 

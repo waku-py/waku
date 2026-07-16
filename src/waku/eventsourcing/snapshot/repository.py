@@ -4,6 +4,8 @@ import abc
 import logging
 from typing import TYPE_CHECKING, ClassVar, Generic
 
+from typing_extensions import override
+
 from waku.eventsourcing._internal.stream_helpers import read_aggregate_stream
 from waku.eventsourcing.contracts.aggregate import AggregateT
 from waku.eventsourcing.repository import EventSourcedRepository
@@ -46,6 +48,7 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
             serializer=state_serializer,
         )
 
+    @override
     async def load(self, aggregate_id: str) -> AggregateT:
         stream_id = self._stream_id(aggregate_id)
         snapshot = await self._snapshot_manager.load_snapshot(stream_id, aggregate_id)
@@ -70,6 +73,7 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
         logger.debug('No snapshot for %s/%s, loading from events', self.aggregate_name, aggregate_id)
         return await super().load(aggregate_id)
 
+    @override
     async def save(
         self,
         aggregate_id: str,

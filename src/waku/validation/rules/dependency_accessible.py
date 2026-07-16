@@ -46,6 +46,7 @@ class DependencyInaccessibleError(ValidationError):
         self.from_module = from_module
         super().__init__(str(self))
 
+    @override
     def __str__(self) -> str:
         msg = [
             f'Dependency Error: "{self.required_type!r}" is not accessible',

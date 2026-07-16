@@ -9,6 +9,7 @@ from sqlalchemy import (  # Dishka needs runtime access
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002  # Dishka needs runtime access
+from typing_extensions import override
 
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.snapshot.interfaces import Snapshot
@@ -24,6 +25,7 @@ class SqlAlchemySnapshotStore(ISnapshotStore):
         self._session = session
         self._snapshots = snapshots_table
 
+    @override
     async def load(self, stream_id: StreamId, /) -> Snapshot | None:
         key = str(stream_id)
         query = select(self._snapshots).where(self._snapshots.c.stream_id == key)
@@ -39,6 +41,7 @@ class SqlAlchemySnapshotStore(ISnapshotStore):
             schema_version=row.schema_version,
         )
 
+    @override
     async def save(self, snapshot: Snapshot, /) -> None:
         stmt = pg_insert(self._snapshots).values(
             stream_id=str(snapshot.stream_id),

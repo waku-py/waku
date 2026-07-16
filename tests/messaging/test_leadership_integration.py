@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Callable  # noqa: TC003 -- dishka introspects the session factory signature
+
+# Dishka introspects the session factory signatures, so these annotations must resolve at runtime.
+from collections.abc import (
+    AsyncGenerator,  # noqa: TC003
+    AsyncIterator,  # noqa: TC003
+    Callable,  # noqa: TC003
+)
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -55,7 +61,7 @@ class _RaisingLease(ILease):
 
     @override
     @contextlib.asynccontextmanager
-    async def acquire(self, name: str) -> AsyncIterator[bool]:
+    async def acquire(self, name: str) -> AsyncGenerator[bool]:
         self.attempts += 1
         msg = 'lease backend down'
         raise ConnectionError(msg)
@@ -65,7 +71,7 @@ class _RaisingLease(ILease):
 class _HangingReleaseLease(ILease):
     @override
     @contextlib.asynccontextmanager
-    async def acquire(self, name: str) -> AsyncIterator[bool]:
+    async def acquire(self, name: str) -> AsyncGenerator[bool]:
         try:
             yield True
         finally:

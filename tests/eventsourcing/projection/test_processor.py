@@ -15,6 +15,7 @@ from tests.eventsourcing.projection.helpers import (
     RecordingProjection,
     StopProjection,
     make_binding,
+    sample_event_values,
     seed_events,
     seed_mixed_events,
 )
@@ -42,7 +43,7 @@ async def test_run_once_processes_batch_and_saves_checkpoint(
     assert outcome.events_processed == 5
     assert outcome.checkpoint_mutated is True
     assert len(projection.received) == 5
-    assert [e.data.value for e in projection.received] == [0, 1, 2, 3, 4]  # type: ignore[attr-defined]
+    assert sample_event_values(projection.received) == [0, 1, 2, 3, 4]
 
     checkpoint = await in_memory_checkpoint_store.load('recording')
     assert checkpoint is not None

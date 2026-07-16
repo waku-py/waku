@@ -4,6 +4,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import TYPE_CHECKING
 
 import pytest
+from typing_extensions import override
 
 from waku import Module, WakuApplication, WakuFactory
 from waku.extensions import OnModuleDestroy, OnModuleInit
@@ -11,7 +12,7 @@ from waku.extensions import OnModuleDestroy, OnModuleInit
 from tests.module_utils import create_basic_module
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
     from types import TracebackType
 
     from pytest_mock import MockerFixture
@@ -22,21 +23,25 @@ class _RecordingDestroyExt(OnModuleDestroy):
     def __init__(self, stub: AsyncMockType) -> None:
         self._stub = stub
 
+    @override
     async def on_module_destroy(self, module: Module) -> None:
         await self._stub(module)
 
 
 class _FailingInitExt(OnModuleInit):
-    async def on_module_init(self, module: Module) -> None:  # noqa: ARG002, PLR6301
+    @override
+    async def on_module_init(self, module: Module) -> None:
         msg = 'module init failed'
         raise RuntimeError(msg)
 
 
 class _FailingLifespan(AbstractAsyncContextManager[None]):
+    @override
     async def __aenter__(self) -> None:
         msg = 'lifespan boom'
         raise RuntimeError(msg)
 
+    @override
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
@@ -50,7 +55,7 @@ async def test_failed_lifespan_unwinds_earlier_lifespans() -> None:
     events: list[str] = []
 
     @asynccontextmanager
-    async def first_lifespan(_: WakuApplication) -> AsyncIterator[None]:
+    async def first_lifespan(_: WakuApplication) -> AsyncGenerator[None]:
         events.append('enter')
         try:
             yield

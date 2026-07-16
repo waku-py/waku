@@ -4,6 +4,8 @@ import copy
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from typing_extensions import override
+
 from waku.eventsourcing.contracts.stream import StreamId  # noqa: TC001  # used as dict key type
 from waku.eventsourcing.store.interfaces import ISnapshotStore
 
@@ -17,12 +19,14 @@ class InMemorySnapshotStore(ISnapshotStore):
     def __init__(self) -> None:
         self._snapshots: dict[StreamId, Snapshot] = {}
 
+    @override
     async def load(self, stream_id: StreamId, /) -> Snapshot | None:
         snapshot = self._snapshots.get(stream_id)
         if snapshot is None:
             return None
         return _isolated(snapshot)
 
+    @override
     async def save(self, snapshot: Snapshot, /) -> None:
         self._snapshots[snapshot.stream_id] = _isolated(snapshot)
 

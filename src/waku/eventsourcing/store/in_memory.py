@@ -103,6 +103,7 @@ class InMemoryEventStore(IEventStore):
             raise ImproperlyConfiguredError(msg)
         return self._checkpoints
 
+    @override
     async def read_stream(
         self,
         stream_id: StreamId,
@@ -130,6 +131,7 @@ class InMemoryEventStore(IEventStore):
                 subset = subset[:count]
             return list(subset)
 
+    @override
     async def archive_stream(self, stream_id: StreamId, /) -> None:
         async with self._lock:
             key = str(stream_id)
@@ -137,6 +139,7 @@ class InMemoryEventStore(IEventStore):
                 raise StreamNotFoundError(stream_id)
             self._deleted_streams.add(key)
 
+    @override
     async def read_all(
         self,
         *,
@@ -161,15 +164,18 @@ class InMemoryEventStore(IEventStore):
                 filtered = filtered[:count]
             return filtered
 
+    @override
     async def stream_exists(self, stream_id: StreamId, /) -> bool:
         async with self._lock:
             key = str(stream_id)
             return key in self._streams and key not in self._deleted_streams
 
+    @override
     async def global_head_position(self) -> int:
         async with self._lock:
             return self._global_position - 1
 
+    @override
     async def read_positions(
         self,
         *,
@@ -189,6 +195,7 @@ class InMemoryEventStore(IEventStore):
             positions.sort()
             return positions
 
+    @override
     async def append_to_stream(
         self,
         stream_id: StreamId,
@@ -230,18 +237,14 @@ class InMemoryEventStore(IEventStore):
                 stored = StoredEvent(
                     event_id=uuid.uuid4(),
                     stream_id=stream_id,
-                    event_type=self._registry.get_name(
-                        type(envelope.domain_event)  # pyrefly: ignore[bad-argument-type]
-                    ),
+                    event_type=self._registry.get_name(type(envelope.domain_event)),
                     position=position,
                     global_position=self._global_position,
                     timestamp=datetime.now(UTC),
                     data=envelope.domain_event,
                     metadata=enrich_metadata(envelope.metadata, self._enrichers),
                     idempotency_key=envelope.idempotency_key,
-                    schema_version=self._registry.get_version(
-                        type(envelope.domain_event)  # pyrefly: ignore[bad-argument-type]
-                    ),
+                    schema_version=self._registry.get_version(type(envelope.domain_event)),
                 )
                 stream.append(stored)
                 stored_events.append(stored)

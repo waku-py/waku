@@ -4,7 +4,7 @@ import logging
 import uuid
 from collections.abc import Sequence  # noqa: TC003  # Dishka needs runtime access
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Protocol, assert_never
+from typing import TYPE_CHECKING, Any, Protocol, assert_never, cast
 
 from sqlalchemy import (  # Dishka needs runtime access
     func as sa_func,
@@ -44,6 +44,8 @@ from waku.exceptions import ImproperlyConfiguredError
 from waku.serialization.upcasting.chain import UpcasterChain  # noqa: TC001  # Dishka needs runtime access
 
 if TYPE_CHECKING:
+    from sqlalchemy.engine import CursorResult
+
     from waku.eventsourcing.contracts.event import EventEnvelope
     from waku.eventsourcing.contracts.stream import ExpectedVersion
     from waku.messages import IEvent
@@ -124,6 +126,7 @@ class SqlAlchemyEventStore(IEventStore):
     def _not_deleted(self) -> Any:
         return self._streams.c.deleted_at.is_(None)
 
+    @override
     async def read_stream(
         self,
         stream_id: StreamId,
@@ -195,6 +198,7 @@ class SqlAlchemyEventStore(IEventStore):
         if stream_row is None:
             raise StreamNotFoundError(stream_id)
 
+    @override
     async def read_all(
         self,
         *,
@@ -223,6 +227,7 @@ class SqlAlchemyEventStore(IEventStore):
             for row in rows
         ]
 
+    @override
     async def stream_exists(self, stream_id: StreamId, /) -> bool:
         key = str(stream_id)
         query = select(self._streams.c.stream_id).where(
@@ -232,11 +237,13 @@ class SqlAlchemyEventStore(IEventStore):
         result = await self._session.execute(query)
         return result.scalar_one_or_none() is not None
 
+    @override
     async def global_head_position(self) -> int:
         query = select(sa_func.coalesce(sa_func.max(self._events.c.global_position), -1))
         result = await self._session.execute(query)
         return int(result.scalar_one())
 
+    @override
     async def read_positions(
         self,
         *,
@@ -254,6 +261,7 @@ class SqlAlchemyEventStore(IEventStore):
         result = await self._session.execute(query)
         return [row[0] for row in result.fetchall()]
 
+    @override
     async def archive_stream(self, stream_id: StreamId, /) -> None:
         stream_row = await self._get_stream(stream_id)
         if stream_row is None:
@@ -264,6 +272,7 @@ class SqlAlchemyEventStore(IEventStore):
             self._streams.update().where(self._streams.c.stream_id == str(stream_id)).values(deleted_at=sa_func.now())
         )
 
+    @override
     async def append_to_stream(
         self,
         stream_id: StreamId,
@@ -384,19 +393,22 @@ class SqlAlchemyEventStore(IEventStore):
         new_version: int,
     ) -> None:
         key = str(stream_id)
-        result = await self._session.execute(
-            self._streams
-            .update()
-            .where(
-                self._streams.c.stream_id == key,
-                self._streams.c.version == expected_version,
-            )
-            .values(
-                version=new_version,
-                updated_at=sa_func.now(),
-            )
+        result = cast(
+            'CursorResult[Any]',
+            await self._session.execute(
+                self._streams
+                .update()
+                .where(
+                    self._streams.c.stream_id == key,
+                    self._streams.c.version == expected_version,
+                )
+                .values(
+                    version=new_version,
+                    updated_at=sa_func.now(),
+                )
+            ),
         )
-        if result.rowcount != 1:  # type: ignore[attr-defined]  # pragma: no cover
+        if result.rowcount != 1:  # pragma: no cover
             raise ConcurrencyConflictError(stream_id, expected_version, new_version)
 
     async def _insert_events(
@@ -414,7 +426,7 @@ class SqlAlchemyEventStore(IEventStore):
         for envelope in events:
             event_id = uuid.uuid4()
             now = datetime.now(UTC)
-            event_type = self._registry.get_name(type(envelope.domain_event))  # pyrefly: ignore[bad-argument-type]
+            event_type = self._registry.get_name(type(envelope.domain_event))
             metadata = enrich_metadata(envelope.metadata, self._enrichers)
 
             rows.append({
@@ -425,9 +437,7 @@ class SqlAlchemyEventStore(IEventStore):
                 'data': self._serializer.serialize(envelope.domain_event),
                 'metadata': serialize_metadata(metadata),
                 'timestamp': now,
-                'schema_version': self._registry.get_version(
-                    type(envelope.domain_event)  # pyrefly: ignore[bad-argument-type]
-                ),
+                'schema_version': self._registry.get_version(type(envelope.domain_event)),
                 'idempotency_key': envelope.idempotency_key,
             })
             envelopes_data.append((event_id, event_type, now, envelope.domain_event, metadata))

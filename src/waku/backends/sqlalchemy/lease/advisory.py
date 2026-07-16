@@ -5,6 +5,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from sqlalchemy import text
+from typing_extensions import override
 
 from waku._internal.lease import ILease
 
@@ -36,6 +37,7 @@ class PostgresAdvisoryLease(ILease):
         self._engine = engine
 
     @contextlib.asynccontextmanager
+    @override
     async def acquire(self, name: str) -> AsyncGenerator[bool]:
         async with self._engine.connect() as conn:
             await conn.execution_options(isolation_level='AUTOCOMMIT')

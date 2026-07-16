@@ -1,6 +1,6 @@
 import time
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from waku.messaging._internal.outbox_cascading import DeferredCascadeFlusher
 from waku.messaging._internal.transaction import TransactionDepth
@@ -50,7 +50,7 @@ class MessageDispatcher:
         handlers = self._registry.get_handler_types(request_type)
         if len(handlers) == 0:
             raise HandlerNotFoundError(request_type)
-        return await self._observed_invoke(scope, envelope, handlers[0])  # type: ignore[no-any-return]  # pyrefly: ignore[bad-return]
+        return cast('ResponseT', await self._observed_invoke(scope, envelope, handlers[0]))
 
     async def invoke_event(self, scope: 'AsyncContainer', envelope: 'MessageEnvelope[IEvent]') -> None:
         """Resolve and execute ALL handlers for *envelope*'s event inline within the caller's *scope*.

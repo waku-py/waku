@@ -2,7 +2,7 @@ import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import anyio.lowlevel
 import pytest
@@ -46,6 +46,16 @@ from tests._wait import wait_until
 from tests.messaging.helpers import RecordingAllocator, RecordingTransport, RecordingUoW, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
+
+
+class _MessageLogRecord(logging.LogRecord):
+    audit: dict[str, object]
+    destination: str
+    outcome: str
+
+
+def _message_record(record: logging.LogRecord) -> _MessageLogRecord:
+    return cast('_MessageLogRecord', record)
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,9 +212,9 @@ async def test_send_emits_sent_then_executed_with_audit(
         await wait_until(lambda: any(r.message == 'executed' for r in caplog.records))
     msgs = {r.message for r in caplog.records if r.name.startswith('waku.message.')}
     assert {'sent', 'executing', 'executed'} <= msgs
-    executed = next(r for r in caplog.records if r.message == 'executed')
-    assert executed.audit == {'ref': 'r1'}  # type: ignore[attr-defined]
-    assert executed.destination == 'ping-q'  # type: ignore[attr-defined]
+    executed = _message_record(next(r for r in caplog.records if r.message == 'executed'))
+    assert executed.audit == {'ref': 'r1'}
+    assert executed.destination == 'ping-q'
 
 
 async def test_invoke_emits_executing_and_executed_without_sent(
@@ -218,10 +228,10 @@ async def test_invoke_emits_executing_and_executed_without_sent(
     msgs = {r.message for r in records}
     assert {'executing', 'executed'} <= msgs
     assert 'sent' not in msgs  # invoke has no hand-off: matches Wolverine (no Sent on inline)
-    executed = next(r for r in records if r.message == 'executed')
-    assert executed.destination == INVOKE_DESTINATION  # type: ignore[attr-defined]
-    assert executed.outcome == 'SUCCESS'  # type: ignore[attr-defined]
-    assert executed.audit == {'ref': 'invoke-only'}  # type: ignore[attr-defined]
+    executed = _message_record(next(r for r in records if r.message == 'executed'))
+    assert executed.destination == INVOKE_DESTINATION
+    assert executed.outcome == 'SUCCESS'
+    assert executed.audit == {'ref': 'invoke-only'}
 
 
 async def test_publish_fan_out_fires_on_sent_per_destination(caplog: pytest.LogCaptureFixture) -> None:
@@ -249,7 +259,7 @@ async def test_publish_fan_out_fires_on_sent_per_destination(caplog: pytest.LogC
             await wait_until(lambda: len(calls) == 2)
 
     sent = sorted(
-        r.destination  # type: ignore[attr-defined]
+        _message_record(r).destination
         for r in caplog.records
         if r.name.startswith('waku.message.') and r.message == 'sent'
     )

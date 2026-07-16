@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import delete, func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
@@ -18,6 +18,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime, timedelta
     from uuid import UUID
+
+    from sqlalchemy.engine import CursorResult
 
     from waku.messaging.errors.dead_letter import DeadLetterEntry
     from waku.messaging.partition import ISequenceAllocator
@@ -57,8 +59,8 @@ class SqlAlchemyInboxStore(IInboxStore):
             .on_conflict_do_nothing(index_elements=['id', 'destination'])
             .returning(_t.c.id)
         )
-        result = await self._session.execute(stmt)
-        return result.rowcount > 0  # type: ignore[attr-defined,no-any-return]  # rowcount=0 when ON CONFLICT DO NOTHING fired
+        result = cast('CursorResult[Any]', await self._session.execute(stmt))
+        return result.rowcount > 0  # rowcount=0 when ON CONFLICT DO NOTHING fired
 
     @override
     async def mark_as_handled(self, entry_id: UUID, destination: str, keep_until: datetime) -> None:
@@ -157,8 +159,8 @@ class SqlAlchemyInboxStore(IInboxStore):
             .where(_t.c.updated_at < cutoff)
             .values(owner_id=None, updated_at=func.now())
         )
-        result = await self._session.execute(stmt)
-        return result.rowcount  # type: ignore[attr-defined,no-any-return]
+        result = cast('CursorResult[Any]', await self._session.execute(stmt))
+        return result.rowcount
 
     @override
     async def cleanup_handled(self, now: datetime) -> int:
@@ -168,8 +170,8 @@ class SqlAlchemyInboxStore(IInboxStore):
             .where(_t.c.keep_until.isnot(None))
             .where(_t.c.keep_until < now)
         )
-        result = await self._session.execute(stmt)
-        return result.rowcount  # type: ignore[attr-defined,no-any-return]
+        result = cast('CursorResult[Any]', await self._session.execute(stmt))
+        return result.rowcount
 
     @override
     async def promote_due_scheduled(self, now: datetime, allocator: ISequenceAllocator, batch_size: int) -> int:

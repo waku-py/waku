@@ -21,11 +21,13 @@ async def test_module_init_extension_lifecycle(mocker: MockerFixture) -> None:
     on_module_init_mock = mocker.async_stub()
 
     class ModuleOnConfigureExt(OnModuleConfigure):
-        def on_module_configure(self, metadata: ModuleMetadata) -> None:  # noqa: PLR6301
+        @override
+        def on_module_configure(self, metadata: ModuleMetadata) -> None:
             on_module_configure_mock(metadata)
 
     class ModuleOnInitExt(OnModuleInit):
-        async def on_module_init(self, module: Module) -> None:  # noqa: PLR6301
+        @override
+        async def on_module_init(self, module: Module) -> None:
             await on_module_init_mock(module)
 
     AppModule = create_basic_module(
@@ -51,11 +53,13 @@ async def test_application_init_extensions_single_call(mocker: MockerFixture) ->
     after_app_init_mock = mocker.async_stub()
 
     class AppOnInitExt(OnApplicationInit):
-        async def on_app_init(self, app: WakuApplication) -> None:  # noqa: PLR6301
+        @override
+        async def on_app_init(self, app: WakuApplication) -> None:
             await on_app_init_mock(app)
 
     class AppAfterInitExt(AfterApplicationInit):
-        async def after_app_init(self, app: WakuApplication) -> None:  # noqa: PLR6301
+        @override
+        async def after_app_init(self, app: WakuApplication) -> None:
             await after_app_init_mock(app)
 
     application = WakuFactory(
@@ -107,11 +111,13 @@ async def test_close_without_initialize_skips_shutdown_extensions(mocker: Mocker
     on_app_shutdown_mock = mocker.async_stub()
 
     class ModuleDestroyExt(OnModuleDestroy):
-        async def on_module_destroy(self, module: Module) -> None:  # noqa: PLR6301
+        @override
+        async def on_module_destroy(self, module: Module) -> None:
             await on_module_destroy_mock(module)  # pragma: no cover
 
     class AppShutdownExt(OnApplicationShutdown):
-        async def on_app_shutdown(self, app: WakuApplication) -> None:  # noqa: PLR6301
+        @override
+        async def on_app_shutdown(self, app: WakuApplication) -> None:
             await on_app_shutdown_mock(app)  # pragma: no cover
 
     application = WakuFactory(

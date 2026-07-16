@@ -49,8 +49,8 @@ class LoggingMessageObserver(IMessageObserver):
     def _base_fields(self, envelope: MessageEnvelope[Any]) -> dict[str, Any]:
         return {
             'message_id': str(envelope.message_id),
-            'correlation_id': str(envelope.correlation_id),
-            'causation_id': str(envelope.causation_id),
+            'correlation_id': envelope.correlation_id,
+            'causation_id': envelope.causation_id,
             'group_id': envelope.group_id,
             'message_type': envelope.message_type,
             'audit': self._resolver.extract(envelope.payload),

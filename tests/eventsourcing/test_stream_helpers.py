@@ -81,7 +81,7 @@ async def test_passes_max_length_plus_one_as_count(
     event_store: AsyncMock,
     stream_id: StreamId,
 ) -> None:
-    event_store.read_stream.return_value = []
+    event_store.read_stream.return_value = list[StoredEvent]()
 
     await read_aggregate_stream(
         event_store,
@@ -96,7 +96,7 @@ async def test_passes_none_count_when_no_max_length(
     event_store: AsyncMock,
     stream_id: StreamId,
 ) -> None:
-    event_store.read_stream.return_value = []
+    event_store.read_stream.return_value = list[StoredEvent]()
 
     await read_aggregate_stream(
         event_store,
@@ -111,7 +111,7 @@ async def test_forwards_start_param_to_event_store(
     event_store: AsyncMock,
     stream_id: StreamId,
 ) -> None:
-    event_store.read_stream.return_value = []
+    event_store.read_stream.return_value = list[StoredEvent]()
 
     await read_aggregate_stream(
         event_store,

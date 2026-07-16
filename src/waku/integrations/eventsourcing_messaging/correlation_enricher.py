@@ -20,6 +20,6 @@ class CorrelationEnricher(IMetadataEnricher):
             return metadata
         return dataclasses.replace(
             metadata,
-            correlation_id=str(ctx.correlation_id),
+            correlation_id=ctx.correlation_id,
             causation_id=str(ctx.message_id),
         )

@@ -4,6 +4,8 @@ import enum
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
+from typing_extensions import override
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -80,16 +82,20 @@ class OutgoingMessages(IOutgoingMessages, IOutgoingMessagesFrames):
         self._frames: list[list[PendingMessage]] = []
         self._deferred: list[PendingMessage] = []
 
+    @override
     def send(self, request: IRequest[Any], /) -> None:
         self._current_frame.append(PendingMessage(message=request, action=Action.SEND))
 
+    @override
     def publish(self, event: IEvent, /) -> None:
         self._current_frame.append(PendingMessage(message=event, action=Action.PUBLISH))
 
+    @override
     def push_frame(self) -> None:
         """Start a new nesting level. Called by ``DeferredCascadingBehavior`` before dispatch."""
         self._frames.append([])
 
+    @override
     def pop_frame(self) -> list[PendingMessage]:
         """Complete current level, return its messages. Called by ``DeferredCascadingBehavior`` after success.
 
@@ -98,10 +104,12 @@ class OutgoingMessages(IOutgoingMessages, IOutgoingMessagesFrames):
         """
         return self._frames.pop()
 
+    @override
     def discard_frame(self) -> None:
         """Discard current level's messages. Called by ``DeferredCascadingBehavior`` on pipeline failure."""
         self._frames.pop()
 
+    @override
     def drain_current_frame(self) -> list[PendingMessage]:
         """Return + clear contents of the current frame WITHOUT popping it.
 
@@ -116,6 +124,7 @@ class OutgoingMessages(IOutgoingMessages, IOutgoingMessagesFrames):
         current.clear()
         return drained
 
+    @override
     def defer(self, messages: Sequence[PendingMessage], /) -> None:
         """Stage cascades with non-durable destinations for post-commit flush.
 
@@ -130,6 +139,7 @@ class OutgoingMessages(IOutgoingMessages, IOutgoingMessagesFrames):
         """
         self._deferred.extend(messages)
 
+    @override
     def drain_deferred(self) -> list[PendingMessage]:
         """Return + clear the deferred bucket. Called by ``DeferredCascadingBehavior``."""
         drained = list(self._deferred)
@@ -137,6 +147,7 @@ class OutgoingMessages(IOutgoingMessages, IOutgoingMessagesFrames):
         return drained
 
     @property
+    @override
     def pending(self) -> Sequence[PendingMessage]:
         """Read-only snapshot of the current frame (empty if no frame is active)."""
         if not self._frames:

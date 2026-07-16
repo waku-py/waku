@@ -37,6 +37,7 @@ class BankAccount(EventSourcedAggregate):
     def deposit(self, amount: int) -> None:
         self._raise_event(MoneyDeposited(amount=amount))
 
+    @override
     def _apply(self, event: IEvent) -> None:
         match event:
             case AccountOpened(name=name):
@@ -67,6 +68,7 @@ class Note(EventSourcedAggregate):
     def edit(self, content: str) -> None:
         self._raise_event(NoteEdited(content=content))
 
+    @override
     def _apply(self, event: IEvent) -> None:
         match event:
             case NoteCreated(title=title):

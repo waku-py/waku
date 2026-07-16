@@ -26,7 +26,7 @@ from tests._wait import wait_until
 from tests.messaging.helpers import make_envelope
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +71,7 @@ def _order_config() -> MessagingConfig:
 async def _tracked_app(
     config: MessagingConfig,
     *handlers: type[MessageHandler[Any, Any]],
-) -> AsyncIterator[tuple[MessageTracker, IMessageBus]]:
+) -> AsyncGenerator[tuple[MessageTracker, IMessageBus]]:
     async with (
         create_test_app(
             imports=[MessagingModule.register(config)],

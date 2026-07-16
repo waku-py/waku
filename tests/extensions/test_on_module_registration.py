@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from typing_extensions import override
+
 from waku import WakuFactory
 from waku.di import object_, scoped
 from waku.extensions import OnModuleRegistration
@@ -27,21 +29,23 @@ class AnotherRegistry:
 
 
 class RegistryAggregator(OnModuleRegistration):
-    def on_module_registration(  # noqa: PLR6301
+    @override
+    def on_module_registration(
         self,
         registry: ModuleMetadataRegistry,
         owning_module: ModuleType,
-        context: Mapping[Any, Any] | None,  # noqa: ARG002
+        context: Mapping[Any, Any] | None,
     ) -> None:
         registry.add_provider(owning_module, object_(Registry(items=['from_aggregator'])))
 
 
 class AnotherAggregator(OnModuleRegistration):
-    def on_module_registration(  # noqa: PLR6301
+    @override
+    def on_module_registration(
         self,
         registry: ModuleMetadataRegistry,
         owning_module: ModuleType,
-        context: Mapping[Any, Any] | None,  # noqa: ARG002
+        context: Mapping[Any, Any] | None,
     ) -> None:
         registry.add_provider(owning_module, object_(AnotherRegistry(values=[1, 2, 3])))
 
@@ -71,20 +75,22 @@ def test_app_level_extensions_run_before_module_level() -> None:
     execution_order: list[str] = []
 
     class AppLevelExt(OnModuleRegistration):
-        def on_module_registration(  # noqa: PLR6301
+        @override
+        def on_module_registration(
             self,
-            registry: ModuleMetadataRegistry,  # noqa: ARG002
-            owning_module: ModuleType,  # noqa: ARG002
-            context: Mapping[Any, Any] | None,  # noqa: ARG002
+            registry: ModuleMetadataRegistry,
+            owning_module: ModuleType,
+            context: Mapping[Any, Any] | None,
         ) -> None:
             execution_order.append('app_level')
 
     class ModuleLevelExt(OnModuleRegistration):
-        def on_module_registration(  # noqa: PLR6301
+        @override
+        def on_module_registration(
             self,
-            registry: ModuleMetadataRegistry,  # noqa: ARG002
-            owning_module: ModuleType,  # noqa: ARG002
-            context: Mapping[Any, Any] | None,  # noqa: ARG002
+            registry: ModuleMetadataRegistry,
+            owning_module: ModuleType,
+            context: Mapping[Any, Any] | None,
         ) -> None:
             execution_order.append('module_level')
 
@@ -102,11 +108,12 @@ def test_hook_receives_all_modules() -> None:
     received_modules: list[type] = []
 
     class ModuleCollector(OnModuleRegistration):
-        def on_module_registration(  # noqa: PLR6301
+        @override
+        def on_module_registration(
             self,
             registry: ModuleMetadataRegistry,
-            owning_module: ModuleType,  # noqa: ARG002
-            context: Mapping[Any, Any] | None,  # noqa: ARG002
+            owning_module: ModuleType,
+            context: Mapping[Any, Any] | None,
         ) -> None:
             received_modules.extend(registry.modules)
 
@@ -143,10 +150,11 @@ def test_hook_receives_context() -> None:
     received_context: list[Mapping[Any, Any] | None] = []
 
     class ContextCapture(OnModuleRegistration):
-        def on_module_registration(  # noqa: PLR6301
+        @override
+        def on_module_registration(
             self,
-            registry: ModuleMetadataRegistry,  # noqa: ARG002
-            owning_module: ModuleType,  # noqa: ARG002
+            registry: ModuleMetadataRegistry,
+            owning_module: ModuleType,
             context: Mapping[Any, Any] | None,
         ) -> None:
             received_context.append(context)
@@ -167,11 +175,12 @@ def test_providers_belong_to_owning_module() -> None:
     """Test that providers from hooks belong to the owning module (not floating)."""
 
     class RegistryContributor(OnModuleRegistration):
-        def on_module_registration(  # noqa: PLR6301
+        @override
+        def on_module_registration(
             self,
             registry: ModuleMetadataRegistry,
             owning_module: ModuleType,
-            context: Mapping[Any, Any] | None,  # noqa: ARG002
+            context: Mapping[Any, Any] | None,
         ) -> None:
             registry.add_provider(owning_module, object_(Registry(items=['owned'])))
 
@@ -197,6 +206,7 @@ def test_find_extensions_discovers_cross_module() -> None:
         def __init__(self, name: str) -> None:
             self.name = name
 
+        @override
         def on_module_registration(
             self,
             registry: ModuleMetadataRegistry,
@@ -206,11 +216,12 @@ def test_find_extensions_discovers_cross_module() -> None:
             pass
 
     class Aggregator(OnModuleRegistration):
-        def on_module_registration(  # noqa: PLR6301
+        @override
+        def on_module_registration(
             self,
             registry: ModuleMetadataRegistry,
-            owning_module: ModuleType,  # noqa: ARG002
-            context: Mapping[Any, Any] | None,  # noqa: ARG002
+            owning_module: ModuleType,
+            context: Mapping[Any, Any] | None,
         ) -> None:
             for _mod, ext in registry.find_extensions(MarkerExtension):
                 found_extensions.append(ext.name)

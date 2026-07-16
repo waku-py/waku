@@ -30,6 +30,7 @@ from tests.eventsourcing.projection.helpers import (
     RecordingProjection,
     StopProjection,
     make_binding,
+    sample_event_values,
     seed_events,
 )
 
@@ -176,7 +177,7 @@ async def test_runner_processes_all_events(
         await _run_until(runner, lambda: len(projection.received) >= 5)
 
     assert len(projection.received) == 5
-    assert [e.data.value for e in projection.received] == [0, 1, 2, 3, 4]  # type: ignore[attr-defined]
+    assert sample_event_values(projection.received) == [0, 1, 2, 3, 4]
 
 
 async def test_runner_exits_when_no_projections(
@@ -222,7 +223,7 @@ async def test_rebuild_resets_and_reprocesses(
 
     assert projection.teardown_called
     assert len(projection.received) == 5
-    assert [e.data.value for e in projection.received] == [0, 1, 2, 3, 4]  # type: ignore[attr-defined]
+    assert sample_event_values(projection.received) == [0, 1, 2, 3, 4]
 
 
 @pytest.mark.parametrize(
@@ -444,8 +445,8 @@ async def test_skip_policy_commits_checkpoint_and_advances_past_poison(
         )
         await _run_until(runner, _durable_position_is(session, 'poison', 4))
 
-    assert [e.data.value for batch in projection.batches for e in batch] == [0, 1, 2, 3, 4]  # type: ignore[attr-defined]
-    assert [[e.data.value for e in batch] for batch in projection.skipped] == [[2]]  # type: ignore[attr-defined]
+    assert [value for batch in projection.batches for value in sample_event_values(batch)] == [0, 1, 2, 3, 4]
+    assert [sample_event_values(batch) for batch in projection.skipped] == [[2]]
     checkpoint = session.durable_checkpoint('poison')
     assert checkpoint is not None
     assert checkpoint.position == 4
@@ -478,8 +479,8 @@ async def test_rebuild_completes_past_poison_batch_under_skip_policy(
         with anyio.fail_after(5):
             await runner.rebuild('poison')
 
-    assert [e.data.value for batch in projection.batches for e in batch] == [0, 1, 2, 3, 4]  # type: ignore[attr-defined]
-    assert [[e.data.value for e in batch] for batch in projection.skipped] == [[2]]  # type: ignore[attr-defined]
+    assert [value for batch in projection.batches for value in sample_event_values(batch)] == [0, 1, 2, 3, 4]
+    assert [sample_event_values(batch) for batch in projection.skipped] == [[2]]
     checkpoint = session.durable_checkpoint('poison')
     assert checkpoint is not None
     assert checkpoint.position == 4
@@ -515,7 +516,7 @@ async def test_skip_persists_in_clean_transaction_when_project_aborts_session(
     assert checkpoint is not None
     assert checkpoint.position == 4
     assert session.durable_writes() == [[0], [1], [3], [4]]
-    assert [[e.data.value for e in batch] for batch in projection.skipped] == [[2]]  # type: ignore[attr-defined]
+    assert [sample_event_values(batch) for batch in projection.skipped] == [[2]]
 
 
 async def test_skip_swallows_on_skip_failure_and_still_advances(
@@ -547,7 +548,7 @@ async def test_skip_swallows_on_skip_failure_and_still_advances(
     checkpoint = session.durable_checkpoint('poison')
     assert checkpoint is not None
     assert checkpoint.position == 4
-    assert [e.data.value for batch in projection.batches for e in batch] == [0, 1, 2, 3, 4]  # type: ignore[attr-defined]
+    assert [value for batch in projection.batches for value in sample_event_values(batch)] == [0, 1, 2, 3, 4]
     # The on_skip that aborted the session was rolled back before the checkpoint save, so neither the
     # poison batch's write nor the failed on_skip's audit marker reached durable state.
     assert session.durable_writes() == [[0], [1], [3], [4]]
@@ -602,7 +603,7 @@ async def test_rebuild_ignores_gap_detection_and_completes_past_permanent_gap(
         with anyio.fail_after(5):
             await runner.rebuild('recording')
 
-    assert [e.data.value for e in projection.received] == [0, 1, 2, 3, 4]  # type: ignore[attr-defined]
+    assert sample_event_values(projection.received) == [0, 1, 2, 3, 4]
     checkpoint = await in_memory_checkpoint_store.load('recording')
     assert checkpoint is not None
     assert checkpoint.position == 4
@@ -636,7 +637,7 @@ async def test_rebuild_retries_transient_failure_then_completes(
         with anyio.fail_after(5):
             await runner.rebuild('flaky')
 
-    assert [e.data.value for e in projection.received] == [0, 1, 2, 3, 4]  # type: ignore[attr-defined]
+    assert sample_event_values(projection.received) == [0, 1, 2, 3, 4]
     checkpoint = session.durable_checkpoint('flaky')
     assert checkpoint is not None
     assert checkpoint.position == 4
@@ -668,7 +669,7 @@ async def test_poll_loop_retries_transient_failure_and_commits_recovery(
         )
         await _run_until(runner, _durable_position_is(session, 'flaky', 4))
 
-    assert [e.data.value for e in projection.received] == [0, 1, 2, 3, 4]  # type: ignore[attr-defined]
+    assert sample_event_values(projection.received) == [0, 1, 2, 3, 4]
     checkpoint = session.durable_checkpoint('flaky')
     assert checkpoint is not None
     assert checkpoint.position == 4

@@ -15,6 +15,20 @@ from waku.messaging.observability.logging_observer import LoggingMessageObserver
 from waku.messaging.observability.observer import INVOKE_DESTINATION
 
 
+class _MessageLogRecord(logging.LogRecord):
+    audit: dict[str, object]
+    destination: str
+    duration_ms: float
+    error_message: str
+    error_type: str
+    group_id: str | None
+    outcome: str
+
+
+def _message_record(record: logging.LogRecord) -> _MessageLogRecord:
+    return cast('_MessageLogRecord', record)
+
+
 @dataclass
 class _Transfer(IMessage):
     account_id: Annotated[str, Audit()] = ''
@@ -45,13 +59,13 @@ async def test_executed_success_logs_info_with_fields_and_audit(caplog: pytest.L
             None,
             timedelta(milliseconds=12),
         )
-    rec = next(r for r in caplog.records if r.name == 'waku.message.Transfer')
+    rec = _message_record(next(r for r in caplog.records if r.name == 'waku.message.Transfer'))
     assert rec.levelno == logging.INFO
-    assert rec.outcome == 'SUCCESS'  # type: ignore[attr-defined]
-    assert rec.duration_ms == pytest.approx(12.0)  # type: ignore[attr-defined]
-    assert rec.group_id == 'acct-1'  # type: ignore[attr-defined]
-    assert rec.audit == {'account_id': 'a1', 'Amount': 5}  # type: ignore[attr-defined]
-    assert rec.destination == 'queue-a'  # type: ignore[attr-defined]
+    assert rec.outcome == 'SUCCESS'
+    assert rec.duration_ms == pytest.approx(12.0)
+    assert rec.group_id == 'acct-1'
+    assert rec.audit == {'account_id': 'a1', 'Amount': 5}
+    assert rec.destination == 'queue-a'
 
 
 async def test_executed_dead_letter_logs_error_summary_no_traceback(caplog: pytest.LogCaptureFixture) -> None:
@@ -65,10 +79,10 @@ async def test_executed_dead_letter_logs_error_summary_no_traceback(caplog: pyte
             ValueError('nope'),
             timedelta(),
         )
-    rec = next(r for r in caplog.records if r.name == 'waku.message.Transfer')
+    rec = _message_record(next(r for r in caplog.records if r.name == 'waku.message.Transfer'))
     assert rec.levelno == logging.ERROR
-    assert rec.error_type == 'ValueError'  # type: ignore[attr-defined]
-    assert rec.error_message == 'nope'  # type: ignore[attr-defined]
+    assert rec.error_type == 'ValueError'
+    assert rec.error_message == 'nope'
     assert rec.exc_info is None
 
 
@@ -106,9 +120,9 @@ async def test_invoke_success_logs_debug(caplog: pytest.LogCaptureFixture) -> No
             None,
             timedelta(milliseconds=1),
         )
-    rec = next(r for r in caplog.records if r.name == 'waku.message.Transfer')
+    rec = _message_record(next(r for r in caplog.records if r.name == 'waku.message.Transfer'))
     assert rec.levelno == logging.DEBUG
-    assert rec.outcome == 'SUCCESS'  # type: ignore[attr-defined]
+    assert rec.outcome == 'SUCCESS'
 
 
 async def test_invoke_failure_still_logs_error(caplog: pytest.LogCaptureFixture) -> None:
@@ -134,8 +148,8 @@ async def test_sent_and_executing_log_debug(caplog: pytest.LogCaptureFixture) ->
         await obs.on_executing(env, 'queue-a', cast('HandlerType', object))
     records = [r for r in caplog.records if r.name == 'waku.message.Transfer']
     assert [r.levelno for r in records] == [logging.DEBUG, logging.DEBUG]
-    executing_rec = next(r for r in records if r.message == 'executing')
-    assert executing_rec.destination == 'queue-a'  # type: ignore[attr-defined]
+    executing_rec = _message_record(next(r for r in records if r.message == 'executing'))
+    assert executing_rec.destination == 'queue-a'
 
 
 async def test_audit_field_named_like_reserved_key_is_namespaced(caplog: pytest.LogCaptureFixture) -> None:
@@ -155,9 +169,9 @@ async def test_audit_field_named_like_reserved_key_is_namespaced(caplog: pytest.
     obs = LoggingMessageObserver(AuditedMemberResolver(overrides={}))
     with caplog.at_level(logging.DEBUG, logger='waku.message.Collide'):
         await obs.on_executed(env, 'queue-a', cast('HandlerType', object), ExecutionOutcome.SUCCESS, None, timedelta())
-    rec = next(r for r in caplog.records if r.name == 'waku.message.Collide')
-    assert rec.outcome == 'SUCCESS'  # type: ignore[attr-defined]  # reserved field intact
-    assert rec.audit == {'outcome': 'biz'}  # type: ignore[attr-defined]  # business field namespaced
+    rec = _message_record(next(r for r in caplog.records if r.name == 'waku.message.Collide'))
+    assert rec.outcome == 'SUCCESS'  # reserved field intact
+    assert rec.audit == {'outcome': 'biz'}  # business field namespaced
 
 
 async def test_disabled_level_skips_emission(caplog: pytest.LogCaptureFixture) -> None:

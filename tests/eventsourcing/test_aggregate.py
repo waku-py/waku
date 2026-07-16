@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+from typing_extensions import override
 
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.messages import IEvent
@@ -33,6 +34,7 @@ class TaskAggregate(EventSourcedAggregate):
             raise ValueError(msg)
         self._raise_event(TaskCompleted())
 
+    @override
     def _apply(self, event: IEvent) -> None:
         match event:
             case TaskCreated(title=title):
@@ -132,7 +134,7 @@ def test_create_sets_title_and_complete_sets_completed() -> None:
 
     aggregate.complete()
 
-    assert aggregate.completed is True  # pyrefly: ignore[unnecessary-comparison]
+    assert aggregate.completed
 
 
 def test_completing_already_completed_aggregate_raises_error() -> None:

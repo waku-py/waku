@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from typing_extensions import override
+
 from waku.serialization.upcasting.interfaces import IPayloadUpcaster
 
 if TYPE_CHECKING:
@@ -31,6 +33,7 @@ class FnUpcaster(IPayloadUpcaster):
         self._fn = fn
         self._key: object = key if key is not None else fn
 
+    @override
     def upcast(self, data: dict[str, Any], /) -> dict[str, Any]:
         return self._fn(data)
 

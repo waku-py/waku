@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 import anyio
@@ -26,11 +26,15 @@ from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+    from typing import Protocol
     from uuid import UUID
 
     from waku.messages import IMessage
     from waku.messaging.sending import SendingFailurePolicy
     from waku.messaging.transport.inbound import ConsumeCallback
+
+    class _OrderMessage(Protocol):
+        order_id: str
 
 
 def make_codec() -> PayloadCodec:
@@ -257,8 +261,7 @@ class RecordingAllocator(ISequenceAllocator):
 
 def order_id_partition(msg: IMessage) -> str | None:
     """partition_by extractor for test messages carrying an ``order_id`` attribute."""
-    order_id: str = msg.order_id  # type: ignore[attr-defined]
-    return order_id
+    return cast('_OrderMessage', msg).order_id
 
 
 class RelayDepsProvider(Provider):

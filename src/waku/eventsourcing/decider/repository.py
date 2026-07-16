@@ -6,6 +6,8 @@ import types
 import typing
 from typing import ClassVar, Final, Generic, cast
 
+from typing_extensions import override
+
 from waku.eventsourcing._internal.introspection import is_abstract, is_type_alias, resolve_generic_args
 from waku.eventsourcing._internal.stream_helpers import build_append, read_aggregate_stream
 from waku.eventsourcing.contracts.aggregate import (  # Dishka needs runtime access
@@ -183,6 +185,7 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
         initial_state = self._decider.initial_state()
         return (type(initial_state),)
 
+    @override
     async def load(self, aggregate_id: str) -> tuple[StateT, int]:
         stream_id = self._stream_id(aggregate_id)
         snapshot = await self._snapshot_manager.load_snapshot(stream_id, aggregate_id)
@@ -204,6 +207,7 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
         logger.debug('No snapshot for %s/%s, loading from events', self.aggregate_name, aggregate_id)
         return await super().load(aggregate_id)
 
+    @override
     async def save(
         self,
         aggregate_id: str,

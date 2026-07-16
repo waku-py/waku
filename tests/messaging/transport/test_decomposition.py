@@ -143,8 +143,8 @@ class TestEnvelopeMetadataOf:
         meta = envelope_metadata_of(env)
 
         assert meta.message_id == str(env.message_id)
-        assert meta.correlation_id == str(env.correlation_id)
-        assert meta.causation_id == str(env.causation_id)
+        assert meta.correlation_id == env.correlation_id
+        assert meta.causation_id == env.causation_id
 
     @staticmethod
     def test_scalar_fields_pass_through() -> None:
@@ -528,8 +528,8 @@ class TestWireMetadataFromEntry:
 
         result = wire_metadata_from_entry(entry)
 
-        assert result.correlation_id == str(corr)
-        assert result.causation_id == str(caus)
+        assert result.correlation_id == corr
+        assert result.causation_id == caus
         assert result.group_id == 'grp-1'
         assert result.message_type == 'orders.OrderPlaced'
 
@@ -547,8 +547,8 @@ class TestWireMetadataFromEntry:
 
         result = wire_metadata_from_entry(entry)
 
-        assert result.correlation_id == str(corr)
-        assert result.causation_id == str(caus)
+        assert result.correlation_id == corr
+        assert result.causation_id == caus
         assert result.group_id == 'grp-2'
         assert result.message_type == 'orders.OrderShipped'
 
@@ -585,8 +585,8 @@ class TestWireMetadataFromEntry:
         result = wire_metadata_from_entry(entry)
 
         # Must not raise; typed columns still present.
-        assert result.correlation_id == str(corr)
-        assert result.causation_id == str(caus)
+        assert result.correlation_id == corr
+        assert result.causation_id == caus
         assert result.message_version == 1
         assert result.timestamp is None
         assert result.headers == {}
@@ -597,7 +597,7 @@ class TestWireMetadataFromEntry:
     def test_corrupt_timestamp_blob_raises_malformed() -> None:
         # A non-ISO timestamp is genuine corruption (Waku never writes one); the reader fails loud
         # instead of silently coercing timestamp -> None and rebuilding/upcasting wrong.
-        corrupt_meta = {'message_version': 1, 'timestamp': 'NOT-A-DATE', 'headers': {}}
+        corrupt_meta: dict[str, object] = {'message_version': 1, 'timestamp': 'NOT-A-DATE', 'headers': {}}
         entry = _make_inbox_entry(metadata=corrupt_meta)
 
         with pytest.raises(MalformedMetadataError):
@@ -607,7 +607,11 @@ class TestWireMetadataFromEntry:
     def test_corrupt_message_version_blob_raises_malformed() -> None:
         # A non-integer message_version silently coerced to 1 under the old reader -> wrong upcasting.
         # Single-authority load rejects it as poison, even with an otherwise-valid timestamp.
-        corrupt_meta = {'message_version': 'abc', 'timestamp': '2026-06-29T10:00:00+00:00', 'headers': {}}
+        corrupt_meta: dict[str, object] = {
+            'message_version': 'abc',
+            'timestamp': '2026-06-29T10:00:00+00:00',
+            'headers': {},
+        }
         entry = _make_outbox_message(metadata=corrupt_meta)
 
         with pytest.raises(MalformedMetadataError):

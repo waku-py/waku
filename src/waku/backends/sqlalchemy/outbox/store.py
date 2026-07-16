@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -16,6 +16,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime, timedelta
     from uuid import UUID
+
+    from sqlalchemy.engine import CursorResult
 
     from waku.messaging.errors.dead_letter import DeadLetterEntry
 
@@ -164,15 +166,15 @@ class SqlAlchemyOutboxStore(IOutboxStore):
             .where(_t.c.processing_started_at < cutoff)
             .values(status=OutboxStatus.PENDING.value, processing_started_at=None)
         )
-        result = await self._session.execute(stmt)
-        return result.rowcount  # type: ignore[attr-defined,no-any-return]
+        result = cast('CursorResult[Any]', await self._session.execute(stmt))
+        return result.rowcount
 
     @override
     async def cleanup_dispatched(self, older_than: timedelta) -> int:
         cutoff = func.now() - older_than
         stmt = delete(_t).where(_t.c.status == OutboxStatus.DISPATCHED.value).where(_t.c.dispatched_at < cutoff)
-        result = await self._session.execute(stmt)
-        return result.rowcount  # type: ignore[attr-defined,no-any-return]
+        result = cast('CursorResult[Any]', await self._session.execute(stmt))
+        return result.rowcount
 
 
 def _row_to_model(row: Any) -> OutboxMessage:

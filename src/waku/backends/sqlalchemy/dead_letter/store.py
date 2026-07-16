@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -20,6 +20,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
     from uuid import UUID
+
+    from sqlalchemy.engine import CursorResult
 
 
 __all__ = [
@@ -117,8 +119,8 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
     @override
     async def purge(self, older_than: datetime) -> int:
         stmt = delete(_t).where(_t.c.created_at < older_than)
-        result = await self._session.execute(stmt)
-        return result.rowcount  # type: ignore[attr-defined,no-any-return]
+        result = cast('CursorResult[Any]', await self._session.execute(stmt))
+        return result.rowcount
 
 
 def _row_to_model(row: Any) -> DeadLetterEntry:

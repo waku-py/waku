@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Final, TypeAlias
 
 import anyio
+from typing_extensions import override
 
 from waku._internal.clock import Now, utc_now
 from waku.exceptions import ImproperlyConfiguredError
@@ -84,6 +85,7 @@ class InMemoryLease(ILease):
         self._holder_id = str(uuid.uuid4())
 
     @contextlib.asynccontextmanager
+    @override
     async def acquire(self, name: str) -> AsyncGenerator[bool]:
         entry = self._store.get(name)
         if entry is not None and entry[1] > self._now():

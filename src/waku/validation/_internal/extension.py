@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import TYPE_CHECKING, Final
 
+from typing_extensions import override
+
 from waku.extensions import AfterApplicationInit
 
 if TYPE_CHECKING:
@@ -32,6 +34,7 @@ class ValidationExtension(AfterApplicationInit):
         self.rules = rules
         self.strict: Final = strict
 
+    @override
     async def after_app_init(self, app: WakuApplication) -> None:
         context = ValidationContext(app=app)
 

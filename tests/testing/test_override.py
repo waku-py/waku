@@ -5,6 +5,7 @@ from typing import Final
 import pytest
 from dishka import Marker
 from dishka.exceptions import NothingOverriddenError
+from typing_extensions import override as typing_override
 
 from waku import WakuApplication, WakuFactory
 from waku.di import AsyncContainer, Provider, Scope, contextual, object_, scoped, singleton, transient
@@ -37,7 +38,8 @@ class Service:
 
 
 class ServiceOverride(Service):
-    def method(self) -> int:  # noqa: PLR6301
+    @typing_override
+    def method(self) -> int:
         return _EXPECTED_VAL
 
 

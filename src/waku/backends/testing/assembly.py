@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 import pytest
+from typing_extensions import override
 
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.event import EventEnvelope
@@ -44,6 +45,7 @@ class ConformanceNote(EventSourcedAggregate):
     def create(self, title: str) -> None:
         self._raise_event(ConformanceNoteCreated(title=title))
 
+    @override
     def _apply(self, event: IEvent) -> None:
         match event:
             case ConformanceNoteCreated(title=title):

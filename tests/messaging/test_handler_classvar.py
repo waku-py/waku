@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from typing_extensions import override
+
 from waku.messages import IEvent
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.errors.policy import ErrorPolicy
@@ -20,6 +22,7 @@ class TestErrorPoliciesClassVar:
     @staticmethod
     def test_default_is_empty() -> None:
         class H(EventHandler[_Evt]):
+            @override
             async def handle(self, message: _Evt) -> None: ...
 
         assert H.error_policies == ()
@@ -31,6 +34,7 @@ class TestErrorPoliciesClassVar:
         class H(EventHandler[_Evt]):
             error_policies = (policy,)
 
+            @override
             async def handle(self, message: _Evt) -> None: ...
 
         assert H.error_policies == (policy,)
@@ -42,6 +46,7 @@ class TestErrorPoliciesClassVar:
         class Base(EventHandler[_Evt]):
             error_policies = (policy,)
 
+            @override
             async def handle(self, message: _Evt) -> None: ...
 
         class Child(Base):
@@ -57,6 +62,7 @@ class TestErrorPoliciesClassVar:
         class Base(EventHandler[_Evt]):
             error_policies = (parent_policy,)
 
+            @override
             async def handle(self, message: _Evt) -> None: ...
 
         class Child(Base):
@@ -72,6 +78,7 @@ class TestErrorPoliciesClassVar:
         class Base(EventHandler[_Evt]):
             error_policies: ClassVar[Sequence[ErrorPolicy]] = (parent_policy,)
 
+            @override
             async def handle(self, message: _Evt) -> None: ...
 
         class Child(Base):
@@ -84,6 +91,7 @@ class TestBehaviorsClassVar:
     @staticmethod
     def test_default_is_empty() -> None:
         class H(EventHandler[_Evt]):
+            @override
             async def handle(self, message: _Evt) -> None: ...
 
         assert H.behaviors == ()
@@ -93,6 +101,7 @@ class TestBehaviorsClassVar:
         class H(EventHandler[_Evt]):
             behaviors = (TransactionalBehavior,)
 
+            @override
             async def handle(self, message: _Evt) -> None: ...
 
         assert H.behaviors == (TransactionalBehavior,)

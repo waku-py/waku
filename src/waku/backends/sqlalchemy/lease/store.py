@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import anyio
 from sqlalchemy import text
+from typing_extensions import override
 
 from waku._internal.lease import ILease
 
@@ -54,6 +55,7 @@ class PostgresLease(ILease):
         self._holder_id = str(uuid.uuid4())
 
     @contextlib.asynccontextmanager
+    @override
     async def acquire(self, name: str) -> AsyncGenerator[bool]:
         async with self._engine.connect() as conn:
             await conn.execution_options(isolation_level='AUTOCOMMIT')

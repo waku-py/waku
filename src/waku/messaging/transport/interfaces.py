@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, cast
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -130,7 +130,10 @@ class ITransport(ISender, IListener, abc.ABC):
     """
 
     # The abstract base IS the intended value: it is an isinstance() bound, never instantiated.
-    mapper_family: ClassVar[type[IEnvelopeMapper[Any, Any]]] = IEnvelopeMapper  # type: ignore[type-abstract]
+    mapper_family: ClassVar[type[IEnvelopeMapper[Any, Any]]] = cast(
+        'type[IEnvelopeMapper[Any, Any]]',
+        IEnvelopeMapper,
+    )
 
 
 TransportFactory = Callable[[], ITransport]

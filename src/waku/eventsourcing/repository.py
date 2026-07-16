@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 import logging
-from typing import TYPE_CHECKING, ClassVar, Generic
+from typing import TYPE_CHECKING, ClassVar, Generic, cast
 
 from waku.eventsourcing._internal.introspection import is_abstract, resolve_generic_args
 from waku.eventsourcing._internal.stream_helpers import build_append, read_aggregate_stream
@@ -38,7 +38,7 @@ class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
     @classmethod
     def _resolve_aggregate_type(cls) -> type[AggregateT] | None:
         args = resolve_generic_args(cls, EventSourcedRepository)
-        return args[0] if args else None  # type: ignore[return-value]
+        return cast('type[AggregateT]', args[0]) if args else None
 
     def __init__(self, event_store: IEventStore) -> None:
         self._event_store = event_store

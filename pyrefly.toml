@@ -5,6 +5,8 @@ project-excludes = [
 search-path = ["src", "tests", "scripts", "."]
 python-version = "3.11"
 
+min-severity = "warn"
+preset = "strict"
 permissive-ignores = true
 ignore-missing-imports = [
   "gitlint.*",

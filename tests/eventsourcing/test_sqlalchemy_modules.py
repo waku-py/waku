@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing_extensions import override
 
 from waku import module
 from waku.backends.sqlalchemy.event_store.store import make_sqlalchemy_event_store
@@ -50,6 +51,7 @@ class NoteV2(EventSourcedAggregate):
     def edit(self, content: str) -> None:
         self._raise_event(NoteEdited(content=content))
 
+    @override
     def _apply(self, event: IEvent) -> None:
         match event:
             case NoteCreatedV2(heading=heading):

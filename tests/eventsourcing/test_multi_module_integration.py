@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from typing_extensions import override
+
 from waku import module
 from waku.backends.memory import MemoryBackend
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
@@ -53,6 +55,7 @@ class Order(EventSourcedAggregate):
     def cancel(self, reason: str) -> None:
         self._raise_event(OrderCancelled(order_id=self.order_id, reason=reason))
 
+    @override
     def _apply(self, event: IEvent) -> None:
         match event:
             case OrderPlaced(order_id=oid, customer_id=cid, total=t):
@@ -81,6 +84,7 @@ class OrderAnalyticsProjection(IProjection):
     def __init__(self) -> None:
         self.state = AnalyticsState()
 
+    @override
     async def project(self, events: Sequence[StoredEvent], /) -> None:
         for event in events:
             match event.data:
@@ -99,7 +103,8 @@ class AnalyticsLog(EventSourcedAggregate):
         super().__init__()
         self.event_count: int = 0
 
-    def _apply(self, event: IEvent) -> None:  # noqa: ARG002
+    @override
+    def _apply(self, event: IEvent) -> None:
         self.event_count += 1
 
 

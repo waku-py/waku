@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Any, TypeVar
 
+from typing_extensions import override
+
 # Runtime imports: dishka introspects __init__ type hints at container-build time
 # (get_type_hints), so these DI-injected types must resolve at runtime — not under TYPE_CHECKING.
 from waku.messaging._internal.transaction import TransactionDepth  # noqa: TC001
@@ -64,5 +66,6 @@ class TransactionalBehavior(IPipelineBehavior[Any, Any]):
         self._uow = uow
         self._depth = depth
 
+    @override
     async def handle(self, _message: Any, /, call_next: CallNext[Any]) -> Any:
         return await run_in_transaction(self._uow, self._depth, call_next)

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Protocol, TypeVar
 
 import pytest
+from typing_extensions import override
 
 from waku import Module, WakuApplication, WakuFactory
 from waku.di import AnyOf, Provider, Scope, contextual, provide, scoped, singleton
@@ -508,11 +509,13 @@ async def test_with_generic_provider(application_factory: ApplicationFactoryFunc
         def create(self) -> _T_co: ...
 
     class UserFactory(IUserFactory[User]):
-        def create(self) -> User:  # noqa: PLR6301
+        @override
+        def create(self) -> User:
             return User()  # pragma: no cover
 
     class AdminUserFactory(IUserFactory[AdminUser]):
-        def create(self) -> AdminUser:  # noqa: PLR6301
+        @override
+        def create(self) -> AdminUser:
             return AdminUser()  # pragma: no cover
 
     UsersModule = create_basic_module(
@@ -555,7 +558,8 @@ async def test_global_module_reexports_generic_provider(application_factory: App
         def get(self) -> _T_co: ...
 
     class EntityRepository(IRepository[Entity]):
-        def get(self) -> Entity:  # noqa: PLR6301
+        @override
+        def get(self) -> Entity:
             return Entity()  # pragma: no cover
 
     NonGlobalModule = create_basic_module(

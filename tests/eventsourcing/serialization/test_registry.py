@@ -166,7 +166,7 @@ def test_is_frozen() -> None:
     assert registry.is_frozen is False
 
     registry.freeze()
-    assert registry.is_frozen is True  # pyrefly: ignore[unnecessary-comparison]
+    assert registry.is_frozen
 
 
 def test_contains() -> None:

@@ -20,7 +20,7 @@ class TestCorrelationEnricher:
             enricher = CorrelationEnricher()
             result = enricher.enrich(EventMetadata())
 
-            assert result.correlation_id == str(envelope.correlation_id)
+            assert result.correlation_id == envelope.correlation_id
             assert result.causation_id == str(envelope.message_id)
 
     @staticmethod
@@ -32,7 +32,7 @@ class TestCorrelationEnricher:
             result = enricher.enrich(original)
 
             assert result.extra == {'tenant': 'acme'}
-            assert result.correlation_id == str(envelope.correlation_id)
+            assert result.correlation_id == envelope.correlation_id
 
     @staticmethod
     def test_returns_metadata_unchanged_when_no_message_context_active() -> None:

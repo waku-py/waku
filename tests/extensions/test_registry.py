@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from typing_extensions import override
+
 from waku.extensions import (
     AfterApplicationInit,
     OnApplicationInit,
@@ -21,31 +23,37 @@ if TYPE_CHECKING:
 
 
 class OnApplicationInitExt(OnApplicationInit):
+    @override
     async def on_app_init(self, app: WakuApplication) -> None:
         pass  # pragma: no cover
 
 
 class AfterApplicationInitExt(AfterApplicationInit):
+    @override
     async def after_app_init(self, app: WakuApplication) -> None:
         pass  # pragma: no cover
 
 
 class OnApplicationShutdownExt(OnApplicationShutdown):
+    @override
     async def on_app_shutdown(self, app: WakuApplication) -> None:
         pass  # pragma: no cover
 
 
 class OnModuleConfigureExt(OnModuleConfigure):
+    @override
     def on_module_configure(self, metadata: ModuleMetadata) -> None:
         pass  # pragma: no cover
 
 
 class OnModuleInitExt(OnModuleInit):
+    @override
     async def on_module_init(self, module: Module) -> None:
         pass  # pragma: no cover
 
 
 class OnModuleDestroyExt(OnModuleDestroy):
+    @override
     async def on_module_destroy(self, module: Module) -> None:
         pass  # pragma: no cover
 
@@ -82,9 +90,11 @@ def test_get_multi_protocol_app_extensions() -> None:
 
     # Arrange
     class MultiAppExt(OnApplicationInit, AfterApplicationInit):
+        @override
         async def on_app_init(self, app: WakuApplication) -> None:
             pass  # pragma: no cover
 
+        @override
         async def after_app_init(self, app: WakuApplication) -> None:
             pass  # pragma: no cover
 
@@ -133,9 +143,11 @@ def test_get_multi_protocol_module_extensions() -> None:
 
     # Arrange
     class MultiModuleExt(OnModuleInit, OnModuleDestroy):
+        @override
         async def on_module_init(self, module: Module) -> None:
             pass  # pragma: no cover
 
+        @override
         async def on_module_destroy(self, module: Module) -> None:
             pass  # pragma: no cover
 

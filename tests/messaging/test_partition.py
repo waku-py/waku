@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
+from typing_extensions import override
+
 from waku.messages import IEvent
 from waku.messaging._internal.identifiers import GroupId
 from waku.messaging._internal.partition import resolve_and_allocate, resolve_group_id
@@ -23,6 +25,7 @@ class _FakeAllocator(ISequenceAllocator):
     def __init__(self) -> None:
         self.allocated: list[GroupId] = []
 
+    @override
     async def allocate(self, group_id: GroupId) -> int:
         self.allocated.append(group_id)
         return len(self.allocated)

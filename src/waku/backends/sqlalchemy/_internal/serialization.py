@@ -43,8 +43,8 @@ def row_to_stored_event(
     serializer: IEventSerializer,
 ) -> StoredEvent:
     metadata = deserialize_metadata(row.metadata)
-    schema_version = row.schema_version
-    raw_data = row.data
+    schema_version: int = row.schema_version
+    raw_data: dict[str, Any] = row.data
 
     canonical_type = registry.get_name(registry.resolve(row.event_type))
     data = upcaster_chain.upcast(canonical_type, raw_data, schema_version)

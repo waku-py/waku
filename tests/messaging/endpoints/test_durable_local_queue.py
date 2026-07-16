@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import anyio.lowlevel
 from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
@@ -37,16 +37,19 @@ from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from typing import Protocol
 
     from waku.messages import IMessage
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.partition import PartitionKeyExtractor
 
+    class _KindMessage(Protocol):
+        kind: str
+
 
 def _kind_partition(msg: IMessage) -> str | None:
-    kind: str = msg.kind  # type: ignore[attr-defined]
-    return kind
+    return cast('_KindMessage', msg).kind
 
 
 @dataclass(frozen=True, kw_only=True)
