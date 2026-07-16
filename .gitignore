@@ -69,6 +69,8 @@ site/
 
 # Plans
 docs/plans/
+docs/superpowers
 plans/
+.archive
 
 .claude/settings.local.json
