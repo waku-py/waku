@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import timedelta
 
 import anyio
@@ -13,6 +14,8 @@ from waku.messaging._internal.polling_agent import (
     Placement,
     PollingAgent,
 )
+
+from tests._wait import wait_until
 
 
 def test_fixed_pace_returns_constant_delay_regardless_of_record() -> None:
@@ -129,6 +132,39 @@ async def test_polling_agent_direct_transaction_execution_error_preserves_identi
         await agent.stop()
 
     assert raised.value is fatal
+
+
+async def test_polling_agent_logs_critical_when_poll_loop_dies_with_fatal(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    fatal = TransactionExecutionError(
+        TransactionFailureKind.ROLLBACK_FAILED,
+        RuntimeError('rollback failed'),
+        RuntimeError('handler failed'),
+    )
+    agent = _FailingAgent(fatal)
+    with caplog.at_level(logging.CRITICAL, logger='waku.messaging._internal.polling_agent'):
+        await agent.start()
+        # The fatal death is visible in flight, before any shutdown-time stop() retrieves it.
+        await wait_until(lambda: 'terminated with an unrecovered fatal error' in caplog.text)
+        with pytest.raises(TransactionExecutionError):
+            await agent.stop()
+
+    assert 'terminated with an unrecovered fatal error' in caplog.text
+
+
+async def test_polling_agent_cancellation_death_is_not_logged_as_fatal(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    agent = _FailingAgent(asyncio.CancelledError())
+    with caplog.at_level(logging.CRITICAL, logger='waku.messaging._internal.polling_agent'):
+        await agent.start()
+        with anyio.fail_after(5):
+            await agent.tick_started.wait()
+        with pytest.raises(asyncio.CancelledError):
+            await agent.stop()
+
+    assert 'terminated with an unrecovered fatal error' not in caplog.text
 
 
 async def test_polling_agent_mixed_control_flow_group_remains_primary_during_stop() -> None:

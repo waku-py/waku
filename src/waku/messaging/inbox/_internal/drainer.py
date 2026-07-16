@@ -2,16 +2,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from typing import TYPE_CHECKING, Never, TypeVar, assert_never
+from typing import TYPE_CHECKING, Never
 
 from waku._internal.transaction import (
-    Aborted,
     Commit,
-    Committed,
-    RolledBack,
     TransactionDecision,
     TransactionExecutionError,
     execute_in_uow_scope,
+    require_committed,
 )
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging.durability import IInboxStore
@@ -43,18 +41,6 @@ if TYPE_CHECKING:
 __all__ = ['InboxDrainer', 'build_inbox_drainer']
 
 logger = logging.getLogger(__name__)
-
-_CommittedT = TypeVar('_CommittedT')
-
-
-def _require_committed(result: Committed[_CommittedT] | RolledBack[Never] | Aborted) -> _CommittedT:
-    if isinstance(result, Committed):
-        return result.value
-    if isinstance(result, Aborted):
-        raise result.error
-    if isinstance(result, RolledBack):
-        assert_never(result.value)
-    assert_never(result)
 
 
 class InboxPoisonError(Exception):
@@ -111,16 +97,17 @@ class InboxDrainer:
             inbox = await scope.get(IInboxStore)
             return Commit(await inbox.fetch_pending_partitioned(self._batch_size, self._owner_id))
 
-        entries = _require_committed(await execute_in_uow_scope(self._container, claim))
+        entries = require_committed(await execute_in_uow_scope(self._container, claim))
         processed = 0
         for entry in entries:
             try:
                 if await self._process(entry):
                     processed += 1
             except TransactionExecutionError:
-                # A failed rollback or post-commit teardown is fatal: stop the drain before the next row
-                # rather than log-and-continue, so a broken transaction never masquerades as an isolated
-                # per-entry error (mirrors the worker/listener isolation boundary).
+                # Documentary: a fatal is a BaseException, so it already bypasses the `except Exception`
+                # log-and-continue below and stops the drain before the next row regardless. This clause
+                # only names that deliberate intent (mirrors the worker/listener isolation boundary). A
+                # teardown-masked fatal arrives as a BaseExceptionGroup and likewise skips both handlers.
                 raise
             except Exception:
                 logger.exception('Unhandled error draining inbox entry %s/%s', entry.id, entry.destination)
@@ -206,7 +193,7 @@ class InboxDrainer:
             await inbox.increment_attempts(entry.id, entry.destination)
             return Commit(None)
 
-        _require_committed(await execute_in_uow_scope(self._container, increment))
+        require_committed(await execute_in_uow_scope(self._container, increment))
         logger.warning(
             'Poison inbox row id=%s destination=%r (attempt %d/%d): %s',
             entry.id,

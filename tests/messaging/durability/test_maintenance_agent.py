@@ -428,6 +428,32 @@ class TestNoHeadOfLineBlocking:
         assert dlq.claim_calls == 2  # one committed claim, then one empty short claim after dispatch releases
 
 
+class TestShutdownStopsEveryPoller:
+    @staticmethod
+    async def test_stop_stops_all_pollers_even_after_one_died_with_a_fatal() -> None:
+        # One poller dead with a stored fatal must not strand its siblings: stop() has to stop every
+        # poller, never abort the shutdown loop at the first re-raised fatal. The lone fatal surfaces by
+        # identity, and the outbox poller (stopped after the dead DLQ poller in reverse order) is stopped.
+        rollback_error = RuntimeError('replay rollback failed')
+        replayer = _CleanupFailingReplayExecutor(rollback_error)
+        provider = _MaintenanceDepsProvider(
+            outbox=_MaintOutboxStore(recover_count=1),
+            dlq=_MaintDlqStore(claimable=[_dlq_entry()]),
+            inbox=_MaintInboxStore(promote_count=1),
+            replayer=replayer,
+        )
+        async with make_async_container(provider) as container:
+            agent = DurabilityMaintenanceAgent(container=container, config=_all_three_config())
+            await agent.start()
+            await wait_until(lambda: replayer.calls >= 1)  # DLQ poller dispatched, then died with the fatal
+            with pytest.raises(TransactionExecutionError) as raised:
+                await agent.stop()
+
+        outbox_poller = next(p for p in agent.pollers if isinstance(p, _OutboxMaintenancePoller))
+        assert outbox_poller.is_stopped
+        assert raised.value.error is rollback_error
+
+
 class TestOutboxMaintenancePoller:
     # Ported from tests/messaging/outbox/test_relay.py (recover/cleanup moved off the relay).
 

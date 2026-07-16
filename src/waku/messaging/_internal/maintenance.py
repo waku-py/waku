@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from typing import TYPE_CHECKING, Final, Never, assert_never
+from typing import TYPE_CHECKING, Final, Never
 
 import anyio
 from typing_extensions import override
@@ -12,21 +12,25 @@ from typing_extensions import override
 from waku._internal.clock import Now, utc_now
 from waku._internal.lease import ILease
 from waku._internal.transaction import (
-    Aborted,
     Commit,
-    Committed,
-    RolledBack,
     TransactionDecision,
     TransactionExecutionError,
     TransactionFailureKind,
     can_defer_transaction_fatal,
     execute_in_uow_scope,
     extract_transaction_execution_error,
+    require_committed,
 )
 from waku.di import is_registered
 from waku.exceptions import ImproperlyConfiguredError
 from waku.extensions import AfterApplicationInit, OnApplicationShutdown
-from waku.messaging._internal.polling_agent import AdaptivePace, FixedPace, Placement, PollingAgent
+from waku.messaging._internal.polling_agent import (
+    AdaptivePace,
+    FixedPace,
+    Placement,
+    PollingAgent,
+    log_fatal_task_death,
+)
 from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
 from waku.messaging.errors._internal.replay import IReplayExecution, ReplayClaimOwner
 from waku.messaging.sequence import ISequenceAllocator
@@ -91,7 +95,7 @@ class _OutboxMaintenancePoller(PollingAgent):
             store = await scope.get(IOutboxStore)
             return Commit(await store.recover_stuck(self._config.stuck_threshold))
 
-        recovered = _committed_count(await execute_in_uow_scope(self._container, recover))
+        recovered = require_committed(await execute_in_uow_scope(self._container, recover))
         if recovered > 0:
             logger.info('Recovered %d stuck messages', recovered)
         return recovered
@@ -109,7 +113,7 @@ class _OutboxMaintenancePoller(PollingAgent):
             store = await scope.get(IOutboxStore)
             return Commit(await store.cleanup_dispatched(retention))
 
-        purged = _committed_count(await execute_in_uow_scope(self._container, cleanup))
+        purged = require_committed(await execute_in_uow_scope(self._container, cleanup))
         if purged > 0:
             logger.info('Purged %d dispatched outbox messages older than retention', purged)
         return purged
@@ -180,7 +184,7 @@ class _DlqMaintenancePoller(PollingAgent):
             store = await scope.get(IDeadLetterStore)
             return Commit(await store.purge(sampled_now - retention, now=sampled_now))
 
-        purged = _committed_count(await execute_in_uow_scope(self._container, purge))
+        purged = require_committed(await execute_in_uow_scope(self._container, purge))
         if purged > 0:
             logger.info('Purged %d dead letters older than retention', purged)
         return purged
@@ -218,7 +222,7 @@ class _PromotionPoller(PollingAgent):
             allocator: ISequenceAllocator = await scope.get(ISequenceAllocator)
             return Commit(await store.promote_due_scheduled(sampled_now, allocator, self._config.batch_size))
 
-        promoted = _committed_count(await execute_in_uow_scope(self._container, promote))
+        promoted = require_committed(await execute_in_uow_scope(self._container, promote))
         if promoted > 0:
             logger.info('Promoted %d due scheduled inbox entries to INCOMING', promoted)
         return promoted
@@ -244,16 +248,6 @@ class _ScopedReplayExecution(IReplayExecution):
             if dispatch_completed:
                 raise TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, error, None) from error
             raise
-
-
-def _committed_count(result: Committed[int] | RolledBack[Never] | Aborted) -> int:
-    if isinstance(result, Committed):
-        return result.value
-    if isinstance(result, Aborted):
-        raise result.error
-    if isinstance(result, RolledBack):
-        assert_never(result.value)
-    assert_never(result)
 
 
 class DurabilityMaintenanceAgent:
@@ -289,8 +283,19 @@ class DurabilityMaintenanceAgent:
             await poller.start()
 
     async def stop(self) -> None:
+        # Stop every poller even when one re-raises a stored fatal: a single dead poller must not strand
+        # its siblings' shutdown. A lone failure surfaces by identity; genuine multi-failures group.
+        errors: list[BaseException] = []
         for poller in reversed(self._pollers):
-            await poller.stop()
+            try:
+                await poller.stop()
+            except BaseException as error:  # noqa: BLE001 -- one dead poller must not strand its siblings
+                errors.append(error)
+        if len(errors) == 1:
+            raise errors[0]
+        if errors:
+            msg = 'durability maintenance shutdown failed'
+            raise BaseExceptionGroup(msg, errors)
 
 
 async def _build_maintenance_agent(app: WakuApplication, config: MessagingConfig) -> DurabilityMaintenanceAgent:
@@ -361,6 +366,12 @@ class LeadershipCoordinator(AfterApplicationInit, OnApplicationShutdown):
         self._agent = agent
         self._shutdown = anyio.Event()  # fresh event per run: anyio.Event is one-shot
         self._task = asyncio.create_task(self._run_loop(lease, agent))
+        self._task.add_done_callback(self._on_task_done)
+
+    def _on_task_done(self, task: asyncio.Task[None]) -> None:
+        # A fatal from agent.stop() escapes the acquire loop's `except Exception`; surface it in flight
+        # rather than let the coordinator task die silently until on_app_shutdown joins it.
+        log_fatal_task_death(task, type(self).__name__, task_logger=logger)
 
     @override
     async def on_app_shutdown(self, app: WakuApplication) -> None:

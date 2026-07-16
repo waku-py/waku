@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Generic, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Generic, Never, TypeAlias, TypeVar, assert_never
 
 import anyio
 
@@ -28,6 +28,7 @@ __all__ = [
     'can_defer_transaction_fatal',
     'execute_in_uow_scope',
     'extract_transaction_execution_error',
+    'require_committed',
 ]
 
 _CommitT = TypeVar('_CommitT')
@@ -191,6 +192,16 @@ def can_defer_transaction_fatal(error: BaseException, fatal: TransactionExecutio
     return remaining is None or isinstance(remaining, Exception)
 
 
+def require_committed(result: Committed[_CommitT] | RolledBack[Never] | Aborted) -> _CommitT:
+    if isinstance(result, Committed):
+        return result.value
+    if isinstance(result, Aborted):
+        raise result.error
+    if isinstance(result, RolledBack):
+        assert_never(result.value)
+    assert_never(result)
+
+
 async def _execute_in_child_scope(
     container: AsyncContainer,
     operation: Callable[[AsyncContainer], Awaitable[TransactionDecision[_CommitT, _RollbackT]]],
@@ -217,14 +228,21 @@ async def _execute_in_child_scope(
     except BaseException as error:
         if isinstance(result, Committed):
             raise TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, error, None) from error
-        # A child-scope teardown failure masks the execution's fatal into __context__, where
-        # extract_transaction_execution_error cannot reach it. Re-surface both as group leaves so the
-        # fatal stays extractable (and any control-flow leaf stays present) for the owner's split law.
+        if isinstance(result, Aborted):
+            # The body returned Aborted(handler_error) after a clean rollback; a teardown failure must not
+            # discard that handler-error evidence, so chain it as the propagating error's cause.
+            raise error from result.error
+        # A child-scope teardown failure masks the execution's fatal or cancellation into __context__,
+        # where extract_transaction_execution_error / split cannot reach it. Re-surface both as group
+        # leaves so the fatal stays extractable and any control-flow leaf stays present for the owner's law.
         if (
             execution_error is not None
             and error is not execution_error
-            and extract_transaction_execution_error(execution_error) is not None
             and extract_transaction_execution_error(error) is None
+            and (
+                extract_transaction_execution_error(execution_error) is not None
+                or _has_control_flow_leaf(execution_error)
+            )
         ):
             msg = 'transaction execution failed and child-scope teardown failed'
             raise BaseExceptionGroup(msg, [error, execution_error]) from None

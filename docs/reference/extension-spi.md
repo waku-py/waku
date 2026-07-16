@@ -115,7 +115,8 @@ Error policies, dead-letter models, replay, and the DLQ worker.
 `PolicyOutcome` ·
 `ReplayExecutor` ·
 `RetryAction` ·
-`RetryStage`
+`RetryStage` ·
+`validate_requested_lease`
 
 ## `waku.messaging.sending`
 

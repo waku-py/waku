@@ -3,17 +3,15 @@ from __future__ import annotations
 import logging
 import math
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Never, TypeAlias, TypeVar, assert_never
+from typing import TYPE_CHECKING, Any, Never, TypeAlias
 
 import anyio
 
 from waku._internal.transaction import (
-    Aborted,
     Commit,
-    Committed,
-    RolledBack,
     TransactionDecision,
     execute_in_uow_scope,
+    require_committed,
 )
 from waku.messaging._internal.circuit_breaker import CircuitBreaker, ICircuitBreaker, PassthroughCircuitBreaker
 from waku.messaging._internal.partition import resolve_and_allocate
@@ -48,20 +46,8 @@ __all__ = [
     'DurableInboxReceiver',
 ]
 
-_CommittedT = TypeVar('_CommittedT')
-
 # Envelope + the subset of handlers whose inbox row was newly stored (dedup-skipped at persist time).
 _WorkItem: TypeAlias = 'tuple[MessageEnvelope[Any], frozenset[HandlerType]]'
-
-
-def _require_committed(result: Committed[_CommittedT] | RolledBack[Never] | Aborted) -> _CommittedT:
-    if isinstance(result, Committed):
-        return result.value
-    if isinstance(result, Aborted):
-        raise result.error
-    if isinstance(result, RolledBack):
-        assert_never(result.value)
-    assert_never(result)
 
 
 class DurableInboxReceiver:
@@ -175,7 +161,7 @@ class DurableInboxReceiver:
                     fresh.add(handler_type)
             return Commit(frozenset(fresh))
 
-        return _require_committed(await execute_in_uow_scope(self._container, write))
+        return require_committed(await execute_in_uow_scope(self._container, write))
 
     async def enqueue(self, envelope: MessageEnvelope[Any], fresh: frozenset[HandlerType]) -> None:
         await self._worker.send((envelope, fresh))
@@ -212,7 +198,7 @@ class DurableInboxReceiver:
             await inbox.increment_attempts(envelope.message_id, destination)
             return Commit(None)
 
-        _require_committed(await execute_in_uow_scope(self._container, increment))
+        require_committed(await execute_in_uow_scope(self._container, increment))
 
     async def _finalize(
         self,

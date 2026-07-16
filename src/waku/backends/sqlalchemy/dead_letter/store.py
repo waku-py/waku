@@ -15,6 +15,7 @@ from waku.messaging.errors.dead_letter import (
     DeadLetterEntry,
     DeadLetterQuery,
     DeadLetterStatus,
+    validate_requested_lease,
 )
 
 if TYPE_CHECKING:
@@ -105,7 +106,7 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
         now: datetime,
         lease_expires_at: datetime,
     ) -> DeadLetterEntry | None:
-        _validate_requested_lease(now, lease_expires_at)
+        validate_requested_lease(now, lease_expires_at)
         stmt = (
             select(*_t.c)
             .where(
@@ -146,7 +147,7 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
         now: datetime,
         lease_expires_at: datetime,
     ) -> DeadLetterEntry | None:
-        _validate_requested_lease(now, lease_expires_at)
+        validate_requested_lease(now, lease_expires_at)
         stmt = (
             select(*_t.c)
             .where(
@@ -180,7 +181,7 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
         now: datetime,
         lease_expires_at: datetime,
     ) -> bool:
-        _validate_requested_lease(now, lease_expires_at)
+        validate_requested_lease(now, lease_expires_at)
         stmt = (
             update(_t)
             .where(
@@ -250,12 +251,6 @@ def _row_to_model(row: Any) -> DeadLetterEntry:
         replay_owner_id=row.replay_owner_id,
         replay_lease_expires_at=row.replay_lease_expires_at,
     )
-
-
-def _validate_requested_lease(now: datetime, lease_expires_at: datetime) -> None:
-    if lease_expires_at <= now:
-        msg = 'lease_expires_at must be greater than now'
-        raise ValueError(msg)
 
 
 def _lease_is_claimable(now: datetime) -> Any:

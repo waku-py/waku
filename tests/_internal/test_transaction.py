@@ -774,6 +774,56 @@ async def test_cancellation_bearing_body_fatal_survives_teardown_and_stays_cance
     assert actions == ['rollback-start', 'child-exit']
 
 
+async def test_pure_cancellation_body_survives_child_scope_teardown_failure() -> None:
+    cancellation = anyio.get_cancelled_exc_class()()
+    teardown_error = RuntimeError('teardown failed')
+    actions: list[str] = []
+
+    async def provide_uow() -> AsyncIterator[IUnitOfWork]:
+        yield _RecordingUoW(actions=actions)
+        actions.append('child-exit')
+        raise teardown_error
+
+    async def operation(child: AsyncContainer) -> TransactionDecision[None, Never]:
+        del child
+        raise cancellation
+
+    async with create_test_app(providers=[provider(provide_uow, provided_type=IUnitOfWork)]) as app:
+        with pytest.raises(BaseExceptionGroup) as raised:
+            await execute_in_uow_scope(app.container, operation)
+
+    # The teardown failure surfaces wrapped in dishka's ExitError group; the pure cancellation must stay a
+    # sibling leaf (extractable via split) rather than being demoted to the teardown error's __context__.
+    cancellations, remaining = raised.value.split(anyio.get_cancelled_exc_class())
+    assert cancellations is not None
+    assert remaining is not None
+    assert actions == ['rollback-start', 'rollback-done', 'child-exit']
+
+
+async def test_aborted_result_teardown_failure_chains_handler_error() -> None:
+    handler_error = ValueError('handler failed')
+    teardown_error = RuntimeError('teardown failed')
+    actions: list[str] = []
+
+    async def provide_uow() -> AsyncIterator[IUnitOfWork]:
+        yield _RecordingUoW(actions=actions)
+        actions.append('child-exit')
+        raise teardown_error
+
+    async def operation(child: AsyncContainer) -> TransactionDecision[None, Never]:
+        del child
+        raise handler_error
+
+    async with create_test_app(providers=[provider(provide_uow, provided_type=IUnitOfWork)]) as app:
+        with pytest.raises(BaseExceptionGroup) as raised:
+            await execute_in_uow_scope(app.container, operation)
+
+    # The clean rollback returned Aborted(handler_error); a teardown failure must keep that handler-error
+    # evidence chained as __cause__ instead of discarding it behind a bare teardown error.
+    assert raised.value.__cause__ is handler_error
+    assert actions == ['rollback-start', 'rollback-done', 'child-exit']
+
+
 def test_extract_transaction_execution_error_returns_none_without_fatal() -> None:
     error = BaseExceptionGroup('ordinary', [ValueError('first'), ExceptionGroup('nested', [RuntimeError('second')])])
 

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, TypeGuard
 from typing_extensions import override
 
 from waku.messaging.durability import IDeadLetterStore
-from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterStatus
+from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterStatus, validate_requested_lease
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -77,7 +77,7 @@ class _InMemoryDeadLetterStoreOperations(IDeadLetterStore):
         now: datetime,
         lease_expires_at: datetime,
     ) -> DeadLetterEntry | None:
-        _validate_requested_lease(now, lease_expires_at)
+        validate_requested_lease(now, lease_expires_at)
         for entry in self._oldest_first():
             eligible_status = entry.status is DeadLetterStatus.PENDING or (
                 entry.status is DeadLetterStatus.REPLAY_FAILED and entry.replay_count < max_replay_count
@@ -95,7 +95,7 @@ class _InMemoryDeadLetterStoreOperations(IDeadLetterStore):
         now: datetime,
         lease_expires_at: datetime,
     ) -> DeadLetterEntry | None:
-        _validate_requested_lease(now, lease_expires_at)
+        validate_requested_lease(now, lease_expires_at)
         entry = self.entries.get(entry_id)
         if entry is None or entry.status is DeadLetterStatus.REPLAYED or not _lease_is_claimable(entry, now):
             return None
@@ -110,7 +110,7 @@ class _InMemoryDeadLetterStoreOperations(IDeadLetterStore):
         now: datetime,
         lease_expires_at: datetime,
     ) -> bool:
-        _validate_requested_lease(now, lease_expires_at)
+        validate_requested_lease(now, lease_expires_at)
         entry = self.entries.get(entry_id)
         if not _has_live_owner(entry, owner_id, now):
             return False
@@ -211,12 +211,6 @@ class WorkspaceDeadLetterStore(_InMemoryDeadLetterStoreOperations):
     @override
     def _get_state(self) -> InMemoryDeadLetterState:
         return self._accessor.select(lambda state: state.dead_letters)
-
-
-def _validate_requested_lease(now: datetime, lease_expires_at: datetime) -> None:
-    if lease_expires_at <= now:
-        msg = 'lease_expires_at must be greater than now'
-        raise ValueError(msg)
 
 
 def _lease_is_claimable(entry: DeadLetterEntry, now: datetime) -> bool:

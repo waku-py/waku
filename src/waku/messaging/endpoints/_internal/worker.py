@@ -10,7 +10,11 @@ import anyio
 from anyio import create_memory_object_stream
 from typing_extensions import TypeVar
 
-from waku._internal.transaction import TransactionExecutionError, extract_transaction_execution_error
+from waku._internal.transaction import (
+    TransactionExecutionError,
+    can_defer_transaction_fatal,
+    extract_transaction_execution_error,
+)
 from waku.messaging._internal.pauser import PauseRegistry, TimedPauser
 
 if TYPE_CHECKING:
@@ -158,22 +162,15 @@ class MemoryStreamWorker(Generic[_ItemT]):
         except asyncio.CancelledError:
             pass
         except BaseException as error:
-            if fatal_error := extract_transaction_execution_error(error):
-                if fatal_error is error:
+            fatal = extract_transaction_execution_error(error)
+            if fatal is None:
+                if not isinstance(error, Exception):
                     raise
-                if isinstance(error, BaseExceptionGroup):
-                    _, remaining = error.split(TransactionExecutionError)
-                    if remaining is None or isinstance(remaining, Exception):
-                        fatal_to_raise = fatal_error
-                    else:
-                        raise
-                else:
-                    raise
-            elif isinstance(error, Exception):
                 logger.exception('MemoryStreamWorker task failed during shutdown')
                 return
-            else:
+            if not can_defer_transaction_fatal(error, fatal):
                 raise
+            fatal_to_raise = fatal
         if fatal_to_raise is not None:
             raise fatal_to_raise
 
@@ -198,6 +195,8 @@ class MemoryStreamWorker(Generic[_ItemT]):
             try:
                 await handler(item)
             except TransactionExecutionError:
+                # Documentary: a fatal is a BaseException, so it already bypasses the `except Exception`
+                # net below; this only names the deliberate propagation (stop the pool, never continue).
                 raise
             except Exception:
                 # Safety net only — items are opaque here, so the handler owns message-level logging.

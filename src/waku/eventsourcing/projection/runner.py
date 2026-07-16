@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from typing import TYPE_CHECKING, Final, TypeVar, assert_never
+from typing import TYPE_CHECKING, Final, assert_never
 
 import anyio
 
@@ -14,8 +14,10 @@ from waku._internal.transaction import (
     Committed,
     Rollback,
     RolledBack,
-    TransactionExecutionError,
+    can_defer_transaction_fatal,
     execute_in_uow_scope,
+    extract_transaction_execution_error,
+    require_committed,
 )
 from waku.eventsourcing.exceptions import ProjectionError, ProjectionLockedError
 from waku.eventsourcing.projection._internal.processor import CycleOutcome, ProjectionProcessor
@@ -39,18 +41,6 @@ if TYPE_CHECKING:
 __all__ = ['CatchUpProjectionRunner']
 
 logger = logging.getLogger(__name__)
-
-_CommitT = TypeVar('_CommitT')
-
-
-def _require_committed(result: Committed[_CommitT] | RolledBack[Never] | Aborted) -> _CommitT:
-    if isinstance(result, Committed):
-        return result.value
-    if isinstance(result, Aborted):
-        raise result.error
-    if isinstance(result, RolledBack):
-        assert_never(result.value)
-    assert_never(result)
 
 
 class CatchUpProjectionRunner:
@@ -109,7 +99,7 @@ class CatchUpProjectionRunner:
                 await projection.teardown()
                 return Commit(None)
 
-            _require_committed(await execute_in_uow_scope(self._container, teardown))
+            require_committed(await execute_in_uow_scope(self._container, teardown))
 
             # Rebuild replays historical events, where every global_position gap is permanent (a burned
             # Identity value from a long-ago rolled-back append). Gap detection guards the live tail
@@ -123,12 +113,17 @@ class CatchUpProjectionRunner:
                 await processor.reset_checkpoint(checkpoint_store)
                 return Commit(None)
 
-            _require_committed(await execute_in_uow_scope(self._container, reset))
+            require_committed(await execute_in_uow_scope(self._container, reset))
 
             while True:
                 try:
                     outcome = await self._run_cycle(rebuild_binding, processor)
-                except TransactionExecutionError as fatal:
+                except BaseException as error:
+                    # A failed rollback is fatal, whether it arrives bare or masked inside a teardown
+                    # group; unwrap it group-aware. Cancellation and non-fatal errors propagate untouched.
+                    fatal = extract_transaction_execution_error(error)
+                    if fatal is None or (fatal is not error and not can_defer_transaction_fatal(error, fatal)):
+                        raise
                     raise fatal.error from fatal.primary_error
                 if outcome.retry_delay_seconds is not None:
                     await anyio.sleep(outcome.retry_delay_seconds)
@@ -181,10 +176,6 @@ class CatchUpProjectionRunner:
         while not self._shutdown_event.is_set():
             try:
                 outcome = await self._run_cycle(binding, processor)
-            except TransactionExecutionError as fatal:
-                # A failed rollback is fatal: it bypasses the ordinary log-and-continue retry so a broken
-                # transaction never masquerades as a recoverable cycle.
-                raise fatal.error from fatal.primary_error
             except ProjectionError:
                 raise
             except Exception:
@@ -193,6 +184,14 @@ class CatchUpProjectionRunner:
                     binding.projection.projection_name,
                 )
                 outcome = CycleOutcome(events_processed=0, checkpoint_mutated=False)
+            except BaseException as error:
+                # A failed rollback is fatal, whether it arrives bare or masked inside a teardown group:
+                # unwrap it group-aware so a broken transaction never masquerades as a recoverable cycle.
+                # Cancellation (no extractable fatal) stays cancellation and propagates untouched.
+                fatal = extract_transaction_execution_error(error)
+                if fatal is None or (fatal is not error and not can_defer_transaction_fatal(error, fatal)):
+                    raise
+                raise fatal.error from fatal.primary_error
 
             if outcome.retry_delay_seconds is not None:
                 await self._wait(outcome.retry_delay_seconds)
@@ -270,7 +269,7 @@ class CatchUpProjectionRunner:
             await checkpoint_store.save(skip.checkpoint)
             return Commit(None)
 
-        _require_committed(await execute_in_uow_scope(self._container, save))
+        require_committed(await execute_in_uow_scope(self._container, save))
 
     async def _signal_listener(self, cancel_scope: anyio.CancelScope) -> None:  # pragma: no cover
         await wait_for_shutdown(self._shutdown_event)

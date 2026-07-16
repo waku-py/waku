@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Never, assert_never
+from typing import TYPE_CHECKING, Never
 
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
 from waku._internal.transaction import (
-    Aborted,
     Commit,
-    Committed,
-    RolledBack,
     TransactionDecision,
     execute_in_uow_scope,
+    require_committed,
 )
 from waku.messaging._internal.polling_agent import FixedPace, Placement, PollingAgent
 from waku.messaging.durability import IInboxStore
@@ -71,15 +69,7 @@ class InboxRecoveryWorker(PollingAgent):
             cleaned = await store.cleanup_handled(sampled_now)
             return Commit((recovered, cleaned))
 
-        result = await execute_in_uow_scope(self._container, recover)
-        if isinstance(result, Committed):
-            recovered, cleaned = result.value
-        elif isinstance(result, Aborted):
-            raise result.error
-        elif isinstance(result, RolledBack):
-            assert_never(result.value)
-        else:
-            assert_never(result)
+        recovered, cleaned = require_committed(await execute_in_uow_scope(self._container, recover))
         if recovered > 0:
             logger.info('Recovered %d stale inbox entries', recovered)
         if cleaned > 0:

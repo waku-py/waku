@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import pytest
 
+from waku.backends.testing._internal.contract import BackendContract
 from waku.messaging.config import MessagingConfig
 from waku.messaging.modules import MessagingModule
 from waku.messaging.sequence import GroupId, ISequenceAllocator
@@ -23,7 +24,7 @@ async def _allocate(allocator: ISequenceAllocator, group_id: str) -> int:
     return await allocator.allocate(GroupId(group_id))
 
 
-class SequenceAllocatorContract:
+class SequenceAllocatorContract(BackendContract):
     """Backend-owned sequencing contract: per-group monotonic allocation on the backend's resource.
 
     Subclass in your backend's test suite and override the ``backend_module`` fixture to return
@@ -33,11 +34,6 @@ class SequenceAllocatorContract:
     """
 
     supports_rollback: ClassVar[bool] = True
-
-    @pytest.fixture
-    def backend_module(self) -> DynamicModule:
-        msg = 'override the backend_module fixture with your registered backend'
-        raise NotImplementedError(msg)  # pragma: no cover
 
     @pytest.fixture
     async def app(self, backend_module: DynamicModule) -> AsyncIterator[WakuApplication]:

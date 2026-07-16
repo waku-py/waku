@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from collections.abc import AsyncIterator  # noqa: TC003 -- dishka introspects the provider signature at runtime
 from typing import TYPE_CHECKING
 
 import anyio
@@ -11,7 +12,7 @@ from typing_extensions import override
 
 from waku import module
 from waku._internal.lease import ILease, InMemoryLease
-from waku.di import object_
+from waku.di import object_, provider
 from waku.eventsourcing.exceptions import ProjectionLockedError, ProjectionStoppedError, UnknownProjectionError
 from waku.eventsourcing.projection.config import PollingConfig
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ProjectionErrorPolicy
@@ -38,6 +39,7 @@ from tests.eventsourcing.projection.helpers import (
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Sequence
 
+    from dishka import Provider
     from pytest_mock import MockerFixture
 
     from waku.application import WakuApplication
@@ -167,6 +169,37 @@ class _CancellingProjection(ICatchUpProjection):
         await anyio.lowlevel.checkpoint()
 
 
+class _RollbackFailingUoW(IUnitOfWork):
+    def __init__(self, rollback_error: BaseException) -> None:
+        self._rollback_error = rollback_error
+        self.rolled_back = False
+
+    @override
+    async def commit(self) -> None:
+        pass
+
+    @override
+    async def rollback(self) -> None:
+        self.rolled_back = True
+        await anyio.lowlevel.checkpoint()
+        raise self._rollback_error
+
+
+def _masking_uow_provider(rollback_error: BaseException, teardown_error: BaseException) -> Provider:
+    # A REQUEST-scoped generator provider: each cycle's child scope gets a fresh UoW whose rollback fails,
+    # and the scope teardown then fails only for a cycle that rolled back. This reproduces the substrate's
+    # masking shape (BaseExceptionGroup[teardown_error, ROLLBACK_FAILED fatal]) for a rolled-back cycle,
+    # while a committing cycle tears down cleanly.
+    async def provide_uow() -> AsyncIterator[IUnitOfWork]:
+        uow = _RollbackFailingUoW(rollback_error)
+        yield uow
+        await anyio.lowlevel.checkpoint()
+        if uow.rolled_back:
+            raise teardown_error
+
+    return provider(provide_uow, provided_type=IUnitOfWork)
+
+
 def _make_app(
     store: InMemoryEventStore,
     checkpoint_store: ICheckpointStore,
@@ -174,8 +207,12 @@ def _make_app(
     projections: Sequence[ICatchUpProjection],
     bindings: Sequence[CatchUpProjectionBinding],
     uow: IUnitOfWork | None = None,
+    uow_provider: Provider | None = None,
 ) -> WakuApplication:
     projection_registry = CatchUpProjectionRegistry(tuple(bindings))
+    resolved_uow_provider = (
+        uow_provider if uow_provider is not None else object_(uow or _NoOpUoW(), provided_type=IUnitOfWork)
+    )
     providers = [
         object_(store, provided_type=IEventStore),
         object_(store, provided_type=IEventReader),
@@ -183,7 +220,7 @@ def _make_app(
         object_(lock, provided_type=ILease),
         object_(projection_registry),
         *[object_(proj, provided_type=type(proj)) for proj in projections],
-        object_(uow if uow is not None else _NoOpUoW(), provided_type=IUnitOfWork),
+        resolved_uow_provider,
     ]
 
     @module(providers=providers)
@@ -841,6 +878,68 @@ async def test_rebuild_processing_failure_with_failed_rollback_surfaces_fatal(
     assert not isinstance(raised.value, ProjectionStoppedError)
     assert isinstance(raised.value.__cause__, ProjectionStoppedError)
     assert raised.value.__cause__.cause is processing_error
+
+
+async def test_rebuild_retry_masked_rollback_failure_surfaces_fatal(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
+    # When a retry rollback fails AND the child-scope teardown fails in the same cycle, the substrate
+    # delivers the fatal as a BaseExceptionGroup. rebuild must still unwrap it, not let the group escape.
+    await seed_events(event_store, count=1)
+    rollback_error = RuntimeError('rollback failed')
+    teardown_error = RuntimeError('teardown failed')
+    projection = FlakyProjection(failures=1)
+    binding = make_binding(FlakyProjection, max_retry_attempts=1, base_retry_delay_seconds=0.0)
+    lock = AlwaysAcquiredLock()
+    app = _make_app(
+        event_store,
+        in_memory_checkpoint_store,
+        lock,
+        (projection,),
+        (binding,),
+        uow_provider=_masking_uow_provider(rollback_error, teardown_error),
+    )
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        with pytest.raises(RuntimeError) as raised:
+            await runner.rebuild('flaky')
+
+    assert raised.value is rollback_error
+
+
+async def test_poll_loop_masked_rollback_failure_stops_only_that_projection(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # A masking group-fatal on one projection's cycle must kill exactly that projection, not escape the
+    # per-projection isolation boundary and cancel its siblings via the shared task group.
+    await seed_events(event_store, count=5)
+    rollback_error = RuntimeError('rollback failed')
+    teardown_error = RuntimeError('teardown failed')
+    lock = InMemoryLease()
+    good_projection = RecordingProjection()
+    doomed_projection = FlakyProjection(failures=1000)
+    good_binding = make_binding(RecordingProjection, batch_size=1)
+    doomed_binding = make_binding(FlakyProjection, max_retry_attempts=1, base_retry_delay_seconds=0.0)
+    app = _make_app(
+        event_store,
+        in_memory_checkpoint_store,
+        lock,
+        (good_projection, doomed_projection),
+        (good_binding, doomed_binding),
+        uow_provider=_masking_uow_provider(rollback_error, teardown_error),
+    )
+
+    with caplog.at_level(logging.ERROR, logger='waku.eventsourcing.projection.runner'):
+        async with app:
+            runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+            await _run_until(runner, lambda: len(good_projection.received) >= 5)
+
+    assert len(good_projection.received) == 5
+    assert "Projection 'flaky' stopped due to unrecoverable error" in caplog.text
 
 
 @pytest.mark.parametrize('commit_at', [3, 4], ids=('progress', 'clean-idle'))

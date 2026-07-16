@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, ClassVar
 import pytest
 from typing_extensions import override
 
+from waku.backends.testing._internal.contract import BackendContract
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import NoStream, StreamId
@@ -82,7 +83,7 @@ def _dead_letter_for(message: OutboxMessage) -> DeadLetterEntry:
     )
 
 
-class BackendAssemblyContract:
+class BackendAssemblyContract(BackendContract):
     """Whole-backend assembly contract: both store objects over ONE resource, atomic sibling seam.
 
     Subclass in your backend's test suite and override the ``backend_module`` fixture to return
@@ -92,11 +93,6 @@ class BackendAssemblyContract:
     """
 
     supports_rollback: ClassVar[bool] = True
-
-    @pytest.fixture
-    def backend_module(self) -> DynamicModule:
-        msg = 'override the backend_module fixture with your registered backend'
-        raise NotImplementedError(msg)  # pragma: no cover
 
     @pytest.fixture
     async def app(self, backend_module: DynamicModule) -> AsyncIterator[WakuApplication]:

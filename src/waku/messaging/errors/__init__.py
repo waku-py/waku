@@ -3,6 +3,7 @@ from waku.messaging.errors.dead_letter import (
     DeadLetterEntry,
     DeadLetterQuery,
     DeadLetterStatus,
+    validate_requested_lease,
 )
 from waku.messaging.errors.executor import ErrorPolicyEvaluator, FailureContext, PolicyOutcome
 from waku.messaging.errors.policy import ErrorPolicy, RetryAction, RetryStage
@@ -23,4 +24,5 @@ __all__ = [
     'ReplayExecutor',
     'RetryAction',
     'RetryStage',
+    'validate_requested_lease',
 ]

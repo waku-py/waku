@@ -29,9 +29,29 @@ __all__ = [
     'IPaceStrategy',
     'Placement',
     'PollingAgent',
+    'log_fatal_task_death',
 ]
 
 logger = logging.getLogger(__name__)
+
+
+def log_fatal_task_death(task: asyncio.Task[None], owner: str, *, task_logger: logging.Logger) -> None:
+    """Surface a durability task's fatal death at CRITICAL, so it is visible in flight, not only at shutdown.
+
+    Cancellation and clean completion are normal shutdown and stay silent; a fatal transaction signal
+    reports its underlying error under the owner's own logger.
+    """
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is None:
+        return
+    fatal = extract_transaction_execution_error(error)
+    task_logger.critical(
+        '%s terminated with an unrecovered fatal error',
+        owner,
+        exc_info=fatal.error if fatal is not None else error,
+    )
 
 
 @runtime_checkable
@@ -132,6 +152,10 @@ class PollingAgent(abc.ABC):
         # reusing it would make a restarted loop exit before its first tick.
         self._shutdown_event = anyio.Event()
         self._worker_task = asyncio.create_task(self._run_loop())
+        self._worker_task.add_done_callback(self._on_worker_done)
+
+    def _on_worker_done(self, task: asyncio.Task[None]) -> None:
+        log_fatal_task_death(task, type(self).__name__, task_logger=logger)
 
     async def stop(self) -> None:
         self._shutdown_event.set()

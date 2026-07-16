@@ -10,7 +10,15 @@ from typing_extensions import override
 
 from waku._internal.clock import Now, utc_now
 from waku._internal.polling import PollingConfig
-from waku._internal.transaction import Aborted, Commit, Committed, RolledBack, TransactionResult, execute_in_uow_scope
+from waku._internal.transaction import (
+    Aborted,
+    Commit,
+    Committed,
+    RolledBack,
+    TransactionResult,
+    execute_in_uow_scope,
+    require_committed,
+)
 from waku.messaging._internal.escalation import RetryAction
 from waku.messaging._internal.polling_agent import AdaptivePace, Placement, PollingAgent
 from waku.messaging.durability import IOutboxStore
@@ -95,16 +103,6 @@ async def _execute_store_operation(
     return await execute_in_uow_scope(container, execute)
 
 
-def _require_committed(result: Committed[_OperationT] | RolledBack[Never] | Aborted) -> _OperationT:
-    if isinstance(result, Committed):
-        return result.value
-    if isinstance(result, Aborted):
-        raise result.error
-    if isinstance(result, RolledBack):
-        assert_never(result.value)
-    assert_never(result)
-
-
 class OutboxRelay(PollingAgent):
     placement = Placement.SINGLETON_PER_DC
 
@@ -142,7 +140,7 @@ class OutboxRelay(PollingAgent):
         async def fetch(store: IOutboxStore) -> Sequence[OutboxMessage]:
             return await store.fetch_head_of_queue(self._config.batch_size)
 
-        messages = _require_committed(await _execute_store_operation(self._container, fetch))
+        messages = require_committed(await _execute_store_operation(self._container, fetch))
         processed = 0
         for message in messages:
             if await self._dispatch_message(message):
@@ -166,7 +164,7 @@ class OutboxRelay(PollingAgent):
 
                 return True
 
-            processed = _require_committed(await _execute_store_operation(self._container, discard_expired))
+            processed = require_committed(await _execute_store_operation(self._container, discard_expired))
             logger.info(
                 'Discarding expired outbox message %s (expires_at=%s) before send', message.id, metadata.expires_at
             )
@@ -239,7 +237,7 @@ class OutboxRelay(PollingAgent):
 
                     return False
 
-                processed = _require_committed(await _execute_store_operation(self._container, discard))
+                processed = require_committed(await _execute_store_operation(self._container, discard))
                 logger.info('Discarded outbox message %s after %d attempt(s)', message.id, message.retry_count + 1)
                 return processed
             case RetryAction.DEAD_LETTER:
@@ -262,7 +260,7 @@ class OutboxRelay(PollingAgent):
 
             return False
 
-        return _require_committed(await _execute_store_operation(self._container, reschedule))
+        return require_committed(await _execute_store_operation(self._container, reschedule))
 
     async def _handle_exhausted(
         self,

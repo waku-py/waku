@@ -14,6 +14,7 @@ __all__ = [
     'DeadLetterEntry',
     'DeadLetterQuery',
     'DeadLetterStatus',
+    'validate_requested_lease',
 ]
 
 
@@ -116,3 +117,9 @@ class DeadLetterEntry:
             metadata=metadata,
             group_id=group_id,
         )
+
+
+def validate_requested_lease(now: datetime, lease_expires_at: datetime) -> None:
+    if lease_expires_at <= now:
+        msg = 'lease_expires_at must be greater than now'
+        raise ValueError(msg)

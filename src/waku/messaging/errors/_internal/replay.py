@@ -4,7 +4,7 @@ import logging
 import traceback
 from abc import ABC, abstractmethod
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Never, TypeVar, assert_never
+from typing import TYPE_CHECKING, Any, Never, assert_never
 from uuid import UUID, uuid4
 
 import anyio
@@ -20,6 +20,7 @@ from waku._internal.transaction import (
     TransactionFailureKind,
     execute_in_uow_scope,
     extract_transaction_execution_error,
+    require_committed,
 )
 from waku.di import AsyncContainer  # noqa: TC001
 from waku.messaging._internal.dispatcher import MessageDispatcher  # noqa: TC001
@@ -46,9 +47,6 @@ if TYPE_CHECKING:
     from waku.messaging.errors.dead_letter import DeadLetterEntry
 
 logger = logging.getLogger(__name__)
-
-_NOT_DISPATCHED = object()
-_CommittedT = TypeVar('_CommittedT')
 
 
 class _ReplayRenewalError(TransactionExecutionError):
@@ -117,13 +115,14 @@ class ReplayExecution(IReplayExecution):
             msg = f'no registered handler for destination {entry.destination!r}'
             raise RuntimeError(msg)
 
-        dispatch_result: Any = _NOT_DISPATCHED
+        dispatch_completed = False
         try:
             async with self._scopes.fresh_scope() as scope:
                 with message_context_scope(envelope):
-                    dispatch_result = await self._dispatcher.dispatch_to_handler(scope, envelope, handler_type)
+                    await self._dispatcher.dispatch_to_handler(scope, envelope, handler_type)
+                    dispatch_completed = True
         except BaseException as error:
-            if dispatch_result is not _NOT_DISPATCHED:
+            if dispatch_completed:
                 raise TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, error, None) from error
             raise
 
@@ -158,7 +157,7 @@ class ReplayClaimOwner:
             return Commit(entry)
 
         result = await execute_in_uow_scope(self._container, claim)
-        return _require_committed(result)
+        return require_committed(result)
 
     async def claim_replay(self, entry_id: UUID) -> DeadLetterEntry | None:
         now = self._now()
@@ -175,7 +174,7 @@ class ReplayClaimOwner:
             return Commit(entry)
 
         result = await execute_in_uow_scope(self._container, claim)
-        return _require_committed(result)
+        return require_committed(result)
 
     async def replay_claimed(self, entry: DeadLetterEntry, execution: IReplayExecution) -> bool:
         try:
@@ -251,7 +250,7 @@ class ReplayClaimOwner:
             return Commit(renewed)
 
         result = await execute_in_uow_scope(self._container, renew)
-        if not _require_committed(result):
+        if not require_committed(result):
             raise _lost_claim(entry_id)
 
     async def _finalize_replayed(
@@ -311,7 +310,7 @@ class ReplayClaimOwner:
             return Commit(marked)
 
         result = await execute_in_uow_scope(self._container, finalize)
-        if not _require_committed(result):
+        if not require_committed(result):
             raise _lost_claim(entry_id, primary_error=primary_error)
 
     async def _finalize_cancelled(self, entry_id: UUID, error: BaseException) -> None:
@@ -324,16 +323,6 @@ class ReplayClaimOwner:
 
     def _lease_expires_at(self, now: datetime) -> datetime:
         return now + timedelta(seconds=self._config.replay_lease.ttl_seconds)
-
-
-def _require_committed(result: Committed[_CommittedT] | RolledBack[Never] | Aborted) -> _CommittedT:
-    if isinstance(result, Committed):
-        return result.value
-    if isinstance(result, Aborted):
-        raise result.error
-    if isinstance(result, RolledBack):
-        assert_never(result.value)
-    assert_never(result)
 
 
 def _lost_claim(entry_id: UUID, *, primary_error: BaseException | None = None) -> TransactionExecutionError:
