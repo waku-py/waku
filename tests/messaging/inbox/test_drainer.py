@@ -11,12 +11,11 @@ import pytest
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
-from waku._internal.transaction import TransactionCleanupError
+from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
 from waku.di import object_
 from waku.messages import IEvent
 from waku.messaging import EndpointDefaults, MessagingConfig, MessagingExtension, MessagingModule
 from waku.messaging._internal.identity import MessageTypeRegistry
-from waku.messaging._internal.transaction import CompletedExecutionError
 from waku.messaging.durability import IDurabilityStore, IInboxStore
 from waku.messaging.endpoints._internal.execution import (
     ExecutionResult,
@@ -185,10 +184,11 @@ class _CapturingExecutor(_StubExecutor):
         return _intent(ExecutionOutcome.SUCCESS)
 
 
-class _CleanupFailingExecutor(IEndpointExecution):
-    def __init__(self, rollback_error: Exception) -> None:
+class _FatalRollbackExecutor(IEndpointExecution):
+    def __init__(self, rollback_error: Exception, primary_error: Exception) -> None:
         self.calls = 0
         self.rollback_error = rollback_error
+        self.primary_error = primary_error
 
     @override
     async def execute(
@@ -197,7 +197,11 @@ class _CleanupFailingExecutor(IEndpointExecution):
         handler_type: HandlerType,
     ) -> TerminalIntent:
         self.calls += 1
-        raise TransactionCleanupError(RuntimeError('handler failed'), self.rollback_error)
+        raise TransactionExecutionError(
+            TransactionFailureKind.ROLLBACK_FAILED,
+            self.rollback_error,
+            self.primary_error,
+        )
 
     @override
     async def emit_terminal(
@@ -212,7 +216,7 @@ class _CleanupFailingExecutor(IEndpointExecution):
         await on_result(result.outcome, intent.error)
 
 
-class _CompletedFailingExecutor(IEndpointExecution):
+class _FatalAfterCommitExecutor(IEndpointExecution):
     def __init__(self, teardown_error: Exception) -> None:
         self.calls = 0
         self.teardown_error = teardown_error
@@ -224,7 +228,7 @@ class _CompletedFailingExecutor(IEndpointExecution):
         handler_type: HandlerType,
     ) -> TerminalIntent:
         self.calls += 1
-        raise CompletedExecutionError(self.teardown_error)
+        raise TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, self.teardown_error, None)
 
     @override
     async def emit_terminal(
@@ -284,19 +288,22 @@ async def test_drain_executes_and_marks_handled_on_success() -> None:
     assert inbox.entries[entry.id, entry.destination].status is InboxStatus.HANDLED
 
 
-async def test_drain_stops_batch_when_handler_transaction_cleanup_fails() -> None:
+async def test_drain_stops_batch_when_handler_rollback_fails_fatally() -> None:
     inbox = FakeInboxStore()
     _abandoned_entry(inbox)
     _abandoned_entry(inbox)
     rollback_error = RuntimeError('rollback failed')
-    executor = _CleanupFailingExecutor(rollback_error)
+    primary_error = RuntimeError('handler failed')
+    executor = _FatalRollbackExecutor(rollback_error, primary_error)
 
     async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
-        with pytest.raises(TransactionCleanupError) as raised:
+        with pytest.raises(TransactionExecutionError) as raised:
             await _drainer(container, executor).drain_once()
 
-    assert raised.value.rollback_error is rollback_error
-    assert executor.calls == 1
+    assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+    assert raised.value.error is rollback_error
+    assert raised.value.primary_error is primary_error
+    assert executor.calls == 1  # the fatal signal stops the drain before the second entry
 
 
 async def test_drain_stops_batch_after_committed_handler_scope_teardown_fails() -> None:
@@ -304,12 +311,13 @@ async def test_drain_stops_batch_after_committed_handler_scope_teardown_fails() 
     _abandoned_entry(inbox)
     _abandoned_entry(inbox)
     teardown_error = RuntimeError('request scope teardown failed')
-    executor = _CompletedFailingExecutor(teardown_error)
+    executor = _FatalAfterCommitExecutor(teardown_error)
 
     async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
-        with pytest.raises(CompletedExecutionError) as raised:
+        with pytest.raises(TransactionExecutionError) as raised:
             await _drainer(container, executor).drain_once()
 
+    assert raised.value.kind is TransactionFailureKind.AFTER_COMMIT
     assert raised.value.error is teardown_error
     assert executor.calls == 1
 
@@ -433,6 +441,42 @@ async def test_drain_logs_and_continues_when_an_entry_raises() -> None:
     assert processed == 1
     assert inbox.entries[good.id, good.destination].status is InboxStatus.HANDLED
     assert inbox.entries[poison.id, poison.destination].status is InboxStatus.INCOMING
+
+
+async def test_drain_claim_scope_failed_rollback_is_fatal() -> None:
+    # The claim transaction fails and its rollback also fails: uniformly fatal, never a recoverable
+    # empty batch — the drain must surface TransactionExecutionError before iterating any entry.
+    inbox = FakeInboxStore()
+    inbox.fetch_pending_error = RuntimeError('fetch failed')
+    rollback_error = RuntimeError('rollback failed')
+    executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+
+    async with make_async_container(_Deps(inbox, RecordingUoW(rollback_error=rollback_error))) as container:
+        with pytest.raises(TransactionExecutionError) as raised:
+            await _drainer(container, executor).drain_once()
+
+    assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+    assert raised.value.error is rollback_error
+    assert executor.calls == []
+
+
+async def test_drain_poison_increment_failed_rollback_is_fatal() -> None:
+    # A poison row bumps attempts under a fresh transaction; if that transaction's rollback fails it is
+    # fatal (not log-and-continue), so a broken cleanup stops the drain instead of masquerading as an
+    # isolated per-entry error.
+    inbox = _IncrementRaisesStore()
+    _abandoned_entry(inbox, destination='tests.GoneHandler')
+    rollback_error = RuntimeError('rollback failed')
+    executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+
+    async with make_async_container(_Deps(inbox, RecordingUoW(rollback_error=rollback_error))) as container:
+        with pytest.raises(TransactionExecutionError) as raised:
+            await _drainer(container, executor, max_attempts=3).drain_once()
+
+    assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+    assert raised.value.error is rollback_error
+    assert isinstance(raised.value.primary_error, ConnectionError)
+    assert executor.calls == []
 
 
 async def test_drain_requeue_outcome_under_cap_bumps_attempts_and_leaves_claimed() -> None:

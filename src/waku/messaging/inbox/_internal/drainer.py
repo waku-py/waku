@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Never, TypeVar, assert_never
 
-from waku._internal.transaction import TransactionCleanupError, unit_of_work_scope
+from waku._internal.transaction import (
+    Aborted,
+    Commit,
+    Committed,
+    RolledBack,
+    TransactionDecision,
+    TransactionExecutionError,
+    execute_in_uow_scope,
+)
 from waku.messaging._internal.identity import MessageTypeRegistry
-from waku.messaging._internal.transaction import CompletedExecutionError
 from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints._internal.execution import (
     EndpointExecutionFactory,
@@ -23,7 +30,7 @@ from waku.messaging.transport._internal.wire import rebuild_envelope, wire_metad
 from waku.serialization.codec import PayloadCodec
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Mapping, Sequence
     from datetime import timedelta
 
     from dishka import AsyncContainer
@@ -36,6 +43,18 @@ if TYPE_CHECKING:
 __all__ = ['InboxDrainer', 'build_inbox_drainer']
 
 logger = logging.getLogger(__name__)
+
+_CommittedT = TypeVar('_CommittedT')
+
+
+def _require_committed(result: Committed[_CommittedT] | RolledBack[Never] | Aborted) -> _CommittedT:
+    if isinstance(result, Committed):
+        return result.value
+    if isinstance(result, Aborted):
+        raise result.error
+    if isinstance(result, RolledBack):
+        assert_never(result.value)
+    assert_never(result)
 
 
 class InboxPoisonError(Exception):
@@ -88,15 +107,20 @@ class InboxDrainer:
         self._max_attempts = max_attempts
 
     async def drain_once(self) -> int:
-        async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
+        async def claim(scope: AsyncContainer) -> TransactionDecision[Sequence[InboxEntry], Never]:
             inbox = await scope.get(IInboxStore)
-            entries = await inbox.fetch_pending_partitioned(self._batch_size, self._owner_id)
+            return Commit(await inbox.fetch_pending_partitioned(self._batch_size, self._owner_id))
+
+        entries = _require_committed(await execute_in_uow_scope(self._container, claim))
         processed = 0
         for entry in entries:
             try:
                 if await self._process(entry):
                     processed += 1
-            except (CompletedExecutionError, TransactionCleanupError):
+            except TransactionExecutionError:
+                # A failed rollback or post-commit teardown is fatal: stop the drain before the next row
+                # rather than log-and-continue, so a broken transaction never masquerades as an isolated
+                # per-entry error (mirrors the worker/listener isolation boundary).
                 raise
             except Exception:
                 logger.exception('Unhandled error draining inbox entry %s/%s', entry.id, entry.destination)
@@ -176,17 +200,21 @@ class InboxDrainer:
                 reason,
             )
             return result
-        async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
+
+        async def increment(scope: AsyncContainer) -> TransactionDecision[None, Never]:
             inbox = await scope.get(IInboxStore)
             await inbox.increment_attempts(entry.id, entry.destination)
-            logger.warning(
-                'Poison inbox row id=%s destination=%r (attempt %d/%d): %s',
-                entry.id,
-                entry.destination,
-                attempt,
-                self._max_attempts,
-                reason,
-            )
+            return Commit(None)
+
+        _require_committed(await execute_in_uow_scope(self._container, increment))
+        logger.warning(
+            'Poison inbox row id=%s destination=%r (attempt %d/%d): %s',
+            entry.id,
+            entry.destination,
+            attempt,
+            self._max_attempts,
+            reason,
+        )
         return None
 
 

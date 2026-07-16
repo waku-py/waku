@@ -2,13 +2,20 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Never, TypeVar, assert_never
 
 import anyio
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
-from waku._internal.transaction import unit_of_work_scope
+from waku._internal.transaction import (
+    Aborted,
+    Commit,
+    Committed,
+    RolledBack,
+    TransactionDecision,
+    execute_in_uow_scope,
+)
 from waku.messaging._internal.partition import resolve_group_id
 from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
@@ -40,6 +47,18 @@ logger = logging.getLogger(__name__)
 __all__ = [
     'DurableLocalQueueEndpoint',
 ]
+
+_CommittedT = TypeVar('_CommittedT')
+
+
+def _require_committed(result: Committed[_CommittedT] | RolledBack[Never] | Aborted) -> _CommittedT:
+    if isinstance(result, Committed):
+        return result.value
+    if isinstance(result, Aborted):
+        raise result.error
+    if isinstance(result, RolledBack):
+        assert_never(result.value)
+    assert_never(result)
 
 
 class DurableLocalQueueEndpoint(Endpoint):
@@ -133,7 +152,8 @@ class DurableLocalQueueEndpoint(Endpoint):
         scheduled: datetime,
     ) -> None:
         group_id = resolve_group_id(envelope, self._partition_by)  # partition resolved; sequence deferred
-        async with unit_of_work_scope(self._container) as write_scope:
+
+        async def write(write_scope: AsyncContainer) -> TransactionDecision[None, Never]:
             inbox = await write_scope.get(IInboxStore)
             codec = await write_scope.get(PayloadCodec)
             payload = encode_payload(envelope, codec)
@@ -157,6 +177,9 @@ class DurableLocalQueueEndpoint(Endpoint):
                         metadata=metadata,
                     )
                 )
+            return Commit(None)
+
+        _require_committed(await execute_in_uow_scope(self._container, write))
 
     @override
     async def start(self) -> None:

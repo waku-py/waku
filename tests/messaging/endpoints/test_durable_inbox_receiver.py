@@ -619,6 +619,28 @@ class TestDurableInboxReceiverPersist:
         assert fresh == handler_types
 
     @staticmethod
+    async def test_persist_failed_rollback_is_fatal() -> None:
+        # The persist transaction commits the inbox rows; if that commit fails and its rollback also
+        # fails, the loss is uniformly fatal — a TransactionExecutionError(ROLLBACK_FAILED) that carries
+        # the primary, not a silently-logged rollback that lets an unwritten inbox pass as persisted.
+        inbox = FakeInboxStore()
+        commit_error = RuntimeError('commit failed')
+        rollback_error = RuntimeError('rollback failed')
+        uow = RecordingUoW(commit_error=commit_error, rollback_error=rollback_error)
+        async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore(), uow)) as container:
+            receiver = _receiver(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS))
+            envelope = make_envelope(_Event(kind='OrderPlaced'))
+
+            with pytest.raises(TransactionExecutionError) as raised:
+                await receiver.persist(envelope, frozenset([_Handler]))
+
+        fatal = extract_transaction_execution_error(raised.value)
+        assert fatal is not None
+        assert fatal.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert fatal.error is rollback_error
+        assert fatal.primary_error is commit_error
+
+    @staticmethod
     async def test_persist_re_persisting_same_id_and_handler_returns_empty() -> None:
         inbox = FakeInboxStore()
         async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:

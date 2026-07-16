@@ -10,7 +10,6 @@ from waku._internal.transaction import (
     RolledBack,
     TransactionDecision,
     execute_in_uow_scope,
-    unit_of_work_scope,
 )
 from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints._internal.execution import ExecutionResult, TerminalIntent, TerminalIntentKind
@@ -84,7 +83,7 @@ async def _apply_non_dead_letter_outcome(
     intent: TerminalIntent,
     keep_after_handled: timedelta,
 ) -> ExecutionResult:
-    async with unit_of_work_scope(container, rollback_failure_is_primary=True) as scope:
+    async def apply(scope: AsyncContainer) -> TransactionDecision[ExecutionResult, Never]:
         inbox = await scope.get(IInboxStore)
         match intent.kind:
             case TerminalIntentKind.SUCCESS:
@@ -107,4 +106,13 @@ async def _apply_non_dead_letter_outcome(
                 raise AssertionError(msg)  # pragma: no cover
             case _ as unreachable:  # pragma: no cover
                 assert_never(unreachable)
-    return ExecutionResult(outcome)
+        return Commit(ExecutionResult(outcome))
+
+    result = await execute_in_uow_scope(container, apply)
+    if isinstance(result, Committed):
+        return result.value
+    if isinstance(result, Aborted):
+        raise result.error
+    if isinstance(result, RolledBack):
+        assert_never(result.value)
+    assert_never(result)

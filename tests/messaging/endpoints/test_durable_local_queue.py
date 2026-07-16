@@ -6,10 +6,16 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import anyio.lowlevel
+import pytest
 from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
+from waku._internal.transaction import (
+    TransactionExecutionError,
+    TransactionFailureKind,
+    extract_transaction_execution_error,
+)
 from waku.messages import IEvent
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
 from waku.messaging.durability import IDeadLetterStore, IInboxStore
@@ -176,12 +182,13 @@ class _EndpointDepsProvider(Provider):
         inbox: IInboxStore,
         dlq: IDeadLetterStore,
         allocator: ISequenceAllocator | None = None,
+        uow: IUnitOfWork | None = None,
     ) -> None:
         super().__init__()
         self._inbox = inbox
         self._dlq = dlq
         self._codec = make_codec()
-        self._uow: IUnitOfWork = RecordingUoW()
+        self._uow: IUnitOfWork = uow or RecordingUoW()
         self._allocator = allocator or RecordingAllocator()
 
     @provide
@@ -531,6 +538,70 @@ class TestDurableLocalQueueScheduled:
         assert entry.group_id == 'shipments'  # partition resolved at dispatch
         assert entry.sequence_number is None  # but allocation deferred to promotion (BLOCKER 1)
         assert allocator.calls == []
+
+    @staticmethod
+    async def test_scheduled_persist_failed_rollback_is_fatal() -> None:
+        # The SCHEDULED-row write commits; if that commit fails and its rollback also fails, the loss is
+        # uniformly fatal — TransactionExecutionError(ROLLBACK_FAILED) carrying the primary, not a
+        # silently-logged rollback that drops a scheduled message without a trace.
+        inbox = FakeInboxStore()
+        commit_error = RuntimeError('commit failed')
+        rollback_error = RuntimeError('rollback failed')
+        uow = RecordingUoW(commit_error=commit_error, rollback_error=rollback_error)
+        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore(), uow=uow)) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+            endpoint = _endpoint(
+                container,
+                executor,
+                frozenset([_NoopHandler]),
+                now=lambda: TestDurableLocalQueueScheduled._NOW,
+            )
+            await endpoint.start()
+            try:
+                scheduled = TestDurableLocalQueueScheduled._NOW + timedelta(hours=1)
+                async with container() as scope:
+                    with pytest.raises(TransactionExecutionError) as raised:
+                        await endpoint.dispatch(
+                            make_envelope(_DomainEvent(kind='later'), scheduled_time=scheduled), scope
+                        )
+            finally:
+                await endpoint.stop()
+
+        fatal = extract_transaction_execution_error(raised.value)
+        assert fatal is not None
+        assert fatal.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert fatal.error is rollback_error
+        assert fatal.primary_error is commit_error
+
+    @staticmethod
+    async def test_scheduled_persist_commit_failure_rolls_back_and_surfaces_primary() -> None:
+        # Commit fails but the rollback is clean: the scheduled write is discarded and the primary commit
+        # failure surfaces unchanged (not a fatal signal), so a fresh dispatch can be retried.
+        inbox = FakeInboxStore()
+        commit_error = RuntimeError('commit failed')
+        uow = RecordingUoW(commit_error=commit_error)
+        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore(), uow=uow)) as container:
+            executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+            endpoint = _endpoint(
+                container,
+                executor,
+                frozenset([_NoopHandler]),
+                now=lambda: TestDurableLocalQueueScheduled._NOW,
+            )
+            await endpoint.start()
+            try:
+                scheduled = TestDurableLocalQueueScheduled._NOW + timedelta(hours=1)
+                async with container() as scope:
+                    with pytest.raises(RuntimeError, match='commit failed') as raised:
+                        await endpoint.dispatch(
+                            make_envelope(_DomainEvent(kind='later'), scheduled_time=scheduled), scope
+                        )
+            finally:
+                await endpoint.stop()
+
+        assert raised.value is commit_error
+        assert uow.commit_count == 0  # commit raised before recording
+        assert uow.rollback_count == 1  # the failed write was cleanly rolled back
 
     @staticmethod
     async def test_past_scheduled_time_dispatches_immediately() -> None:
