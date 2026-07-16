@@ -16,7 +16,6 @@ from waku.backends.sqlalchemy.inbox.tables import bind_inbox_tables
 from waku.backends.sqlalchemy.outbox.store import SqlAlchemyOutboxStore
 from waku.backends.sqlalchemy.outbox.tables import bind_outbox_tables
 from waku.messages import IEvent
-from waku.messaging._internal.identifiers import EndpointUri, HandlerDestination
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging.errors.dead_letter import (
     DeadLetterDestinationKind,
@@ -24,6 +23,7 @@ from waku.messaging.errors.dead_letter import (
     DeadLetterQuery,
     DeadLetterStatus,
 )
+from waku.messaging.inbox import EndpointUri, HandlerDestination
 from waku.messaging.inbox.models import InboxEntry
 from waku.messaging.outbox.models import OutboxMessage
 from waku.messaging.transport._internal.wire import (

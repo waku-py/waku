@@ -11,7 +11,7 @@ from waku.messages import IEvent
 from waku.messaging.durability import IOutboxStore
 from waku.messaging.endpoints._internal.external import ExternalEndpoint
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers
-from waku.messaging.partition import ISequenceAllocator
+from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization import UpcasterChain
 from waku.serialization.codec import PayloadCodec

@@ -24,6 +24,7 @@ SPI_FACADES: tuple[tuple[str, str], ...] = (
     ('waku.messaging.transport.faststream', 'FastStream-based broker adapters and per-broker mapper contracts.'),
     ('waku.messaging.endpoints', 'The endpoint model and executor animated by routing.'),
     ('waku.messaging.durability', 'Messaging store-port contracts and the durability store composite.'),
+    ('waku.messaging.sequence', 'Per-group durable sequence allocation contracts.'),
     ('waku.messaging.outbox', 'Outbox models and the relay.'),
     ('waku.messaging.inbox', 'Durable inbox models.'),
     ('waku.messaging.errors', 'Error policies, dead-letter models, replay, and the DLQ worker.'),

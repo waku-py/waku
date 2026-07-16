@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from waku.messaging.errors.dead_letter import DeadLetterEntry
-    from waku.messaging.partition import ISequenceAllocator
+    from waku.messaging.sequence import ISequenceAllocator
 
 __all__ = ['InMemoryInboxStore']
 

@@ -24,8 +24,8 @@ from waku.messaging import (
 from waku.messaging.durability import IInboxStore
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.models import InboxStatus
-from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.router import listen
+from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.testing import MessageTracker, TrackingMessageObserver
 from waku.messaging.transport._internal.wire import encode_payload, envelope_metadata_of
 from waku.messaging.transport.faststream.rabbitmq import DefaultRabbitEnvelopeMapper, FastStreamRabbitTransport

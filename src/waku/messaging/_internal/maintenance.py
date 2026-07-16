@@ -18,7 +18,7 @@ from waku.messaging._internal.polling_agent import AdaptivePace, FixedPace, Plac
 from waku.messaging._internal.transaction import unit_of_work_scope
 from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
 from waku.messaging.errors.replay import ReplayExecutor
-from waku.messaging.partition import ISequenceAllocator
+from waku.messaging.sequence import ISequenceAllocator
 
 if TYPE_CHECKING:
     from dishka import AsyncContainer

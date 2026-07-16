@@ -14,8 +14,8 @@ from waku.extensions import DEFAULT_EXTENSIONS
 from waku.factory import WakuFactory
 from waku.messaging import InboxConfig, MessagingConfig, MessagingModule, TransactionalBehavior
 from waku.messaging.durability import IInboxStore
-from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.router import listen
+from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.transport.faststream.rabbitmq import FastStreamRabbitTransport
 from waku.uow import IUnitOfWork
 

@@ -19,7 +19,7 @@ from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers
-from waku.messaging.partition import ISequenceAllocator
+from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.transport._internal.wire import encode_payload
 from waku.serialization.codec import PayloadCodec
 from waku.uow import IUnitOfWork

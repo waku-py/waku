@@ -5,8 +5,8 @@ from uuid import uuid4
 from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.backends.memory._internal.inbox import InMemoryInboxStore
 from waku.backends.memory._internal.outbox import InMemoryOutboxStore
-from waku.messaging._internal.identifiers import EndpointUri, HandlerDestination
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
+from waku.messaging.inbox import EndpointUri, HandlerDestination
 from waku.messaging.inbox.models import InboxEntry
 from waku.messaging.outbox.models import OutboxMessage
 

@@ -40,9 +40,9 @@ from waku.messaging.exceptions import (
     MultipleHandlersRegisteredError,
     NoRouteError,
 )
-from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.pipeline._internal.plan import BehaviorPlan
 from waku.messaging.router import external_endpoint, listen, local_queue
+from waku.messaging.sequence import ISequenceAllocator
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 

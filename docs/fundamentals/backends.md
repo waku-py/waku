@@ -173,7 +173,7 @@ from waku.backends.sqlalchemy import (
     SqlAlchemyUnitOfWork,
 )
 from waku.di import Has, scoped
-from waku.messaging import ISequenceAllocator, MessagingConfig
+from waku.messaging import MessagingConfig
 from waku.messaging.durability import (
     DefaultDurabilityStore,
     IDeadLetterStore,
@@ -181,6 +181,7 @@ from waku.messaging.durability import (
     IInboxStore,
     IOutboxStore,
 )
+from waku.messaging.sequence import ISequenceAllocator
 from waku.uow import IUnitOfWork
 
 
@@ -229,7 +230,7 @@ A backend is an `is_global=True` module (no exports) with a classmethod `registe
 | Messaging store ports + composite | `waku.messaging.durability` | `IOutboxStore`, `IInboxStore`, `IDeadLetterStore`, `IDurabilityStore`, `DefaultDurabilityStore` |
 | Event-sourcing store ports | `waku.eventsourcing.store` | `IEventStore`, `ISnapshotStore`, `ICheckpointStore` |
 | Committer port | `waku.uow` | `IUnitOfWork` |
-| Sequencing port | `waku.messaging` | `ISequenceAllocator` |
+| Sequencing port | `waku.messaging.sequence` | `ISequenceAllocator` |
 | First-party SQLAlchemy parts | `waku.backends.sqlalchemy` | the store classes, `SqlAlchemySequenceAllocator`, `SqlAlchemyUnitOfWork`, `*Tables` + `bind_*_tables`, `make_sqlalchemy_*`, `EnumFromValues` |
 | Module + DI machinery | `waku`, `waku.di` | `module`, `DynamicModule`; `scoped`, `singleton`, `Has` |
 | Gating configs | `waku.messaging`, `waku.eventsourcing.modules` | `MessagingConfig`, `EventSourcingConfig` |

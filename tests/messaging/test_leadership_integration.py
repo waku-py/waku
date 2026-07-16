@@ -24,12 +24,12 @@ from waku.backends.sqlalchemy import SqlAlchemyBackend
 from waku.di import object_
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging import LeadershipConfig, MessagingConfig, MessagingModule, OutboxConfig
-from waku.messaging._internal.identifiers import EndpointUri, HandlerDestination
 from waku.messaging._internal.maintenance import DurabilityMaintenanceAgent, LeadershipCoordinator
 from waku.messaging.durability import IInboxStore
+from waku.messaging.inbox import EndpointUri, HandlerDestination
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
-from waku.messaging.partition import ISequenceAllocator
+from waku.messaging.sequence import ISequenceAllocator
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 

@@ -19,7 +19,7 @@ from waku.messaging.config import MessagingConfig
 from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore, IOutboxStore
 from waku.messaging.modules import MessagingModule
 from waku.messaging.outbox.models import OutboxMessage
-from waku.messaging.partition import ISequenceAllocator
+from waku.messaging.sequence import ISequenceAllocator
 from waku.modules._internal.metadata import DynamicModule, module
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork

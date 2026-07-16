@@ -8,12 +8,12 @@ import anyio
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
-from waku.messaging._internal.identifiers import EndpointUri
 from waku.messaging._internal.partition import resolve_group_id
 from waku.messaging._internal.transaction import unit_of_work_scope
 from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
 from waku.messaging.endpoints.base import Endpoint
+from waku.messaging.inbox import EndpointUri
 from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload

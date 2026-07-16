@@ -12,7 +12,8 @@ from typing_extensions import override
 from waku.backends.sqlalchemy.dead_letter.tables import dead_letter_insert_values, dead_letter_table
 from waku.backends.sqlalchemy.inbox.tables import inbox_entries_table
 from waku.messaging.durability import IInboxStore
-from waku.messaging.inbox.models import InboxEntry, InboxStatus
+from waku.messaging.inbox import EndpointUri, HandlerDestination, InboxEntry, InboxStatus
+from waku.messaging.sequence import GroupId
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import CursorResult
 
     from waku.messaging.errors.dead_letter import DeadLetterEntry
-    from waku.messaging.partition import ISequenceAllocator
+    from waku.messaging.sequence import ISequenceAllocator
 
 __all__ = ['SqlAlchemyInboxStore']
 
@@ -206,7 +207,7 @@ def _row_to_entry(row: Any) -> InboxEntry:
     return InboxEntry(
         id=row.id,
         payload=row.payload,
-        destination=row.destination,
+        destination=HandlerDestination(row.destination),
         status=InboxStatus(row.status),
         owner_id=row.owner_id,
         correlation_id=row.correlation_id,
@@ -215,9 +216,9 @@ def _row_to_entry(row: Any) -> InboxEntry:
         execution_time=row.execution_time,
         attempts=row.attempts,
         message_type=row.message_type,
-        source_uri=row.source_uri,
+        source_uri=EndpointUri(row.source_uri),
         keep_until=row.keep_until,
-        group_id=row.group_id,
+        group_id=GroupId(row.group_id) if row.group_id is not None else None,
         sequence_number=row.sequence_number,
         created_at=row.created_at,
         updated_at=row.updated_at,

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 from typing_extensions import override
 
 from waku.backends.sqlalchemy.sequence.tables import message_sequences_table
-from waku.messaging.partition import ISequenceAllocator
+from waku.messaging.sequence import GroupId, ISequenceAllocator
 
 __all__ = ['SqlAlchemySequenceAllocator']
 
@@ -22,7 +22,7 @@ class SqlAlchemySequenceAllocator(ISequenceAllocator):
         self._session = session
 
     @override
-    async def allocate(self, group_id: str) -> int:
+    async def allocate(self, group_id: GroupId) -> int:
         # INSERT ... ON CONFLICT DO UPDATE takes a row-level lock on `message_sequences(group_id)`:
         # concurrent allocations for the SAME group serialize on that lock, so no two committed rows
         # in a group share a sequence number and none can be skipped. The store never commits — the

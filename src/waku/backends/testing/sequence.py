@@ -6,7 +6,7 @@ import pytest
 
 from waku.messaging.config import MessagingConfig
 from waku.messaging.modules import MessagingModule
-from waku.messaging.partition import ISequenceAllocator
+from waku.messaging.sequence import GroupId, ISequenceAllocator
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
@@ -20,9 +20,7 @@ __all__ = ['SequenceAllocatorContract']
 
 
 async def _allocate(allocator: ISequenceAllocator, group_id: str) -> int:
-    # GroupId is a messaging-internal NewType over str; the kit stays outside that privacy
-    # boundary, so the port call is funneled through this seam instead of importing the NewType.
-    return await allocator.allocate(group_id)  # type: ignore[arg-type]  # pyrefly: ignore[bad-argument-type]
+    return await allocator.allocate(GroupId(group_id))
 
 
 class SequenceAllocatorContract:

@@ -16,8 +16,8 @@ from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.observability.observer import MessageObservers
 from waku.messaging.outbox.relay import OutboxRelayConfig, build_relay_default_policy
-from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicyRegistry
+from waku.messaging.sequence import GroupId, ISequenceAllocator
 from waku.messaging.transport._internal.registry import TransportRegistry
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper, ITransport, Subscription
 from waku.serialization import UpcasterChain
@@ -249,11 +249,11 @@ class RecordingAllocator(ISequenceAllocator):
     """ISequenceAllocator double: records group_ids in ``calls`` and returns per-group sequences."""
 
     def __init__(self) -> None:
-        self.calls: list[str] = []
-        self._counters: dict[str, int] = {}
+        self.calls: list[GroupId] = []
+        self._counters: dict[GroupId, int] = {}
 
     @override
-    async def allocate(self, group_id: str) -> int:
+    async def allocate(self, group_id: GroupId) -> int:
         self.calls.append(group_id)
         self._counters[group_id] = self._counters.get(group_id, 0) + 1
         return self._counters[group_id]

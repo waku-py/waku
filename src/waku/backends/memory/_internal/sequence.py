@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing_extensions import override
 
-from waku.messaging.partition import ISequenceAllocator
+from waku.messaging.sequence import GroupId, ISequenceAllocator
 
 __all__ = ['InMemorySequenceAllocator']
 
@@ -18,9 +18,9 @@ class InMemorySequenceAllocator(ISequenceAllocator):
     __slots__ = ('_counters',)
 
     def __init__(self) -> None:
-        self._counters: dict[str, int] = {}
+        self._counters: dict[GroupId, int] = {}
 
     @override
-    async def allocate(self, group_id: str) -> int:
+    async def allocate(self, group_id: GroupId) -> int:
         self._counters[group_id] = self._counters.get(group_id, 0) + 1
         return self._counters[group_id]

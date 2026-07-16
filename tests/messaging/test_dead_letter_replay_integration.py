@@ -19,7 +19,6 @@ from waku.messaging import (
     IMessageBus,
     InboxConfig,
     IRequest,
-    ISequenceAllocator,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
@@ -43,6 +42,7 @@ from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.outbox import OutboxRelayConfig
 from waku.messaging.router import external_endpoint, local_queue, route
+from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper, ITransport, Subscription
 from waku.serialization.codec import PayloadCodec

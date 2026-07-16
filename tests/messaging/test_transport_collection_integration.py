@@ -29,8 +29,8 @@ from waku.messaging import (
 from waku.messaging.durability import IInboxStore, IOutboxStore
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.models import InboxStatus
-from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.router import listen
+from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.transport.faststream.rabbitmq import FastStreamRabbitTransport
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork

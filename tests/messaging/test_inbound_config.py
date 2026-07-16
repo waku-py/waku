@@ -13,8 +13,8 @@ from waku.messaging.durability import IInboxStore
 from waku.messaging.inbox.backpressure import BufferingLimits
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.modules import MessagingModule
-from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.router import listen
+from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.transport.inbound import ConsumeCallback
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper, ITransport, Subscription
 from waku.testing import create_test_app

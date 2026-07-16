@@ -13,18 +13,18 @@ from typing_extensions import override
 from waku.di import object_
 from waku.messages import IEvent
 from waku.messaging import EndpointDefaults, MessagingConfig, MessagingExtension, MessagingModule
-from waku.messaging._internal.identifiers import EndpointUri, HandlerDestination
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionResult
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore
 from waku.messaging.handler import EventHandler
+from waku.messaging.inbox import EndpointUri, HandlerDestination
 from waku.messaging.inbox._internal.drainer import InboxDrainer, build_inbox_drainer
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
-from waku.messaging.partition import ISequenceAllocator
+from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app

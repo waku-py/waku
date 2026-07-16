@@ -6,10 +6,10 @@ from uuid import uuid4
 from waku.backends.memory import MemoryBackend
 from waku.backends.memory._internal.inbox import InMemoryInboxStore
 from waku.messaging import MessagingConfig, MessagingModule, OutboxConfig
-from waku.messaging._internal.identifiers import EndpointUri, HandlerDestination
 from waku.messaging._internal.maintenance import DurabilityMaintenanceLifecycleExtension
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.durability import IInboxStore
+from waku.messaging.inbox import EndpointUri, HandlerDestination
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 from waku.testing import create_test_app

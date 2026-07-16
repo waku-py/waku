@@ -18,12 +18,12 @@ from waku.messaging import (
     local_queue,
     route,
 )
-from waku.messaging._internal.identifiers import EndpointUri
 from waku.messaging.durability import IInboxStore
+from waku.messaging.inbox import EndpointUri
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
-from waku.messaging.partition import ISequenceAllocator
+from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app

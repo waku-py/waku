@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import pytest
@@ -10,26 +10,39 @@ from typing_extensions import override
 from waku.messages import IEvent
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.handler import EventHandler
-from waku.messaging.inbox.destination import handler_destination
-from waku.messaging.inbox.models import InboxEntry
+from waku.messaging.inbox import EndpointUri, HandlerDestination, InboxEntry, handler_destination
+from waku.messaging.sequence import GroupId
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from waku.messaging.durability import IInboxStore
 
 __all__ = ['InboxStoreContract']
 
 
-def _make_entry(**overrides: object) -> InboxEntry:
-    defaults = {
-        'id': uuid4(),
-        'payload': {'test': True},
-        'message_type': 'test.Event',
-        'source_uri': 'local://orders',
-        'destination': 'tests.messaging.HandlerA',
-        'correlation_id': str(uuid4()),
-        'causation_id': str(uuid4()),
-    }
-    return InboxEntry(**(defaults | overrides))  # type: ignore[arg-type]
+def _make_entry(
+    *,
+    entry_id: UUID | None = None,
+    destination: str = 'tests.messaging.HandlerA',
+    group_id: str | None = None,
+    sequence_number: int | None = None,
+    correlation_id: str | None = None,
+    causation_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> InboxEntry:
+    return InboxEntry(
+        id=entry_id or uuid4(),
+        payload={'test': True},
+        message_type='test.Event',
+        source_uri=EndpointUri('local://orders'),
+        destination=HandlerDestination(destination),
+        correlation_id=correlation_id or str(uuid4()),
+        causation_id=causation_id or str(uuid4()),
+        metadata=metadata,
+        group_id=GroupId(group_id) if group_id is not None else None,
+        sequence_number=sequence_number,
+    )
 
 
 def _dead_letter_for(entry: InboxEntry) -> DeadLetterEntry:
@@ -92,7 +105,7 @@ class InboxStoreContract:
 
     async def test_store_incoming_same_id_different_destination_both_stored(self, inbox_store: IInboxStore) -> None:
         first = _make_entry(destination='tests.messaging.HandlerA')
-        second = _make_entry(id=first.id, destination='tests.messaging.HandlerB')
+        second = _make_entry(entry_id=first.id, destination='tests.messaging.HandlerB')
         assert await inbox_store.store_incoming(first) is True
         assert await inbox_store.store_incoming(second) is True
 
@@ -110,7 +123,7 @@ class InboxStoreContract:
         removed = await inbox_store.cleanup_handled(datetime.now(tz=UTC))
         assert removed == 1
         # the row is fully purged: re-storing the same (id, destination) is no longer a duplicate
-        assert await inbox_store.store_incoming(_make_entry(id=entry.id, destination=entry.destination)) is True
+        assert await inbox_store.store_incoming(_make_entry(entry_id=entry.id, destination=entry.destination)) is True
 
     async def test_fetch_pending_partitioned_returns_one_head_per_group(self, inbox_store: IInboxStore) -> None:
         await inbox_store.store_incoming(_make_entry(group_id='A', sequence_number=2))
@@ -201,7 +214,7 @@ class InboxStoreContract:
 
     async def test_delete_removes_only_that_destination_row(self, inbox_store: IInboxStore) -> None:
         first = _make_entry(destination='tests.messaging.HandlerA')
-        sibling = _make_entry(id=first.id, destination='tests.messaging.HandlerB')
+        sibling = _make_entry(entry_id=first.id, destination='tests.messaging.HandlerB')
         await inbox_store.store_incoming(first)
         await inbox_store.store_incoming(sibling)
 
@@ -210,7 +223,7 @@ class InboxStoreContract:
         claimed = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
         assert [(e.id, e.destination) for e in claimed] == [(sibling.id, 'tests.messaging.HandlerB')]
         # the deleted row is fully purged: the same (id, destination) is storable again
-        assert await inbox_store.store_incoming(_make_entry(id=first.id, destination=first.destination)) is True
+        assert await inbox_store.store_incoming(_make_entry(entry_id=first.id, destination=first.destination)) is True
 
     async def test_move_to_dead_letter_deletes_entry(self, inbox_store: IInboxStore) -> None:
         entry = _make_entry()
@@ -218,7 +231,7 @@ class InboxStoreContract:
 
         await inbox_store.move_to_dead_letter(entry.id, entry.destination, _dead_letter_for(entry))
         # the inbox row is deleted: the same (id, destination) is storable again (not a duplicate)
-        assert await inbox_store.store_incoming(_make_entry(id=entry.id, destination=entry.destination)) is True
+        assert await inbox_store.store_incoming(_make_entry(entry_id=entry.id, destination=entry.destination)) is True
 
     async def test_p2_columns_correlation_causation_metadata_round_trip(self, inbox_store: IInboxStore) -> None:
         # Contract: P2 decomposition columns survive the persist→fetch cycle for both fake and SQLAlchemy stores.

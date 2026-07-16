@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery
     from waku.messaging.inbox.models import InboxEntry
     from waku.messaging.outbox.models import OutboxMessage
-    from waku.messaging.partition import ISequenceAllocator
+    from waku.messaging.sequence import ISequenceAllocator
 
 __all__ = [
     'IDeadLetterStore',

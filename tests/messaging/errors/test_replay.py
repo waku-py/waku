@@ -18,8 +18,8 @@ from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLet
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.destination import handler_destination
-from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.router import MessageRouter, external_endpoint, listen
+from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork

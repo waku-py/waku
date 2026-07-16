@@ -6,8 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from waku.messaging._internal.identifiers import EndpointUri, HandlerDestination
-from waku.messaging.inbox.models import InboxEntry, InboxStatus
+from waku.messaging.inbox import EndpointUri, HandlerDestination, InboxEntry, InboxStatus
 
 
 def _make_entry(**overrides: Any) -> InboxEntry:

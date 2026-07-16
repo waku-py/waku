@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 import anyio
 
 from waku.messaging._internal.circuit_breaker import CircuitBreaker, PassthroughCircuitBreaker
-from waku.messaging._internal.identifiers import EndpointUri
 from waku.messaging._internal.partition import resolve_and_allocate
 from waku.messaging._internal.transaction import unit_of_work_scope
 from waku.messaging.durability import IInboxStore
@@ -16,6 +15,7 @@ from waku.messaging.endpoints._internal.redelivery import RedeliveryCoordinator,
 from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.exceptions import RequeueBudgetExceededError
+from waku.messaging.inbox import EndpointUri
 from waku.messaging.inbox._internal.finalize import apply_inbox_outcome
 from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.inbox.models import InboxEntry

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from waku.messaging._internal.identifiers import HandlerDestination
+from waku.messaging.inbox.identifiers import HandlerDestination
 
 if TYPE_CHECKING:
     from waku.messaging.contracts.handler import HandlerType

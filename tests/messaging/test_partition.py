@@ -6,9 +6,8 @@ from typing import TYPE_CHECKING, Any, cast
 from typing_extensions import override
 
 from waku.messages import IEvent
-from waku.messaging._internal.identifiers import GroupId
 from waku.messaging._internal.partition import resolve_and_allocate, resolve_group_id
-from waku.messaging.partition import ISequenceAllocator
+from waku.messaging.sequence import GroupId, ISequenceAllocator
 
 from tests.messaging.helpers import make_envelope
 

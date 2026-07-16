@@ -40,7 +40,7 @@ from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
-from waku.messaging.partition import ISequenceAllocator
+from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.transport._internal.wire import encode_payload
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper
 from waku.testing import create_test_app

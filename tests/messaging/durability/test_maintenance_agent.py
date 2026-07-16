@@ -22,7 +22,7 @@ from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLet
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.outbox.relay import OutboxRelayConfig
-from waku.messaging.partition import ISequenceAllocator
+from waku.messaging.sequence import ISequenceAllocator
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until

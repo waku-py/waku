@@ -20,7 +20,6 @@ from waku.di import object_
 from waku.messages import IEvent
 from waku.messaging import (
     InboxConfig,
-    ISequenceAllocator,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
@@ -32,6 +31,7 @@ from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.backpressure import BufferingLimits
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.router import listen
+from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.transport._internal.wire import encode_payload, envelope_metadata_of
 from waku.messaging.transport.inbound import ConsumeDisposition
 from waku.messaging.transport.interfaces import IEnvelopeMapper, ITransport, Subscription

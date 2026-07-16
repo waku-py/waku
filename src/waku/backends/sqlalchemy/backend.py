@@ -45,7 +45,7 @@ from waku.messaging.durability import (
     IInboxStore,
     IOutboxStore,
 )
-from waku.messaging.partition import ISequenceAllocator
+from waku.messaging.sequence import ISequenceAllocator
 from waku.modules import ModuleMetadataRegistry
 from waku.modules._internal.metadata import DynamicModule, ModuleType, module
 from waku.serialization.upcasting.chain import UpcasterChain

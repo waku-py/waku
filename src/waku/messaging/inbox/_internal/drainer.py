@@ -20,10 +20,10 @@ if TYPE_CHECKING:
 
     from dishka import AsyncContainer
 
-    from waku.messaging._internal.identifiers import HandlerDestination
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.endpoints.executor import EndpointExecutor
     from waku.messaging.inbox.config import InboxConfig
+    from waku.messaging.inbox.identifiers import HandlerDestination
     from waku.messaging.inbox.models import InboxEntry
 
 __all__ = ['InboxDrainer', 'build_inbox_drainer']

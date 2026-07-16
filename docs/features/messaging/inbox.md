@@ -57,7 +57,7 @@ Ordering is per group. A message carries a **group key** when you set `group_id`
 
 - **Keyed** messages are assigned a sequence number and drained **head-of-queue** — strict FIFO
   within the group. The number is allocated by an `ISequenceAllocator`
-  (`waku.messaging.partition.ISequenceAllocator`), provided by your
+  (`waku.messaging.sequence.ISequenceAllocator`), provided by your
   [durability backend](../../fundamentals/backends.md), not by you. It allocates the next
   number in the **same transaction** as the row insert, so the sequence is co-committed and ordering
   holds across pods sharing one database.

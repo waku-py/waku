@@ -8,7 +8,8 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
-    from waku.messaging._internal.identifiers import EndpointUri, GroupId, HandlerDestination
+    from waku.messaging.inbox.identifiers import EndpointUri, HandlerDestination
+    from waku.messaging.sequence import GroupId
 
 __all__ = [
     'InboxEntry',

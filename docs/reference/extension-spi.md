@@ -73,6 +73,13 @@ Messaging store-port contracts and the durability store composite.
 `IInboxStore` ·
 `IOutboxStore`
 
+## `waku.messaging.sequence`
+
+Per-group durable sequence allocation contracts.
+
+`GroupId` ·
+`ISequenceAllocator`
+
 ## `waku.messaging.outbox`
 
 Outbox models and the relay.
@@ -86,6 +93,8 @@ Outbox models and the relay.
 
 Durable inbox models.
 
+`EndpointUri` ·
+`HandlerDestination` ·
 `InboxEntry` ·
 `InboxStatus` ·
 `handler_destination`

@@ -17,22 +17,21 @@ from waku.messaging import (
     IMessageBus,
     IMessageObserver,
     InboxConfig,
-    ISequenceAllocator,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
     TransactionalBehavior,
 )
-from waku.messaging._internal.identifiers import EndpointUri
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.endpoints.base import EndpointMode
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.handler import EventHandler
-from waku.messaging.inbox import InboxStatus
+from waku.messaging.inbox import EndpointUri, InboxStatus
 from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.inbox.models import InboxEntry
 from waku.messaging.router import local_queue, route
+from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app

@@ -76,7 +76,6 @@ from waku.messaging.observability.logging_observer import LoggingMessageObserver
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers, ObserverPlan
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.outgoing import IOutgoingMessages, IOutgoingMessagesFrames, OutgoingMessages
-from waku.messaging.partition import ISequenceAllocator
 from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
 from waku.messaging.pipeline._internal.plan import BehaviorPlan, build_behavior_plan
 from waku.messaging.pipeline._internal.policies import (
@@ -90,6 +89,7 @@ from waku.messaging.pipeline._internal.policies import (
 from waku.messaging.pipeline.policy import BehaviorPolicyExtension, IBehaviorPolicy
 from waku.messaging.router import MessageRouter, RoutingTable
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicyRegistry
+from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.transport._internal.registry import TransportRegistry, resolve_default_scheme, split_destination
 from waku.modules import ModuleMetadataRegistry
 from waku.modules._internal.metadata import DynamicModule, module

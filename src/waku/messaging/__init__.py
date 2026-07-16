@@ -34,7 +34,7 @@ from waku.messaging.observability.audit import Audit
 from waku.messaging.observability.logging_observer import LoggingMessageObserver
 from waku.messaging.observability.observer import INVOKE_DESTINATION, IMessageObserver
 from waku.messaging.outgoing import IOutgoingMessages
-from waku.messaging.partition import ISequenceAllocator, PartitionKeyExtractor
+from waku.messaging.partition import PartitionKeyExtractor
 from waku.messaging.pipeline.policy import BehaviorPolicyExtension, IBehaviorPolicy, Position, PositionedBehavior
 from waku.messaging.router import external_endpoint, listen, local_queue, route, route_module
 
@@ -65,7 +65,6 @@ __all__ = [
     'IPublisher',
     'IRequest',
     'ISender',
-    'ISequenceAllocator',
     'InboxConfig',
     'LeadershipConfig',
     'LeaseConfig',

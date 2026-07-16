@@ -3,8 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from waku.messaging._internal.identifiers import GroupId
-from waku.messaging.partition import ISequenceAllocator
+from waku.messaging.sequence import GroupId, ISequenceAllocator
 
 if TYPE_CHECKING:
     from waku.di import AsyncContainer
