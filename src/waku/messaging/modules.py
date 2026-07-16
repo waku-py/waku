@@ -432,12 +432,18 @@ def _build_transport_registry(config: MessagingConfig, merged: tuple[MergedBroke
     return TransportRegistry(transports, external_mappers=external_mappers)
 
 
+@dataclass(frozen=True, slots=True)
+class _EndpointCapabilities:
+    config: MessagingConfig
+    dead_letter_capable: bool
+
+
 def _build_endpoint_executor_factory(
     container: AsyncContainer,
     evaluator: ErrorPolicyEvaluator,
     invoker: HandlerPipelineInvoker,
     plan: ObserverPlan,
-    config: MessagingConfig,
+    capabilities: _EndpointCapabilities,
     now: Now,
 ) -> EndpointExecutorFactory:
     # Factory function so dishka introspects the signature, not the class __init__ (see _build_transport_registry).
@@ -446,8 +452,9 @@ def _build_endpoint_executor_factory(
         evaluator=evaluator,
         invoker=invoker,
         plan=plan,
-        default_execution_timeout=config.endpoint_defaults.execution_timeout,
+        default_execution_timeout=capabilities.config.endpoint_defaults.execution_timeout,
         now=now,
+        dead_letter_capable=capabilities.dead_letter_capable,
     )
 
 
@@ -557,6 +564,7 @@ class _EndpointBuildContext:
     config: MessagingConfig
     now: Now
     observer_plan: ObserverPlan
+    dead_letter_capable: bool
 
 
 def _build_router(
@@ -564,7 +572,7 @@ def _build_router(
     container: AsyncContainer,
     factory: EndpointExecutorFactory,
     execution_factory: EndpointExecutionFactory,
-    config: MessagingConfig,
+    capabilities: _EndpointCapabilities,
     now: Now,
     plan: ObserverPlan,
 ) -> MessageRouter:
@@ -573,9 +581,10 @@ def _build_router(
         container=container,
         executor_factory=factory,
         execution_factory=execution_factory,
-        config=config,
+        config=capabilities.config,
         now=now,
         observer_plan=plan,
+        dead_letter_capable=capabilities.dead_letter_capable,
     )
     endpoints_by_uri = {
         entry.uri: _build_endpoint(entry, context)
@@ -614,11 +623,13 @@ def _build_endpoint(
                 handler_subscriptions=subscriptions,
                 executor=context.execution_factory.for_uri(entry.uri),
                 observers=observers,
+                container=context.container,
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,
                 max_parallel=entry.max_parallel,
                 max_requeue_attempts=_resolve_max_requeue_attempts(entry, context.config),
                 circuit_breaker_config=_resolve_circuit_breaker(entry, context.config),
+                dead_letter_capable=context.dead_letter_capable,
             )
         case EndpointMode.DURABLE:
             # config.inbox is guaranteed present here by _validate_config (a DURABLE local queue
@@ -687,6 +698,17 @@ class HandlerMapAggregator(RegistryAggregator['MessagingExtension', HandlerMap])
 
         aggregated.freeze()
         registry.add_provider(owning_module, object_(aggregated))
+        registry.add_provider(
+            owning_module,
+            object_(
+                _EndpointCapabilities(
+                    config=self._config,
+                    dead_letter_capable=(
+                        self._config.dead_letter is not None or _requires_dead_letter_store(aggregated, self._config)
+                    ),
+                ),
+            ),
+        )
         self._register_behavior_plan(registry, owning_module, aggregated)
 
         merged = merge_broker_endpoints(self._config.endpoints, inbox_configured=self._config.inbox is not None)

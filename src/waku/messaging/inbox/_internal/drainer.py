@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from waku._internal.transaction import TransactionCleanupError, unit_of_work_scope
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging._internal.transaction import CompletedExecutionError
-from waku.messaging.durability import IDeadLetterStore, IInboxStore
+from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints._internal.execution import (
-    DEFERRED_TERMINAL_OUTCOMES,
     EndpointExecutionFactory,
+    ExecutionResult,
     IEndpointExecution,
+    TerminalIntent,
+    TerminalIntentKind,
 )
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.handler_map import HandlerMap
@@ -115,47 +118,76 @@ class InboxDrainer:
             await self._handle_poison(entry, f'payload rebuild failed: {exc}')
             return False
         executor = self._executor_factory(entry.source_uri)
-        result = await executor.execute(envelope, handler_type)
-        if result.outcome in DEFERRED_TERMINAL_OUTCOMES:
+        intent = await executor.execute(envelope, handler_type)
+        if intent.kind in {TerminalIntentKind.REQUEUE, TerminalIntentKind.PAUSE}:
             # No live listener on the recovery path — bound like poison to prevent
             # infinite oscillation (drain → stale → drain → …).
-            await self._handle_poison(entry, f'{result.outcome.value} is not enactable on the recovery path')
-            return False
-        await apply_inbox_outcome(
+            reason = f'{intent.kind.value} is not enactable on the recovery path'
+            poison_intent = replace(
+                intent,
+                kind=TerminalIntentKind.DEAD_LETTER,
+                error=InboxPoisonError(reason),
+                attempt=entry.attempts + 1,
+            )
+            result = await self._handle_poison(entry, reason, poison_intent)
+            if result is None:
+                return False
+            await executor.emit_terminal(envelope, handler_type, poison_intent, result)
+            return True
+        dead_letter = _dead_letter_for_intent(entry, intent)
+        result = await apply_inbox_outcome(
             self._container,
             entry_id=entry.id,
             destination=entry.destination,
-            outcome=result.outcome,
+            intent=intent,
             keep_after_handled=self._keep_after_handled,
+            dead_letter=dead_letter,
         )
+        await executor.emit_terminal(envelope, handler_type, intent, result)
         return True
 
-    async def _handle_poison(self, entry: InboxEntry, reason: str) -> None:
+    async def _handle_poison(
+        self,
+        entry: InboxEntry,
+        reason: str,
+        intent: TerminalIntent | None = None,
+    ) -> ExecutionResult | None:
         attempt = entry.attempts + 1
+        if attempt >= self._max_attempts:
+            poison_intent = intent or TerminalIntent(
+                TerminalIntentKind.DEAD_LETTER,
+                error=InboxPoisonError(reason),
+                attempt=attempt,
+            )
+            result = await apply_inbox_outcome(
+                self._container,
+                entry_id=entry.id,
+                destination=entry.destination,
+                intent=poison_intent,
+                keep_after_handled=self._keep_after_handled,
+                dead_letter=_poison_dead_letter(entry, reason, attempt),
+            )
+            logger.error(
+                'Dropping poison inbox row id=%s destination=%r message_type=%s after %d attempts: %s',
+                entry.id,
+                entry.destination,
+                entry.message_type,
+                attempt,
+                reason,
+            )
+            return result
         async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
             inbox = await scope.get(IInboxStore)
-            if attempt >= self._max_attempts:
-                store = await scope.get(IDeadLetterStore)
-                await store.save(_poison_dead_letter(entry, reason, attempt))
-                await inbox.delete(entry.id, entry.destination)
-                logger.error(
-                    'Dropping poison inbox row id=%s destination=%r message_type=%s after %d attempts: %s',
-                    entry.id,
-                    entry.destination,
-                    entry.message_type,
-                    attempt,
-                    reason,
-                )
-            else:
-                await inbox.increment_attempts(entry.id, entry.destination)
-                logger.warning(
-                    'Poison inbox row id=%s destination=%r (attempt %d/%d): %s',
-                    entry.id,
-                    entry.destination,
-                    attempt,
-                    self._max_attempts,
-                    reason,
-                )
+            await inbox.increment_attempts(entry.id, entry.destination)
+            logger.warning(
+                'Poison inbox row id=%s destination=%r (attempt %d/%d): %s',
+                entry.id,
+                entry.destination,
+                attempt,
+                self._max_attempts,
+                reason,
+            )
+        return None
 
 
 async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) -> InboxDrainer:
@@ -191,6 +223,30 @@ def _poison_dead_letter(entry: InboxEntry, reason: str, attempt: int) -> DeadLet
         causation_id=entry.causation_id,
         exc=InboxPoisonError(reason),
         attempt=attempt,
+        message_id=entry.message_id,
+        metadata=entry.metadata,
+        group_id=entry.group_id,
+    )
+
+
+def _dead_letter_for_intent(
+    entry: InboxEntry,
+    intent: TerminalIntent,
+) -> DeadLetterEntry | None:
+    if intent.kind is not TerminalIntentKind.DEAD_LETTER:
+        return None
+    if intent.error is None:
+        msg = 'dead-letter intent must retain its handler failure'
+        raise RuntimeError(msg)
+    return DeadLetterEntry.from_failure(
+        message_type=entry.message_type,
+        payload=entry.payload,
+        destination=entry.destination,
+        destination_kind=DeadLetterDestinationKind.HANDLER,
+        correlation_id=entry.correlation_id,
+        causation_id=entry.causation_id,
+        exc=intent.error,
+        attempt=intent.attempt,
         message_id=entry.message_id,
         metadata=entry.metadata,
         group_id=entry.group_id,

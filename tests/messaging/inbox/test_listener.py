@@ -18,6 +18,8 @@ from waku.messaging.endpoints._internal.execution import (
     ExecutionResult,
     IEndpointExecution,
     ResultObserver,
+    TerminalIntent,
+    TerminalIntentKind,
     noop_result_observer,
 )
 from waku.messaging.endpoints.outcome import ExecutionOutcome
@@ -67,6 +69,18 @@ def _make_type_registry(*types: type[IEvent]) -> MessageTypeRegistry:
     return MessageTypeRegistry(identities={}, known_types=list(types))
 
 
+def _intent(outcome: ExecutionOutcome) -> TerminalIntent:
+    kinds = {
+        ExecutionOutcome.SUCCESS: TerminalIntentKind.SUCCESS,
+        ExecutionOutcome.FAILED_NO_POLICY: TerminalIntentKind.FAILED_NO_POLICY,
+        ExecutionOutcome.DISCARDED: TerminalIntentKind.DISCARD,
+        ExecutionOutcome.DEAD_LETTERED: TerminalIntentKind.DEAD_LETTER,
+        ExecutionOutcome.REQUEUED: TerminalIntentKind.REQUEUE,
+        ExecutionOutcome.PAUSED: TerminalIntentKind.PAUSE,
+    }
+    return TerminalIntent(kinds[outcome])
+
+
 class _DepsProvider(Provider):
     scope = Scope.REQUEST
 
@@ -109,11 +123,21 @@ class _StubExecutor(IEndpointExecution):
         self,
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
+    ) -> TerminalIntent:
+        self.calls += 1
+        return _intent(self.return_value)
+
+    @override
+    async def emit_terminal(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        intent: TerminalIntent,
+        result: ExecutionResult,
         *,
         on_result: ResultObserver = noop_result_observer,
-    ) -> ExecutionResult:
-        self.calls += 1
-        return ExecutionResult(outcome=self.return_value, pause_duration=None)
+    ) -> None:
+        await on_result(result.outcome, intent.error)
 
 
 def _receiver(container: AsyncContainer, executor: IEndpointExecution) -> DurableInboxReceiver:
@@ -280,7 +304,7 @@ class _FakeSub(Subscription):
         self.events.append('resume')
 
 
-class _BlockingExecutor(IEndpointExecution):
+class _BlockingExecutor(_StubExecutor):
     def __init__(self, *, release: asyncio.Event) -> None:
         self._release = release
 
@@ -289,11 +313,9 @@ class _BlockingExecutor(IEndpointExecution):
         self,
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
-        *,
-        on_result: ResultObserver = noop_result_observer,
-    ) -> ExecutionResult:
+    ) -> TerminalIntent:
         await self._release.wait()
-        return ExecutionResult(outcome=ExecutionOutcome.SUCCESS, pause_duration=None)
+        return _intent(ExecutionOutcome.SUCCESS)
 
 
 async def test_consume_pauses_listener_when_buffer_crosses_high_watermark() -> None:

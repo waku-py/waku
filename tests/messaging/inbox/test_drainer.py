@@ -17,11 +17,13 @@ from waku.messages import IEvent
 from waku.messaging import EndpointDefaults, MessagingConfig, MessagingExtension, MessagingModule
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging._internal.transaction import CompletedExecutionError
-from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore
+from waku.messaging.durability import IDurabilityStore, IInboxStore
 from waku.messaging.endpoints._internal.execution import (
     ExecutionResult,
     IEndpointExecution,
     ResultObserver,
+    TerminalIntent,
+    TerminalIntentKind,
     noop_result_observer,
 )
 from waku.messaging.endpoints.outcome import ExecutionOutcome
@@ -68,6 +70,19 @@ class _RecordingHandler(EventHandler[_OrderPlaced]):
         self.invocations.append(message.order_id)
 
 
+def _intent(outcome: ExecutionOutcome) -> TerminalIntent:
+    kinds = {
+        ExecutionOutcome.SUCCESS: TerminalIntentKind.SUCCESS,
+        ExecutionOutcome.FAILED_NO_POLICY: TerminalIntentKind.FAILED_NO_POLICY,
+        ExecutionOutcome.DISCARDED: TerminalIntentKind.DISCARD,
+        ExecutionOutcome.DEAD_LETTERED: TerminalIntentKind.DEAD_LETTER,
+        ExecutionOutcome.REQUEUED: TerminalIntentKind.REQUEUE,
+        ExecutionOutcome.PAUSED: TerminalIntentKind.PAUSE,
+    }
+    error = RuntimeError('handler failed') if outcome is ExecutionOutcome.DEAD_LETTERED else None
+    return TerminalIntent(kinds[outcome], error=error, attempt=1)
+
+
 class _StubExecutor(IEndpointExecution):
     def __init__(self, *, return_value: ExecutionOutcome) -> None:
         self.return_value = return_value
@@ -78,12 +93,21 @@ class _StubExecutor(IEndpointExecution):
         self,
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
+    ) -> TerminalIntent:
+        self.calls.append((envelope.message_type, handler_type))
+        return _intent(self.return_value)
+
+    @override
+    async def emit_terminal(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        intent: TerminalIntent,
+        result: ExecutionResult,
         *,
         on_result: ResultObserver = noop_result_observer,
-    ) -> ExecutionResult:
-        self.calls.append((envelope.message_type, handler_type))
-        await on_result(self.return_value, None)
-        return ExecutionResult(self.return_value)
+    ) -> None:
+        await on_result(result.outcome, intent.error)
 
 
 class _Deps(Provider):
@@ -133,18 +157,6 @@ def _abandoned_entry(
     return entry
 
 
-class _DlqProvider(Provider):
-    scope = Scope.REQUEST
-
-    def __init__(self, dlq: IDeadLetterStore) -> None:
-        super().__init__()
-        self._dlq = dlq
-
-    @provide
-    def dlq(self) -> IDeadLetterStore:
-        return self._dlq
-
-
 def _drainer(container: Any, executor: IEndpointExecution, *, max_attempts: int = 5) -> InboxDrainer:
     return InboxDrainer(
         container=container,
@@ -159,7 +171,7 @@ def _drainer(container: Any, executor: IEndpointExecution, *, max_attempts: int 
     )
 
 
-class _CapturingExecutor(IEndpointExecution):
+class _CapturingExecutor(_StubExecutor):
     def __init__(self) -> None:
         self.envelopes: list[MessageEnvelope[Any]] = []
 
@@ -168,12 +180,9 @@ class _CapturingExecutor(IEndpointExecution):
         self,
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
-        *,
-        on_result: ResultObserver = noop_result_observer,
-    ) -> ExecutionResult:
+    ) -> TerminalIntent:
         self.envelopes.append(envelope)
-        await on_result(ExecutionOutcome.SUCCESS, None)
-        return ExecutionResult(ExecutionOutcome.SUCCESS)
+        return _intent(ExecutionOutcome.SUCCESS)
 
 
 class _CleanupFailingExecutor(IEndpointExecution):
@@ -186,11 +195,21 @@ class _CleanupFailingExecutor(IEndpointExecution):
         self,
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
-        *,
-        on_result: ResultObserver = noop_result_observer,
-    ) -> ExecutionResult:
+    ) -> TerminalIntent:
         self.calls += 1
         raise TransactionCleanupError(RuntimeError('handler failed'), self.rollback_error)
+
+    @override
+    async def emit_terminal(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        intent: TerminalIntent,
+        result: ExecutionResult,
+        *,
+        on_result: ResultObserver = noop_result_observer,
+    ) -> None:
+        await on_result(result.outcome, intent.error)
 
 
 class _CompletedFailingExecutor(IEndpointExecution):
@@ -203,11 +222,21 @@ class _CompletedFailingExecutor(IEndpointExecution):
         self,
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
-        *,
-        on_result: ResultObserver = noop_result_observer,
-    ) -> ExecutionResult:
+    ) -> TerminalIntent:
         self.calls += 1
         raise CompletedExecutionError(self.teardown_error)
+
+    @override
+    async def emit_terminal(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        intent: TerminalIntent,
+        result: ExecutionResult,
+        *,
+        on_result: ResultObserver = noop_result_observer,
+    ) -> None:
+        await on_result(result.outcome, intent.error)
 
 
 async def test_drain_crash_recovery_rebuilds_envelope_from_decomposed_row() -> None:
@@ -325,13 +354,12 @@ async def test_drain_poison_unrebuildable_payload_bumps_attempts() -> None:
 
 async def test_drain_poison_at_cap_dead_letters_and_deletes() -> None:
     inbox = FakeInboxStore()
-    dlq = RecordingDeadLetterStore()
     entry = _abandoned_entry(inbox, destination='tests.GoneHandler', attempts=2)
-    async with make_async_container(_Deps(inbox, RecordingUoW()), _DlqProvider(dlq)) as container:
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
         await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
     assert (entry.id, entry.destination) not in inbox.entries
-    assert len(dlq.entries) == 1
-    assert dlq.entries[0].message_type == entry.message_type
+    assert len(inbox.dead_letters.entries) == 1
+    assert next(iter(inbox.dead_letters.entries.values())).message_type == entry.message_type
 
 
 async def test_drain_poison_corrupt_metadata_blob_at_cap_dead_letters() -> None:
@@ -339,27 +367,27 @@ async def test_drain_poison_corrupt_metadata_blob_at_cap_dead_letters() -> None:
     # wire_metadata_from_entry raise MalformedMetadataError — the drainer's broad poison net catches
     # it, bounds by max_attempts, and dead-letters + deletes at the cap. The raise never aborts drain.
     inbox = FakeInboxStore()
-    dlq = RecordingDeadLetterStore()
     entry = _abandoned_entry(inbox, attempts=2)
     inbox.entries[entry.id, entry.destination] = replace(
         entry,
         metadata={'message_version': 'abc', 'timestamp': '2026-06-29T10:00:00+00:00', 'headers': {}},
     )
-    async with make_async_container(_Deps(inbox, RecordingUoW()), _DlqProvider(dlq)) as container:
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
         await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
     assert (entry.id, entry.destination) not in inbox.entries
-    assert len(dlq.entries) == 1
-    assert dlq.entries[0].message_type == entry.message_type
+    assert len(inbox.dead_letters.entries) == 1
+    assert next(iter(inbox.dead_letters.entries.values())).message_type == entry.message_type
 
 
-async def test_drain_poison_at_cap_without_dlq_keeps_row(caplog: pytest.LogCaptureFixture) -> None:
+async def test_drain_poison_at_cap_moves_without_standalone_dlq(caplog: pytest.LogCaptureFixture) -> None:
     inbox = FakeInboxStore()
     entry = _abandoned_entry(inbox, destination='tests.GoneHandler', attempts=2)
     async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
         with caplog.at_level(logging.ERROR, logger='waku.messaging.inbox._internal.drainer'):
             await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
-    assert (entry.id, entry.destination) in inbox.entries
-    assert 'Unhandled error draining inbox entry' in caplog.text
+    assert (entry.id, entry.destination) not in inbox.entries
+    assert len(inbox.dead_letters.entries) == 1
+    assert 'Unhandled error draining inbox entry' not in caplog.text
 
 
 async def test_drain_isolates_poison_from_healthy_entries_in_a_batch() -> None:
@@ -424,13 +452,12 @@ async def test_drain_requeue_outcome_under_cap_bumps_attempts_and_leaves_claimed
 
 async def test_drain_requeue_outcome_at_cap_dead_letters() -> None:
     inbox = FakeInboxStore()
-    dlq = RecordingDeadLetterStore()
     entry = _abandoned_entry(inbox, attempts=2)
     executor = _StubExecutor(return_value=ExecutionOutcome.PAUSED)
-    async with make_async_container(_Deps(inbox, RecordingUoW()), _DlqProvider(dlq)) as container:
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
         await _drainer(container, executor, max_attempts=3).drain_once()
     assert (entry.id, entry.destination) not in inbox.entries  # bounded -> dead-lettered + deleted at the cap
-    assert len(dlq.entries) == 1
+    assert len(inbox.dead_letters.entries) == 1
 
 
 async def test_drain_poison_at_cap_reads_correlation_from_typed_columns_not_payload() -> None:
@@ -439,7 +466,6 @@ async def test_drain_poison_at_cap_reads_correlation_from_typed_columns_not_payl
     # columns, not the payload blob — if it still read entry.payload.get('correlation_id')
     # it would fall back to entry.id, not the real UUIDs.
     inbox = FakeInboxStore()
-    dlq = RecordingDeadLetterStore()
     expected_correlation = str(uuid4())
     expected_causation = str(uuid4())
     entry = _abandoned_entry(inbox, destination='tests.GoneHandler', attempts=2)
@@ -453,11 +479,12 @@ async def test_drain_poison_at_cap_reads_correlation_from_typed_columns_not_payl
         correlation_id=expected_correlation,
         causation_id=expected_causation,
     )
-    async with make_async_container(_Deps(inbox, RecordingUoW()), _DlqProvider(dlq)) as container:
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
         await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
-    assert len(dlq.entries) == 1
-    assert dlq.entries[0].correlation_id == expected_correlation
-    assert dlq.entries[0].causation_id == expected_causation
+    assert len(inbox.dead_letters.entries) == 1
+    dead_letter = next(iter(inbox.dead_letters.entries.values()))
+    assert dead_letter.correlation_id == expected_correlation
+    assert dead_letter.causation_id == expected_causation
 
 
 async def test_drain_crash_recovery_keyed_on_scheme_qualified_source_uri() -> None:

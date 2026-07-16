@@ -15,12 +15,14 @@ from typing_extensions import override
 
 from waku._internal.clock import utc_now
 from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
+from waku.backends.memory import MemoryBackend
 from waku.di import object_, provider
 from waku.messages import IEvent
 from waku.messaging import (
     EndpointDefaults,
     EndpointMode,
     EventHandler,
+    IMessageBus,
     IOutgoingMessages,
     IRequest,
     MessagingConfig,
@@ -33,7 +35,12 @@ from waku.messaging import (
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.durability import IDeadLetterStore, IDurabilityStore
-from waku.messaging.endpoints.executor import EndpointExecutor, EndpointExecutorFactory
+from waku.messaging.endpoints._internal.execution import IEndpointExecution, TerminalIntent, TerminalIntentKind
+from waku.messaging.endpoints.executor import (
+    EndpointExecutor,
+    EndpointExecutorFactory,
+    materialize_standalone_dead_letter,
+)
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import ErrorPolicy
@@ -73,6 +80,21 @@ class _FailingCommand(IRequest[None]):
 @dataclass(frozen=True, slots=True)
 class _CascadeEvent(IEvent):
     value: str
+
+
+@dataclass(frozen=True, slots=True)
+class _PolicyDeadLetterEvent(IEvent):
+    value: str
+
+
+class _PolicyDeadLetterHandler(EventHandler[_PolicyDeadLetterEvent]):
+    calls: ClassVar[int] = 0
+
+    @override
+    async def handle(self, event: _PolicyDeadLetterEvent, /) -> None:
+        type(self).calls += 1
+        msg = f'policy dead letter: {event.value}'
+        raise RuntimeError(msg)
 
 
 class _ScopeProbe: ...
@@ -126,6 +148,10 @@ def _make_always_fail_handler() -> tuple[type[RequestHandler[_FailingCommand, No
 
 def _evaluator_for(policy: ErrorPolicy) -> ErrorPolicyEvaluator:
     return ErrorPolicyEvaluator(ErrorPolicyRegistry(handler_policies={}, default_policies=(policy,)))
+
+
+def _dead_letter_intent() -> TerminalIntent:
+    return TerminalIntent(TerminalIntentKind.DEAD_LETTER, error=ValueError('permanent failure'), attempt=1)
 
 
 def _make_observer() -> tuple[
@@ -198,6 +224,7 @@ async def _make_executor(
     uri: str = 'test://q',
     sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     now: Callable[[], datetime] = utc_now,
+    dead_letter_capable: bool = True,
 ) -> EndpointExecutor:
     invoker = await app.container.get(HandlerPipelineInvoker)
     return EndpointExecutor(
@@ -208,6 +235,7 @@ async def _make_executor(
         observers=MessageObservers([]),
         sleep=sleep,
         now=now,
+        dead_letter_capable=dead_letter_capable,
     )
 
 
@@ -604,6 +632,44 @@ class TestEndpointExecutorTransactionCleanup:
 
 class TestEndpointExecutorDeadLetter:
     @staticmethod
+    @pytest.mark.parametrize('mode', [EndpointMode.INLINE, EndpointMode.BUFFERED])
+    async def test_policy_only_dead_letter_capability_persists_through_both_factory_paths(
+        mode: EndpointMode,
+    ) -> None:
+        _PolicyDeadLetterHandler.calls = 0
+        config = MessagingConfig(
+            endpoints=[local_queue('local://policy-dlq', mode=mode)],
+            routing=[route(_PolicyDeadLetterEvent).to('local://policy-dlq')],
+            endpoint_defaults=EndpointDefaults(
+                error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
+            ),
+        )
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(config), MemoryBackend.register()],
+                extensions=[MessagingExtension().bind(_PolicyDeadLetterHandler)],
+            ) as app,
+            app.container() as scope,
+        ):
+            bus = await scope.get(IMessageBus)
+            await bus.publish(_PolicyDeadLetterEvent(value=mode.value))
+
+            entries: list[DeadLetterEntry] = []
+            with anyio.fail_after(5):
+                while not entries:
+                    async with app.container() as inspection_scope:
+                        store = await inspection_scope.get(IDeadLetterStore)
+                        entries = list(await store.fetch())
+                    if not entries:
+                        await anyio.lowlevel.checkpoint()
+
+        assert _PolicyDeadLetterHandler.calls == 1
+        assert len(entries) == 1
+        assert entries[0].error_message == f'policy dead letter: {mode.value}'
+        assert entries[0].retry_count == 1
+
+    @staticmethod
     async def test_dead_letter_policy_writes_entry_with_error_details() -> None:
         handler, _ = _make_always_fail_handler()
         dl_store = RecordingDeadLetterStore()
@@ -665,7 +731,8 @@ class TestEndpointExecutorDeadLetter:
         assert dl_store.entries[0].message_type == 'wire.RenamedAlias'
 
     @staticmethod
-    async def test_dead_letter_write_failure_is_logged_not_raised(caplog: pytest.LogCaptureFixture) -> None:
+    async def test_dead_letter_save_failure_is_logged_after_rollback(caplog: pytest.LogCaptureFixture) -> None:
+        handler, _ = _make_always_fail_handler()
         uow = RecordingUoW()
         dead_letters = FailingDeadLetterStore()
 
@@ -677,18 +744,24 @@ class TestEndpointExecutorDeadLetter:
         with caplog.at_level(logging.ERROR, logger='waku.messaging.endpoints.executor'):
             async with create_test_app(
                 imports=[MessagingModule.register(config)],
+                extensions=[MessagingExtension().bind(handler)],
                 providers=[
                     object_(uow, provided_type=IUnitOfWork),
                     object_(dead_letters, provided_type=IDeadLetterStore),
                     object_(_durability(dead_letters, uow), provided_type=IDurabilityStore),
                 ],
             ) as app:
-                evaluator = await app.container.get(ErrorPolicyEvaluator)
-                executor = await _make_executor(app, evaluator)
                 envelope = make_envelope(_FailingCommand(value='dlq-fail'))
-                persisted = await executor.write_dead_letter(envelope, RuntimeError('handler failed'), 1)
+                outcome = (
+                    await materialize_standalone_dead_letter(
+                        app.container,
+                        envelope=envelope,
+                        endpoint_uri='test://q',
+                        intent=_dead_letter_intent(),
+                    )
+                ).outcome
 
-        assert persisted is False
+        assert outcome is ExecutionOutcome.DEAD_LETTER_FAILED
         assert uow.rollback_count == 1
         assert 'Failed to write dead letter entry' in caplog.text
 
@@ -711,15 +784,21 @@ class TestEndpointExecutorDeadLetter:
                 object_(_durability(dead_letters, uow), provided_type=IDurabilityStore),
             ],
         ) as app:
-            evaluator = await app.container.get(ErrorPolicyEvaluator)
-            executor = await _make_executor(app, evaluator)
             envelope = make_envelope(_FailingCommand(value='dlq-fail'))
-            outcome = (await executor.execute(envelope, handler)).outcome
+            outcome = (
+                await materialize_standalone_dead_letter(
+                    app.container,
+                    envelope=envelope,
+                    endpoint_uri='test://q',
+                    intent=_dead_letter_intent(),
+                )
+            ).outcome
 
         assert outcome is ExecutionOutcome.DEAD_LETTER_FAILED  # ERR-2: failed DLQ write keeps the durable row
 
     @staticmethod
     async def test_dead_letter_commit_failure_rolls_back_before_failed_outcome() -> None:
+        handler, _ = _make_always_fail_handler()
         actions: list[str] = []
         commit_error = RuntimeError('commit failed')
         uow = _ActionRecordingUoW(actions, commit_error=commit_error)
@@ -731,22 +810,29 @@ class TestEndpointExecutorDeadLetter:
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(handler)],
             providers=[
                 object_(uow, provided_type=IUnitOfWork),
                 object_(dl_store, provided_type=IDeadLetterStore),
                 object_(_durability(dl_store, uow), provided_type=IDurabilityStore),
             ],
         ) as app:
-            evaluator = await app.container.get(ErrorPolicyEvaluator)
-            executor = await _make_executor(app, evaluator)
             envelope = make_envelope(_FailingCommand(value='dlq-commit-fail'))
-            persisted = await executor.write_dead_letter(envelope, RuntimeError('handler failed'), 1)
+            outcome = (
+                await materialize_standalone_dead_letter(
+                    app.container,
+                    envelope=envelope,
+                    endpoint_uri='test://q',
+                    intent=_dead_letter_intent(),
+                )
+            ).outcome
 
-        assert persisted is False
+        assert outcome is ExecutionOutcome.DEAD_LETTER_FAILED
         assert actions == ['save', 'commit', 'rollback']
 
     @staticmethod
     async def test_dead_letter_rollback_failure_escapes_instead_of_returning_failed_outcome() -> None:
+        handler, _ = _make_always_fail_handler()
         actions: list[str] = []
         rollback_error = RuntimeError('rollback failed')
         uow = _ActionRecordingUoW(
@@ -762,17 +848,21 @@ class TestEndpointExecutorDeadLetter:
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(handler)],
             providers=[
                 object_(uow, provided_type=IUnitOfWork),
                 object_(dl_store, provided_type=IDeadLetterStore),
                 object_(_durability(dl_store, uow), provided_type=IDurabilityStore),
             ],
         ) as app:
-            evaluator = await app.container.get(ErrorPolicyEvaluator)
-            executor = await _make_executor(app, evaluator)
             envelope = make_envelope(_FailingCommand(value='dlq-rollback-fail'))
             with pytest.raises(TransactionExecutionError) as caught:
-                await executor.write_dead_letter(envelope, RuntimeError('handler failed'), 1)
+                await materialize_standalone_dead_letter(
+                    app.container,
+                    envelope=envelope,
+                    endpoint_uri='test://q',
+                    intent=_dead_letter_intent(),
+                )
 
         assert caught.value.kind is TransactionFailureKind.ROLLBACK_FAILED
         assert caught.value.error is rollback_error
@@ -780,6 +870,7 @@ class TestEndpointExecutorDeadLetter:
 
     @staticmethod
     async def test_dead_letter_commit_cancellation_completes_rollback_and_remains_cancellation() -> None:
+        handler, _ = _make_always_fail_handler()
         actions: list[str] = []
         cancel_scope = anyio.CancelScope()
         uow = _ActionRecordingUoW(actions, cancel_scope=cancel_scope)
@@ -791,17 +882,21 @@ class TestEndpointExecutorDeadLetter:
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(handler)],
             providers=[
                 object_(uow, provided_type=IUnitOfWork),
                 object_(dl_store, provided_type=IDeadLetterStore),
                 object_(_durability(dl_store, uow), provided_type=IDurabilityStore),
             ],
         ) as app:
-            evaluator = await app.container.get(ErrorPolicyEvaluator)
-            executor = await _make_executor(app, evaluator)
             envelope = make_envelope(_FailingCommand(value='dlq-commit-cancelled'))
             with cancel_scope:
-                await executor.write_dead_letter(envelope, RuntimeError('handler failed'), 1)
+                await materialize_standalone_dead_letter(
+                    app.container,
+                    envelope=envelope,
+                    endpoint_uri='test://q',
+                    intent=_dead_letter_intent(),
+                )
 
         assert cancel_scope.cancelled_caught
         assert actions == ['save', 'commit', 'rollback']
@@ -992,6 +1087,10 @@ class _CheckpointHandler(RequestHandler[_CheckpointCommand, None]):
     async def handle(self, request: _CheckpointCommand, /) -> None:
         await anyio.lowlevel.checkpoint()
         _CheckpointHandler.completed.append(request.ref)
+
+
+def test_endpoint_execution_requires_explicit_terminal_emission() -> None:
+    assert getattr(IEndpointExecution.emit_terminal, '__isabstractmethod__', False)
 
 
 async def test_factory_gives_live_and_recovery_uris_identical_deadline_and_clock() -> None:

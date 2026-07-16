@@ -3,8 +3,9 @@ from __future__ import annotations
 import logging
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
+from enum import StrEnum, unique
 from typing import TYPE_CHECKING, Any, Final, Generic, Never, TypeAlias, TypeVar, assert_never
 
 import anyio
@@ -25,15 +26,11 @@ from waku.messaging._internal.outbox_cascading import DeferredCascadeFlusher
 from waku.messaging._internal.transaction import TransactionDepth
 from waku.messaging.behaviors.transactional import decide_transaction
 from waku.messaging.context import message_context_scope
-from waku.messaging.durability import IDurabilityStore
 from waku.messaging.endpoints.outcome import ExecutionOutcome
-from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.errors.executor import FailureContext
 from waku.messaging.errors.policy import RetryAction
 from waku.messaging.exceptions import HandlerTimeoutError
 from waku.messaging.outgoing import IOutgoingMessagesFrames
-from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
-from waku.serialization.codec import PayloadCodec
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -67,6 +64,26 @@ class ExecutionResult:
     requeue_limit: int | None = None
 
 
+@unique
+class TerminalIntentKind(StrEnum):
+    SUCCESS = 'SUCCESS'
+    FAILED_NO_POLICY = 'FAILED_NO_POLICY'
+    DEAD_LETTER = 'DEAD_LETTER'
+    DISCARD = 'DISCARD'
+    REQUEUE = 'REQUEUE'
+    PAUSE = 'PAUSE'
+
+
+@dataclass(frozen=True, slots=True)
+class TerminalIntent:
+    kind: TerminalIntentKind
+    error: Exception | None = None
+    attempt: int = 0
+    duration: timedelta = timedelta()
+    pause_duration: timedelta | None = None
+    requeue_limit: int | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class _DetachedInvocation(Generic[_ResultT_co]):
     value: _ResultT_co
@@ -92,17 +109,21 @@ class IEndpointExecution(ABC):
         self,
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
+    ) -> TerminalIntent: ...
+
+    @abstractmethod
+    async def emit_terminal(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        intent: TerminalIntent,
+        result: ExecutionResult,
         *,
         on_result: ResultObserver = noop_result_observer,
-    ) -> ExecutionResult: ...
+    ) -> None: ...
 
 
-class IEndpointWorkerExecution(IEndpointExecution):
-    @abstractmethod
-    async def write_dead_letter(self, envelope: MessageEnvelope[Any], exc: Exception, attempt: int) -> bool: ...
-
-
-class EndpointExecution(IEndpointWorkerExecution):
+class EndpointExecution(IEndpointExecution):
     """Signal-preserving endpoint execution used by internal transaction owners."""
 
     __slots__ = (
@@ -145,24 +166,34 @@ class EndpointExecution(IEndpointWorkerExecution):
         self,
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
-        *,
-        on_result: ResultObserver = noop_result_observer,
-    ) -> ExecutionResult:
+    ) -> TerminalIntent:
         if self._is_expired(envelope):
             logger.info('Discarding expired message_id=%s (expires_at=%s)', envelope.message_id, envelope.expires_at)
-            result = ExecutionResult(ExecutionOutcome.DISCARDED)
-            await self._observers.executed(
-                envelope, self._endpoint_uri, handler_type, result.outcome, None, timedelta()
-            )
-            await on_result(result.outcome, None)
-            return result
+            return TerminalIntent(TerminalIntentKind.DISCARD)
         await self._observers.executing(envelope, self._endpoint_uri, handler_type)
         start = self._monotonic()
-        result, exc = await self._run_attempts(envelope, handler_type)
-        duration = timedelta(seconds=self._monotonic() - start)
-        await self._observers.executed(envelope, self._endpoint_uri, handler_type, result.outcome, exc, duration)
-        await on_result(result.outcome, exc)
-        return result
+        intent = await self._run_attempts(envelope, handler_type)
+        return replace(intent, duration=timedelta(seconds=self._monotonic() - start))
+
+    @override
+    async def emit_terminal(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        intent: TerminalIntent,
+        result: ExecutionResult,
+        *,
+        on_result: ResultObserver = noop_result_observer,
+    ) -> None:
+        await self._observers.executed(
+            envelope,
+            self._endpoint_uri,
+            handler_type,
+            result.outcome,
+            intent.error,
+            intent.duration,
+        )
+        await on_result(result.outcome, intent.error)
 
     def _is_expired(self, envelope: MessageEnvelope[Any]) -> bool:
         return envelope.expires_at is not None and envelope.expires_at <= self._now()
@@ -171,23 +202,23 @@ class EndpointExecution(IEndpointWorkerExecution):
         self,
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
-    ) -> tuple[ExecutionResult, Exception | None]:
+    ) -> TerminalIntent:
         attempt = 0
         while True:
             attempt += 1
             failure = await self._dispatch_in_scope(envelope, handler_type)
             if failure is None:
-                return ExecutionResult(ExecutionOutcome.SUCCESS), None
+                return TerminalIntent(TerminalIntentKind.SUCCESS, attempt=attempt)
 
             exc = failure.error
             outcome = self._evaluate(envelope, handler_type, exc, attempt)
             if outcome is None:
                 logger.error('%s failed: message_id=%s', handler_type.__name__, envelope.message_id, exc_info=exc)
-                return ExecutionResult(ExecutionOutcome.FAILED_NO_POLICY), exc
-            result = await self._handle_failure(outcome, envelope, exc, attempt)
-            if result is None:
+                return TerminalIntent(TerminalIntentKind.FAILED_NO_POLICY, error=exc, attempt=attempt)
+            intent = await self._handle_failure(outcome, envelope, exc, attempt)
+            if intent is None:
                 continue
-            return result, exc
+            return intent
 
     def _resolve_timeout(self, handler_type: HandlerType) -> timedelta | None:
         value = handler_type.execution_timeout
@@ -310,16 +341,13 @@ class EndpointExecution(IEndpointWorkerExecution):
         envelope: MessageEnvelope[Any],
         exc: Exception,
         attempt: int,
-    ) -> ExecutionResult | None:
+    ) -> TerminalIntent | None:
         match outcome.action:
             case RetryAction.DEAD_LETTER:
-                logger.warning('Moving message_id=%s to dead letter after %d attempt(s)', envelope.message_id, attempt)
-                persisted = await self.write_dead_letter(envelope, exc, attempt)
-                dlq_outcome = ExecutionOutcome.DEAD_LETTERED if persisted else ExecutionOutcome.DEAD_LETTER_FAILED
-                return ExecutionResult(dlq_outcome)
+                return TerminalIntent(TerminalIntentKind.DEAD_LETTER, error=exc, attempt=attempt)
             case RetryAction.DISCARD:
                 logger.info('Discarded message_id=%s after %d attempt(s)', envelope.message_id, attempt)
-                return ExecutionResult(ExecutionOutcome.DISCARDED)
+                return TerminalIntent(TerminalIntentKind.DISCARD, error=exc, attempt=attempt)
             case RetryAction.RETRY | RetryAction.RETRY_WITH_BACKOFF:
                 logger.info(
                     'Retrying message_id=%s (attempt %d, delay=%.2fs)',
@@ -332,51 +360,25 @@ class EndpointExecution(IEndpointWorkerExecution):
                 return None
             case RetryAction.REQUEUE:
                 logger.info('Requeuing message_id=%s after %d attempt(s)', envelope.message_id, attempt)
-                return ExecutionResult(ExecutionOutcome.REQUEUED, requeue_limit=outcome.requeue_limit)
+                return TerminalIntent(
+                    TerminalIntentKind.REQUEUE,
+                    error=exc,
+                    attempt=attempt,
+                    requeue_limit=outcome.requeue_limit,
+                )
             case RetryAction.PAUSE:
                 logger.warning(
                     'Pausing listener after message_id=%s failed (%d attempt(s))', envelope.message_id, attempt
                 )
-                return ExecutionResult(
-                    ExecutionOutcome.PAUSED, outcome.pause_duration, requeue_limit=outcome.requeue_limit
+                return TerminalIntent(
+                    TerminalIntentKind.PAUSE,
+                    error=exc,
+                    attempt=attempt,
+                    pause_duration=outcome.pause_duration,
+                    requeue_limit=outcome.requeue_limit,
                 )
             case _ as unreachable:  # pragma: no cover
                 assert_never(unreachable)
-
-    @override
-    async def write_dead_letter(self, envelope: MessageEnvelope[Any], exc: Exception, attempt: int) -> bool:
-        async def save(scope: AsyncContainer) -> TransactionDecision[bool, Never]:
-            durability = await scope.get(IDurabilityStore)
-            codec = await scope.get(PayloadCodec)
-            entry = DeadLetterEntry.from_failure(
-                message_type=envelope.message_type,
-                payload=encode_payload(envelope, codec),
-                destination=self._endpoint_uri,
-                destination_kind=DeadLetterDestinationKind.ENDPOINT,
-                correlation_id=envelope.correlation_id,
-                causation_id=envelope.causation_id,
-                exc=exc,
-                attempt=attempt,
-                message_id=envelope.message_id,
-                metadata=encode_metadata(envelope),
-                group_id=envelope.group_id,
-            )
-            await durability.dead_letters.save(entry)
-            return Commit(value=True)
-
-        result = await execute_in_uow_scope(self._container, save)
-        if isinstance(result, Committed):
-            return result.value
-        if isinstance(result, Aborted):
-            logger.error(
-                'Failed to write dead letter entry for message_id=%s',
-                envelope.message_id,
-                exc_info=result.error,
-            )
-            return False
-        if isinstance(result, RolledBack):
-            assert_never(result.value)
-        assert_never(result)
 
 
 class EndpointExecutionFactory:
@@ -400,9 +402,9 @@ class EndpointExecutionFactory:
         self._plan = plan
         self._default_execution_timeout = default_execution_timeout
         self._now = now
-        self._cache: dict[str, IEndpointWorkerExecution] = {}
+        self._cache: dict[str, IEndpointExecution] = {}
 
-    def for_uri(self, endpoint_uri: str) -> IEndpointWorkerExecution:
+    def for_uri(self, endpoint_uri: str) -> IEndpointExecution:
         execution = self._cache.get(endpoint_uri)
         if execution is None:
             execution = EndpointExecution(

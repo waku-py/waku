@@ -15,6 +15,7 @@ from waku._internal.transaction import (
     TransactionFailureKind,
     extract_transaction_execution_error,
 )
+from waku.backends.memory import MemoryBackend
 from waku.di import Provider, object_, provider, scoped
 from waku.messages import IEvent
 from waku.messaging import EventHandler, MessagingConfig, MessagingExtension, MessagingModule, TransactionalBehavior
@@ -49,14 +50,39 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
     from typing import Any
 
+    from dishka import AsyncContainer
     from pytest_mock import MockerFixture
 
     from waku.application import WakuApplication
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
+    from waku.messaging.errors.dead_letter import DeadLetterEntry
     from waku.messaging.router import HandlerSubscriptions
 
-_DISCARDING_LOGGER = 'waku.messaging.errors._internal.discarding_store'
+_DISCARDING_LOGGER = 'waku.messaging.endpoints._internal.local_queue'
+
+
+def _unexpected_durability_resolution() -> IDurabilityStore:
+    msg = 'backendless LocalQueue must not resolve IDurabilityStore'
+    raise AssertionError(msg)
+
+
+def _unexpected_dead_letter_resolution() -> IDeadLetterStore:
+    msg = 'backendless LocalQueue must not resolve IDeadLetterStore'
+    raise AssertionError(msg)
+
+
+def _unexpected_uow_resolution() -> IUnitOfWork:
+    msg = 'backendless LocalQueue must not resolve IUnitOfWork'
+    raise AssertionError(msg)
+
+
+def _backendless_poison_providers() -> list[Provider]:
+    return [
+        provider(_unexpected_durability_resolution, provided_type=IDurabilityStore),
+        provider(_unexpected_dead_letter_resolution, provided_type=IDeadLetterStore),
+        provider(_unexpected_uow_resolution, provided_type=IUnitOfWork),
+    ]
 
 
 def _build_dead_letter_durability(
@@ -185,6 +211,28 @@ class _TerminalSpy(IMessageObserver):
         return [outcome for dest, outcome, _ in self.executed if dest == destination]
 
 
+class _CommittedDeadLetterSpy(_TerminalSpy):
+    def __init__(self, container: AsyncContainer) -> None:
+        super().__init__()
+        self._container = container
+        self.entries_at_callback: list[DeadLetterEntry] = []
+
+    @override
+    async def on_executed(
+        self,
+        envelope: MessageEnvelope[Any],
+        destination: str,
+        handler_type: HandlerType,
+        outcome: ExecutionOutcome,
+        exc: Exception | None,
+        duration: timedelta,
+    ) -> None:
+        async with self._container() as scope:
+            store = await scope.get(IDeadLetterStore)
+            self.entries_at_callback = list(await store.fetch())
+        await super().on_executed(envelope, destination, handler_type, outcome, exc, duration)
+
+
 async def _make_endpoint(
     app: WakuApplication,
     handler: type[EventHandler[_OrderPlaced]],
@@ -202,6 +250,7 @@ async def _make_endpoint(
         handler_subscriptions={_OrderPlaced: frozenset({handler})},
         executor=executor,
         observers=NOOP_OBSERVERS,
+        container=app.container,
         stop_timeout=timedelta(seconds=0.5),
         max_buffer_size=100,
     )
@@ -219,6 +268,7 @@ async def _make_endpoint_with_requeue(
     max_buffer_size: float = 100,
     policies: Sequence[ErrorPolicy] | None = None,
     observers: MessageObservers = NOOP_OBSERVERS,
+    dead_letter_capable: bool = False,
 ) -> LocalQueueEndpoint:
     resolved_policies = policies if policies is not None else (ErrorPolicy.on_any_exception().requeue(),)
     invoker = await app.container.get(HandlerPipelineInvoker)
@@ -234,9 +284,11 @@ async def _make_endpoint_with_requeue(
         handler_subscriptions=subscriptions,
         executor=executor,
         observers=observers,
+        container=app.container,
         stop_timeout=timedelta(seconds=0.5),
         max_buffer_size=max_buffer_size,
         max_requeue_attempts=max_requeue_attempts,
+        dead_letter_capable=dead_letter_capable,
     )
 
 
@@ -246,6 +298,8 @@ async def _make_endpoint_with_pause(
     *,
     sleep: Callable[[float], Awaitable[None]],
     max_requeue_attempts: int,
+    observers: MessageObservers = NOOP_OBSERVERS,
+    dead_letter_capable: bool = False,
 ) -> LocalQueueEndpoint:
     invoker = await app.container.get(HandlerPipelineInvoker)
     executor = EndpointExecution(
@@ -259,11 +313,13 @@ async def _make_endpoint_with_pause(
         uri='local://test',
         handler_subscriptions={_OrderPlaced: frozenset({handler})},
         executor=executor,
-        observers=NOOP_OBSERVERS,
+        observers=observers,
+        container=app.container,
         stop_timeout=timedelta(seconds=0.5),
         max_buffer_size=100,
         max_requeue_attempts=max_requeue_attempts,
         pause_sleep=sleep,
+        dead_letter_capable=dead_letter_capable,
     )
 
 
@@ -315,6 +371,7 @@ class TestLocalQueueEndpoint:
         _AlwaysFailingHandler.call_count = 0
         async with create_test_app(
             imports=[MessagingModule.register()],
+            providers=_backendless_poison_providers(),
             extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
         ) as app:
             endpoint = await _make_endpoint(app, _AlwaysFailingHandler)
@@ -469,6 +526,7 @@ class TestLocalQueueRequeue:
                 {_OrderPlaced: frozenset({_AlwaysFailingHandler})},
                 max_requeue_attempts=2,
                 observers=MessageObservers([spy]),
+                dead_letter_capable=True,
             )
             await endpoint.start()
             envelope = make_envelope(_OrderPlaced(order_id='poison'))
@@ -483,6 +541,7 @@ class TestLocalQueueRequeue:
         assert entry.message_type == envelope.message_type
         assert entry.payload == {'order_id': 'poison'}
         assert spy.outcomes_at('local://test') == [ExecutionOutcome.DEAD_LETTERED]
+        assert isinstance(spy.executed[0][2], RequeueBudgetExceededError)
 
     @staticmethod
     async def test_requeue_exhaustion_warns_and_observes_when_unconfigured(caplog: pytest.LogCaptureFixture) -> None:
@@ -491,6 +550,7 @@ class TestLocalQueueRequeue:
 
         async with create_test_app(
             imports=[MessagingModule.register()],
+            providers=_backendless_poison_providers(),
             extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
         ) as app:
             endpoint = await _make_endpoint_with_requeue(
@@ -500,16 +560,85 @@ class TestLocalQueueRequeue:
                 observers=MessageObservers([spy]),
             )
             await endpoint.start()
-            with caplog.at_level(logging.WARNING, logger=_DISCARDING_LOGGER):
+            with caplog.at_level(logging.WARNING):
                 await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='poison')), app.container)
-                await wait_until(lambda: ExecutionOutcome.DEAD_LETTERED in spy.outcomes_at('local://test'))
+                await wait_until(lambda: ExecutionOutcome.DISCARDED in spy.outcomes_at('local://test'))
             await endpoint.stop()
 
         assert _AlwaysFailingHandler.call_count == 2
-        assert 'not persisted' in caplog.text.lower()
-        terminal = [(o, exc) for _, o, exc in spy.executed if o is ExecutionOutcome.DEAD_LETTERED]
+        assert len(caplog.records) == 1
+        terminal = [(o, exc) for _, o, exc in spy.executed if o is ExecutionOutcome.DISCARDED]
         assert len(terminal) == 1
         assert isinstance(terminal[0][1], RequeueBudgetExceededError)
+
+    @staticmethod
+    async def test_direct_dead_letter_persists_original_failure_before_terminal_callback(
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        _AlwaysFailingHandler.call_count = 0
+
+        async with create_test_app(
+            imports=[MessagingModule.register(), MemoryBackend.register()],
+            extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
+        ) as app:
+            spy = _CommittedDeadLetterSpy(app.container)
+            endpoint = await _make_endpoint_with_requeue(
+                app,
+                {_OrderPlaced: frozenset({_AlwaysFailingHandler})},
+                max_requeue_attempts=5,
+                policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
+                observers=MessageObservers([spy]),
+                dead_letter_capable=True,
+            )
+            await endpoint.start()
+            envelope = make_envelope(_OrderPlaced(order_id='direct-dlq'))
+            with caplog.at_level(logging.WARNING):
+                await endpoint.dispatch(envelope, app.container)
+                await wait_until(lambda: spy.outcomes_at('local://test') == [ExecutionOutcome.DEAD_LETTERED])
+            await endpoint.stop()
+
+        assert _AlwaysFailingHandler.call_count == 1
+        assert caplog.records == []
+        assert len(spy.entries_at_callback) == 1
+        entry = spy.entries_at_callback[0]
+        assert entry.message_id == envelope.message_id
+        assert entry.error_type == 'builtins.RuntimeError'
+        assert entry.error_message == 'always fails'
+        assert entry.retry_count == 1
+
+    @staticmethod
+    async def test_direct_dead_letter_without_capability_warns_once_and_discards_original_failure(
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        _AlwaysFailingHandler.call_count = 0
+        spy = _TerminalSpy()
+
+        async with create_test_app(
+            imports=[MessagingModule.register()],
+            providers=_backendless_poison_providers(),
+            extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
+        ) as app:
+            endpoint = await _make_endpoint_with_requeue(
+                app,
+                {_OrderPlaced: frozenset({_AlwaysFailingHandler})},
+                max_requeue_attempts=5,
+                policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
+                observers=MessageObservers([spy]),
+            )
+            await endpoint.start()
+            with caplog.at_level(logging.WARNING):
+                await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='direct-discard')), app.container)
+                await wait_until(lambda: spy.outcomes_at('local://test') == [ExecutionOutcome.DISCARDED])
+            await endpoint.stop()
+
+        assert _AlwaysFailingHandler.call_count == 1
+        assert len(caplog.records) == 1
+        assert caplog.records[0].name == _DISCARDING_LOGGER
+        terminal = [(outcome, exc) for _, outcome, exc in spy.executed]
+        assert len(terminal) == 1
+        assert terminal[0][0] is ExecutionOutcome.DISCARDED
+        assert type(terminal[0][1]) is RuntimeError
+        assert str(terminal[0][1]) == 'always fails'
 
     @staticmethod
     @pytest.mark.parametrize('configured', [True, False])
@@ -518,7 +647,7 @@ class TestLocalQueueRequeue:
         dl_store = RecordingDeadLetterStore()
         spy = _TerminalSpy()
         config = MessagingConfig(dead_letter=DeadLetterConfig()) if configured else None
-        providers = _configured_dead_letter_providers(dl_store) if configured else []
+        providers = _configured_dead_letter_providers(dl_store) if configured else _backendless_poison_providers()
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
@@ -530,13 +659,16 @@ class TestLocalQueueRequeue:
                 {_OrderPlaced: frozenset({_AlwaysFailingHandler})},
                 max_requeue_attempts=2,
                 observers=MessageObservers([spy]),
+                dead_letter_capable=configured,
             )
             await endpoint.start()
             await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='poison')), app.container)
-            await wait_until(lambda: ExecutionOutcome.DEAD_LETTERED in spy.outcomes_at('local://test'))
+            expected = ExecutionOutcome.DEAD_LETTERED if configured else ExecutionOutcome.DISCARDED
+            await wait_until(lambda: expected in spy.outcomes_at('local://test'))
             await endpoint.stop()
 
-        assert spy.outcomes_at('local://test') == [ExecutionOutcome.DEAD_LETTERED]
+        expected = ExecutionOutcome.DEAD_LETTERED if configured else ExecutionOutcome.DISCARDED
+        assert spy.outcomes_at('local://test') == [expected]
         assert len(dl_store.entries) == (1 if configured else 0)
 
     @staticmethod
@@ -582,6 +714,7 @@ class TestLocalQueueRequeue:
                 app,
                 {_OrderPlaced: frozenset({_RecordingHandler, _AlwaysFailingHandler})},
                 max_requeue_attempts=2,
+                dead_letter_capable=True,
             )
             await endpoint.start()
             await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='poison-b')), app.container)
@@ -609,6 +742,7 @@ class TestLocalQueueRequeue:
                 max_requeue_attempts=7,
                 policies=(ErrorPolicy.on_exception(_BudgetTwoError).requeue(max_attempts=2),),
                 observers=MessageObservers([spy]),
+                dead_letter_capable=True,
             )
             await endpoint.start()
             await endpoint.dispatch(make_envelope(_BudgetTwoEvent(ref='b2')), app.container)
@@ -624,9 +758,11 @@ class TestLocalQueueRequeue:
         _BudgetTwoHandler.call_count = 0
         _BudgetFourHandler.call_count = 0
         _FallbackHandler.call_count = 0
+        spy = _TerminalSpy()
 
         async with create_test_app(
             imports=[MessagingModule.register()],
+            providers=_backendless_poison_providers(),
             extensions=[MessagingExtension().bind(_BudgetTwoHandler, _BudgetFourHandler, _FallbackHandler)],
         ) as app:
             subscriptions: HandlerSubscriptions = {
@@ -643,6 +779,7 @@ class TestLocalQueueRequeue:
                     ErrorPolicy.on_exception(_BudgetFourError).requeue(max_attempts=4),
                     ErrorPolicy.on_any_exception().requeue(),
                 ),
+                observers=MessageObservers([spy]),
             )
             await endpoint.start()
             await endpoint.dispatch(make_envelope(_BudgetTwoEvent(ref='b2')), app.container)
@@ -662,6 +799,11 @@ class TestLocalQueueRequeue:
         assert _BudgetTwoHandler.call_count == 2  # per-rule budget bounds well under the endpoint's 7
         assert _BudgetFourHandler.call_count == 4  # a different per-rule budget honored independently
         assert _FallbackHandler.call_count == 7  # budget-less rule falls back to max_requeue_attempts
+        assert spy.outcomes_at('local://test') == [
+            ExecutionOutcome.DISCARDED,
+            ExecutionOutcome.DISCARDED,
+            ExecutionOutcome.DISCARDED,
+        ]
 
 
 class TestLocalQueuePause:
@@ -692,12 +834,20 @@ class TestLocalQueuePause:
     async def test_pause_shares_requeue_budget_and_stops_at_bound() -> None:
         _AlwaysFailingHandler.call_count = 0
         sleep = ControllableSleep()
+        spy = _TerminalSpy()
 
         async with create_test_app(
             imports=[MessagingModule.register()],
+            providers=_backendless_poison_providers(),
             extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
         ) as app:
-            endpoint = await _make_endpoint_with_pause(app, _AlwaysFailingHandler, sleep=sleep, max_requeue_attempts=2)
+            endpoint = await _make_endpoint_with_pause(
+                app,
+                _AlwaysFailingHandler,
+                sleep=sleep,
+                max_requeue_attempts=2,
+                observers=MessageObservers([spy]),
+            )
             await endpoint.start()
             await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='p-bound')), app.container)
             await wait_until(lambda: sleep.requested == [600.0])  # paused once after the first failure
@@ -709,3 +859,4 @@ class TestLocalQueuePause:
 
         assert _AlwaysFailingHandler.call_count == 2  # original + 1 redelivery, then dropped
         assert len(sleep.requested) == 1  # the budget-exhausted failure does NOT pause again (no livelock)
+        assert spy.outcomes_at('local://test') == [ExecutionOutcome.DISCARDED]

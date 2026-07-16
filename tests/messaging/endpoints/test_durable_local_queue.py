@@ -18,6 +18,8 @@ from waku.messaging.endpoints._internal.execution import (
     ExecutionResult,
     IEndpointExecution,
     ResultObserver,
+    TerminalIntent,
+    TerminalIntentKind,
     noop_result_observer,
 )
 from waku.messaging.endpoints.outcome import ExecutionOutcome
@@ -78,6 +80,23 @@ class _SecondHandler(EventHandler[_DomainEvent]):
         self.invocations.append(message.kind)
 
 
+def _intent(
+    outcome: ExecutionOutcome,
+    *,
+    exc: Exception | None = None,
+    pause_duration: timedelta | None = None,
+) -> TerminalIntent:
+    kinds = {
+        ExecutionOutcome.SUCCESS: TerminalIntentKind.SUCCESS,
+        ExecutionOutcome.FAILED_NO_POLICY: TerminalIntentKind.FAILED_NO_POLICY,
+        ExecutionOutcome.DISCARDED: TerminalIntentKind.DISCARD,
+        ExecutionOutcome.DEAD_LETTERED: TerminalIntentKind.DEAD_LETTER,
+        ExecutionOutcome.REQUEUED: TerminalIntentKind.REQUEUE,
+        ExecutionOutcome.PAUSED: TerminalIntentKind.PAUSE,
+    }
+    return TerminalIntent(kinds[outcome], error=exc, pause_duration=pause_duration)
+
+
 class _StubExecutor(IEndpointExecution):
     def __init__(
         self,
@@ -97,16 +116,25 @@ class _StubExecutor(IEndpointExecution):
         self,
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
-        *,
-        on_result: ResultObserver = noop_result_observer,
-    ) -> ExecutionResult:
+    ) -> TerminalIntent:
         self.calls += 1
         self.handled.append(handler_type)
-        await on_result(self.return_value, self.exc)
-        return ExecutionResult(self.return_value, self._pause_duration)
+        return _intent(self.return_value, exc=self.exc, pause_duration=self._pause_duration)
+
+    @override
+    async def emit_terminal(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        intent: TerminalIntent,
+        result: ExecutionResult,
+        *,
+        on_result: ResultObserver = noop_result_observer,
+    ) -> None:
+        await on_result(result.outcome, intent.error)
 
 
-class _PauseOnceExecutor(IEndpointExecution):
+class _PauseOnceExecutor(_StubExecutor):
     def __init__(self, *, pause_duration: timedelta) -> None:
         # PAUSED (with duration) on the first delivery, SUCCESS on the redelivery.
         self.calls = 0
@@ -117,19 +145,14 @@ class _PauseOnceExecutor(IEndpointExecution):
         self,
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
-        *,
-        on_result: ResultObserver = noop_result_observer,
-    ) -> ExecutionResult:
+    ) -> TerminalIntent:
         self.calls += 1
         if self.calls == 1:
-            result = ExecutionResult(ExecutionOutcome.PAUSED, self._pause_duration)
-        else:
-            result = ExecutionResult(ExecutionOutcome.SUCCESS)
-        await on_result(result.outcome, None)
-        return result
+            return _intent(ExecutionOutcome.PAUSED, pause_duration=self._pause_duration)
+        return _intent(ExecutionOutcome.SUCCESS)
 
 
-class _RequeueOnceExecutor(IEndpointExecution):
+class _RequeueOnceExecutor(_StubExecutor):
     def __init__(self) -> None:
         # Returns REQUEUED on the first delivery, SUCCESS on the redelivery.
         self.calls = 0
@@ -139,13 +162,10 @@ class _RequeueOnceExecutor(IEndpointExecution):
         self,
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
-        *,
-        on_result: ResultObserver = noop_result_observer,
-    ) -> ExecutionResult:
+    ) -> TerminalIntent:
         self.calls += 1
         outcome = ExecutionOutcome.REQUEUED if self.calls == 1 else ExecutionOutcome.SUCCESS
-        await on_result(outcome, None)
-        return ExecutionResult(outcome)
+        return _intent(outcome)
 
 
 class _EndpointDepsProvider(Provider):

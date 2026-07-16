@@ -30,12 +30,13 @@ from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
 from waku.messaging.endpoints._internal.execution import (
     EndpointExecution,
     ExecutionResult,
-    IEndpointWorkerExecution,
+    IEndpointExecution,
     ResultObserver,
+    TerminalIntent,
+    TerminalIntentKind,
     noop_result_observer,
 )
 from waku.messaging.endpoints._internal.local_queue import LocalQueueEndpoint
-from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers
 from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
 from waku.messaging.router import local_queue, route
@@ -63,12 +64,13 @@ def noop_executor(mocker: MockerFixture) -> EndpointExecution:
 
 
 @pytest.fixture
-def stopped_endpoint(noop_executor: EndpointExecution) -> LocalQueueEndpoint:
+def stopped_endpoint(noop_executor: EndpointExecution, mocker: MockerFixture) -> LocalQueueEndpoint:
     return LocalQueueEndpoint(
         uri='test://q',
         handler_subscriptions={},
         executor=noop_executor,
         observers=NOOP_OBSERVERS,
+        container=mocker.Mock(spec_set=AsyncContainer),
         stop_timeout=timedelta(seconds=1.0),
         max_buffer_size=0,
     )
@@ -181,6 +183,7 @@ class TestLocalQueueOnSent:
             handler_subscriptions={},
             executor=noop_executor,
             observers=MessageObservers([spy]),
+            container=mocker.Mock(spec_set=AsyncContainer),
             stop_timeout=timedelta(seconds=1.0),
             max_buffer_size=math.inf,
         )
@@ -202,6 +205,7 @@ class TestLocalQueueOnSent:
             handler_subscriptions={},
             executor=noop_executor,
             observers=MessageObservers([spy]),
+            container=mocker.Mock(spec_set=AsyncContainer),
             stop_timeout=timedelta(seconds=1.0),
             max_buffer_size=0,
         )
@@ -269,7 +273,7 @@ class _CbHandler(EventHandler[_CbEvent]):
     async def handle(self, event: _CbEvent, /) -> None: ...
 
 
-class _AlwaysFailStubExecutor(IEndpointWorkerExecution):
+class _AlwaysFailStubExecutor(IEndpointExecution):
     def __init__(self) -> None:
         self.calls = 0
 
@@ -278,16 +282,21 @@ class _AlwaysFailStubExecutor(IEndpointWorkerExecution):
         self,
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
-        *,
-        on_result: ResultObserver = noop_result_observer,
-    ) -> ExecutionResult:
+    ) -> TerminalIntent:
         self.calls += 1
-        await on_result(ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
-        return ExecutionResult(ExecutionOutcome.FAILED_NO_POLICY)
+        return TerminalIntent(TerminalIntentKind.FAILED_NO_POLICY, error=RuntimeError())
 
     @override
-    async def write_dead_letter(self, envelope: MessageEnvelope[Any], exc: Exception, attempt: int) -> bool:
-        return True
+    async def emit_terminal(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        intent: TerminalIntent,
+        result: ExecutionResult,
+        *,
+        on_result: ResultObserver = noop_result_observer,
+    ) -> None:
+        await on_result(result.outcome, intent.error)
 
 
 class TestLocalQueueCircuitBreaker:
@@ -299,6 +308,7 @@ class TestLocalQueueCircuitBreaker:
             handler_subscriptions={_CbEvent: frozenset([_CbHandler])},
             executor=executor,
             observers=NOOP_OBSERVERS,
+            container=mocker.Mock(spec_set=AsyncContainer),
             stop_timeout=timedelta(seconds=1.0),
             max_buffer_size=math.inf,
             circuit_breaker_config=CircuitBreakerConfig(

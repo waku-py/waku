@@ -37,6 +37,8 @@ from waku.messaging.endpoints._internal.execution import (
     ExecutionResult,
     IEndpointExecution,
     ResultObserver,
+    TerminalIntent,
+    TerminalIntentKind,
     noop_result_observer,
 )
 from waku.messaging.endpoints._internal.listening_agent import (
@@ -163,11 +165,20 @@ class _FailingExecutor(IEndpointExecution):
         self,
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
+    ) -> TerminalIntent:
+        return TerminalIntent(TerminalIntentKind.FAILED_NO_POLICY, error=self.failure)
+
+    @override
+    async def emit_terminal(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        intent: TerminalIntent,
+        result: ExecutionResult,
         *,
         on_result: ResultObserver = noop_result_observer,
-    ) -> ExecutionResult:
+    ) -> None:
         await on_result(ExecutionOutcome.FAILED_NO_POLICY, self.failure)
-        return ExecutionResult(outcome=ExecutionOutcome.FAILED_NO_POLICY)
 
 
 def _make_receiver(

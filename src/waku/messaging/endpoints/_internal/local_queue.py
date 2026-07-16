@@ -1,29 +1,34 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 import anyio
 from typing_extensions import override
 
 from waku.messaging._internal.circuit_breaker import CircuitBreaker, PassthroughCircuitBreaker
+from waku.messaging.endpoints._internal.execution import (
+    IEndpointExecution,
+    TerminalIntent,
+    TerminalIntentKind,
+)
 from waku.messaging.endpoints._internal.redelivery import RedeliveryCoordinator, RedeliveryHooks
 from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
 from waku.messaging.endpoints.base import Endpoint
+from waku.messaging.endpoints.executor import materialize_standalone_dead_letter
 from waku.messaging.endpoints.outcome import ExecutionOutcome
-from waku.messaging.exceptions import RequeueBudgetExceededError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from datetime import timedelta
 
-    from waku.di import AsyncContainer
+    from dishka import AsyncContainer
+
     from waku.messaging._internal.circuit_breaker import ICircuitBreaker
     from waku.messaging._internal.pauser import PauseToken
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.endpoints._internal.execution import IEndpointWorkerExecution
     from waku.messaging.observability.observer import MessageObservers
     from waku.messaging.router import HandlerSubscriptions
 
@@ -47,6 +52,8 @@ class LocalQueueEndpoint(Endpoint):
 
     __slots__ = (
         '_circuit_breaker',
+        '_container',
+        '_dead_letter_capable',
         '_executor',
         '_handler_subscriptions',
         '_observers',
@@ -60,19 +67,23 @@ class LocalQueueEndpoint(Endpoint):
         *,
         uri: str,
         handler_subscriptions: HandlerSubscriptions,
-        executor: IEndpointWorkerExecution,
+        executor: IEndpointExecution,
         observers: MessageObservers,
+        container: AsyncContainer,
         stop_timeout: timedelta,
         max_buffer_size: float,
         max_parallel: int = 1,
-        max_requeue_attempts: int = 5,  # BUFFERED dead-letters at the bound (no inbox row to recover from)
+        max_requeue_attempts: int = 5,  # no inbox row survives an exhausted redelivery budget
         pause_sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
         circuit_breaker_config: CircuitBreakerConfig | None = None,
+        dead_letter_capable: bool = False,
     ) -> None:
         super().__init__(uri=uri)
         self._handler_subscriptions = handler_subscriptions
         self._executor = executor
         self._observers = observers
+        self._container = container
+        self._dead_letter_capable = dead_letter_capable
         self._worker: MemoryStreamWorker[_WorkItem] = MemoryStreamWorker(
             max_buffer_size=max_buffer_size,
             stop_timeout=stop_timeout,
@@ -84,14 +95,18 @@ class LocalQueueEndpoint(Endpoint):
             if circuit_breaker_config is not None
             else PassthroughCircuitBreaker()
         )
-        # BUFFERED has no inbox row to recover from: a stopped worker dead-letters (on_stopped) just like
-        # an exhausted budget or a full buffer. Per-(message, handler) budget bounds each handler
-        # independently, so a succeeding sibling never resets a poison handler's count.
+        # BUFFERED has no inbox row to recover from: stopped, exhausted, and full-buffer redelivery all reach
+        # this owner's terminal materialization. Per-(message, handler) budget bounds each handler independently,
+        # so a succeeding sibling never resets a poison handler's count.
         self._redelivery = RedeliveryCoordinator(
             worker=self._worker,
             timed_pauser=self._timed_pauser,
             max_requeue_attempts=max_requeue_attempts,
-            hooks=RedeliveryHooks(dead_letter=self._terminal_dead_letter, on_stopped=self._terminal_dead_letter),
+            hooks=RedeliveryHooks(
+                dead_letter=self._finalize_terminal,
+                on_stopped=self._finalize_terminal,
+                finalize=self._finalize_terminal,
+            ),
         )
 
     @override
@@ -104,6 +119,13 @@ class LocalQueueEndpoint(Endpoint):
                 self._uri,
                 envelope.message_id,
             )
+            for handler_type in handler_types:
+                await self._emit_terminal(
+                    envelope,
+                    handler_type,
+                    TerminalIntent(TerminalIntentKind.DISCARD),
+                    ExecutionOutcome.DISCARDED,
+                )
             return
         await self._observers.sent(envelope, self._uri)
 
@@ -128,28 +150,55 @@ class LocalQueueEndpoint(Endpoint):
 
     async def _process_envelope(self, work_item: _WorkItem) -> None:
         envelope, handler_types = work_item
-        on_result = self._circuit_breaker.record
         for handler_type in handler_types:
-            result = await self._executor.execute(
-                envelope,
-                handler_type,
-                on_result=on_result,
-            )
-            await self._redelivery.handle_result(envelope, handler_type, result)
+            intent = await self._executor.execute(envelope, handler_type)
+            evidence = await self._redelivery.handle_intent(envelope, handler_type, intent)
+            if evidence is not None:
+                terminal_intent, outcome = evidence
+                await self._emit_terminal(envelope, handler_type, terminal_intent, outcome)
 
-    async def _terminal_dead_letter(
+    async def _finalize_terminal(
+        self,
+        envelope: MessageEnvelope[Any],
+        _handler_type: HandlerType,
+        intent: TerminalIntent,
+    ) -> ExecutionOutcome:
+        if intent.kind is not TerminalIntentKind.DEAD_LETTER:
+            outcomes = {
+                TerminalIntentKind.SUCCESS: ExecutionOutcome.SUCCESS,
+                TerminalIntentKind.FAILED_NO_POLICY: ExecutionOutcome.FAILED_NO_POLICY,
+                TerminalIntentKind.DISCARD: ExecutionOutcome.DISCARDED,
+            }
+            return outcomes[intent.kind]
+        if not self._dead_letter_capable:
+            logger.warning(
+                'Discarding dead-letter intent without configured durability: message_id=%s was not persisted',
+                envelope.message_id,
+            )
+            outcome = ExecutionOutcome.DISCARDED
+        else:
+            result = await materialize_standalone_dead_letter(
+                self._container,
+                endpoint_uri=self._uri,
+                envelope=envelope,
+                intent=intent,
+            )
+            outcome = result.outcome
+        return outcome
+
+    async def _emit_terminal(
         self,
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
-        attempts: int,
+        intent: TerminalIntent,
+        outcome: ExecutionOutcome,
     ) -> None:
-        # Persistence availability is finalized by the delivery owner; this method only reports the
-        # configured dead-letter write result.
-        exc = RequeueBudgetExceededError(envelope.message_id, attempts)
-        persisted = await self._executor.write_dead_letter(
+        await self._observers.executed(
             envelope,
-            exc,
-            attempts,
+            self._uri,
+            handler_type,
+            outcome,
+            intent.error,
+            intent.duration,
         )
-        outcome = ExecutionOutcome.DEAD_LETTERED if persisted else ExecutionOutcome.DEAD_LETTER_FAILED
-        await self._observers.executed(envelope, self._uri, handler_type, outcome, exc, timedelta())
+        await self._circuit_breaker.record(outcome, intent.error)

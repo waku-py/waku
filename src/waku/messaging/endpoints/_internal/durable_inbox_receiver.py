@@ -8,13 +8,13 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 import anyio
 
 from waku._internal.transaction import unit_of_work_scope
-from waku.messaging._internal.circuit_breaker import CircuitBreaker, PassthroughCircuitBreaker
+from waku.messaging._internal.circuit_breaker import CircuitBreaker, ICircuitBreaker, PassthroughCircuitBreaker
 from waku.messaging._internal.partition import resolve_and_allocate
 from waku.messaging.durability import IInboxStore
+from waku.messaging.endpoints._internal.execution import ExecutionResult, TerminalIntent, TerminalIntentKind
 from waku.messaging.endpoints._internal.redelivery import RedeliveryCoordinator, RedeliveryHooks
 from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
-from waku.messaging.exceptions import RequeueBudgetExceededError
 from waku.messaging.inbox import EndpointUri
 from waku.messaging.inbox._internal.finalize import apply_inbox_outcome
 from waku.messaging.inbox.destination import handler_destination
@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 
     from dishka import AsyncContainer
 
-    from waku.messaging._internal.circuit_breaker import ICircuitBreaker
     from waku.messaging._internal.pauser import PauseToken
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
@@ -102,7 +101,7 @@ class DurableInboxReceiver:
             timed_pauser=self._timed_pauser,
             max_requeue_attempts=max_requeue_attempts,
             hooks=RedeliveryHooks(
-                dead_letter=self._dead_letter_poison,
+                dead_letter=self._finalize,
                 record_attempt=self._record_requeue_attempt,
                 finalize=self._finalize,
             ),
@@ -117,8 +116,8 @@ class DurableInboxReceiver:
         # Broker-agnostic meter: the in-memory backlog the listener watermark observes.
         return self._worker.queue_depth
 
-    def attach_circuit_breaker(self, circuit_breaker: CircuitBreaker) -> None:
-        # Set before start(): _process_work_item feeds its execute outcomes to the breaker; stop() aclose()s it once.
+    def attach_circuit_breaker(self, circuit_breaker: ICircuitBreaker) -> None:
+        # Set before start(): owner-finalized terminal outcomes feed the breaker; stop() aclose()s it once.
         self._circuit_breaker = circuit_breaker
 
     async def persist(
@@ -176,14 +175,12 @@ class DurableInboxReceiver:
 
     async def _process_work_item(self, work_item: _WorkItem) -> None:
         envelope, handler_types = work_item
-        on_result = self._circuit_breaker.record
         for handler_type in handler_types:
-            result = await self._executor.execute(
-                envelope,
-                handler_type,
-                on_result=on_result,
-            )
-            await self._redelivery.handle_result(envelope, handler_type, result)
+            intent = await self._executor.execute(envelope, handler_type)
+            evidence = await self._redelivery.handle_intent(envelope, handler_type, intent)
+            if evidence is not None:
+                terminal_intent, outcome = evidence
+                await self._emit_terminal(envelope, handler_type, terminal_intent, outcome)
 
     async def _record_requeue_attempt(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> None:
         destination = handler_destination(handler_type)
@@ -191,42 +188,66 @@ class DurableInboxReceiver:
             inbox = await scope.get(IInboxStore)
             await inbox.increment_attempts(envelope.message_id, destination)
 
-    async def _dead_letter_poison(
-        self,
-        envelope: MessageEnvelope[Any],
-        handler_type: HandlerType,
-        attempts: int,
-    ) -> None:
-        destination = handler_destination(handler_type)
-        async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
-            inbox = await scope.get(IInboxStore)
-            codec = await scope.get(PayloadCodec)
-            dead_letter = DeadLetterEntry.from_failure(
-                message_type=envelope.message_type,
-                payload=encode_payload(envelope, codec),
-                destination=destination,
-                destination_kind=DeadLetterDestinationKind.HANDLER,
-                correlation_id=envelope.correlation_id,
-                causation_id=envelope.causation_id,
-                exc=RequeueBudgetExceededError(envelope.message_id, attempts),
-                attempt=attempts,
-                message_id=envelope.message_id,
-                metadata=encode_metadata(envelope),
-                group_id=envelope.group_id,
-            )
-            await inbox.move_to_dead_letter(envelope.message_id, destination, dead_letter)
-
     async def _finalize(
         self,
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
-        outcome: ExecutionOutcome,
-    ) -> None:
+        intent: TerminalIntent,
+    ) -> ExecutionOutcome:
         destination = handler_destination(handler_type)
-        await apply_inbox_outcome(
+        dead_letter = await self._dead_letter_entry(envelope, handler_type, intent)
+        result = await apply_inbox_outcome(
             self._container,
             entry_id=envelope.message_id,
             destination=destination,
-            outcome=outcome,
+            intent=intent,
             keep_after_handled=self._keep_after_handled,
+            dead_letter=dead_letter,
         )
+        return result.outcome
+
+    async def _dead_letter_entry(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        intent: TerminalIntent,
+    ) -> DeadLetterEntry | None:
+        if intent.kind is not TerminalIntentKind.DEAD_LETTER:
+            return None
+        if intent.error is None:
+            msg = 'dead-letter intent must retain its handler failure'
+            raise RuntimeError(msg)
+        codec = await self._container.get(PayloadCodec)
+        return DeadLetterEntry.from_failure(
+            message_type=envelope.message_type,
+            payload=encode_payload(envelope, codec),
+            destination=handler_destination(handler_type),
+            destination_kind=DeadLetterDestinationKind.HANDLER,
+            correlation_id=envelope.correlation_id,
+            causation_id=envelope.causation_id,
+            exc=intent.error,
+            attempt=intent.attempt,
+            message_id=envelope.message_id,
+            metadata=encode_metadata(envelope),
+            group_id=envelope.group_id,
+        )
+
+    async def _emit_terminal(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        intent: TerminalIntent,
+        outcome: ExecutionOutcome,
+    ) -> None:
+        result = ExecutionResult(
+            outcome,
+            pause_duration=intent.pause_duration,
+            requeue_limit=intent.requeue_limit,
+        )
+        await self._executor.emit_terminal(
+            envelope,
+            handler_type,
+            intent,
+            result,
+        )
+        await self._circuit_breaker.record(outcome, intent.error)
