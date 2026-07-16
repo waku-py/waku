@@ -77,6 +77,13 @@ class DeadLetterEntry:
     group_id: str | None = None
     metadata: dict[str, Any] | None = None
     created_at: datetime | None = None
+    replay_owner_id: str | None = None
+    replay_lease_expires_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if (self.replay_owner_id is None) is not (self.replay_lease_expires_at is None):
+            msg = 'replay_owner_id and replay_lease_expires_at must both be set or both be None'
+            raise ValueError(msg)
 
     @classmethod
     def from_failure(  # noqa: PLR0913

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -11,7 +11,8 @@ from anyio.lowlevel import checkpoint
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
-from waku._internal.transaction import TransactionCleanupError
+from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
+from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.messaging import PollingConfig
 from waku.messaging._internal.maintenance import (
     DurabilityMaintenanceAgent,
@@ -19,24 +20,22 @@ from waku.messaging._internal.maintenance import (
     _OutboxMaintenancePoller,
     _PromotionPoller,
 )
-from waku.messaging._internal.transaction import CompletedExecutionError
 from waku.messaging.config import DeadLetterConfig, MessagingConfig, OutboxConfig
 from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
 from waku.messaging.errors._internal.replay import IReplayExecution
-from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
+from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry, DeadLetterStatus
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.outbox.relay import OutboxRelayConfig
 from waku.messaging.sequence import ISequenceAllocator
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import RecordingAllocator, RecordingDeadLetterStore, RecordingUoW
+from tests.messaging.helpers import RecordingAllocator, RecordingUoW
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from datetime import datetime
     from uuid import UUID
 
 _FAST = PollingConfig(poll_interval_min_seconds=0.01, poll_interval_max_seconds=0.05, poll_interval_step_seconds=0.01)
@@ -71,35 +70,42 @@ class _MaintOutboxStore(RecordingOutboxStore):
         return self._cleanup_count
 
 
-class _MaintDlqStore(RecordingDeadLetterStore):
+class _MaintDlqStore(InMemoryDeadLetterStore):
     def __init__(self, *, claimable: Sequence[DeadLetterEntry] = (), purge_count: int = 0) -> None:
         super().__init__()
         self.claim_calls = 0
-        self.purged: list[datetime] = []
+        self.purged: list[tuple[datetime, datetime]] = []
         self._to_claim = list(claimable)
         self._purge_count = purge_count
+        for entry in claimable:
+            self.entries[entry.id] = entry
 
     @override
-    async def claim_replayable(self, batch_size: int, max_replay_count: int) -> Sequence[DeadLetterEntry]:
+    async def claim_replayable(
+        self,
+        max_replay_count: int,
+        *,
+        owner_id: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> DeadLetterEntry | None:
         self.claim_calls += 1
-        batch, self._to_claim = self._to_claim[:batch_size], self._to_claim[batch_size:]
-        return batch
+        return await super().claim_replayable(
+            max_replay_count,
+            owner_id=owner_id,
+            now=now,
+            lease_expires_at=lease_expires_at,
+        )
 
     @override
-    async def purge(self, older_than: datetime) -> int:
-        self.purged.append(older_than)
+    async def purge(self, older_than: datetime, *, now: datetime) -> int:
+        self.purged.append((older_than, now))
         return self._purge_count
 
 
 class _RepeatingMaintDlqStore(_MaintDlqStore):
     def __init__(self, *entries: DeadLetterEntry) -> None:
-        super().__init__()
-        self._entries = entries
-
-    @override
-    async def claim_replayable(self, batch_size: int, max_replay_count: int) -> Sequence[DeadLetterEntry]:
-        self.claim_calls += 1
-        return self._entries
+        super().__init__(claimable=entries)
 
 
 class _MaintInboxStore(FakeInboxStore):
@@ -121,9 +127,8 @@ class _RecordingReplayExecutor(IReplayExecution):
         self.replayed: list[UUID] = []
 
     @override
-    async def replay(self, entry: DeadLetterEntry) -> bool:
+    async def dispatch(self, entry: DeadLetterEntry) -> None:
         self.replayed.append(entry.id)
-        return True
 
 
 class _BlockingReplayExecutor(IReplayExecution):
@@ -134,10 +139,9 @@ class _BlockingReplayExecutor(IReplayExecution):
         self._released = released
 
     @override
-    async def replay(self, entry: DeadLetterEntry) -> bool:
+    async def dispatch(self, entry: DeadLetterEntry) -> None:
         self._entered.set()
         await self._released.wait()
-        return True
 
 
 class _CleanupFailingReplayExecutor(IReplayExecution):
@@ -148,9 +152,13 @@ class _CleanupFailingReplayExecutor(IReplayExecution):
         self.rollback_error = rollback_error
 
     @override
-    async def replay(self, entry: DeadLetterEntry) -> bool:
+    async def dispatch(self, entry: DeadLetterEntry) -> None:
         self.calls += 1
-        raise TransactionCleanupError(RuntimeError('replay failed'), self.rollback_error)
+        raise TransactionExecutionError(
+            TransactionFailureKind.ROLLBACK_FAILED,
+            self.rollback_error,
+            RuntimeError('replay failed'),
+        )
 
 
 class _CompletedReplayExecutor(IReplayExecution):
@@ -161,9 +169,9 @@ class _CompletedReplayExecutor(IReplayExecution):
         self.teardown_error = teardown_error
 
     @override
-    async def replay(self, entry: DeadLetterEntry) -> bool:
+    async def dispatch(self, entry: DeadLetterEntry) -> None:
         self.calls += 1
-        raise CompletedExecutionError(self.teardown_error)
+        raise TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, self.teardown_error, None)
 
 
 class _CancellationCompletedReplayExecutor(IReplayExecution):
@@ -175,10 +183,9 @@ class _CancellationCompletedReplayExecutor(IReplayExecution):
         self.cancellation_error = cancellation_error
 
     @override
-    async def replay(self, entry: DeadLetterEntry) -> bool:
+    async def dispatch(self, entry: DeadLetterEntry) -> None:
         self.calls += 1
-        self.cancel_scope.cancel()
-        raise CompletedExecutionError(self.cancellation_error)
+        raise TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, self.cancellation_error, None)
 
 
 class _PartialFailureReplayExecutor(IReplayExecution):
@@ -190,10 +197,10 @@ class _PartialFailureReplayExecutor(IReplayExecution):
         self.failure = failure
 
     @override
-    async def replay(self, entry: DeadLetterEntry) -> bool:
+    async def dispatch(self, entry: DeadLetterEntry) -> None:
         self.calls.append(entry.id)
         if entry.id == self.successful_entry_id:
-            return True
+            return
         raise self.failure
 
 
@@ -205,22 +212,15 @@ class _FailOnceReplayExecutor(IReplayExecution):
         self.failure = failure
 
     @override
-    async def replay(self, entry: DeadLetterEntry) -> bool:
+    async def dispatch(self, entry: DeadLetterEntry) -> None:
         self.calls += 1
         if self.calls == 1:
             raise self.failure
-        return True
 
 
 class _RetryOnceMaintDlqStore(_MaintDlqStore):
     def __init__(self, entry: DeadLetterEntry) -> None:
-        super().__init__()
-        self._entry = entry
-
-    @override
-    async def claim_replayable(self, batch_size: int, max_replay_count: int) -> Sequence[DeadLetterEntry]:
-        self.claim_calls += 1
-        return [self._entry] if self.claim_calls <= 2 else []
+        super().__init__(claimable=[entry])
 
 
 class _CheckpointingUoW(RecordingUoW):
@@ -231,6 +231,16 @@ class _CheckpointingUoW(RecordingUoW):
 
 
 class _TestableDlqMaintenancePoller(_DlqMaintenancePoller):
+    async def tick(self) -> int:
+        return await super()._tick()
+
+
+class _TestableOutboxMaintenancePoller(_OutboxMaintenancePoller):
+    async def tick(self) -> int:
+        return await super()._tick()
+
+
+class _TestablePromotionPoller(_PromotionPoller):
     async def tick(self) -> int:
         return await super()._tick()
 
@@ -415,7 +425,7 @@ class TestNoHeadOfLineBlocking:
 
         assert outbox.recover_calls >= 2
         assert inbox.promote_calls >= 2
-        assert dlq.claim_calls == 1  # claimed once, then parked in replay — never returned to re-claim
+        assert dlq.claim_calls == 2  # one committed claim, then one empty short claim after dispatch releases
 
 
 class TestOutboxMaintenancePoller:
@@ -524,33 +534,65 @@ class TestOutboxMaintenancePoller:
         assert outbox.recover_calls == 1
         assert outbox.cleanup_calls == 1
 
+    @staticmethod
+    async def test_counts_recovery_and_cleanup_only_after_separate_commits() -> None:
+        outbox = _MaintOutboxStore(recover_count=2, cleanup_count=3)
+        uow = RecordingUoW()
+        config = OutboxRelayConfig(
+            recovery_interval=timedelta(seconds=0),
+            retention=timedelta(hours=1),
+            cleanup_interval=timedelta(seconds=0),
+        )
+        async with make_async_container(_deps(outbox=outbox, uow=uow)) as container:
+            poller = _TestableOutboxMaintenancePoller(container=container, config=config)
+            assert await poller.tick() == 5
+
+        assert uow.commit_count == 2
+        assert uow.rollback_count == 0
+
+    @staticmethod
+    async def test_recovery_commit_failure_rolls_back_and_skips_cleanup() -> None:
+        commit_error = RuntimeError('maintenance recovery commit failed')
+        outbox = _MaintOutboxStore(recover_count=2, cleanup_count=3)
+        uow = RecordingUoW(commit_error=commit_error)
+        config = OutboxRelayConfig(
+            recovery_interval=timedelta(seconds=0),
+            retention=timedelta(hours=1),
+            cleanup_interval=timedelta(seconds=0),
+        )
+        async with make_async_container(_deps(outbox=outbox, uow=uow)) as container:
+            poller = _TestableOutboxMaintenancePoller(container=container, config=config)
+            with pytest.raises(RuntimeError) as raised:
+                await poller.tick()
+
+        assert raised.value is commit_error
+        assert outbox.cleanup_calls == 0
+        assert uow.commit_count == 0
+        assert uow.rollback_count == 1
+
 
 async def _assert_prefix_failure_stops(
-    failure: BaseException,
-    expected: BaseException,
+    failure: TransactionExecutionError,
     *,
     expected_commits: int,
-    expected_rollbacks: int,
 ) -> None:
     first = _dlq_entry()
     second = _dlq_entry()
     replayer = _PartialFailureReplayExecutor(first.id, failure)
     uow = RecordingUoW()
     dlq = _RepeatingMaintDlqStore(first, second)
-    config = MessagingConfig(dead_letter=DeadLetterConfig(auto_replay_enabled=True, polling=_FAST))
+    config = DeadLetterConfig(auto_replay_enabled=True, polling=_FAST)
 
     async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
-        agent = DurabilityMaintenanceAgent(container=container, config=config)
-        await agent.start()
-        await wait_until(lambda: len(replayer.calls) >= 2)
-        with pytest.raises(type(expected)) as raised:
-            await agent.stop()
+        poller = _TestableDlqMaintenancePoller(container=container, config=config)
+        with pytest.raises(TransactionExecutionError) as raised:
+            await poller.tick()
 
-    assert raised.value is expected
+    assert raised.value is failure
     assert replayer.calls == [first.id, second.id]
-    assert dlq.claim_calls == 1
+    assert dlq.claim_calls == 2
     assert uow.commit_count == expected_commits
-    assert uow.rollback_count == expected_rollbacks
+    assert uow.rollback_count == 0
 
 
 class TestDlqMaintenancePoller:
@@ -583,10 +625,11 @@ class TestDlqMaintenancePoller:
             agent = DurabilityMaintenanceAgent(container=container, config=config)
             await agent.start()
             await wait_until(lambda: replayer.calls == 1)
-            with pytest.raises(RuntimeError) as raised:
+            with pytest.raises(TransactionExecutionError) as raised:
                 await agent.stop()
 
-        assert raised.value is rollback_error
+        assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert raised.value.error is rollback_error
         assert replayer.calls == 1
 
     @staticmethod
@@ -602,12 +645,13 @@ class TestDlqMaintenancePoller:
             agent = DurabilityMaintenanceAgent(container=container, config=config)
             await agent.start()
             await wait_until(lambda: replayer.calls == 1)
-            with pytest.raises(RuntimeError) as raised:
+            with pytest.raises(TransactionExecutionError) as raised:
                 await agent.stop()
 
-        assert raised.value is teardown_error
+        assert raised.value.kind is TransactionFailureKind.AFTER_COMMIT
+        assert raised.value.error is teardown_error
         assert replayer.calls == 1
-        assert uow.commit_count == 1
+        assert uow.commit_count == 2
         assert uow.rollback_count == 0
 
     @staticmethod
@@ -622,109 +666,153 @@ class TestDlqMaintenancePoller:
             _deps(dlq=_MaintDlqStore(claimable=[_dlq_entry()]), replayer=replayer, uow=uow),
         ) as container:
             poller = _TestableDlqMaintenancePoller(container=container, config=config)
-            with pytest.raises(CompletedExecutionError) as raised, cancel_scope:
+            with pytest.raises(TransactionExecutionError) as raised:
                 await poller.tick()
 
         assert raised.value.error is cancellation_error
         assert replayer.calls == 1
-        assert uow.commit_count == 1
+        assert uow.commit_count == 2
         assert uow.rollback_count == 0
 
     @staticmethod
-    async def test_post_commit_replay_batch_commit_failure_stops_before_next_tick() -> None:
+    async def test_claim_commit_failure_rolls_back_and_defers_replay() -> None:
         commit_error = RuntimeError('replay batch commit failed')
-        replayer = _CompletedReplayExecutor(RuntimeError('request scope teardown failed'))
-        uow = RecordingUoW(commit_error=commit_error)
-        dlq = _RepeatingMaintDlqStore(_dlq_entry())
-        config = MessagingConfig(dead_letter=DeadLetterConfig(auto_replay_enabled=True, polling=_FAST))
-
-        async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=config)
-            await agent.start()
-            await wait_until(lambda: replayer.calls == 1)
-            with pytest.raises(RuntimeError) as raised:
-                await agent.stop()
-
-        assert raised.value is commit_error
-        assert replayer.calls == 1
-        assert dlq.claim_calls == 1
-        assert uow.commit_count == 0
-        assert uow.rollback_count == 1
-
-    @staticmethod
-    async def test_successful_replay_batch_commit_failure_stops_before_next_tick() -> None:
-        commit_error = RuntimeError('replay batch commit failed')
-        entry = _dlq_entry()
         replayer = _RecordingReplayExecutor()
         uow = RecordingUoW(commit_error=commit_error)
-        dlq = _RepeatingMaintDlqStore(entry)
-        config = MessagingConfig(dead_letter=DeadLetterConfig(auto_replay_enabled=True, polling=_FAST))
+        dlq = _RepeatingMaintDlqStore(_dlq_entry())
+        config = DeadLetterConfig(auto_replay_enabled=True, polling=_FAST)
 
         async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=config)
-            await agent.start()
-            await wait_until(lambda: bool(replayer.replayed))
-            with pytest.raises(RuntimeError) as raised:
-                await agent.stop()
+            poller = _TestableDlqMaintenancePoller(container=container, config=config)
+            assert await poller.tick() == 0
 
-        assert raised.value is commit_error
-        assert replayer.replayed == [entry.id]
+        assert replayer.replayed == []
         assert dlq.claim_calls == 1
         assert uow.commit_count == 0
         assert uow.rollback_count == 1
 
     @staticmethod
-    async def test_successful_batch_prefix_then_plain_failure_commits_prefix_and_stops() -> None:
+    async def test_successful_batch_prefix_then_plain_failure_finalizes_failed_and_continues() -> None:
         first = _dlq_entry()
         second = _dlq_entry()
         failure = RuntimeError('second replay failed')
         replayer = _PartialFailureReplayExecutor(first.id, failure)
         uow = RecordingUoW()
         dlq = _RepeatingMaintDlqStore(first, second)
-        config = MessagingConfig(dead_letter=DeadLetterConfig(auto_replay_enabled=True, polling=_FAST))
+        config = DeadLetterConfig(auto_replay_enabled=True, polling=_FAST)
 
         async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=config)
-            await agent.start()
-            await wait_until(lambda: len(replayer.calls) >= 2)
-            with pytest.raises(RuntimeError) as raised:
-                await agent.stop()
+            poller = _TestableDlqMaintenancePoller(container=container, config=config)
+            assert await poller.tick() == 1
 
-        assert raised.value is failure
-        assert replayer.calls == [first.id, second.id]
-        assert dlq.claim_calls == 1
-        assert uow.commit_count == 1
+        assert replayer.calls == [first.id, second.id, second.id, second.id]
+        assert dlq.claim_calls == 5
+        assert dlq.entries[first.id].status is DeadLetterStatus.REPLAYED
+        assert dlq.entries[second.id].status is DeadLetterStatus.REPLAY_FAILED
+        assert dlq.entries[second.id].replay_count == 3
+        assert failure.args[0] in (dlq.entries[second.id].error_message or '')
+        assert uow.commit_count == 9
         assert uow.rollback_count == 0
 
     @staticmethod
     async def test_successful_batch_prefix_then_cancellation_commits_prefix_and_stops() -> None:
         cancellation_error = anyio.get_cancelled_exc_class()()
-        await _assert_prefix_failure_stops(
-            cancellation_error,
-            cancellation_error,
-            expected_commits=1,
-            expected_rollbacks=0,
-        )
+        first = _dlq_entry()
+        second = _dlq_entry()
+        replayer = _PartialFailureReplayExecutor(first.id, cancellation_error)
+        uow = RecordingUoW()
+        dlq = _RepeatingMaintDlqStore(first, second)
+        config = DeadLetterConfig(auto_replay_enabled=True, polling=_FAST)
+
+        async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
+            poller = _TestableDlqMaintenancePoller(container=container, config=config)
+            with pytest.raises(anyio.get_cancelled_exc_class()) as raised:
+                await poller.tick()
+
+        assert raised.value is cancellation_error
+        assert replayer.calls == [first.id, second.id]
+        assert dlq.entries[first.id].status is DeadLetterStatus.REPLAYED
+        assert dlq.entries[second.id].status is DeadLetterStatus.REPLAY_FAILED
+        assert uow.commit_count == 4
+        assert uow.rollback_count == 0
 
     @staticmethod
     async def test_successful_batch_prefix_then_completed_execution_commits_and_stops() -> None:
         teardown_error = RuntimeError('second replay scope teardown failed')
+        failure = TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, teardown_error, None)
         await _assert_prefix_failure_stops(
-            CompletedExecutionError(teardown_error),
-            teardown_error,
-            expected_commits=1,
-            expected_rollbacks=0,
+            failure,
+            expected_commits=4,
         )
 
     @staticmethod
     async def test_successful_batch_prefix_then_cleanup_failure_rolls_back_and_stops() -> None:
         rollback_error = RuntimeError('second replay rollback failed')
-        await _assert_prefix_failure_stops(
-            TransactionCleanupError(RuntimeError('second replay failed'), rollback_error),
+        failure = TransactionExecutionError(
+            TransactionFailureKind.ROLLBACK_FAILED,
             rollback_error,
-            expected_commits=0,
-            expected_rollbacks=1,
+            RuntimeError('second replay failed'),
         )
+        await _assert_prefix_failure_stops(
+            failure,
+            expected_commits=3,
+        )
+
+    @staticmethod
+    async def test_mixed_cancellation_group_preserves_group_and_committed_prefix() -> None:
+        first = _dlq_entry()
+        second = _dlq_entry()
+        cancellation = anyio.get_cancelled_exc_class()()
+        fatal = TransactionExecutionError(
+            TransactionFailureKind.ROLLBACK_FAILED,
+            RuntimeError('rollback failed'),
+            RuntimeError('handler failed'),
+        )
+        failure = BaseExceptionGroup('mixed replay failure', [cancellation, fatal])
+        replayer = _PartialFailureReplayExecutor(first.id, failure)
+        uow = RecordingUoW()
+        dlq = _RepeatingMaintDlqStore(first, second)
+        config = DeadLetterConfig(auto_replay_enabled=True, polling=_FAST)
+
+        async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
+            poller = _TestableDlqMaintenancePoller(container=container, config=config)
+            with pytest.raises(BaseExceptionGroup) as raised:
+                await poller.tick()
+
+        assert raised.value is failure
+        assert raised.value.exceptions == (cancellation, fatal)
+        assert replayer.calls == [first.id, second.id]
+        assert dlq.claim_calls == 2
+        assert dlq.entries[first.id].status is DeadLetterStatus.REPLAYED
+        assert dlq.entries[second.id].status is DeadLetterStatus.PENDING
+        assert uow.commit_count == 3
+        assert uow.rollback_count == 0
+
+    @staticmethod
+    async def test_fatal_only_group_unwraps_without_causal_mutation() -> None:
+        entry = _dlq_entry()
+        fatal = TransactionExecutionError(
+            TransactionFailureKind.ROLLBACK_FAILED,
+            RuntimeError('rollback failed'),
+            RuntimeError('handler failed'),
+        )
+        replayer = _PartialFailureReplayExecutor(uuid4(), BaseExceptionGroup('fatal replay failure', [fatal]))
+        uow = RecordingUoW()
+        dlq = _RepeatingMaintDlqStore(entry)
+        config = DeadLetterConfig(auto_replay_enabled=True, polling=_FAST)
+
+        async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
+            poller = _TestableDlqMaintenancePoller(container=container, config=config)
+            with pytest.raises(TransactionExecutionError) as raised:
+                await poller.tick()
+
+        assert raised.value is fatal
+        assert fatal.__cause__ is None
+        assert fatal.__context__ is None
+        assert replayer.calls == [entry.id]
+        assert dlq.claim_calls == 1
+        assert uow.commit_count == 1
+        assert uow.rollback_count == 0
 
     @staticmethod
     async def test_first_plain_failure_remains_recoverable_then_commits_retry() -> None:
@@ -744,9 +832,9 @@ class TestDlqMaintenancePoller:
                 await agent.stop()
 
         assert replayer.calls == 2
-        assert dlq.claim_calls == 2
-        assert uow.commit_count == 1
-        assert uow.rollback_count == 1
+        assert dlq.claim_calls == 3
+        assert uow.commit_count == 5
+        assert uow.rollback_count == 0
 
     @staticmethod
     async def test_first_cancellation_rolls_back_and_stops_without_retry() -> None:
@@ -767,8 +855,8 @@ class TestDlqMaintenancePoller:
         assert raised.value is cancellation_error
         assert replayer.calls == [entry.id]
         assert dlq.claim_calls == 1
-        assert uow.commit_count == 0
-        assert uow.rollback_count == 1
+        assert uow.commit_count == 2
+        assert uow.rollback_count == 0
 
     @staticmethod
     async def test_does_not_claim_when_auto_replay_disabled() -> None:
@@ -813,6 +901,30 @@ class TestDlqMaintenancePoller:
         assert len(dlq.purged) >= 1
 
     @staticmethod
+    async def test_cleanup_samples_clock_once_for_cutoff_and_lease_validity() -> None:
+        sampled = datetime(2026, 7, 16, 12, tzinfo=UTC)
+        clock_calls = 0
+
+        def now() -> datetime:
+            nonlocal clock_calls
+            clock_calls += 1
+            return sampled
+
+        dlq = _MaintDlqStore(purge_count=2)
+        config = DeadLetterConfig(
+            auto_replay_enabled=False,
+            retention=timedelta(days=30),
+            cleanup_interval=timedelta(seconds=0),
+            polling=_FAST,
+        )
+        async with make_async_container(_deps(dlq=dlq)) as container:
+            poller = _TestableDlqMaintenancePoller(container=container, config=config, now=now)
+            assert await poller.tick() == 2
+
+        assert clock_calls == 1
+        assert dlq.purged == [(sampled - timedelta(days=30), sampled)]
+
+    @staticmethod
     async def test_purge_fires_once_per_interval_while_replay_runs_every_tick() -> None:
         # Purge is gated by cleanup_interval (fires once) while auto-replay claims every tick — the
         # DLQ poller's two concerns keep independent cadences within one tick.
@@ -852,3 +964,28 @@ class TestPromotionPoller:
                 await agent.stop()
 
         assert inbox.promote_calls >= 1
+
+    @staticmethod
+    async def test_counts_promotions_only_after_commit() -> None:
+        inbox = _MaintInboxStore(promote_count=3)
+        uow = RecordingUoW()
+        async with make_async_container(_deps(inbox=inbox, uow=uow)) as container:
+            poller = _TestablePromotionPoller(container=container, config=InboxConfig())
+            assert await poller.tick() == 3
+
+        assert uow.commit_count == 1
+        assert uow.rollback_count == 0
+
+    @staticmethod
+    async def test_promotion_rollback_failure_is_fatal() -> None:
+        commit_error = RuntimeError('promotion commit failed')
+        rollback_error = RuntimeError('promotion rollback failed')
+        uow = RecordingUoW(commit_error=commit_error, rollback_error=rollback_error)
+        async with make_async_container(_deps(inbox=_MaintInboxStore(promote_count=3), uow=uow)) as container:
+            poller = _TestablePromotionPoller(container=container, config=InboxConfig())
+            with pytest.raises(TransactionExecutionError) as raised:
+                await poller.tick()
+
+        assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert raised.value.error is rollback_error
+        assert raised.value.primary_error is commit_error

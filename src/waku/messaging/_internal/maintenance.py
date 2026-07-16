@@ -4,21 +4,30 @@ import asyncio
 import contextlib
 import logging
 import time
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Never, assert_never
 
 import anyio
 from typing_extensions import override
 
 from waku._internal.clock import Now, utc_now
 from waku._internal.lease import ILease
-from waku._internal.transaction import TransactionCleanupError, unit_of_work_scope
+from waku._internal.transaction import (
+    Aborted,
+    Commit,
+    Committed,
+    RolledBack,
+    TransactionDecision,
+    TransactionExecutionError,
+    TransactionFailureKind,
+    execute_in_uow_scope,
+    extract_transaction_execution_error,
+)
 from waku.di import is_registered
 from waku.exceptions import ImproperlyConfiguredError
 from waku.extensions import AfterApplicationInit, OnApplicationShutdown
 from waku.messaging._internal.polling_agent import AdaptivePace, FixedPace, Placement, PollingAgent
-from waku.messaging._internal.transaction import CompletedExecutionError
 from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
-from waku.messaging.errors._internal.replay import IReplayExecution
+from waku.messaging.errors._internal.replay import IReplayExecution, ReplayClaimOwner
 from waku.messaging.sequence import ISequenceAllocator
 
 if TYPE_CHECKING:
@@ -26,6 +35,7 @@ if TYPE_CHECKING:
 
     from waku.application import WakuApplication
     from waku.messaging.config import DeadLetterConfig, LeadershipConfig, MessagingConfig
+    from waku.messaging.errors.dead_letter import DeadLetterEntry
     from waku.messaging.inbox.config import InboxConfig
     from waku.messaging.outbox.relay import OutboxRelayConfig
 
@@ -45,8 +55,8 @@ _PROMOTION_JITTER_FACTOR: Final[float] = 0.1
 class _OutboxMaintenancePoller(PollingAgent):
     """Outbox recovery-sweep + dispatched-cleanup, split off the relay's hot dispatch path.
 
-    Bodies moved verbatim from ``OutboxRelay``; the relay is now dispatch-only. Never commits inside
-    a store — ``unit_of_work_scope`` is the sole transaction-scope owner.
+    Bodies moved verbatim from ``OutboxRelay``; the relay is now dispatch-only. Stores never commit;
+    each operation is one strict child transaction.
     """
 
     placement = Placement.SINGLETON_PER_DC
@@ -75,46 +85,48 @@ class _OutboxMaintenancePoller(PollingAgent):
         if now - self._last_recovery < self._config.recovery_interval.total_seconds():
             return 0
         self._last_recovery = now
-        async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
+
+        async def recover(scope: AsyncContainer) -> TransactionDecision[int, Never]:
             store = await scope.get(IOutboxStore)
-            recovered: int = await store.recover_stuck(self._config.stuck_threshold)
+            return Commit(await store.recover_stuck(self._config.stuck_threshold))
+
+        recovered = _committed_count(await execute_in_uow_scope(self._container, recover))
         if recovered > 0:
             logger.info('Recovered %d stuck messages', recovered)
         return recovered
 
     async def _maybe_cleanup(self) -> int:
-        if self._config.retention is None:
+        retention = self._config.retention
+        if retention is None:
             return 0
         now = time.monotonic()
         if now - self._last_cleanup < self._config.cleanup_interval.total_seconds():
             return 0
         self._last_cleanup = now
-        async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
+
+        async def cleanup(scope: AsyncContainer) -> TransactionDecision[int, Never]:
             store = await scope.get(IOutboxStore)
-            purged: int = await store.cleanup_dispatched(self._config.retention)
+            return Commit(await store.cleanup_dispatched(retention))
+
+        purged = _committed_count(await execute_in_uow_scope(self._container, cleanup))
         if purged > 0:
             logger.info('Purged %d dispatched outbox messages older than retention', purged)
         return purged
 
 
 class _DlqMaintenancePoller(PollingAgent):
-    """DLQ auto-replay + purge, subsuming ``DeadLetterWorker`` (now 1-per-cluster under the leader).
-
-    Claims rows via ``claim_replayable`` (``FOR UPDATE SKIP LOCKED``), re-injects through
-    signal-preserving replay execution, and commits once per batch. Replay NEVER commits; the poller
-    is the sole transaction-scope owner. The claim lock is held
-    across the batch; an INLINE destination runs its handler synchronously inside the held lock, so
-    keep ``batch_size`` modest if any replayable destination is INLINE.
-    """
+    """DLQ auto-replay + purge with short leased claim and finalization transactions."""
 
     placement = Placement.SINGLETON_PER_DC
 
-    __slots__ = ('_config', '_container', '_last_cleanup', '_now')
+    __slots__ = ('_config', '_container', '_execution', '_last_cleanup', '_now', '_owner')
 
     def __init__(self, *, container: AsyncContainer, config: DeadLetterConfig, now: Now = utc_now) -> None:
         self._container = container
         self._config = config
         self._now = now
+        self._owner = ReplayClaimOwner(container=container, config=config, now=now)
+        self._execution = _ScopedReplayExecution(container)
         self._last_cleanup = 0.0
         super().__init__(stop_timeout=config.stop_timeout)
 
@@ -124,68 +136,53 @@ class _DlqMaintenancePoller(PollingAgent):
 
     @override
     async def _tick(self) -> int:
-        await self._maybe_cleanup()
+        purged = await self._maybe_cleanup()
         if self._config.auto_replay_enabled:
-            return await self._replay_batch()
-        return 0
+            return purged + await self._replay_batch()
+        return purged
 
     async def _replay_batch(self) -> int:
-        completed_error: CompletedExecutionError | None = None
+        fatal_to_raise: TransactionExecutionError | None = None
         replayed = 0
-        try:
-            with anyio.CancelScope() as completion_scope:
-                async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
-                    replayed, completed_error = await self._replay_entries(scope)
-                    completion_scope.shield = completed_error is not None
-        except TransactionCleanupError:
-            raise
-        except Exception as finalization_error:
-            if completed_error is not None or replayed > 0:
-                raise CompletedExecutionError(finalization_error) from completed_error
-            raise
-        except anyio.get_cancelled_exc_class() as finalization_error:
-            if completed_error is not None or replayed > 0:
-                raise CompletedExecutionError(finalization_error) from completed_error
-            raise
-        if completed_error is not None:
-            raise completed_error
+        for _ in range(self._config.batch_size):
+            try:
+                entry = await self._owner.claim_replayable()
+                if entry is None:
+                    break
+                if await self._owner.replay_claimed(entry, self._execution):
+                    replayed += 1
+            except BaseException as error:
+                if fatal := extract_transaction_execution_error(error):
+                    if _can_defer_transaction_fatal(error, fatal):
+                        fatal_to_raise = fatal
+                        break
+                    raise
+                if not isinstance(error, Exception):
+                    raise
+                logger.exception('Dead-letter replay transaction failed; keeping committed prefix')
+                break
+        if fatal_to_raise is not None:
+            raise fatal_to_raise
         return replayed
 
-    async def _replay_entries(self, scope: AsyncContainer) -> tuple[int, CompletedExecutionError | None]:
-        store = await scope.get(IDeadLetterStore)
-        replayer = await scope.get(IReplayExecution)
-        entries = await store.claim_replayable(self._config.batch_size, self._config.max_replay_count)
-        replayed = 0
-        for entry in entries:
-            try:
-                if await replayer.replay(entry):
-                    replayed += 1
-            except CompletedExecutionError as error:
-                return replayed + 1, error
-            except TransactionCleanupError:
-                raise
-            except Exception as error:
-                if replayed > 0:
-                    return replayed, CompletedExecutionError(error)
-                raise
-            except anyio.get_cancelled_exc_class() as error:
-                if replayed > 0:
-                    return replayed, CompletedExecutionError(error)
-                raise
-        return replayed, None
-
-    async def _maybe_cleanup(self) -> None:
-        if self._config.retention is None:
-            return
+    async def _maybe_cleanup(self) -> int:
+        retention = self._config.retention
+        if retention is None:
+            return 0
         now = time.monotonic()
         if now - self._last_cleanup < self._config.cleanup_interval.total_seconds():
-            return
+            return 0
         self._last_cleanup = now
-        async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
+        sampled_now = self._now()
+
+        async def purge(scope: AsyncContainer) -> TransactionDecision[int, Never]:
             store = await scope.get(IDeadLetterStore)
-            purged = await store.purge(self._now() - self._config.retention)
+            return Commit(await store.purge(sampled_now - retention, now=sampled_now))
+
+        purged = _committed_count(await execute_in_uow_scope(self._container, purge))
         if purged > 0:
             logger.info('Purged %d dead letters older than retention', purged)
+        return purged
 
 
 class _PromotionPoller(PollingAgent):
@@ -211,15 +208,58 @@ class _PromotionPoller(PollingAgent):
 
     @override
     async def _tick(self) -> int:
-        async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
+        sampled_now = self._now()
+
+        async def promote(scope: AsyncContainer) -> TransactionDecision[int, Never]:
             store = await scope.get(IInboxStore)
             # Cannot miss: registration requires ISequenceAllocator whenever inbox is active — the
             # poller's own start condition. Keyless rows promote without ever invoking it.
             allocator: ISequenceAllocator = await scope.get(ISequenceAllocator)
-            promoted: int = await store.promote_due_scheduled(self._now(), allocator, self._config.batch_size)
+            return Commit(await store.promote_due_scheduled(sampled_now, allocator, self._config.batch_size))
+
+        promoted = _committed_count(await execute_in_uow_scope(self._container, promote))
         if promoted > 0:
             logger.info('Promoted %d due scheduled inbox entries to INCOMING', promoted)
         return promoted
+
+
+class _ScopedReplayExecution(IReplayExecution):
+    """Keep dispatch collaborators alive while leaving record transactions outside."""
+
+    __slots__ = ('_container',)
+
+    def __init__(self, container: AsyncContainer) -> None:
+        self._container = container
+
+    @override
+    async def dispatch(self, entry: DeadLetterEntry) -> None:
+        dispatch_completed = False
+        try:
+            async with self._container() as scope:
+                execution = await scope.get(IReplayExecution)
+                await execution.dispatch(entry)
+                dispatch_completed = True
+        except BaseException as error:
+            if dispatch_completed:
+                raise TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, error, None) from error
+            raise
+
+
+def _committed_count(result: Committed[int] | RolledBack[Never] | Aborted) -> int:
+    if isinstance(result, Committed):
+        return result.value
+    if isinstance(result, Aborted):
+        raise result.error
+    if isinstance(result, RolledBack):
+        assert_never(result.value)
+    assert_never(result)
+
+
+def _can_defer_transaction_fatal(error: BaseException, fatal: TransactionExecutionError) -> bool:
+    if fatal is error or not isinstance(error, BaseExceptionGroup):
+        return False
+    _, remaining = error.split(TransactionExecutionError)
+    return remaining is None or isinstance(remaining, Exception)
 
 
 class DurabilityMaintenanceAgent:

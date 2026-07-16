@@ -41,7 +41,7 @@ from waku.messaging._internal.outbox_cascading import DeferredCascadeFlusher
 from waku.messaging._internal.routing_builder import RoutingTableBuilder
 from waku.messaging._internal.transaction import TransactionDepth
 from waku.messaging.behaviors.transactional import TransactionalBehavior
-from waku.messaging.config import MessagingConfig
+from waku.messaging.config import DeadLetterConfig, MessagingConfig
 from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.contracts.request import IRequest
@@ -210,12 +210,22 @@ class MessagingModule:
             # fresh request scopes opened from the app container the singleton captures.
             providers.extend((
                 singleton(ReprocessScopeOpener),
+                object_(config.dead_letter, provided_type=DeadLetterConfig),
                 scoped(IReplayExecution, ReplayExecution),
-                scoped(ReplayExecutor),
+                scoped(ReplayExecutor, _build_replay_executor),
             ))
         if config.inbox is not None:
             providers.append(object_(config.inbox, provided_type=InboxConfig))
         return tuple(providers)
+
+
+def _build_replay_executor(
+    execution: IReplayExecution,
+    config: DeadLetterConfig,
+    scopes: ReprocessScopeOpener,
+    now: Now,
+) -> ReplayExecutor:
+    return ReplayExecutor(execution=execution, config=config, scopes=scopes, now=now)
 
 
 class MessagingExtension(OnModuleConfigure):

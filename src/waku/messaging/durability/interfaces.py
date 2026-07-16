@@ -178,30 +178,56 @@ class IDeadLetterStore(abc.ABC):
         ...
 
     @abc.abstractmethod
-    async def claim_replayable(self, batch_size: int, max_replay_count: int) -> Sequence[DeadLetterEntry]:
-        """Claim entries eligible for an auto-replay attempt, oldest-first, with row locks.
-
-        Returns PENDING entries plus REPLAY_FAILED entries under ``max_replay_count``, locking each via
-        ``FOR UPDATE SKIP LOCKED`` so concurrent 1-per-DC pollers never double-claim. The caller holds
-        the lock until it commits/rolls back; stores never commit.
-        """
+    async def claim_replayable(
+        self,
+        max_replay_count: int,
+        *,
+        owner_id: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> DeadLetterEntry | None:
+        """Lease the oldest auto-replay candidate in the caller's short transaction."""
         ...
 
     @abc.abstractmethod
-    async def mark_replayed(self, entry_id: UUID) -> None:
-        """Transition an entry to REPLAYED after a successful re-injection."""
+    async def claim_replay(
+        self,
+        entry_id: UUID,
+        *,
+        owner_id: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> DeadLetterEntry | None:
+        """Lease one explicit non-replayed entry, independent of the auto-replay budget."""
         ...
 
     @abc.abstractmethod
-    async def mark_replay_failed(self, entry_id: UUID, error: str) -> None:
-        """Transition an entry to REPLAY_FAILED, bump ``replay_count``, and keep the row."""
+    async def renew_replay_claim(
+        self,
+        entry_id: UUID,
+        *,
+        owner_id: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> bool:
+        """Extend a strictly live claim held by ``owner_id``."""
+        ...
+
+    @abc.abstractmethod
+    async def mark_replayed(self, entry_id: UUID, *, owner_id: str, now: datetime) -> bool:
+        """Finalize a strictly live owned claim as replayed and clear its lease."""
+        ...
+
+    @abc.abstractmethod
+    async def mark_replay_failed(self, entry_id: UUID, error: str, *, owner_id: str, now: datetime) -> bool:
+        """Finalize a live owned claim as failed, incrementing its replay count once."""
         ...
 
     @abc.abstractmethod
     async def delete(self, entry_id: UUID) -> None: ...
 
     @abc.abstractmethod
-    async def purge(self, older_than: datetime) -> int: ...
+    async def purge(self, older_than: datetime, *, now: datetime) -> int: ...
 
 
 class IDurabilityStore(abc.ABC):

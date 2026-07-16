@@ -131,7 +131,7 @@ class DeadLetterStoreContract:
         paged = await dlq_store.query(DeadLetterQuery(limit=1, offset=1))
         assert [e.id for e in paged] == [middle.id]
 
-    async def test_claim_replayable_selects_pending_and_underbudget_failures_oldest_first(
+    async def test_claim_replayable_leases_oldest_eligible_entry_and_honors_budget(
         self, dlq_store: IDeadLetterStore
     ) -> None:
         now = datetime.now(tz=UTC)
@@ -150,31 +150,172 @@ class DeadLetterStoreContract:
         for entry in (retryable, pending, exhausted, replayed):
             await dlq_store.save(entry)
 
-        claimed = await dlq_store.claim_replayable(batch_size=10, max_replay_count=3)
-        assert [e.id for e in claimed] == [pending.id, retryable.id]  # oldest first; terminal rows excluded
-        capped = await dlq_store.claim_replayable(batch_size=1, max_replay_count=3)
-        assert [e.id for e in capped] == [pending.id]
+        lease_expires_at = now + timedelta(minutes=1)
+        claimed = await dlq_store.claim_replayable(
+            3,
+            owner_id='worker-a',
+            now=now,
+            lease_expires_at=lease_expires_at,
+        )
+        assert claimed is not None
+        assert claimed.id == pending.id
+        assert claimed.replay_owner_id == 'worker-a'
+        assert claimed.replay_lease_expires_at == lease_expires_at
 
-    async def test_mark_replayed_sets_terminal_status(self, dlq_store: IDeadLetterStore) -> None:
+        next_claimed = await dlq_store.claim_replayable(
+            3,
+            owner_id='worker-b',
+            now=now,
+            lease_expires_at=lease_expires_at,
+        )
+        assert next_claimed is not None
+        assert next_claimed.id == retryable.id
+        assert (
+            await dlq_store.claim_replayable(
+                3,
+                owner_id='worker-c',
+                now=now,
+                lease_expires_at=lease_expires_at,
+            )
+            is None
+        )
+
+    async def test_claim_validation_and_expiry_reclaim_are_exact(self, dlq_store: IDeadLetterStore) -> None:
         entry = _make_entry()
         await dlq_store.save(entry)
+        now = datetime.now(tz=UTC)
 
-        await dlq_store.mark_replayed(entry.id)
+        for invalid_expiry in (now, now - timedelta(microseconds=1)):
+            with pytest.raises(ValueError, match='lease_expires_at must be greater than now'):
+                await dlq_store.claim_replayable(
+                    3,
+                    owner_id='worker-a',
+                    now=now,
+                    lease_expires_at=invalid_expiry,
+                )
+            with pytest.raises(ValueError, match='lease_expires_at must be greater than now'):
+                await dlq_store.claim_replay(
+                    entry.id,
+                    owner_id='worker-a',
+                    now=now,
+                    lease_expires_at=invalid_expiry,
+                )
+            with pytest.raises(ValueError, match='lease_expires_at must be greater than now'):
+                await dlq_store.renew_replay_claim(
+                    entry.id,
+                    owner_id='worker-a',
+                    now=now,
+                    lease_expires_at=invalid_expiry,
+                )
+
+        assert (await dlq_store.fetch_one(entry.id)).replay_owner_id is None
+        first_expiry = now + timedelta(seconds=30)
+        claimed = await dlq_store.claim_replayable(
+            3,
+            owner_id='worker-a',
+            now=now,
+            lease_expires_at=first_expiry,
+        )
+        assert claimed is not None
+        assert (
+            await dlq_store.claim_replayable(
+                3,
+                owner_id='worker-b',
+                now=first_expiry - timedelta(microseconds=1),
+                lease_expires_at=first_expiry + timedelta(seconds=30),
+            )
+            is None
+        )
+        reclaimed = await dlq_store.claim_replayable(
+            3,
+            owner_id='worker-b',
+            now=first_expiry,
+            lease_expires_at=first_expiry + timedelta(seconds=30),
+        )
+        assert reclaimed is not None
+        assert reclaimed.replay_owner_id == 'worker-b'
+
+    async def test_manual_claim_ignores_auto_budget_but_rejects_replayed(self, dlq_store: IDeadLetterStore) -> None:
+        now = datetime.now(tz=UTC)
+        failed = _make_entry(status=DeadLetterStatus.REPLAY_FAILED, replay_count=99)
+        replayed = _make_entry(status=DeadLetterStatus.REPLAYED)
+        await dlq_store.save(failed)
+        await dlq_store.save(replayed)
+
+        claimed = await dlq_store.claim_replay(
+            failed.id,
+            owner_id='operator',
+            now=now,
+            lease_expires_at=now + timedelta(minutes=1),
+        )
+        assert claimed is not None
+        assert claimed.replay_owner_id == 'operator'
+        assert (
+            await dlq_store.claim_replay(
+                replayed.id,
+                owner_id='operator',
+                now=now,
+                lease_expires_at=now + timedelta(minutes=1),
+            )
+            is None
+        )
+
+    async def test_owner_guarded_renewal_and_success_finalization_clear_lease(
+        self, dlq_store: IDeadLetterStore
+    ) -> None:
+        entry = _make_entry()
+        await dlq_store.save(entry)
+        now = datetime.now(tz=UTC)
+        expiry = now + timedelta(minutes=1)
+        await dlq_store.claim_replay(entry.id, owner_id='owner', now=now, lease_expires_at=expiry)
+
+        assert not await dlq_store.renew_replay_claim(
+            entry.id,
+            owner_id='stale-owner',
+            now=now,
+            lease_expires_at=expiry + timedelta(minutes=1),
+        )
+        assert not await dlq_store.mark_replayed(entry.id, owner_id='stale-owner', now=now)
+        assert not await dlq_store.renew_replay_claim(
+            entry.id,
+            owner_id='owner',
+            now=expiry,
+            lease_expires_at=expiry + timedelta(minutes=1),
+        )
+        assert not await dlq_store.mark_replayed(entry.id, owner_id='owner', now=expiry)
+        renewed_expiry = expiry + timedelta(minutes=1)
+        assert await dlq_store.renew_replay_claim(
+            entry.id,
+            owner_id='owner',
+            now=now,
+            lease_expires_at=renewed_expiry,
+        )
+        assert await dlq_store.mark_replayed(entry.id, owner_id='owner', now=now)
 
         fetched = await dlq_store.fetch_one(entry.id)
         assert fetched.status is DeadLetterStatus.REPLAYED
+        assert fetched.replay_owner_id is None
+        assert fetched.replay_lease_expires_at is None
 
-    async def test_mark_replay_failed_bumps_count_and_stores_error(self, dlq_store: IDeadLetterStore) -> None:
+    async def test_failure_finalization_requires_live_owner_and_increments_once(
+        self, dlq_store: IDeadLetterStore
+    ) -> None:
         entry = _make_entry()
         await dlq_store.save(entry)
+        now = datetime.now(tz=UTC)
+        expiry = now + timedelta(minutes=1)
+        await dlq_store.claim_replay(entry.id, owner_id='owner', now=now, lease_expires_at=expiry)
 
-        await dlq_store.mark_replay_failed(entry.id, 'first replay failed')
-        await dlq_store.mark_replay_failed(entry.id, 'second replay failed')
+        assert not await dlq_store.mark_replay_failed(entry.id, 'stale replay', owner_id='stale-owner', now=now)
+        assert not await dlq_store.mark_replay_failed(entry.id, 'expired replay', owner_id='owner', now=expiry)
+        assert await dlq_store.mark_replay_failed(entry.id, 'replay failed', owner_id='owner', now=now)
 
         fetched = await dlq_store.fetch_one(entry.id)
         assert fetched.status is DeadLetterStatus.REPLAY_FAILED
-        assert fetched.replay_count == 2
-        assert fetched.error_message == 'second replay failed'
+        assert fetched.replay_count == 1
+        assert fetched.error_message == 'replay failed'
+        assert fetched.replay_owner_id is None
+        assert fetched.replay_lease_expires_at is None
 
     async def test_delete_removes_entry_and_unknown_id_is_noop(self, dlq_store: IDeadLetterStore) -> None:
         entry = _make_entry()
@@ -186,14 +327,57 @@ class DeadLetterStoreContract:
         await dlq_store.delete(entry.id)
         assert list(await dlq_store.fetch(batch_size=10)) == []
 
-    async def test_purge_removes_only_entries_older_than_cutoff(self, dlq_store: IDeadLetterStore) -> None:
+    async def test_purge_protects_only_strictly_live_leases(self, dlq_store: IDeadLetterStore) -> None:
         now = datetime.now(tz=UTC)
-        stale = _make_entry(created_at=now - timedelta(hours=2))
+        ownerless = _make_entry(created_at=now - timedelta(hours=4))
+        expired = _make_entry(
+            created_at=now - timedelta(hours=3),
+            replay_owner_id='expired-owner',
+            replay_lease_expires_at=now,
+        )
+        protected = _make_entry(
+            created_at=now - timedelta(hours=2),
+            replay_owner_id='live-owner',
+            replay_lease_expires_at=now + timedelta(microseconds=1),
+        )
         fresh = _make_entry(created_at=now)
-        await dlq_store.save(stale)
-        await dlq_store.save(fresh)
+        for entry in (ownerless, expired, protected, fresh):
+            await dlq_store.save(entry)
 
-        purged = await dlq_store.purge(older_than=now - timedelta(hours=1))
+        purged = await dlq_store.purge(older_than=now - timedelta(hours=1), now=now)
 
-        assert purged == 1
-        assert [e.id for e in await dlq_store.fetch(batch_size=10)] == [fresh.id]
+        assert purged == 2
+        assert [e.id for e in await dlq_store.fetch(batch_size=10)] == [protected.id, fresh.id]
+
+    async def test_purge_before_claim_removes_candidate(self, dlq_store: IDeadLetterStore) -> None:
+        now = datetime.now(tz=UTC)
+        entry = _make_entry(created_at=now - timedelta(hours=2))
+        await dlq_store.save(entry)
+
+        assert await dlq_store.purge(older_than=now, now=now) == 1
+        assert (
+            await dlq_store.claim_replayable(
+                3,
+                owner_id='worker',
+                now=now,
+                lease_expires_at=now + timedelta(minutes=1),
+            )
+            is None
+        )
+
+    async def test_explicit_delete_revokes_live_claim(self, dlq_store: IDeadLetterStore) -> None:
+        entry = _make_entry()
+        await dlq_store.save(entry)
+        now = datetime.now(tz=UTC)
+        expiry = now + timedelta(minutes=1)
+        await dlq_store.claim_replay(entry.id, owner_id='owner', now=now, lease_expires_at=expiry)
+
+        await dlq_store.delete(entry.id)
+
+        assert not await dlq_store.renew_replay_claim(
+            entry.id,
+            owner_id='owner',
+            now=now,
+            lease_expires_at=expiry + timedelta(minutes=1),
+        )
+        assert not await dlq_store.mark_replayed(entry.id, owner_id='owner', now=now)

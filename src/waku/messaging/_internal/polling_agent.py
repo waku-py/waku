@@ -12,8 +12,7 @@ import anyio
 from typing_extensions import override
 
 from waku._internal.adaptive_interval import AdaptiveInterval
-from waku._internal.transaction import TransactionCleanupError
-from waku.messaging._internal.transaction import CompletedExecutionError
+from waku._internal.transaction import TransactionExecutionError, extract_transaction_execution_error
 
 if TYPE_CHECKING:
     from datetime import timedelta
@@ -151,15 +150,29 @@ class PollingAgent(abc.ABC):
 
     async def _run_loop(self) -> None:
         while not self._shutdown_event.is_set():
+            fatal_to_raise: TransactionExecutionError | None = None
+            processed = 0
             try:
                 processed = await self._tick()
-            except TransactionCleanupError as exc:
-                raise exc.rollback_error from exc.primary_error
-            except CompletedExecutionError as exc:
-                raise exc.error from exc
-            except Exception:
-                logger.exception('%s tick failed, continuing loop', type(self).__name__)
-                processed = 0
+            except BaseException as error:
+                if fatal := extract_transaction_execution_error(error):
+                    if fatal is error:
+                        raise
+                    if isinstance(error, BaseExceptionGroup):
+                        _, remaining = error.split(TransactionExecutionError)
+                        if remaining is None or isinstance(remaining, Exception):
+                            fatal_to_raise = fatal
+                        else:
+                            raise
+                    else:
+                        raise
+                elif not isinstance(error, Exception):
+                    raise
+                else:
+                    logger.exception('%s tick failed, continuing loop', type(self).__name__)
+                    processed = 0
+            if fatal_to_raise is not None:
+                raise fatal_to_raise
             self._pace.record(processed)
             with anyio.move_on_after(self._pace.next_delay()):
                 await self._shutdown_event.wait()

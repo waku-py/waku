@@ -257,13 +257,18 @@ from waku.messaging.errors import DeadLetterEntry
 The store itself comes from the imported [durability backend](../../fundamentals/backends.md).
 `IDeadLetterStore` is an ABC. Its core operations:
 
-| Method                              | Returns                  | Description                              |
-|-------------------------------------|--------------------------|------------------------------------------|
-| `save(entry)`                       | `None`                   | Store a dead letter entry                |
-| `fetch(batch_size=100)`             | `Sequence[DeadLetterEntry]` | Retrieve a batch of entries           |
-| `fetch_one(entry_id)`               | `DeadLetterEntry`        | Retrieve a single entry by ID            |
-| `delete(entry_id)`                  | `None`                   | Remove an entry                          |
-| `purge(older_than: datetime)`       | `int`                    | Remove entries older than a datetime, return count |
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `save(entry)` | `None` | Store a dead-letter entry |
+| `fetch(batch_size=100)` | `Sequence[DeadLetterEntry]` | Retrieve entries oldest-first |
+| `fetch_one(entry_id)` | `DeadLetterEntry` | Retrieve a single entry by ID |
+| `claim_replayable(max_replay_count, *, owner_id, now, lease_expires_at)` | `DeadLetterEntry \| None` | Lease the oldest eligible auto-replay entry |
+| `claim_replay(entry_id, *, owner_id, now, lease_expires_at)` | `DeadLetterEntry \| None` | Lease one explicit non-replayed entry |
+| `renew_replay_claim(entry_id, *, owner_id, now, lease_expires_at)` | `bool` | Extend a strictly live owned lease |
+| `mark_replayed(entry_id, *, owner_id, now)` | `bool` | Finalize a live owned claim as replayed |
+| `mark_replay_failed(entry_id, error, *, owner_id, now)` | `bool` | Finalize a live owned claim as failed |
+| `delete(entry_id)` | `None` | Unconditionally remove an entry |
+| `purge(older_than, *, now)` | `int` | Remove old entries without an active replay lease |
 
 ### DeadLetterEntry Fields
 
@@ -281,6 +286,12 @@ The store itself comes from the imported [durability backend](../../fundamentals
 | `status`          | `DeadLetterStatus`  | Replay lifecycle: `PENDING` / `REPLAYED` / `REPLAY_FAILED` |
 | `replay_count`    | `int`               | Number of auto-replay attempts           |
 | `created_at`      | `datetime \| None`  | Timestamp when the entry was created     |
+| `replay_owner_id` | `str \| None`       | Current replay lease owner               |
+| `replay_lease_expires_at` | `datetime \| None` | Current replay lease expiry       |
+
+The replay owner and expiry are either both set or both `None`. Lease expiry is exact: a lease is
+live only while `replay_lease_expires_at > now`; equality is expired. In-flight ownership is
+represented only by these fields—there is no separate replaying status.
 
 `destination` carries the **endpoint URI** for executor-path dead letters; for inbox poison-path
 entries it carries the **handler FQN** instead.
@@ -378,12 +389,30 @@ class PostgresDeadLetterStore(IDeadLetterStore):
         )
 
     @override
-    async def purge(self, older_than: datetime) -> int:
+    async def purge(self, older_than: datetime, *, now: datetime) -> int:
         result = await self._session.execute(
-            delete_stmt(dead_letter_table).where(dead_letter_table.c.created_at < older_than)
+            delete_stmt(dead_letter_table).where(
+                dead_letter_table.c.created_at < older_than,
+                (
+                    dead_letter_table.c.replay_lease_expires_at.is_(None)
+                    | (dead_letter_table.c.replay_lease_expires_at <= now)
+                ),
+            )
         )
         return result.rowcount  # type: ignore[return-value]
 ```
+
+The omitted replay lifecycle methods must implement the complete `IDeadLetterStore` contract above,
+including exact expiry equality and owner guards. `delete()` remains an explicit unconditional
+operator action; retention purge must not revoke a live lease.
+
+!!! warning "SQL schema migration required"
+    Waku publishes SQLAlchemy metadata but does not ship application Alembic revisions. Before
+    deploying this version, generate and apply an application-owned migration from
+    `bind_dead_letter_tables()` metadata. Existing dead-letter tables need nullable
+    `replay_owner_id` and `replay_lease_expires_at` columns, the
+    `ck_dead_letter_replay_lease_pair` check constraint, and the
+    `ix_dead_letter_replay_claim` composite index. Existing rows migrate as `NULL` / `NULL`.
 
 ---
 
@@ -395,24 +424,24 @@ original destination.
 
 ### Manual replay
 
-Resolve `ReplayExecutor` and replay a single entry by id. It re-dispatches the rebuilt envelope and
-**never commits** — the caller owns the transaction boundary:
+Resolve `ReplayExecutor`, fetch an entry, and request replay. The executor owns short claim,
+renewal, and terminal-finalization transactions; dispatch runs after the claim transaction closes:
 
 ```python linenums="1"
 from uuid import UUID
 
 from waku.messaging.errors import ReplayExecutor
-from waku.uow import IUnitOfWork
+from waku.messaging.durability import IDeadLetterStore
 
 
 async def replay_one(container, entry_id: UUID) -> None:
     async with container() as scope:
+        store = await scope.get(IDeadLetterStore)
         replayer = await scope.get(ReplayExecutor)
-        uow = await scope.get(IUnitOfWork)
-        replayed = await replayer.replay_by_id(entry_id)  # or replay(entry) with a fetched entry
-        await uow.commit()
+        entry = await store.fetch_one(entry_id)
+        replayed = await replayer.replay(entry)
         if not replayed:
-            ...  # no endpoint for the destination, or re-injection failed → entry marked REPLAY_FAILED
+            ...  # already replayed/leased, or dispatch failed and was finalized as REPLAY_FAILED
 ```
 
 `ReplayExecutor` is registered automatically when `dead_letter` is configured. Re-injection is
@@ -427,24 +456,35 @@ Opt in to a background worker that replays entries on a schedule:
 ```python linenums="1"
 from datetime import timedelta
 
-from waku.messaging import DeadLetterConfig
+from waku.messaging import DeadLetterConfig, LeaseConfig
 
 DeadLetterConfig(
     auto_replay_enabled=True,   # off by default — manual replay only
     max_replay_count=3,         # re-injection attempts before an entry is left REPLAY_FAILED
+    replay_lease=LeaseConfig(ttl_seconds=120.0),
     retention=timedelta(days=7),
 )
 ```
 
-With `auto_replay_enabled=True`, a single-per-datacenter worker claims replayable rows
-(`FOR UPDATE SKIP LOCKED`) and re-injects them. `max_replay_count` bounds how many times an entry is
-re-injected before it is left terminally `REPLAY_FAILED`. The worker never commits inside the
-executor or the store — it owns the transaction scope for the whole batch.
+With `auto_replay_enabled=True`, the maintenance worker claims one replayable row per short
+transaction (`FOR UPDATE SKIP LOCKED` on SQLAlchemy), closes that transaction, dispatches, then
+finalizes through another short owner-guarded transaction. Long dispatches renew through fresh
+transactions. `max_replay_count` bounds automatic attempts; manual replay ignores that budget but
+still cannot claim `REPLAYED` or actively leased entries.
+
+The default replay lease TTL is 120 seconds. Configure it above the longest effective handler
+deadline the lease must protect. The MemoryBackend serializes transactional work through one global
+borrower, so an independent renewal may wait behind a transactional handler; it cannot guarantee
+renewal beyond the configured TTL. If handler work outlives the lease, that work may commit while
+the old owner loses finalization, leaving the row reclaimable with an explicit at-least-once
+consequence.
 
 ### Retention
 
 When `retention` is set, the same worker periodically purges entries older than the cutoff, at the
 `cleanup_interval` cadence. Leave `retention=None` (the default) to keep entries forever.
+Retention skips entries whose replay lease is strictly live at the cleanup clock sample. At expiry
+equality the row is eligible again.
 
 !!! note "Replay status lifecycle"
     An entry's `status` moves `PENDING → REPLAYED` on a successful re-injection, or

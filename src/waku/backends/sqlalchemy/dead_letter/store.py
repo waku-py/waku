@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import and_, delete, or_, select, update
@@ -48,22 +49,42 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
         return [_row_to_model(row) for row in result.fetchall()]
 
     @override
-    async def mark_replayed(self, entry_id: UUID) -> None:
-        stmt = update(_t).where(_t.c.id == entry_id).values(status=DeadLetterStatus.REPLAYED.value)
-        await self._session.execute(stmt)
-
-    @override
-    async def mark_replay_failed(self, entry_id: UUID, error: str) -> None:
+    async def mark_replayed(self, entry_id: UUID, *, owner_id: str, now: datetime) -> bool:
         stmt = (
             update(_t)
-            .where(_t.c.id == entry_id)
+            .where(
+                _t.c.id == entry_id,
+                _t.c.replay_owner_id == owner_id,
+                _t.c.replay_lease_expires_at > now,
+            )
+            .values(
+                status=DeadLetterStatus.REPLAYED.value,
+                replay_owner_id=None,
+                replay_lease_expires_at=None,
+            )
+        )
+        result = cast('CursorResult[Any]', await self._session.execute(stmt))
+        return result.rowcount == 1
+
+    @override
+    async def mark_replay_failed(self, entry_id: UUID, error: str, *, owner_id: str, now: datetime) -> bool:
+        stmt = (
+            update(_t)
+            .where(
+                _t.c.id == entry_id,
+                _t.c.replay_owner_id == owner_id,
+                _t.c.replay_lease_expires_at > now,
+            )
             .values(
                 status=DeadLetterStatus.REPLAY_FAILED.value,
                 replay_count=_t.c.replay_count + 1,
                 error_message=error,
+                replay_owner_id=None,
+                replay_lease_expires_at=None,
             )
         )
-        await self._session.execute(stmt)
+        result = cast('CursorResult[Any]', await self._session.execute(stmt))
+        return result.rowcount == 1
 
     @override
     async def fetch_one(self, entry_id: UUID) -> DeadLetterEntry:
@@ -76,7 +97,15 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
         return _row_to_model(row)
 
     @override
-    async def claim_replayable(self, batch_size: int, max_replay_count: int) -> Sequence[DeadLetterEntry]:
+    async def claim_replayable(
+        self,
+        max_replay_count: int,
+        *,
+        owner_id: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> DeadLetterEntry | None:
+        _validate_requested_lease(now, lease_expires_at)
         stmt = (
             select(*_t.c)
             .where(
@@ -86,14 +115,83 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
                         _t.c.status == DeadLetterStatus.REPLAY_FAILED.value,
                         _t.c.replay_count < max_replay_count,
                     ),
-                )
+                ),
+                _lease_is_claimable(now),
             )
             .order_by(_t.c.created_at.asc())
-            .limit(batch_size)
+            .limit(1)
             .with_for_update(skip_locked=True)
         )
         result = await self._session.execute(stmt)
-        return [_row_to_model(row) for row in result.fetchall()]
+        row = result.fetchone()
+        if row is None:
+            return None
+        await self._session.execute(
+            update(_t)
+            .where(_t.c.id == row.id)
+            .values(replay_owner_id=owner_id, replay_lease_expires_at=lease_expires_at)
+        )
+        return dataclasses.replace(
+            _row_to_model(row),
+            replay_owner_id=owner_id,
+            replay_lease_expires_at=lease_expires_at,
+        )
+
+    @override
+    async def claim_replay(
+        self,
+        entry_id: UUID,
+        *,
+        owner_id: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> DeadLetterEntry | None:
+        _validate_requested_lease(now, lease_expires_at)
+        stmt = (
+            select(*_t.c)
+            .where(
+                _t.c.id == entry_id,
+                _t.c.status != DeadLetterStatus.REPLAYED.value,
+                _lease_is_claimable(now),
+            )
+            .with_for_update(skip_locked=True)
+        )
+        result = await self._session.execute(stmt)
+        row = result.fetchone()
+        if row is None:
+            return None
+        await self._session.execute(
+            update(_t)
+            .where(_t.c.id == row.id)
+            .values(replay_owner_id=owner_id, replay_lease_expires_at=lease_expires_at)
+        )
+        return dataclasses.replace(
+            _row_to_model(row),
+            replay_owner_id=owner_id,
+            replay_lease_expires_at=lease_expires_at,
+        )
+
+    @override
+    async def renew_replay_claim(
+        self,
+        entry_id: UUID,
+        *,
+        owner_id: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> bool:
+        _validate_requested_lease(now, lease_expires_at)
+        stmt = (
+            update(_t)
+            .where(
+                _t.c.id == entry_id,
+                _t.c.replay_owner_id == owner_id,
+                _t.c.replay_lease_expires_at > now,
+            )
+            .values(replay_lease_expires_at=lease_expires_at)
+        )
+        result = cast('CursorResult[Any]', await self._session.execute(stmt))
+        return result.rowcount == 1
 
     @override
     async def query(self, filters: DeadLetterQuery) -> Sequence[DeadLetterEntry]:
@@ -117,9 +215,17 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
         await self._session.execute(delete(_t).where(_t.c.id == entry_id))
 
     @override
-    async def purge(self, older_than: datetime) -> int:
-        stmt = delete(_t).where(_t.c.created_at < older_than)
-        result = cast('CursorResult[Any]', await self._session.execute(stmt))
+    async def purge(self, older_than: datetime, *, now: datetime) -> int:
+        candidate_stmt = (
+            select(_t.c.id)
+            .where(_t.c.created_at < older_than, _lease_is_claimable(now))
+            .with_for_update(skip_locked=True)
+        )
+        candidate_result = await self._session.execute(candidate_stmt)
+        entry_ids = list(candidate_result.scalars())
+        if not entry_ids:
+            return 0
+        result = cast('CursorResult[Any]', await self._session.execute(delete(_t).where(_t.c.id.in_(entry_ids))))
         return result.rowcount
 
 
@@ -141,4 +247,16 @@ def _row_to_model(row: Any) -> DeadLetterEntry:
         group_id=row.group_id,
         metadata=row.metadata,
         created_at=row.created_at,
+        replay_owner_id=row.replay_owner_id,
+        replay_lease_expires_at=row.replay_lease_expires_at,
     )
+
+
+def _validate_requested_lease(now: datetime, lease_expires_at: datetime) -> None:
+    if lease_expires_at <= now:
+        msg = 'lease_expires_at must be greater than now'
+        raise ValueError(msg)
+
+
+def _lease_is_claimable(now: datetime) -> Any:
+    return or_(_t.c.replay_lease_expires_at.is_(None), _t.c.replay_lease_expires_at <= now)

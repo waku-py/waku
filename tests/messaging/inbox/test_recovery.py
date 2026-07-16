@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+import pytest
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
 from waku.messaging.durability import IInboxStore
 from waku.messaging.inbox._internal.drainer import InboxDrainer
 from waku.messaging.inbox._internal.recovery import InboxRecoveryWorker
@@ -34,10 +36,10 @@ class _RecordingTickStore(FakeInboxStore):
 class _RecoveryDepsProvider(Provider):
     scope = Scope.REQUEST
 
-    def __init__(self, store: IInboxStore) -> None:
+    def __init__(self, store: IInboxStore, *, uow: IUnitOfWork | None = None) -> None:
         super().__init__()
         self._store = store
-        self._uow: IUnitOfWork = RecordingUoW()
+        self._uow = uow or RecordingUoW()
 
     @provide
     def inbox(self) -> IInboxStore:
@@ -87,6 +89,11 @@ class _RecordingDrainer(InboxDrainer):
         return 0
 
 
+class _TestableInboxRecoveryWorker(InboxRecoveryWorker):
+    async def tick(self) -> int:
+        return await super()._tick()
+
+
 class _OrderStore(FakeInboxStore):
     def __init__(self, log: list[str]) -> None:
         super().__init__()
@@ -116,6 +123,29 @@ class _OrderDrainer(InboxDrainer):
         return 0
 
 
+class _CountingOrderStore(_OrderStore):
+    @override
+    async def recover_stale(self, threshold: timedelta) -> int:
+        self._log.append('recover')
+        return 2
+
+    @override
+    async def cleanup_handled(self, now: datetime) -> int:
+        self._log.append('cleanup')
+        return 3
+
+
+class _LoggingUoW(RecordingUoW):
+    def __init__(self, log: list[str]) -> None:
+        super().__init__()
+        self._log = log
+
+    @override
+    async def commit(self) -> None:
+        await super().commit()
+        self._log.append('commit')
+
+
 def _config() -> InboxConfig:
     return InboxConfig(recovery_interval=timedelta(seconds=0.01))
 
@@ -138,3 +168,46 @@ async def test_worker_recovers_before_draining() -> None:
         await wait_until(lambda: 'drain' in log)
         await worker.stop()
     assert log.index('recover') < log.index('drain')
+
+
+async def test_recovery_and_cleanup_count_only_after_commit_then_drain() -> None:
+    log: list[str] = []
+    uow = _LoggingUoW(log)
+    async with make_async_container(_RecoveryDepsProvider(_CountingOrderStore(log), uow=uow)) as container:
+        worker = _TestableInboxRecoveryWorker(container=container, config=_config(), drainer=_OrderDrainer(log))
+        assert await worker.tick() == 5
+
+    assert log == ['recover', 'cleanup', 'commit', 'drain']
+    assert uow.commit_count == 1
+    assert uow.rollback_count == 0
+
+
+async def test_recovery_commit_failure_rolls_back_before_drain() -> None:
+    commit_error = RuntimeError('recovery commit failed')
+    uow = RecordingUoW(commit_error=commit_error)
+    drainer = _RecordingDrainer()
+    async with make_async_container(_RecoveryDepsProvider(FakeInboxStore(), uow=uow)) as container:
+        worker = _TestableInboxRecoveryWorker(container=container, config=_config(), drainer=drainer)
+        with pytest.raises(RuntimeError) as raised:
+            await worker.tick()
+
+    assert raised.value is commit_error
+    assert uow.commit_count == 0
+    assert uow.rollback_count == 1
+    assert drainer.drain_calls == 0
+
+
+async def test_recovery_rollback_failure_is_fatal_and_forbids_drain() -> None:
+    commit_error = RuntimeError('recovery commit failed')
+    rollback_error = RuntimeError('recovery rollback failed')
+    uow = RecordingUoW(commit_error=commit_error, rollback_error=rollback_error)
+    drainer = _RecordingDrainer()
+    async with make_async_container(_RecoveryDepsProvider(FakeInboxStore(), uow=uow)) as container:
+        worker = _TestableInboxRecoveryWorker(container=container, config=_config(), drainer=drainer)
+        with pytest.raises(TransactionExecutionError) as raised:
+            await worker.tick()
+
+    assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+    assert raised.value.error is rollback_error
+    assert raised.value.primary_error is commit_error
+    assert drainer.drain_calls == 0

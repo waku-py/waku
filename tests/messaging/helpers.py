@@ -244,25 +244,52 @@ class RecordingDeadLetterStore(IDeadLetterStore):
     @override
     async def claim_replayable(
         self,
-        batch_size: int,
         max_replay_count: int,
-    ) -> Sequence[DeadLetterEntry]:  # pragma: no cover
-        return []
+        *,
+        owner_id: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> DeadLetterEntry | None:  # pragma: no cover
+        return None
 
     @override
-    async def mark_replayed(self, entry_id: UUID) -> None:  # pragma: no cover
-        pass
+    async def claim_replay(
+        self,
+        entry_id: UUID,
+        *,
+        owner_id: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> DeadLetterEntry | None:  # pragma: no cover
+        return None
 
     @override
-    async def mark_replay_failed(self, entry_id: UUID, error: str) -> None:  # pragma: no cover
-        pass
+    async def renew_replay_claim(
+        self,
+        entry_id: UUID,
+        *,
+        owner_id: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> bool:  # pragma: no cover
+        return False
+
+    @override
+    async def mark_replayed(self, entry_id: UUID, *, owner_id: str, now: datetime) -> bool:  # pragma: no cover
+        return False
+
+    @override
+    async def mark_replay_failed(
+        self, entry_id: UUID, error: str, *, owner_id: str, now: datetime
+    ) -> bool:  # pragma: no cover
+        return False
 
     @override
     async def delete(self, entry_id: UUID) -> None:  # pragma: no cover
         pass
 
     @override
-    async def purge(self, older_than: datetime) -> int:  # pragma: no cover
+    async def purge(self, older_than: datetime, *, now: datetime) -> int:  # pragma: no cover
         return 0
 
 
@@ -287,25 +314,52 @@ class FailingDeadLetterStore(IDeadLetterStore):
     @override
     async def claim_replayable(
         self,
-        batch_size: int,
         max_replay_count: int,
-    ) -> Sequence[DeadLetterEntry]:  # pragma: no cover
-        return []
+        *,
+        owner_id: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> DeadLetterEntry | None:  # pragma: no cover
+        return None
 
     @override
-    async def mark_replayed(self, entry_id: UUID) -> None:  # pragma: no cover
-        pass
+    async def claim_replay(
+        self,
+        entry_id: UUID,
+        *,
+        owner_id: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> DeadLetterEntry | None:  # pragma: no cover
+        return None
 
     @override
-    async def mark_replay_failed(self, entry_id: UUID, error: str) -> None:  # pragma: no cover
-        pass
+    async def renew_replay_claim(
+        self,
+        entry_id: UUID,
+        *,
+        owner_id: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> bool:  # pragma: no cover
+        return False
+
+    @override
+    async def mark_replayed(self, entry_id: UUID, *, owner_id: str, now: datetime) -> bool:  # pragma: no cover
+        return False
+
+    @override
+    async def mark_replay_failed(
+        self, entry_id: UUID, error: str, *, owner_id: str, now: datetime
+    ) -> bool:  # pragma: no cover
+        return False
 
     @override
     async def delete(self, entry_id: UUID) -> None:  # pragma: no cover
         pass
 
     @override
-    async def purge(self, older_than: datetime) -> int:  # pragma: no cover
+    async def purge(self, older_than: datetime, *, now: datetime) -> int:  # pragma: no cover
         return 0
 
 

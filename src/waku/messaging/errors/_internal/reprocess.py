@@ -27,6 +27,10 @@ class ReprocessScopeOpener:
     def __init__(self, container: AsyncContainer) -> None:
         self._container = container
 
+    @property
+    def app_container(self) -> AsyncContainer:
+        return self._container
+
     @asynccontextmanager
     async def fresh_scope(self) -> AsyncGenerator[AsyncContainer]:
         async with self._container() as scope:

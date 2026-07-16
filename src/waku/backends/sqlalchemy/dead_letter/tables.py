@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
+    CheckConstraint,
     Column,
     Index,
     Integer,
@@ -55,8 +56,15 @@ dead_letter_table = Table(
     Column('group_id', Text, nullable=True),
     Column('metadata', JSONB, nullable=True),
     Column('created_at', TIMESTAMP(timezone=True), server_default=func.now()),
+    Column('replay_owner_id', Text, nullable=True),
+    Column('replay_lease_expires_at', TIMESTAMP(timezone=True), nullable=True),
+    CheckConstraint(
+        '(replay_owner_id IS NULL) = (replay_lease_expires_at IS NULL)',
+        name='ck_dead_letter_replay_lease_pair',
+    ),
     Index('ix_dead_letter_created', 'created_at'),
     Index('ix_dead_letter_status', 'status'),
+    Index('ix_dead_letter_replay_claim', 'status', 'replay_lease_expires_at', 'created_at'),
 )
 
 
@@ -85,6 +93,8 @@ def dead_letter_insert_values(entry: DeadLetterEntry) -> dict[str, Any]:
         'message_id': entry.message_id,
         'group_id': entry.group_id,
         'metadata': entry.metadata,
+        'replay_owner_id': entry.replay_owner_id,
+        'replay_lease_expires_at': entry.replay_lease_expires_at,
     }
     if entry.created_at is not None:
         # Honor an explicit creation instant (mirrors the memory store); None keeps the

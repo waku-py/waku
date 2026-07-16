@@ -115,7 +115,8 @@ class TestSqlAlchemyDeadLetterStore:
         await store.save(entry)
         await pg_session.flush()
 
-        purged = await store.purge(older_than=datetime.now(tz=UTC) + timedelta(seconds=1))
+        now = datetime.now(tz=UTC)
+        purged = await store.purge(older_than=now + timedelta(seconds=1), now=now)
         assert purged == 1
 
         remaining = await store.fetch(batch_size=10)
@@ -127,11 +128,27 @@ class TestSqlAlchemyDeadLetterStore:
         entry = _make_entry()
         await store.save(entry)
         await pg_session.flush()
+        now = datetime.now(tz=UTC)
+        claimed = await store.claim_replay(
+            entry.id,
+            owner_id='owner',
+            now=now,
+            lease_expires_at=now + timedelta(minutes=1),
+        )
+        assert claimed is not None
 
-        await store.mark_replayed(entry.id)
+        assert await store.mark_replayed(entry.id, owner_id='owner', now=now)
         await pg_session.flush()
 
-        assert await store.claim_replayable(batch_size=10, max_replay_count=3) == []
+        assert (
+            await store.claim_replayable(
+                3,
+                owner_id='other',
+                now=now,
+                lease_expires_at=now + timedelta(minutes=1),
+            )
+            is None
+        )
         assert (await store.fetch_one(entry.id)).status is DeadLetterStatus.REPLAYED
 
     @staticmethod
@@ -140,8 +157,16 @@ class TestSqlAlchemyDeadLetterStore:
         entry = _make_entry()
         await store.save(entry)
         await pg_session.flush()
+        now = datetime.now(tz=UTC)
+        claimed = await store.claim_replay(
+            entry.id,
+            owner_id='owner',
+            now=now,
+            lease_expires_at=now + timedelta(minutes=1),
+        )
+        assert claimed is not None
 
-        await store.mark_replay_failed(entry.id, error='replay exploded')
+        assert await store.mark_replay_failed(entry.id, error='replay exploded', owner_id='owner', now=now)
         await pg_session.flush()
 
         refetched = await store.fetch_one(entry.id)
@@ -198,12 +223,18 @@ class TestSqlAlchemyDeadLetterStore:
             await store.save(entry)
         await pg_session.flush()
 
-        claimed = await store.claim_replayable(batch_size=10, max_replay_count=3)
-        claimed_ids = {e.id for e in claimed}
-        assert pending.id in claimed_ids
-        assert retryable.id in claimed_ids
-        assert exhausted.id not in claimed_ids
-        assert replayed.id not in claimed_ids
+        now = datetime.now(tz=UTC)
+        claimed_ids: set[object] = set()
+        for owner_id in ('owner-1', 'owner-2', 'owner-3'):
+            claimed = await store.claim_replayable(
+                3,
+                owner_id=owner_id,
+                now=now,
+                lease_expires_at=now + timedelta(minutes=1),
+            )
+            if claimed is not None:
+                claimed_ids.add(claimed.id)
+        assert claimed_ids == {pending.id, retryable.id}
 
     @staticmethod
     async def test_claim_replayable_skip_locked(pg_engine: AsyncEngine) -> None:
@@ -220,20 +251,114 @@ class TestSqlAlchemyDeadLetterStore:
                 AsyncSession(pg_engine, expire_on_commit=False) as s1,
                 AsyncSession(pg_engine, expire_on_commit=False) as s2,
             ):
+                now = datetime.now(tz=UTC)
+                expiry = now + timedelta(seconds=30)
                 async with s1.begin():
-                    claimed1 = await SqlAlchemyDeadLetterStore(s1).claim_replayable(batch_size=10, max_replay_count=3)
-                    assert len(claimed1) == 1
+                    claimed1 = await SqlAlchemyDeadLetterStore(s1).claim_replayable(
+                        3,
+                        owner_id='owner-1',
+                        now=now,
+                        lease_expires_at=expiry,
+                    )
+                    assert claimed1 is not None
                     async with s2.begin():
                         # A short lock_timeout turns a regression (skip_locked dropped) into a fast,
                         # loud failure: s2 would block on s1's row lock and raise, not hang the suite.
                         await s2.execute(text("SET LOCAL lock_timeout = '500ms'"))
                         claimed2 = await SqlAlchemyDeadLetterStore(s2).claim_replayable(
-                            batch_size=10, max_replay_count=3
+                            3,
+                            owner_id='owner-2',
+                            now=now,
+                            lease_expires_at=expiry,
                         )
-                        assert claimed2 == []
+                        assert claimed2 is None
                 async with s2.begin():
-                    claimed3 = await SqlAlchemyDeadLetterStore(s2).claim_replayable(batch_size=10, max_replay_count=3)
-                    assert len(claimed3) == 1
+                    claimed3 = await SqlAlchemyDeadLetterStore(s2).claim_replayable(
+                        3,
+                        owner_id='owner-2',
+                        now=expiry,
+                        lease_expires_at=expiry + timedelta(seconds=30),
+                    )
+                    assert claimed3 is not None
+                    assert claimed3.id == claimed1.id
+        finally:
+            async with pg_engine.begin() as conn:
+                await conn.run_sync(metadata.drop_all)
+
+    @staticmethod
+    async def test_purge_skips_row_locked_by_uncommitted_claim(pg_engine: AsyncEngine) -> None:
+        metadata = MetaData()
+        bind_dead_letter_tables(metadata)
+        async with pg_engine.begin() as conn:
+            await conn.run_sync(metadata.create_all)
+        try:
+            now = datetime.now(tz=UTC)
+            async with AsyncSession(pg_engine, expire_on_commit=False) as seed:
+                await SqlAlchemyDeadLetterStore(seed).save(_make_entry(created_at=now - timedelta(days=1)))
+                await seed.commit()
+
+            async with (
+                AsyncSession(pg_engine, expire_on_commit=False) as claim_session,
+                AsyncSession(pg_engine, expire_on_commit=False) as purge_session,
+            ):
+                await claim_session.begin()
+                claimed = await SqlAlchemyDeadLetterStore(claim_session).claim_replayable(
+                    3,
+                    owner_id='claim-owner',
+                    now=now,
+                    lease_expires_at=now + timedelta(minutes=1),
+                )
+                assert claimed is not None
+
+                async with purge_session.begin():
+                    await purge_session.execute(text("SET LOCAL lock_timeout = '500ms'"))
+                    assert await SqlAlchemyDeadLetterStore(purge_session).purge(now, now=now) == 0
+
+                await claim_session.rollback()
+                async with purge_session.begin():
+                    assert await SqlAlchemyDeadLetterStore(purge_session).purge(now, now=now) == 1
+        finally:
+            async with pg_engine.begin() as conn:
+                await conn.run_sync(metadata.drop_all)
+
+    @staticmethod
+    async def test_claim_skips_row_locked_and_deleted_by_uncommitted_purge(pg_engine: AsyncEngine) -> None:
+        metadata = MetaData()
+        bind_dead_letter_tables(metadata)
+        async with pg_engine.begin() as conn:
+            await conn.run_sync(metadata.create_all)
+        try:
+            now = datetime.now(tz=UTC)
+            async with AsyncSession(pg_engine, expire_on_commit=False) as seed:
+                await SqlAlchemyDeadLetterStore(seed).save(_make_entry(created_at=now - timedelta(days=1)))
+                await seed.commit()
+
+            async with (
+                AsyncSession(pg_engine, expire_on_commit=False) as purge_session,
+                AsyncSession(pg_engine, expire_on_commit=False) as claim_session,
+            ):
+                await purge_session.begin()
+                assert await SqlAlchemyDeadLetterStore(purge_session).purge(now, now=now) == 1
+
+                async with claim_session.begin():
+                    await claim_session.execute(text("SET LOCAL lock_timeout = '500ms'"))
+                    claimed = await SqlAlchemyDeadLetterStore(claim_session).claim_replayable(
+                        3,
+                        owner_id='claim-owner',
+                        now=now,
+                        lease_expires_at=now + timedelta(minutes=1),
+                    )
+                    assert claimed is None
+
+                await purge_session.commit()
+                async with claim_session.begin():
+                    claimed_after_commit = await SqlAlchemyDeadLetterStore(claim_session).claim_replayable(
+                        3,
+                        owner_id='claim-owner',
+                        now=now,
+                        lease_expires_at=now + timedelta(minutes=1),
+                    )
+                    assert claimed_after_commit is None
         finally:
             async with pg_engine.begin() as conn:
                 await conn.run_sync(metadata.drop_all)
@@ -243,6 +368,20 @@ def test_dead_letter_ddl_column_is_metadata() -> None:
     table = bind_dead_letter_tables(MetaData()).messages
     assert 'metadata' in table.c
     assert 'metadata_' not in table.c
+
+
+def test_dead_letter_ddl_includes_replay_lease_pair_and_claim_index() -> None:
+    table = bind_dead_letter_tables(MetaData()).messages
+
+    assert table.c.replay_owner_id.nullable
+    assert table.c.replay_lease_expires_at.nullable
+    assert 'ck_dead_letter_replay_lease_pair' in {constraint.name for constraint in table.constraints}
+    claim_index = next(index for index in table.indexes if index.name == 'ix_dead_letter_replay_claim')
+    assert [column.name for column in claim_index.columns] == [
+        'status',
+        'replay_lease_expires_at',
+        'created_at',
+    ]
 
 
 @pytest.fixture

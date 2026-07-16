@@ -48,6 +48,7 @@ class DeadLetterConfig:
     """When set, the worker periodically purges entries older than this. None = no purge."""
     cleanup_interval: timedelta = field(default_factory=lambda: timedelta(hours=1))
     batch_size: int = 100
+    replay_lease: LeaseConfig = LeaseConfig(ttl_seconds=120.0)  # noqa: RUF009
     polling: PollingConfig = PollingConfig(  # noqa: RUF009
         poll_interval_min_seconds=1.0,
         poll_interval_max_seconds=30.0,

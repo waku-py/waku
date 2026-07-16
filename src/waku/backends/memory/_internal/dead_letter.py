@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeGuard
 
 from typing_extensions import override
 
@@ -69,46 +69,105 @@ class _InMemoryDeadLetterStoreOperations(IDeadLetterStore):
         return matched[filters.offset : filters.offset + filters.limit]
 
     @override
-    async def claim_replayable(self, batch_size: int, max_replay_count: int) -> Sequence[DeadLetterEntry]:
-        eligible = [
-            entry
-            for entry in self._oldest_first()
-            if entry.status is DeadLetterStatus.PENDING
-            or (entry.status is DeadLetterStatus.REPLAY_FAILED and entry.replay_count < max_replay_count)
-        ]
-        return eligible[:batch_size]
-
-    @override
-    async def mark_replayed(self, entry_id: UUID) -> None:
-        entry = self.entries.get(entry_id)
-        if entry is not None:
-            self.entries[entry_id] = dataclasses.replace(entry, status=DeadLetterStatus.REPLAYED)
-
-    @override
-    async def mark_replay_failed(self, entry_id: UUID, error: str) -> None:
-        entry = self.entries.get(entry_id)
-        if entry is not None:
-            self.entries[entry_id] = dataclasses.replace(
-                entry,
-                status=DeadLetterStatus.REPLAY_FAILED,
-                replay_count=entry.replay_count + 1,
-                error_message=error,
+    async def claim_replayable(
+        self,
+        max_replay_count: int,
+        *,
+        owner_id: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> DeadLetterEntry | None:
+        _validate_requested_lease(now, lease_expires_at)
+        for entry in self._oldest_first():
+            eligible_status = entry.status is DeadLetterStatus.PENDING or (
+                entry.status is DeadLetterStatus.REPLAY_FAILED and entry.replay_count < max_replay_count
             )
+            if eligible_status and _lease_is_claimable(entry, now):
+                return self._set_claim(entry, owner_id, lease_expires_at)
+        return None
+
+    @override
+    async def claim_replay(
+        self,
+        entry_id: UUID,
+        *,
+        owner_id: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> DeadLetterEntry | None:
+        _validate_requested_lease(now, lease_expires_at)
+        entry = self.entries.get(entry_id)
+        if entry is None or entry.status is DeadLetterStatus.REPLAYED or not _lease_is_claimable(entry, now):
+            return None
+        return self._set_claim(entry, owner_id, lease_expires_at)
+
+    @override
+    async def renew_replay_claim(
+        self,
+        entry_id: UUID,
+        *,
+        owner_id: str,
+        now: datetime,
+        lease_expires_at: datetime,
+    ) -> bool:
+        _validate_requested_lease(now, lease_expires_at)
+        entry = self.entries.get(entry_id)
+        if not _has_live_owner(entry, owner_id, now):
+            return False
+        self.entries[entry_id] = dataclasses.replace(entry, replay_lease_expires_at=lease_expires_at)
+        return True
+
+    @override
+    async def mark_replayed(self, entry_id: UUID, *, owner_id: str, now: datetime) -> bool:
+        entry = self.entries.get(entry_id)
+        if not _has_live_owner(entry, owner_id, now):
+            return False
+        self.entries[entry_id] = dataclasses.replace(
+            entry,
+            status=DeadLetterStatus.REPLAYED,
+            replay_owner_id=None,
+            replay_lease_expires_at=None,
+        )
+        return True
+
+    @override
+    async def mark_replay_failed(self, entry_id: UUID, error: str, *, owner_id: str, now: datetime) -> bool:
+        entry = self.entries.get(entry_id)
+        if not _has_live_owner(entry, owner_id, now):
+            return False
+        self.entries[entry_id] = dataclasses.replace(
+            entry,
+            status=DeadLetterStatus.REPLAY_FAILED,
+            replay_count=entry.replay_count + 1,
+            error_message=error,
+            replay_owner_id=None,
+            replay_lease_expires_at=None,
+        )
+        return True
 
     @override
     async def delete(self, entry_id: UUID) -> None:
         self.entries.pop(entry_id, None)
 
     @override
-    async def purge(self, older_than: datetime) -> int:
+    async def purge(self, older_than: datetime, *, now: datetime) -> int:
         stale = [
             entry_id
             for entry_id, entry in self.entries.items()
-            if entry.created_at is not None and entry.created_at < older_than
+            if entry.created_at is not None and entry.created_at < older_than and _lease_is_claimable(entry, now)
         ]
         for entry_id in stale:
             del self.entries[entry_id]
         return len(stale)
+
+    def _set_claim(self, entry: DeadLetterEntry, owner_id: str, lease_expires_at: datetime) -> DeadLetterEntry:
+        claimed = dataclasses.replace(
+            entry,
+            replay_owner_id=owner_id,
+            replay_lease_expires_at=lease_expires_at,
+        )
+        self.entries[entry.id] = claimed
+        return claimed
 
     def _oldest_first(self) -> list[DeadLetterEntry]:
         return sorted(self.entries.values(), key=self._created_at_key)
@@ -152,3 +211,22 @@ class WorkspaceDeadLetterStore(_InMemoryDeadLetterStoreOperations):
     @override
     def _get_state(self) -> InMemoryDeadLetterState:
         return self._accessor.select(lambda state: state.dead_letters)
+
+
+def _validate_requested_lease(now: datetime, lease_expires_at: datetime) -> None:
+    if lease_expires_at <= now:
+        msg = 'lease_expires_at must be greater than now'
+        raise ValueError(msg)
+
+
+def _lease_is_claimable(entry: DeadLetterEntry, now: datetime) -> bool:
+    return entry.replay_lease_expires_at is None or entry.replay_lease_expires_at <= now
+
+
+def _has_live_owner(entry: DeadLetterEntry | None, owner_id: str, now: datetime) -> TypeGuard[DeadLetterEntry]:
+    return (
+        entry is not None
+        and entry.replay_owner_id == owner_id
+        and entry.replay_lease_expires_at is not None
+        and entry.replay_lease_expires_at > now
+    )
