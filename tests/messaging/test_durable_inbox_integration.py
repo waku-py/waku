@@ -39,7 +39,6 @@ from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
 from tests.messaging.helpers import (
-    FailingDeadLetterStore,
     RecordingAllocator,
     RecordingDeadLetterStore,
     RecordingUoW,
@@ -126,9 +125,9 @@ class _FailingOrderHandler(EventHandler[_OrderPlaced]):
         raise RuntimeError(msg)
 
 
-# DLQ-failure config: the handler always fails (-> move_to_dead_letter), but the dead-letter store is
-# unavailable (save raises). Exercises ERR-2 — a failed durable DLQ write must keep the inbox row.
-def _dlq_failing_config() -> MessagingConfig:
+# Move-to-dead-letter config: the handler always fails, so the on_any_exception move_to_dead_letter
+# policy dead-letters the message and clears its inbox row through the atomic inbox move.
+def _dead_letter_config() -> MessagingConfig:
     return MessagingConfig(
         endpoints=[
             local_queue(
@@ -230,30 +229,35 @@ class TestDurableInboxIntegration:
             assert purged == 2
 
     @staticmethod
-    async def test_failed_dead_letter_write_keeps_inbox_row_for_recovery() -> None:
-        # ERR-2: when a durable message's DLQ write FAILS, its inbox row must survive (still INCOMING)
-        # so the recovery drain re-runs it. Deleting it would lose the message from BOTH stores.
+    async def test_failing_durable_handler_dead_letters_message_and_clears_inbox_row() -> None:
+        # A durable handler that always fails resolves to move_to_dead_letter: the atomic inbox move
+        # writes the message to the store's own dead-letter facet (inbox.dead_letters) and removes its
+        # inbox row in one transaction, leaving the standalone sink untouched. (A FAILED move's
+        # INCOMING-row retention — ERR-2 — is proven against the rollback-modelling workspace store in
+        # tests/messaging/endpoints/test_durable_inbox_receiver.py.)
         inbox = FakeInboxStore()
+        standalone_dlq = RecordingDeadLetterStore()
         async with (
             create_test_app(
-                imports=[MessagingModule.register(_dlq_failing_config())],
+                imports=[MessagingModule.register(_dead_letter_config())],
                 extensions=[MessagingExtension().bind(_FailingOrderHandler)],
                 providers=[
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
-                    scoped(IDeadLetterStore, FailingDeadLetterStore),
+                    object_(standalone_dlq, provided_type=IDeadLetterStore),
                     scoped(IDurabilityStore, durability_for_inbox_and_dead_letters),
                 ],
             ) as app,
             app.container() as container,
         ):
             bus = await container.get(IMessageBus)
-            await bus.publish(_OrderPlaced(order_id='o-dlq-fail'))
+            await bus.publish(_OrderPlaced(order_id='o-dlq'))
+            await wait_until(lambda: len(inbox.dead_letters.entries) == 1)
 
-        entries = list(inbox.entries.values())
-        assert len(entries) == 1  # row KEPT, not deleted
-        assert entries[0].status is InboxStatus.INCOMING  # recoverable; never marked HANDLED
+        assert inbox.entries == {}  # the row was moved to the dead-letter facet, not left behind
+        assert len(inbox.dead_letters.entries) == 1
+        assert standalone_dlq.entries == []  # durable path uses the atomic inbox move, not the standalone sink
 
     @staticmethod
     async def test_global_durable_default_makes_unset_local_queue_durable() -> None:
@@ -376,9 +380,11 @@ class TestDurableInboxIntegration:
     @staticmethod
     async def test_recovery_drain_applies_execution_timeout_to_durable_handler() -> None:
         # Recovery executor must honour endpoint_defaults.execution_timeout like the live path. If it doesn't,
-        # the drain blocks forever and the DLQ row never appears (wait_until trips).
+        # the drain blocks forever and the DLQ row never appears (wait_until trips). The atomic
+        # move_to_dead_letter writes to the inbox store's own dead-letter facet (inbox.dead_letters), not
+        # the standalone IDeadLetterStore sink — which stays empty on the durable path.
         inbox = FakeInboxStore()
-        dlq = RecordingDeadLetterStore()
+        standalone_dlq = RecordingDeadLetterStore()
         config = MessagingConfig(
             endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=timedelta(seconds=1.0))],
             routing=[route(_OrderPlaced).to('orders')],
@@ -403,7 +409,7 @@ class TestDurableInboxIntegration:
             providers=[
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
-                object_(dlq, provided_type=IDeadLetterStore),
+                object_(standalone_dlq, provided_type=IDeadLetterStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IDurabilityStore, durability_for_inbox_and_dead_letters),
             ],
@@ -424,9 +430,10 @@ class TestDurableInboxIntegration:
                 metadata=encode_metadata(envelope),
             )
             inbox.entries[entry.id, entry.destination] = entry
-            await wait_until(lambda: len(dlq.entries) == 1)
+            await wait_until(lambda: len(inbox.dead_letters.entries) == 1)
 
-        assert len(dlq.entries) == 1
+        assert len(inbox.dead_letters.entries) == 1
+        assert standalone_dlq.entries == []  # durable path uses the atomic inbox move, not the standalone sink
 
     @staticmethod
     async def test_recovery_drain_discards_expired_durable_message() -> None:

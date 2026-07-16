@@ -9,7 +9,8 @@ from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLet
 def test_dead_letter_insert_values_carries_wire_fields() -> None:
     # move_to_dead_letter-persisted rows must stay replayable: the insert carries the full wire
     # field set (message_id, group_id, metadata, destination_kind) alongside the failure columns,
-    # plus status/replay_count from the entry itself. A fresh dead letter is PENDING/0.
+    # plus status/replay_count and the replay-lease columns from the entry itself. A fresh dead
+    # letter is PENDING/0 with an unclaimed lease (replay_owner_id/replay_lease_expires_at None).
     entry = DeadLetterEntry(
         id=uuid4(),
         message_type='orders.OrderPlaced',
@@ -44,6 +45,8 @@ def test_dead_letter_insert_values_carries_wire_fields() -> None:
         'message_id': entry.message_id,
         'group_id': 'partition-7',
         'metadata': {'trace': 'abc'},
+        'replay_owner_id': None,
+        'replay_lease_expires_at': None,
     }
 
 
