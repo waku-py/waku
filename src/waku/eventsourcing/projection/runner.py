@@ -2,32 +2,35 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, TypeVar, assert_never
 
 import anyio
 
 from waku._internal.adaptive_interval import AdaptiveInterval
 from waku._internal.shutdown import wait_for_shutdown
 from waku._internal.transaction import (
-    TransactionCleanupError,
-    commit_uow,
-    rollback_uow,
-    transaction_scope,
-    unit_of_work_scope,
+    Aborted,
+    Commit,
+    Committed,
+    Rollback,
+    RolledBack,
+    TransactionExecutionError,
+    execute_in_uow_scope,
 )
 from waku.eventsourcing.exceptions import ProjectionError, ProjectionLockedError
 from waku.eventsourcing.projection._internal.processor import CycleOutcome, ProjectionProcessor
 from waku.eventsourcing.projection.config import PollingConfig
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventReader
-from waku.uow import IUnitOfWork
 
 _DEFAULT_POLLING: Final = PollingConfig()
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from typing import Never
 
     from waku._internal.lease import ILease
+    from waku._internal.transaction import TransactionDecision
     from waku.di import AsyncContainer
     from waku.eventsourcing.projection._internal.processor import SkipRequest
     from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
@@ -36,6 +39,18 @@ if TYPE_CHECKING:
 __all__ = ['CatchUpProjectionRunner']
 
 logger = logging.getLogger(__name__)
+
+_CommitT = TypeVar('_CommitT')
+
+
+def _require_committed(result: Committed[_CommitT] | RolledBack[Never] | Aborted) -> _CommitT:
+    if isinstance(result, Committed):
+        return result.value
+    if isinstance(result, Aborted):
+        raise result.error
+    if isinstance(result, RolledBack):
+        assert_never(result.value)
+    assert_never(result)
 
 
 class CatchUpProjectionRunner:
@@ -89,9 +104,12 @@ class CatchUpProjectionRunner:
             if not acquired:
                 raise ProjectionLockedError(projection_name)
 
-            async with unit_of_work_scope(self._container) as scope:
+            async def teardown(scope: AsyncContainer) -> TransactionDecision[None, Never]:
                 projection = await scope.get(binding.projection)
                 await projection.teardown()
+                return Commit(None)
+
+            _require_committed(await execute_in_uow_scope(self._container, teardown))
 
             # Rebuild replays historical events, where every global_position gap is permanent (a burned
             # Identity value from a long-ago rolled-back append). Gap detection guards the live tail
@@ -100,15 +118,18 @@ class CatchUpProjectionRunner:
             rebuild_binding = replace(binding, gap_detection_enabled=False)
             processor = ProjectionProcessor(rebuild_binding)
 
-            async with unit_of_work_scope(self._container) as scope:
+            async def reset(scope: AsyncContainer) -> TransactionDecision[None, Never]:
                 checkpoint_store = await scope.get(ICheckpointStore)
                 await processor.reset_checkpoint(checkpoint_store)
+                return Commit(None)
+
+            _require_committed(await execute_in_uow_scope(self._container, reset))
 
             while True:
                 try:
                     outcome = await self._run_cycle(rebuild_binding, processor)
-                except TransactionCleanupError as exc:
-                    raise exc.rollback_error from exc.primary_error
+                except TransactionExecutionError as fatal:
+                    raise fatal.error from fatal.primary_error
                 if outcome.retry_delay_seconds is not None:
                     await anyio.sleep(outcome.retry_delay_seconds)
                     continue
@@ -159,13 +180,11 @@ class CatchUpProjectionRunner:
     ) -> None:
         while not self._shutdown_event.is_set():
             try:
-                outcome = await self._run_cycle(
-                    binding,
-                    processor,
-                    rollback_failure_is_primary=True,
-                )
-            except TransactionCleanupError as exc:
-                raise exc.rollback_error from exc.primary_error
+                outcome = await self._run_cycle(binding, processor)
+            except TransactionExecutionError as fatal:
+                # A failed rollback is fatal: it bypasses the ordinary log-and-continue retry so a broken
+                # transaction never masquerades as a recoverable cycle.
+                raise fatal.error from fatal.primary_error
             except ProjectionError:
                 raise
             except Exception:
@@ -194,79 +213,64 @@ class CatchUpProjectionRunner:
         self,
         binding: CatchUpProjectionBinding,
         processor: ProjectionProcessor,
-        *,
-        rollback_failure_is_primary: bool = False,
     ) -> CycleOutcome:
-        async with self._container() as scope:
+        async def cycle(scope: AsyncContainer) -> TransactionDecision[CycleOutcome, CycleOutcome]:
             projection = await scope.get(binding.projection)
             reader = await scope.get(IEventReader)
             checkpoint_store = await scope.get(ICheckpointStore)
-            uow = await scope.get(IUnitOfWork)
-            try:
-                outcome = await processor.run_once(projection, reader, checkpoint_store)
-            except BaseException as primary_error:
-                await rollback_uow(
-                    uow,
-                    primary_error=primary_error,
-                    rollback_failure_is_primary=(
-                        rollback_failure_is_primary and not isinstance(primary_error, ProjectionError)
-                    ),
-                )
-                raise
-            if outcome.retry_delay_seconds is not None:
-                await rollback_uow(
-                    uow,
-                    rollback_failure_is_primary=rollback_failure_is_primary,
-                )
-                return outcome
-            if outcome.skip is not None:
-                await self._persist_skip(
-                    binding,
-                    projection,
-                    checkpoint_store,
-                    uow,
-                    outcome.skip,
-                    rollback_failure_is_primary=rollback_failure_is_primary,
-                )
-            else:
-                await commit_uow(
-                    uow,
-                    rollback_failure_is_primary=rollback_failure_is_primary,
-                )
-            return outcome
+            outcome = await processor.run_once(projection, reader, checkpoint_store)
+            # A retry or a skip must discard whatever partial read-model writes project() left behind;
+            # only a clean progress/idle cycle commits the checkpoint advance.
+            if outcome.retry_delay_seconds is not None or outcome.skip is not None:
+                return Rollback(outcome)
+            return Commit(outcome)
 
-    @staticmethod
-    async def _persist_skip(
-        binding: CatchUpProjectionBinding,
-        projection: ICatchUpProjection,
-        checkpoint_store: ICheckpointStore,
-        uow: IUnitOfWork,
-        skip: SkipRequest,
-        *,
-        rollback_failure_is_primary: bool,
-    ) -> None:
-        # The failed project() may have left the scoped session aborted and holding partial read-model
-        # writes: roll back first, then commit the skip advance (and on_skip side effects) in a clean
-        # transaction. A failing on_skip is swallowed, with its own rollback so it cannot re-poison
-        # the checkpoint save.
-        await rollback_uow(uow, rollback_failure_is_primary=True)
-        try:
-            await projection.on_skip(skip.events, skip.error)
-        except Exception as primary_error:
-            logger.exception('Projection %r: on_skip handler failed', binding.projection.projection_name)
-            await rollback_uow(
-                uow,
-                primary_error=primary_error,
-                rollback_failure_is_primary=True,
-            )
-        except BaseException as primary_error:
-            await rollback_uow(uow, primary_error=primary_error)
-            raise
-        async with transaction_scope(
-            uow,
-            rollback_failure_is_primary=rollback_failure_is_primary,
-        ):
+        result = await execute_in_uow_scope(self._container, cycle)
+        if isinstance(result, Committed):
+            return result.value
+        if isinstance(result, RolledBack):
+            outcome = result.value
+            if outcome.skip is not None:
+                await self._persist_skip(binding, outcome.skip)
+            return outcome
+        if isinstance(result, Aborted):
+            raise result.error
+        assert_never(result)
+
+    async def _persist_skip(self, binding: CatchUpProjectionBinding, skip: SkipRequest) -> None:
+        # The cycle already rolled back the failed project()'s partial writes in its own execution. Run
+        # on_skip and the checkpoint advance together in a fresh clean transaction so their side effects
+        # commit atomically; a failing on_skip is swallowed and rolled back on its own so it cannot
+        # re-poison the checkpoint save, which then advances in a further fresh execution.
+        async def persist(scope: AsyncContainer) -> TransactionDecision[None, Exception]:
+            projection = await scope.get(binding.projection)
+            checkpoint_store = await scope.get(ICheckpointStore)
+            try:
+                await projection.on_skip(skip.events, skip.error)
+            except Exception as on_skip_error:
+                # on_skip failures are swallowed so the skip still advances; roll back its partial writes.
+                logger.exception('Projection %r: on_skip handler failed', binding.projection.projection_name)
+                return Rollback(on_skip_error)
             await checkpoint_store.save(skip.checkpoint)
+            return Commit(None)
+
+        result = await execute_in_uow_scope(self._container, persist)
+        if isinstance(result, Committed):
+            return
+        if isinstance(result, RolledBack):
+            await self._save_skip_checkpoint(skip)
+            return
+        if isinstance(result, Aborted):
+            raise result.error
+        assert_never(result)
+
+    async def _save_skip_checkpoint(self, skip: SkipRequest) -> None:
+        async def save(scope: AsyncContainer) -> TransactionDecision[None, Never]:
+            checkpoint_store = await scope.get(ICheckpointStore)
+            await checkpoint_store.save(skip.checkpoint)
+            return Commit(None)
+
+        _require_committed(await execute_in_uow_scope(self._container, save))
 
     async def _signal_listener(self, cancel_scope: anyio.CancelScope) -> None:  # pragma: no cover
         await wait_for_shutdown(self._shutdown_event)

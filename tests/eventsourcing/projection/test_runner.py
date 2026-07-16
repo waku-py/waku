@@ -5,6 +5,7 @@ import logging
 from typing import TYPE_CHECKING
 
 import anyio
+import anyio.lowlevel
 import pytest
 from typing_extensions import override
 
@@ -148,6 +149,22 @@ class _WritingProjection(ICatchUpProjection):
         if self._remaining_failures > 0:
             self._remaining_failures -= 1
             raise self._error
+
+
+class _CancellingProjection(ICatchUpProjection):
+    projection_name = 'cancelling'
+
+    def __init__(self, session: FakeSession, trace: list[str], cancel_scope: anyio.CancelScope) -> None:
+        self._session = session
+        self._trace = trace
+        self._cancel_scope = cancel_scope
+
+    @override
+    async def project(self, events: Sequence[StoredEvent], /) -> None:
+        self._trace.append('project')
+        self._session.write(sample_event_values(events))
+        self._cancel_scope.cancel()
+        await anyio.lowlevel.checkpoint()
 
 
 def _make_app(
@@ -792,6 +809,40 @@ async def test_rebuild_processing_failure_rolls_back_and_preserves_error(
     assert session.durable_writes() == []
 
 
+async def test_rebuild_processing_failure_with_failed_rollback_surfaces_fatal(
+    event_store: InMemoryEventStore,
+) -> None:
+    await seed_events(event_store, count=1)
+    trace: list[str] = []
+    session = FakeSession()
+    processing_error = RuntimeError('projection failed')
+    projection = _WritingProjection(session, trace, failures=1, error=processing_error)
+    binding = make_binding(_WritingProjection)
+    rollback_error = RuntimeError('rollback failed')
+    uow = CommitGatedUnitOfWork(session, trace=trace, rollback_failures={1: rollback_error})
+    lock = AlwaysAcquiredLock()
+    app = _make_app(
+        event_store,
+        CommitGatedCheckpointStore(session),
+        lock,
+        (projection,),
+        (binding,),
+        uow=uow,
+    )
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        with pytest.raises(RuntimeError) as raised:
+            await runner.rebuild('writing')
+
+    # A failed rollback is fatal: it surfaces the rollback error and bypasses the STOP policy's
+    # ProjectionStoppedError, which only applies once the partial writes are cleanly discarded.
+    assert raised.value is rollback_error
+    assert not isinstance(raised.value, ProjectionStoppedError)
+    assert isinstance(raised.value.__cause__, ProjectionStoppedError)
+    assert raised.value.__cause__.cause is processing_error
+
+
 @pytest.mark.parametrize('commit_at', [3, 4], ids=('progress', 'clean-idle'))
 async def test_rebuild_cycle_commit_failure_rolls_back_and_preserves_error(
     event_store: InMemoryEventStore,
@@ -855,6 +906,38 @@ async def test_rebuild_cancellation_completes_shielded_rollback(
 
     assert cancel_scope.cancelled_caught
     assert trace[-2:] == ['commit-3', 'rollback']
+    assert session.durable_writes() == []
+
+
+async def test_rebuild_cancellation_during_processing_completes_shielded_rollback(
+    event_store: InMemoryEventStore,
+) -> None:
+    await seed_events(event_store, count=1)
+    trace: list[str] = []
+    session = FakeSession()
+    cancel_scope = anyio.CancelScope()
+    projection = _CancellingProjection(session, trace, cancel_scope)
+    binding = make_binding(_CancellingProjection)
+    uow = CommitGatedUnitOfWork(session, trace=trace)
+    lock = AlwaysAcquiredLock()
+    app = _make_app(
+        event_store,
+        CommitGatedCheckpointStore(session),
+        lock,
+        (projection,),
+        (binding,),
+        uow=uow,
+    )
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        with cancel_scope:
+            await runner.rebuild('cancelling')
+
+    # Cancellation raised inside project() rolls back the partial write under a shield, then stays
+    # cancellation by identity — the scope catches it and nothing reaches durable state.
+    assert cancel_scope.cancelled_caught
+    assert trace[-2:] == ['project', 'rollback']
     assert session.durable_writes() == []
 
 
