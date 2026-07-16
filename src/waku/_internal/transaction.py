@@ -25,6 +25,7 @@ __all__ = [
     'TransactionExecutionError',
     'TransactionFailureKind',
     'TransactionResult',
+    'can_defer_transaction_fatal',
     'execute_in_uow_scope',
     'extract_transaction_execution_error',
 ]
@@ -89,32 +90,22 @@ class TransactionExecutionError(BaseException):
         self.primary_error = primary_error
 
 
-class _ExecutionState(Enum):
-    READY = 'READY'
-    RUNNING = 'RUNNING'
-    COMMITTING = 'COMMITTING'
-    COMMITTED = 'COMMITTED'
-    ROLLING_BACK = 'ROLLING_BACK'
-    ROLLED_BACK = 'ROLLED_BACK'
-    FAILED = 'FAILED'
-
-
 class TransactionExecution:
-    __slots__ = ('_state', '_uow')
+    __slots__ = ('_executed', '_uow')
 
     def __init__(self, uow: IUnitOfWork) -> None:
         self._uow = uow
-        self._state = _ExecutionState.READY
+        self._executed = False
 
     async def execute(
         self,
         operation: Callable[[], Awaitable[TransactionDecision[_CommitT, _RollbackT]]],
     ) -> TransactionResult[_CommitT, _RollbackT]:
-        if self._state is not _ExecutionState.READY:
+        if self._executed:
             msg = 'TransactionExecution can execute only once'
             raise RuntimeError(msg)
 
-        self._state = _ExecutionState.RUNNING
+        self._executed = True
         try:
             decision = await operation()
         except BaseException as error:  # noqa: BLE001 - control flow must also trigger rollback
@@ -127,12 +118,10 @@ class TransactionExecution:
         return await self._rollback_after_failure(decision.error)
 
     async def _commit(self, value: _CommitT) -> Committed[_CommitT] | Aborted:
-        self._state = _ExecutionState.COMMITTING
         try:
             await self._uow.commit()
         except BaseException as error:  # noqa: BLE001 - cancellation must also trigger rollback
             return await self._rollback_after_failure(error)
-        self._state = _ExecutionState.COMMITTED
         return Committed(value)
 
     async def _rollback(self, value: _RollbackT) -> RolledBack[_RollbackT]:
@@ -167,14 +156,8 @@ class TransactionExecution:
         raise primary_error
 
     async def _run_rollback(self) -> None:
-        self._state = _ExecutionState.ROLLING_BACK
-        try:
-            with anyio.CancelScope(shield=True):
-                await self._uow.rollback()
-        except BaseException:
-            self._state = _ExecutionState.FAILED
-            raise
-        self._state = _ExecutionState.ROLLED_BACK
+        with anyio.CancelScope(shield=True):
+            await self._uow.rollback()
 
 
 def _has_control_flow_leaf(error: BaseException) -> bool:
@@ -194,23 +177,57 @@ def extract_transaction_execution_error(error: BaseException) -> TransactionExec
     return None
 
 
+def can_defer_transaction_fatal(error: BaseException, fatal: TransactionExecutionError) -> bool:
+    """Whether a group-wrapped fatal may be held to the end of the current owner unit.
+
+    Deferral is safe only when ``fatal`` surfaced inside a ``BaseExceptionGroup`` whose remainder,
+    after splitting out ``TransactionExecutionError``, is empty or an ordinary ``Exception`` group.
+    A bare fatal (``fatal is error``) or a remainder still carrying a control-flow ``BaseException``
+    must propagate immediately so cancellation is never demoted.
+    """
+    if fatal is error or not isinstance(error, BaseExceptionGroup):
+        return False
+    _, remaining = error.split(TransactionExecutionError)
+    return remaining is None or isinstance(remaining, Exception)
+
+
 async def _execute_in_child_scope(
     container: AsyncContainer,
     operation: Callable[[AsyncContainer], Awaitable[TransactionDecision[_CommitT, _RollbackT]]],
 ) -> TransactionResult[_CommitT, _RollbackT]:
     result: TransactionResult[_CommitT, _RollbackT] | None = None
+    execution_error: BaseException | None = None
+
+    async def run_operation(child: AsyncContainer) -> TransactionResult[_CommitT, _RollbackT]:
+        nonlocal execution_error
+        execution = TransactionExecution(await child.get(IUnitOfWork))
+
+        async def execute_operation() -> TransactionDecision[_CommitT, _RollbackT]:
+            return await operation(child)
+
+        try:
+            return await execution.execute(execute_operation)
+        except BaseException as error:
+            execution_error = error
+            raise
+
     try:
         async with container() as child:
-            uow = await child.get(IUnitOfWork)
-            execution = TransactionExecution(uow)
-
-            async def execute_operation() -> TransactionDecision[_CommitT, _RollbackT]:
-                return await operation(child)
-
-            result = await execution.execute(execute_operation)
+            result = await run_operation(child)
     except BaseException as error:
         if isinstance(result, Committed):
             raise TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, error, None) from error
+        # A child-scope teardown failure masks the execution's fatal into __context__, where
+        # extract_transaction_execution_error cannot reach it. Re-surface both as group leaves so the
+        # fatal stays extractable (and any control-flow leaf stays present) for the owner's split law.
+        if (
+            execution_error is not None
+            and error is not execution_error
+            and extract_transaction_execution_error(execution_error) is not None
+            and extract_transaction_execution_error(error) is None
+        ):
+            msg = 'transaction execution failed and child-scope teardown failed'
+            raise BaseExceptionGroup(msg, [error, execution_error]) from None
         raise
 
     return result

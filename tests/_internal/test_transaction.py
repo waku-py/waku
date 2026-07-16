@@ -713,6 +713,67 @@ async def test_rolled_back_teardown_failure_keeps_nested_fatal_extractable() -> 
     assert actions == ['rollback-start', 'rollback-done', 'child-exit']
 
 
+async def test_rolled_back_body_fatal_survives_child_scope_teardown_failure() -> None:
+    operation_error = ValueError('operation failed')
+    rollback_error = RuntimeError('rollback failed')
+    teardown_error = RuntimeError('teardown failed')
+    actions: list[str] = []
+
+    async def provide_uow() -> AsyncIterator[IUnitOfWork]:
+        yield _RecordingUoW(actions=actions, rollback_error=rollback_error)
+        actions.append('child-exit')
+        raise teardown_error
+
+    async def operation(child: AsyncContainer) -> TransactionDecision[None, Never]:
+        del child
+        raise operation_error
+
+    async with create_test_app(providers=[provider(provide_uow, provided_type=IUnitOfWork)]) as app:
+        with pytest.raises(BaseExceptionGroup) as raised:
+            await execute_in_uow_scope(app.container, operation)
+
+    fatal = extract_transaction_execution_error(raised.value)
+    assert fatal is not None
+    assert fatal.kind is TransactionFailureKind.ROLLBACK_FAILED
+    assert fatal.error is rollback_error
+    assert fatal.primary_error is operation_error
+    assert actions == ['rollback-start', 'child-exit']
+
+
+async def test_cancellation_bearing_body_fatal_survives_teardown_and_stays_cancellation_shaped() -> None:
+    inner_fatal = TransactionExecutionError(
+        TransactionFailureKind.ROLLBACK_FAILED,
+        RuntimeError('inner rollback failed'),
+        None,
+    )
+    cancellation = anyio.get_cancelled_exc_class()()
+    body_group = BaseExceptionGroup(
+        'grouped control flow',
+        [ValueError('ordinary sibling'), BaseExceptionGroup('nested', [inner_fatal, cancellation])],
+    )
+    rollback_error = RuntimeError('outer rollback failed')
+    teardown_error = RuntimeError('teardown failed')
+    actions: list[str] = []
+
+    async def provide_uow() -> AsyncIterator[IUnitOfWork]:
+        yield _RecordingUoW(actions=actions, rollback_error=rollback_error)
+        actions.append('child-exit')
+        raise teardown_error
+
+    async def operation(child: AsyncContainer) -> TransactionDecision[None, Never]:
+        del child
+        raise body_group
+
+    async with create_test_app(providers=[provider(provide_uow, provided_type=IUnitOfWork)]) as app:
+        with pytest.raises(BaseExceptionGroup) as raised:
+            await execute_in_uow_scope(app.container, operation)
+
+    assert extract_transaction_execution_error(raised.value) is inner_fatal
+    cancellations, _ = raised.value.split(anyio.get_cancelled_exc_class())
+    assert cancellations is not None
+    assert actions == ['rollback-start', 'child-exit']
+
+
 def test_extract_transaction_execution_error_returns_none_without_fatal() -> None:
     error = BaseExceptionGroup('ordinary', [ValueError('first'), ExceptionGroup('nested', [RuntimeError('second')])])
 

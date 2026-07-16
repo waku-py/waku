@@ -12,7 +12,11 @@ import anyio
 from typing_extensions import override
 
 from waku._internal.adaptive_interval import AdaptiveInterval
-from waku._internal.transaction import TransactionExecutionError, extract_transaction_execution_error
+from waku._internal.transaction import (
+    TransactionExecutionError,
+    can_defer_transaction_fatal,
+    extract_transaction_execution_error,
+)
 
 if TYPE_CHECKING:
     from datetime import timedelta
@@ -156,14 +160,8 @@ class PollingAgent(abc.ABC):
                 processed = await self._tick()
             except BaseException as error:
                 if fatal := extract_transaction_execution_error(error):
-                    if fatal is error:
-                        raise
-                    if isinstance(error, BaseExceptionGroup):
-                        _, remaining = error.split(TransactionExecutionError)
-                        if remaining is None or isinstance(remaining, Exception):
-                            fatal_to_raise = fatal
-                        else:
-                            raise
+                    if can_defer_transaction_fatal(error, fatal):
+                        fatal_to_raise = fatal
                     else:
                         raise
                 elif not isinstance(error, Exception):

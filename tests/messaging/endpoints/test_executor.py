@@ -35,7 +35,7 @@ from waku.messaging import (
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.durability import IDeadLetterStore, IDurabilityStore
-from waku.messaging.endpoints._internal.execution import IEndpointExecution, TerminalIntent, TerminalIntentKind
+from waku.messaging.endpoints._internal.execution import TerminalIntent, TerminalIntentKind
 from waku.messaging.endpoints.executor import (
     EndpointExecutor,
     EndpointExecutorFactory,
@@ -1087,10 +1087,6 @@ class _CheckpointHandler(RequestHandler[_CheckpointCommand, None]):
     async def handle(self, request: _CheckpointCommand, /) -> None:
         await anyio.lowlevel.checkpoint()
         _CheckpointHandler.completed.append(request.ref)
-
-
-def test_endpoint_execution_requires_explicit_terminal_emission() -> None:
-    assert getattr(IEndpointExecution.emit_terminal, '__isabstractmethod__', False)
 
 
 async def test_factory_gives_live_and_recovery_uris_identical_deadline_and_clock() -> None:

@@ -19,6 +19,7 @@ from waku._internal.transaction import (
     TransactionDecision,
     TransactionExecutionError,
     TransactionFailureKind,
+    can_defer_transaction_fatal,
     execute_in_uow_scope,
     extract_transaction_execution_error,
 )
@@ -153,7 +154,7 @@ class _DlqMaintenancePoller(PollingAgent):
                     replayed += 1
             except BaseException as error:
                 if fatal := extract_transaction_execution_error(error):
-                    if _can_defer_transaction_fatal(error, fatal):
+                    if can_defer_transaction_fatal(error, fatal):
                         fatal_to_raise = fatal
                         break
                     raise
@@ -253,13 +254,6 @@ def _committed_count(result: Committed[int] | RolledBack[Never] | Aborted) -> in
     if isinstance(result, RolledBack):
         assert_never(result.value)
     assert_never(result)
-
-
-def _can_defer_transaction_fatal(error: BaseException, fatal: TransactionExecutionError) -> bool:
-    if fatal is error or not isinstance(error, BaseExceptionGroup):
-        return False
-    _, remaining = error.split(TransactionExecutionError)
-    return remaining is None or isinstance(remaining, Exception)
 
 
 class DurabilityMaintenanceAgent:
