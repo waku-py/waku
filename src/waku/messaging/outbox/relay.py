@@ -95,7 +95,7 @@ async def _execute_store_operation(
     return await execute_in_uow_scope(container, execute)
 
 
-def _require_committed(result: TransactionResult[_OperationT, Never]) -> _OperationT:
+def _require_committed(result: Committed[_OperationT] | RolledBack[Never] | Aborted) -> _OperationT:
     if isinstance(result, Committed):
         return result.value
     if isinstance(result, Aborted):
