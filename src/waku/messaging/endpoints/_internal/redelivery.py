@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeAlias
 
-from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES
+from waku.messaging.endpoints._internal.execution import DEFERRED_TERMINAL_OUTCOMES
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -13,8 +13,8 @@ if TYPE_CHECKING:
     from waku.messaging._internal.pauser import TimedPauser
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
+    from waku.messaging.endpoints._internal.execution import ExecutionResult
     from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
-    from waku.messaging.endpoints.executor import ExecutionResult
     from waku.messaging.endpoints.outcome import ExecutionOutcome
 
 __all__ = [

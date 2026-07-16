@@ -4,19 +4,19 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import anyio
+import pytest
 from anyio.lowlevel import checkpoint
 
+from waku._internal.transaction import TransactionCleanupError
 from waku.messages import IMessage
+from waku.messaging._internal.transaction import CompletedExecutionError
 from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
 
 from tests.messaging.helpers import make_envelope
-
-if TYPE_CHECKING:
-    import pytest
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +190,43 @@ class TestMemoryStreamWorkerErrorIsolation:
 
         assert seen == ['ok']
         assert 'Unhandled error' in caplog.text
+
+    @staticmethod
+    async def test_failing_on_drain_does_not_mask_post_commit_failure() -> None:
+        teardown_error = RuntimeError('request scope teardown failed')
+        await _assert_fatal_signal_survives_failing_on_drain(
+            CompletedExecutionError(teardown_error),
+            teardown_error,
+        )
+
+    @staticmethod
+    async def test_failing_on_drain_does_not_mask_rollback_failure() -> None:
+        rollback_error = RuntimeError('rollback failed')
+        await _assert_fatal_signal_survives_failing_on_drain(
+            TransactionCleanupError(RuntimeError('handler failed'), rollback_error),
+            rollback_error,
+        )
+
+
+async def _assert_fatal_signal_survives_failing_on_drain(signal: Exception, expected: RuntimeError) -> None:
+    async def handler(_item: int) -> None:  # noqa: RUF029
+        raise signal
+
+    async def on_drain(_depth: int) -> None:  # noqa: RUF029
+        msg = 'drain hook failed'
+        raise RuntimeError(msg)
+
+    worker: MemoryStreamWorker[int] = MemoryStreamWorker(
+        max_buffer_size=1,
+        stop_timeout=timedelta(seconds=0.5),
+    )
+    await worker.start(handler, on_drain=on_drain)
+    await worker.send(1)
+
+    with pytest.raises(RuntimeError) as raised:
+        await worker.stop()
+
+    assert raised.value is expected
 
 
 class TestMemoryStreamWorkerPauseResume:

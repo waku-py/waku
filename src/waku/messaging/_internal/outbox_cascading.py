@@ -121,12 +121,13 @@ class DeferredCascadeFlusher:
     The single flush authority shared by the two ``run_in_transaction`` owners:
     ``DeferredCascadingBehavior`` (the handler's own transactional frame — ``invoke(request)``,
     ``send``, ``publish``) and ``MessageDispatcher.invoke_event`` (the fan-out frame). Whichever
-    owner observes ``TransactionDepth == 0`` after its frame closes flushes everything accumulated
-    since the last flush. Re-partitions each cascade with the same immutable-router split the inner
-    behavior used, dispatching ONLY the non-durable subset — the durable subset was already written
-    in-tx. The non-durable leg is at-most-once by its in-memory transport's nature: the tx already
-    committed, so dispatch failures are logged, not raised; ``BaseException`` (cancellation) is NOT
-    swallowed.
+    owner returns normally after its terminal action and observes ``TransactionDepth == 0`` flushes
+    everything accumulated since the last flush. Depth zero identifies the outer flush authority;
+    the normal return proves commit. Re-partitions each cascade with the same immutable-router split
+    the inner behavior used, dispatching ONLY the non-durable subset — the durable subset was already
+    written in-tx. The non-durable leg is at-most-once by its in-memory transport's nature: the tx
+    already committed, so dispatch failures are logged, not raised; ``BaseException`` (cancellation)
+    is NOT swallowed.
     """
 
     __slots__ = ('_dispatch', '_outgoing', '_router')
@@ -159,12 +160,13 @@ class DeferredCascadingBehavior(IPipelineBehavior[Any, Any]):
     Runs OUTSIDE ``TransactionalBehavior`` (outermost global). Owns the frame lifecycle: pushes a
     frame before ``call_next()``, discards it on pipeline failure (a handler failure discards the
     staged non-durable batch), pops the (drained-by-the-inner-behavior, now-empty) frame on success.
-    The flush is depth-aware: it runs ONLY when ``TransactionDepth`` is back to 0 — i.e. the
-    handler's own transactional frame was the outermost one and has committed (``invoke(request)``,
-    ``send``, ``publish``). Under ``invoke(event)`` (and any nesting inside an open transaction) the
-    dispatcher's fan-out frame keeps depth >= 1 for every per-handler pipeline, so the flush defers
-    to whichever frame IS the true outermost owner — ``MessageDispatcher.invoke_event`` flushes via
-    the same shared ``DeferredCascadeFlusher`` after its own commit.
+    The flush is depth-aware: a normal return from ``call_next()`` proves the transactional owner
+    completed its terminal action, and depth 0 identifies this behavior as the outer flush authority
+    (``invoke(request)``, ``send``, ``publish``). Under ``invoke(event)`` (and any nesting inside an
+    open transaction) the dispatcher's fan-out frame keeps depth >= 1 for every per-handler pipeline,
+    so the flush defers to whichever frame IS the true outermost owner —
+    ``MessageDispatcher.invoke_event`` flushes via the same shared ``DeferredCascadeFlusher`` after
+    its own committed return.
     """
 
     __slots__ = ('_depth', '_flusher', '_outgoing')

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, assert_never
 
-from waku.messaging._internal.transaction import unit_of_work_scope
+from waku._internal.transaction import unit_of_work_scope
 from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 
@@ -34,7 +34,7 @@ async def apply_inbox_outcome(
         RuntimeError: if a deferred-terminal outcome (REQUEUED/PAUSED) reaches finalization — the
             durable endpoint and drainer must intercept those before calling this.
     """
-    async with unit_of_work_scope(container) as scope:
+    async with unit_of_work_scope(container, rollback_failure_is_primary=True) as scope:
         inbox = await scope.get(IInboxStore)
         match outcome:
             case ExecutionOutcome.SUCCESS:

@@ -3,10 +3,15 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from waku._internal.transaction import TransactionCleanupError, unit_of_work_scope
 from waku.messaging._internal.identity import MessageTypeRegistry
-from waku.messaging._internal.transaction import unit_of_work_scope
+from waku.messaging._internal.transaction import CompletedExecutionError
 from waku.messaging.durability import IDeadLetterStore, IInboxStore
-from waku.messaging.endpoints.executor import DEFERRED_TERMINAL_OUTCOMES, EndpointExecutorFactory
+from waku.messaging.endpoints._internal.execution import (
+    DEFERRED_TERMINAL_OUTCOMES,
+    EndpointExecutionFactory,
+    IEndpointExecution,
+)
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.handler_map import HandlerMap
 from waku.messaging.inbox._internal.finalize import apply_inbox_outcome
@@ -21,7 +26,6 @@ if TYPE_CHECKING:
     from dishka import AsyncContainer
 
     from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.endpoints.executor import EndpointExecutor
     from waku.messaging.inbox.config import InboxConfig
     from waku.messaging.inbox.identifiers import HandlerDestination
     from waku.messaging.inbox.models import InboxEntry
@@ -64,7 +68,7 @@ class InboxDrainer:
         codec: PayloadCodec,
         type_registry: MessageTypeRegistry,
         handler_by_fqn: Mapping[HandlerDestination, HandlerType],
-        executor_factory: Callable[[str], EndpointExecutor],
+        executor_factory: Callable[[str], IEndpointExecution],
         owner_id: str,
         keep_after_handled: timedelta,
         batch_size: int,
@@ -81,7 +85,7 @@ class InboxDrainer:
         self._max_attempts = max_attempts
 
     async def drain_once(self) -> int:
-        async with unit_of_work_scope(self._container) as scope:
+        async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
             inbox = await scope.get(IInboxStore)
             entries = await inbox.fetch_pending_partitioned(self._batch_size, self._owner_id)
         processed = 0
@@ -89,6 +93,8 @@ class InboxDrainer:
             try:
                 if await self._process(entry):
                     processed += 1
+            except (CompletedExecutionError, TransactionCleanupError):
+                raise
             except Exception:
                 logger.exception('Unhandled error draining inbox entry %s/%s', entry.id, entry.destination)
         return processed
@@ -126,7 +132,7 @@ class InboxDrainer:
 
     async def _handle_poison(self, entry: InboxEntry, reason: str) -> None:
         attempt = entry.attempts + 1
-        async with unit_of_work_scope(self._container) as scope:
+        async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
             inbox = await scope.get(IInboxStore)
             if attempt >= self._max_attempts:
                 store = await scope.get(IDeadLetterStore)
@@ -157,7 +163,7 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
     registry = await container.get(HandlerMap)
     codec = await container.get(PayloadCodec)
     type_registry = await container.get(MessageTypeRegistry)
-    factory = await container.get(EndpointExecutorFactory)
+    factory = await container.get(EndpointExecutionFactory)
 
     handler_by_fqn = {handler_destination(handler_type): handler_type for handler_type in registry.handler_types()}
 

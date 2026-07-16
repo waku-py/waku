@@ -24,13 +24,19 @@ from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
 from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
+from waku.messaging.endpoints._internal.execution import (
+    EndpointExecutionFactory,
+    ExecutionResult,
+    IEndpointExecution,
+    ResultObserver,
+    noop_result_observer,
+)
 from waku.messaging.endpoints._internal.listening_agent import (
     ListeningAgent,
     ListeningStatus,
     create_listening_agent,
 )
 from waku.messaging.endpoints._internal.merge import merge_broker_endpoints
-from waku.messaging.endpoints.executor import EndpointExecutor, EndpointExecutorFactory, ExecutionResult
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox._internal.listener import InboundListener
@@ -54,6 +60,8 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from waku.application import WakuApplication
+    from waku.messaging.contracts.envelope import MessageEnvelope
+    from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.endpoints._internal.merge import MergedBrokerEndpoint
     from waku.messaging.transport.inbound import ConsumeCallback
     from waku.messaging.transport.interfaces import EnvelopeMetadata
@@ -138,20 +146,18 @@ class _DepsProvider(Provider):
         return self._uow
 
 
-class _FailingExecutor(EndpointExecutor):
+class _FailingExecutor(IEndpointExecution):
     def __init__(self) -> None:
-        # Bypass parent __init__: these tests never exercise real dispatch.
         self.failure = RuntimeError('handler failure')
 
     @override
     async def execute(
         self,
-        envelope: object,
-        handler_type: object,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
         *,
-        on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
+        on_result: ResultObserver = noop_result_observer,
     ) -> ExecutionResult:
-        assert on_result is not None  # the receiver always feeds its circuit breaker
         await on_result(ExecutionOutcome.FAILED_NO_POLICY, self.failure)
         return ExecutionResult(outcome=ExecutionOutcome.FAILED_NO_POLICY)
 
@@ -442,7 +448,7 @@ async def _factory_agent(
     return create_listening_agent(
         merged,
         container=app.container,
-        executor_factory=await app.container.get(EndpointExecutorFactory),
+        executor_factory=await app.container.get(EndpointExecutionFactory),
         registry=TransportRegistry({'test': transport}),
         codec=await app.container.get(PayloadCodec),
         type_registry=await app.container.get(MessageTypeRegistry),

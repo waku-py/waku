@@ -214,8 +214,10 @@ The verb selects the consistency boundary — there is no global switch:
 | No handlers | Raises `HandlerNotFoundError` | Silent no-op |
 | Use for | Same-transaction domain events | Eventual, decoupled fan-out (the default) |
 
-A nested `invoke()` from inside a handler **joins the same transaction** — the outermost call owns
-the single commit.
+A nested `invoke()` from inside a handler **joins the same physical transaction** — the outermost call owns
+the single commit. If nested work fails, catching its exception does not restore that transaction: the outer call
+rolls back and raises root `UnexpectedRollbackError` instead of returning success. Cancellation remains cancellation
+after shielded rollback.
 
 !!! warning "Order is not a contract"
     Handlers for one event run in an unspecified order under `invoke()`. They must be independent —
@@ -252,12 +254,15 @@ class ReserveStock(EventHandler[OrderPlaced]):
 ```
 
 `IOutgoingMessages` mirrors the bus verbs: `.publish(event)` fans out, `.send(command)` dispatches
-fire-and-forget. Both only **schedule** — nothing leaves until the pipeline finishes successfully.
+fire-and-forget. Both only **schedule** — nothing leaves until the pipeline commits successfully.
 
 | Setup | Cascade delivery |
 |-------|------------------|
 | No outbox | Flushed **post-commit**, isolated — a cascade failure is logged, never rolls back the handler or surfaces to the caller |
 | Outbox configured | Cascades bound for a **durable external endpoint** join the handler's transaction (the [outbox](outbox.md) write commits atomically with your data); others flush post-commit |
+
+A rolled-back transaction never flushes a deferred non-durable cascade. This includes rollback caused by a swallowed
+nested failure: the outer call raises `UnexpectedRollbackError`, and the scheduled cascade remains undispatched.
 
 This is the framework-native replacement for the manual `EventDispatcher` bridge shown above — the
 aggregate's reactions become scheduled cascades instead of a hand-written publish loop.

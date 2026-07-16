@@ -26,8 +26,8 @@ if TYPE_CHECKING:
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.config import MessagingConfig
     from waku.messaging.endpoints._internal.aspects import ListenAspect
+    from waku.messaging.endpoints._internal.execution import EndpointExecutionFactory
     from waku.messaging.endpoints._internal.merge import MergedBrokerEndpoint
-    from waku.messaging.endpoints.executor import EndpointExecutorFactory
     from waku.messaging.handler_map import HandlerMap
     from waku.messaging.inbox.backpressure import BufferingLimits
     from waku.messaging.inbox.config import InboxConfig
@@ -222,7 +222,7 @@ def create_listening_agent(  # noqa: PLR0913
     merged: MergedBrokerEndpoint,
     *,
     container: AsyncContainer,
-    executor_factory: EndpointExecutorFactory,
+    executor_factory: EndpointExecutionFactory,
     registry: TransportRegistry,
     codec: PayloadCodec,
     type_registry: MessageTypeRegistry,

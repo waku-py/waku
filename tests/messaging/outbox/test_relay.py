@@ -9,10 +9,13 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 import anyio
+import anyio.lowlevel
+import pytest
 from dishka import make_async_container
 from typing_extensions import override
 
 from waku._internal.clock import Now, utc_now
+from waku._internal.transaction import TransactionCleanupError
 from waku.messages import IEvent
 from waku.messaging import PollingConfig
 from waku.messaging._internal.escalation import RetryAction, walk_stages
@@ -23,6 +26,7 @@ from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig, build_re
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicy, SendingFailurePolicyRegistry
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload, wire_metadata_from_entry
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper, ITransport, Subscription
+from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
 from tests.messaging.helpers import (
@@ -37,8 +41,6 @@ from tests.messaging.helpers import (
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Sequence
-
-    import pytest
 
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.transport.inbound import ConsumeCallback
@@ -102,6 +104,7 @@ class _RecordingOutboxStore(IOutboxStore):
     mark_failed_error: Exception | None = None
     recover_stuck_error: Exception | None = None
     mark_dispatched_error: Exception | None = None
+    trace: list[str] | None = None
 
     @override
     async def save_batch(self, messages: Sequence[OutboxMessage]) -> None:  # pragma: no cover
@@ -117,6 +120,8 @@ class _RecordingOutboxStore(IOutboxStore):
 
     @override
     async def mark_dispatched(self, message_id: UUID) -> None:
+        if self.trace is not None:
+            self.trace.append('mark-dispatched')
         if self.mark_dispatched_error is not None:
             err = self.mark_dispatched_error
             self.mark_dispatched_error = None
@@ -125,6 +130,8 @@ class _RecordingOutboxStore(IOutboxStore):
 
     @override
     async def mark_failed(self, message_id: UUID, error: str, next_retry_at: datetime | None = None) -> None:
+        if self.trace is not None:
+            self.trace.append('mark-failed')
         if self.mark_failed_error is not None:
             raise self.mark_failed_error
         self.failed_ids.append(message_id)
@@ -132,6 +139,8 @@ class _RecordingOutboxStore(IOutboxStore):
 
     @override
     async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry) -> None:
+        if self.trace is not None:
+            self.trace.append('move-to-dead-letter')
         if self.move_to_dead_letter_error is not None:
             raise self.move_to_dead_letter_error
         self.dead_lettered_ids.append(message_id)
@@ -139,6 +148,8 @@ class _RecordingOutboxStore(IOutboxStore):
 
     @override
     async def mark_discarded(self, message_id: UUID, error: str) -> None:
+        if self.trace is not None:
+            self.trace.append('mark-discarded')
         self.discarded_ids.append(message_id)
 
     @override
@@ -154,6 +165,58 @@ class _RecordingOutboxStore(IOutboxStore):
     async def cleanup_dispatched(self, older_than: timedelta) -> int:
         self.cleanup_calls += 1
         return self.cleanup_count
+
+
+class _TracingUoW(IUnitOfWork):
+    def __init__(  # noqa: PLR0913 - one test double targets independent commit, rollback, and cancellation phases
+        self,
+        trace: list[str],
+        *,
+        commit_error_at: int | None = None,
+        commit_error: BaseException | None = None,
+        commit_labels: dict[int, str] | None = None,
+        rollback_error_at: int | None = None,
+        rollback_error: BaseException | None = None,
+        cancel_commit_at: int | None = None,
+        cancel_scope: anyio.CancelScope | None = None,
+    ) -> None:
+        self.commit_count = 0
+        self.rollback_count = 0
+        self._trace = trace
+        self._commit_error_at = commit_error_at
+        self._commit_error = commit_error
+        self._commit_labels = commit_labels or {}
+        self._rollback_error_at = rollback_error_at
+        self._rollback_error = rollback_error
+        self._cancel_commit_at = cancel_commit_at
+        self._cancel_scope = cancel_scope
+
+    @override
+    async def commit(self) -> None:
+        self.commit_count += 1
+        self._trace.append(self._commit_labels.get(self.commit_count, 'commit'))
+        if self.commit_count == self._cancel_commit_at:
+            if self._cancel_scope is None:  # pragma: no cover - invalid test-double setup
+                msg = 'cancel_scope is required when cancel_commit_at is set'
+                raise RuntimeError(msg)
+            self._cancel_scope.cancel()
+            await anyio.lowlevel.checkpoint()
+        if self.commit_count == self._commit_error_at:
+            if self._commit_error is None:  # pragma: no cover - invalid test-double setup
+                msg = 'commit_error is required when commit_error_at is set'
+                raise RuntimeError(msg)
+            raise self._commit_error
+
+    @override
+    async def rollback(self) -> None:
+        self.rollback_count += 1
+        await anyio.lowlevel.checkpoint()
+        self._trace.append('rollback')
+        if self.rollback_count == self._rollback_error_at:
+            if self._rollback_error is None:  # pragma: no cover - invalid test-double setup
+                msg = 'rollback_error is required when rollback_error_at is set'
+                raise RuntimeError(msg)
+            raise self._rollback_error
 
 
 def _make_outbox_message(envelope: MessageEnvelope[Any], *, group_id: str | None = None) -> OutboxMessage:
@@ -253,6 +316,21 @@ async def _run_relay(
             await relay.stop()
 
 
+async def _tick_relay(
+    provider: RelayDepsProvider,
+    config: OutboxRelayConfig = _FAST_CONFIG,
+    *,
+    evaluator: SendingFailureEvaluator | None = None,
+) -> int:
+    async with make_async_container(provider) as container:
+        relay = OutboxRelay(
+            container=container,
+            config=config,
+            sending_failure_evaluator=evaluator or make_relay_evaluator(config),
+        )
+        return await relay._tick()  # noqa: SLF001 - one complete polling boundary without a background race
+
+
 class TestOutboxRelay:
     @staticmethod
     async def test_processes_pending_messages() -> None:
@@ -290,6 +368,82 @@ class TestOutboxRelay:
 
         assert msg.id in store.failed_ids
 
+
+class TestOutboxRelaySendFailureOwnership:
+    @staticmethod
+    async def test_send_failure_retry_rolls_back_before_mutation_and_commits() -> None:
+        trace: list[str] = []
+        store, msg = _make_pending_store()
+        store.trace = trace
+        uow = _TracingUoW(trace, commit_labels={1: 'batch-commit', 2: 'policy-commit'})
+
+        processed = await _tick_relay(RelayDepsProvider(store, _FailingTransport(), uow=uow))
+
+        assert processed == 0
+        assert msg.id in store.failed_ids
+        assert trace[-3:] == ['rollback', 'mark-failed', 'policy-commit']
+
+    @staticmethod
+    async def test_send_failure_discard_rolls_back_before_mutation_and_commits() -> None:
+        trace: list[str] = []
+        store, msg = _make_pending_store()
+        store.trace = trace
+        uow = _TracingUoW(trace, commit_labels={1: 'batch-commit', 2: 'policy-commit'})
+        evaluator = make_relay_evaluator(
+            _FAST_CONFIG,
+            destination_policies={'test://dest': (SendingFailurePolicy.on_any_exception().discard(),)},
+        )
+
+        processed = await _tick_relay(
+            RelayDepsProvider(store, _FailingTransport(), uow=uow),
+            evaluator=evaluator,
+        )
+
+        assert processed == 0
+        assert msg.id in store.discarded_ids
+        assert trace[-3:] == ['rollback', 'mark-discarded', 'policy-commit']
+
+    @staticmethod
+    async def test_send_failure_policy_does_not_run_when_attempt_rollback_fails() -> None:
+        trace: list[str] = []
+        store, _msg = _make_pending_store()
+        store.trace = trace
+        rollback_error = RuntimeError('attempt rollback failed')
+        uow = _TracingUoW(trace, rollback_error_at=1, rollback_error=rollback_error)
+
+        with pytest.raises(TransactionCleanupError) as raised:
+            await _tick_relay(RelayDepsProvider(store, _FailingTransport(), uow=uow))
+
+        assert raised.value.rollback_error is rollback_error
+        assert 'mark-failed' not in trace
+        assert 'mark-discarded' not in trace
+        assert 'move-to-dead-letter' not in trace
+
+    @staticmethod
+    async def test_worker_stops_instead_of_continuing_after_rollback_failure() -> None:
+        trace: list[str] = []
+        store, _msg = _make_pending_store()
+        store.trace = trace
+        rollback_error = RuntimeError('attempt rollback failed')
+        uow = _TracingUoW(trace, rollback_error_at=1, rollback_error=rollback_error)
+
+        async with make_async_container(RelayDepsProvider(store, _FailingTransport(), uow=uow)) as container:
+            relay = OutboxRelay(
+                container=container,
+                config=_FAST_CONFIG,
+                sending_failure_evaluator=make_relay_evaluator(_FAST_CONFIG),
+            )
+            await relay.start()
+            await wait_until(lambda: uow.rollback_count == 1)
+            with pytest.raises(RuntimeError) as raised:
+                await relay.stop()
+
+        assert raised.value is rollback_error
+        assert store.poll_calls == 1
+        assert 'mark-failed' not in trace
+
+
+class TestOutboxRelayOperations:
     @staticmethod
     async def test_tick_only_dispatches_no_recover_or_cleanup() -> None:
         # Dispatch-only relay (D9): recover_stuck/cleanup_dispatched moved to DurabilityMaintenanceAgent.
@@ -409,6 +563,65 @@ class TestOutboxRelay:
                 await wait_until(lambda: 'Failed to mark message' in caplog.text)
 
         assert 'Failed to mark message' in caplog.text
+
+    @staticmethod
+    async def test_exhausted_fallback_rolls_back_when_mark_failed_raises() -> None:
+        trace: list[str] = []
+        store, _msg = _make_pending_store()
+        store.trace = trace
+        store.move_to_dead_letter_error = ConnectionError('DLQ store unavailable')
+        store.mark_failed_error = ConnectionError('mark_failed broken too')
+        uow = _TracingUoW(trace)
+
+        await _tick_relay(
+            RelayDepsProvider(store, _FailingTransport(), uow=uow),
+            _EXHAUST_ON_FIRST_FAILURE_CONFIG,
+        )
+
+        assert trace[-2:] == ['mark-failed', 'rollback']
+
+    @staticmethod
+    async def test_exhausted_fallback_rolls_back_when_commit_raises() -> None:
+        trace: list[str] = []
+        store, _msg = _make_pending_store()
+        store.trace = trace
+        store.move_to_dead_letter_error = ConnectionError('DLQ store unavailable')
+        uow = _TracingUoW(
+            trace,
+            commit_error_at=2,
+            commit_error=RuntimeError('fallback commit failed'),
+            commit_labels={2: 'fallback-commit'},
+        )
+
+        await _tick_relay(
+            RelayDepsProvider(store, _FailingTransport(), uow=uow),
+            _EXHAUST_ON_FIRST_FAILURE_CONFIG,
+        )
+
+        assert trace[-3:] == ['mark-failed', 'fallback-commit', 'rollback']
+
+    @staticmethod
+    async def test_exhausted_does_not_start_fallback_when_primary_rollback_fails() -> None:
+        trace: list[str] = []
+        store, msg = _make_pending_store()
+        store.trace = trace
+        store.pending[:] = [replace(msg, metadata={'message_version': 'abc', 'timestamp': None, 'headers': {}})]
+        store.move_to_dead_letter_error = ConnectionError('DLQ store unavailable')
+        rollback_error = RuntimeError('rollback failed')
+        uow = _TracingUoW(
+            trace,
+            rollback_error_at=1,
+            rollback_error=rollback_error,
+        )
+
+        with pytest.raises(TransactionCleanupError) as raised:
+            await _tick_relay(
+                RelayDepsProvider(store, RecordingTransport(), uow=uow),
+                _EXHAUST_ON_FIRST_FAILURE_CONFIG,
+            )
+
+        assert raised.value.rollback_error is rollback_error
+        assert 'mark-failed' not in trace
 
     @staticmethod
     async def test_stop_cancels_when_relay_does_not_terminate(caplog: pytest.LogCaptureFixture) -> None:
@@ -598,6 +811,42 @@ class TestRelayDispatchQuarantine:
         assert msg.id not in store.dead_lettered_ids
         assert not store.pending  # never re-enqueued PENDING; stays claimed for recover_stuck
         assert uow.rollback_count == 1
+
+    @staticmethod
+    async def test_post_send_persistence_failure_rolls_back_exactly_once() -> None:
+        trace: list[str] = []
+        store, msg = _make_pending_store()
+        store.trace = trace
+        store.mark_dispatched_error = ConnectionError('db down after send')
+        uow = _TracingUoW(trace)
+        transport = RecordingTransport()
+
+        processed = await _tick_relay(RelayDepsProvider(store, transport, uow=uow))
+
+        assert processed == 1
+        assert len(transport.sent) == 1
+        assert msg.id not in store.dispatched_ids
+        assert trace[-2:] == ['mark-dispatched', 'rollback']
+        assert uow.rollback_count == 1
+
+    @staticmethod
+    async def test_relay_cancellation_during_transaction_completes_rollback() -> None:
+        trace: list[str] = []
+        store, _msg = _make_pending_store()
+        store.trace = trace
+        cancel_scope = anyio.CancelScope()
+        uow = _TracingUoW(
+            trace,
+            cancel_commit_at=2,
+            cancel_scope=cancel_scope,
+            commit_labels={2: 'record-commit'},
+        )
+
+        with cancel_scope:
+            await _tick_relay(RelayDepsProvider(store, RecordingTransport(), uow=uow))
+
+        assert cancel_scope.cancelled_caught
+        assert trace[-2:] == ['record-commit', 'rollback']
 
     @staticmethod
     async def test_relay_dead_letters_corrupt_metadata_blob_without_sending() -> None:

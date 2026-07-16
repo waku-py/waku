@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator  # noqa: TC003 -- Dishka resolves provider annotations at runtime
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, ClassVar
@@ -9,14 +10,14 @@ import pytest
 from anyio.lowlevel import checkpoint
 from typing_extensions import override
 
-from waku.di import object_
+from waku.di import object_, provider
 from waku.messages import IEvent
-from waku.messaging import EventHandler, MessagingConfig, MessagingExtension, MessagingModule
+from waku.messaging import EventHandler, MessagingConfig, MessagingExtension, MessagingModule, TransactionalBehavior
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.durability import IDeadLetterStore
+from waku.messaging.endpoints._internal.execution import EndpointExecution
 from waku.messaging.endpoints._internal.local_queue import LocalQueueEndpoint
-from waku.messaging.endpoints.executor import EndpointExecutor
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import ErrorPolicy
@@ -161,7 +162,7 @@ async def _make_endpoint(
     handler: type[EventHandler[_OrderPlaced]],
 ) -> LocalQueueEndpoint:
     invoker = await app.container.get(HandlerPipelineInvoker)
-    executor = EndpointExecutor(
+    executor = EndpointExecution(
         container=app.container,
         evaluator=NOOP_EVALUATOR,
         endpoint_uri='local://test',
@@ -193,7 +194,7 @@ async def _make_endpoint_with_requeue(
 ) -> LocalQueueEndpoint:
     resolved_policies = policies if policies is not None else (ErrorPolicy.on_any_exception().requeue(),)
     invoker = await app.container.get(HandlerPipelineInvoker)
-    executor = EndpointExecutor(
+    executor = EndpointExecution(
         container=app.container,
         evaluator=_evaluator_for(*resolved_policies),
         endpoint_uri='local://test',
@@ -219,7 +220,7 @@ async def _make_endpoint_with_pause(
     max_requeue_attempts: int,
 ) -> LocalQueueEndpoint:
     invoker = await app.container.get(HandlerPipelineInvoker)
-    executor = EndpointExecutor(
+    executor = EndpointExecution(
         container=app.container,
         evaluator=_evaluator_for(ErrorPolicy.on_any_exception().pause_processing(timedelta(minutes=10))),
         endpoint_uri='local://test',
@@ -319,6 +320,78 @@ class TestLocalQueueEndpoint:
         assert _FailingThenRecordingHandler.call_count == 2
         assert len(_FailingThenRecordingHandler.received) == 1
         assert _FailingThenRecordingHandler.received[0].order_id == 'will-succeed'
+
+    @staticmethod
+    async def test_worker_stops_after_transaction_cleanup_failure() -> None:
+        rollback_error = RuntimeError('rollback failed')
+
+        class RollbackFailingUoW(IUnitOfWork):
+            def __init__(self) -> None:
+                self.rollback_count = 0
+
+            @override
+            async def commit(self) -> None:  # pragma: no cover - failure path invariant
+                pass
+
+            @override
+            async def rollback(self) -> None:
+                self.rollback_count += 1
+                raise rollback_error
+
+        _AlwaysFailingHandler.call_count = 0
+        uow = RollbackFailingUoW()
+        config = MessagingConfig(global_pipeline_behaviors=[TransactionalBehavior])
+
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
+            providers=[object_(uow, provided_type=IUnitOfWork)],
+        ) as app:
+            endpoint = await _make_endpoint(app, _AlwaysFailingHandler)
+            await endpoint.start()
+            await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='first')), app.container)
+            await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='must-not-run')), app.container)
+            await wait_until(lambda: uow.rollback_count >= 1)
+            for _ in range(5):
+                await checkpoint()
+            with pytest.raises(RuntimeError) as raised:
+                await endpoint.stop()
+
+        assert raised.value is rollback_error
+        assert uow.rollback_count == 1
+        assert _AlwaysFailingHandler.call_count == 1
+
+    @staticmethod
+    async def test_worker_stops_after_post_commit_scope_teardown_failure() -> None:
+        teardown_error = RuntimeError('request scope teardown failed')
+        uow = RecordingUoW()
+
+        async def provide_uow() -> AsyncIterator[IUnitOfWork]:  # noqa: RUF029 -- Dishka async-generator provider
+            yield uow
+            raise teardown_error
+
+        _RecordingHandler.received.clear()
+        config = MessagingConfig(global_pipeline_behaviors=[TransactionalBehavior])
+
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_RecordingHandler)],
+            providers=[provider(provide_uow, provided_type=IUnitOfWork)],
+        ) as app:
+            endpoint = await _make_endpoint(app, _RecordingHandler)
+            await endpoint.start()
+            await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='committed')), app.container)
+            await endpoint.dispatch(make_envelope(_OrderPlaced(order_id='must-not-run')), app.container)
+            await wait_until(lambda: uow.commit_count == 1)
+            for _ in range(5):
+                await checkpoint()
+            with pytest.raises(ExceptionGroup) as raised:
+                await endpoint.stop()
+
+        assert raised.value.exceptions == (teardown_error,)
+        assert uow.commit_count == 1
+        assert uow.rollback_count == 0
+        assert [event.order_id for event in _RecordingHandler.received] == ['committed']
 
 
 class TestLocalQueueRequeue:

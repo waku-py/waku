@@ -11,13 +11,14 @@ from typing_extensions import override
 
 from waku._internal.clock import Now, utc_now
 from waku._internal.lease import ILease
+from waku._internal.transaction import TransactionCleanupError, unit_of_work_scope
 from waku.di import is_registered
 from waku.exceptions import ImproperlyConfiguredError
 from waku.extensions import AfterApplicationInit, OnApplicationShutdown
 from waku.messaging._internal.polling_agent import AdaptivePace, FixedPace, Placement, PollingAgent
-from waku.messaging._internal.transaction import unit_of_work_scope
+from waku.messaging._internal.transaction import CompletedExecutionError
 from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
-from waku.messaging.errors.replay import ReplayExecutor
+from waku.messaging.errors._internal.replay import IReplayExecution
 from waku.messaging.sequence import ISequenceAllocator
 
 if TYPE_CHECKING:
@@ -74,7 +75,7 @@ class _OutboxMaintenancePoller(PollingAgent):
         if now - self._last_recovery < self._config.recovery_interval.total_seconds():
             return 0
         self._last_recovery = now
-        async with unit_of_work_scope(self._container) as scope:
+        async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
             store = await scope.get(IOutboxStore)
             recovered: int = await store.recover_stuck(self._config.stuck_threshold)
         if recovered > 0:
@@ -88,7 +89,7 @@ class _OutboxMaintenancePoller(PollingAgent):
         if now - self._last_cleanup < self._config.cleanup_interval.total_seconds():
             return 0
         self._last_cleanup = now
-        async with unit_of_work_scope(self._container) as scope:
+        async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
             store = await scope.get(IOutboxStore)
             purged: int = await store.cleanup_dispatched(self._config.retention)
         if purged > 0:
@@ -100,8 +101,8 @@ class _DlqMaintenancePoller(PollingAgent):
     """DLQ auto-replay + purge, subsuming ``DeadLetterWorker`` (now 1-per-cluster under the leader).
 
     Claims rows via ``claim_replayable`` (``FOR UPDATE SKIP LOCKED``), re-injects through
-    ``ReplayExecutor``, and commits once per batch. NEVER commits inside ``ReplayExecutor`` or
-    ``IDeadLetterStore`` — the poller is the sole transaction-scope owner. The claim lock is held
+    signal-preserving replay execution, and commits once per batch. Replay NEVER commits; the poller
+    is the sole transaction-scope owner. The claim lock is held
     across the batch; an INLINE destination runs its handler synchronously inside the held lock, so
     keep ``batch_size`` modest if any replayable destination is INLINE.
     """
@@ -129,15 +130,49 @@ class _DlqMaintenancePoller(PollingAgent):
         return 0
 
     async def _replay_batch(self) -> int:
-        async with unit_of_work_scope(self._container) as scope:
-            store = await scope.get(IDeadLetterStore)
-            replayer = await scope.get(ReplayExecutor)
-            entries = await store.claim_replayable(self._config.batch_size, self._config.max_replay_count)
-            replayed = 0
-            for entry in entries:
+        completed_error: CompletedExecutionError | None = None
+        replayed = 0
+        try:
+            with anyio.CancelScope() as completion_scope:
+                async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
+                    replayed, completed_error = await self._replay_entries(scope)
+                    completion_scope.shield = completed_error is not None
+        except TransactionCleanupError:
+            raise
+        except Exception as finalization_error:
+            if completed_error is not None or replayed > 0:
+                raise CompletedExecutionError(finalization_error) from completed_error
+            raise
+        except anyio.get_cancelled_exc_class() as finalization_error:
+            if completed_error is not None or replayed > 0:
+                raise CompletedExecutionError(finalization_error) from completed_error
+            raise
+        if completed_error is not None:
+            raise completed_error
+        return replayed
+
+    async def _replay_entries(self, scope: AsyncContainer) -> tuple[int, CompletedExecutionError | None]:
+        store = await scope.get(IDeadLetterStore)
+        replayer = await scope.get(IReplayExecution)
+        entries = await store.claim_replayable(self._config.batch_size, self._config.max_replay_count)
+        replayed = 0
+        for entry in entries:
+            try:
                 if await replayer.replay(entry):
                     replayed += 1
-        return replayed
+            except CompletedExecutionError as error:
+                return replayed + 1, error
+            except TransactionCleanupError:
+                raise
+            except Exception as error:
+                if replayed > 0:
+                    return replayed, CompletedExecutionError(error)
+                raise
+            except anyio.get_cancelled_exc_class() as error:
+                if replayed > 0:
+                    return replayed, CompletedExecutionError(error)
+                raise
+        return replayed, None
 
     async def _maybe_cleanup(self) -> None:
         if self._config.retention is None:
@@ -146,7 +181,7 @@ class _DlqMaintenancePoller(PollingAgent):
         if now - self._last_cleanup < self._config.cleanup_interval.total_seconds():
             return
         self._last_cleanup = now
-        async with unit_of_work_scope(self._container) as scope:
+        async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
             store = await scope.get(IDeadLetterStore)
             purged = await store.purge(self._now() - self._config.retention)
         if purged > 0:
@@ -176,7 +211,7 @@ class _PromotionPoller(PollingAgent):
 
     @override
     async def _tick(self) -> int:
-        async with unit_of_work_scope(self._container) as scope:
+        async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
             store = await scope.get(IInboxStore)
             # Cannot miss: registration requires ISequenceAllocator whenever inbox is active — the
             # poller's own start condition. Keyless rows promote without ever invoking it.

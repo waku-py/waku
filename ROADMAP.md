@@ -624,8 +624,16 @@ to `_internal/polling.py`) — removed the `waku.di → waku.uow` layering inver
   `contracts/event.py:1-5` — point consumers at the single home.
 
 **Transaction-boundary cohesion** (the `unit_of_work_scope` relocation itself is DONE — see "Already fixed"):
-- [ ] Relay mixes two transaction-management idioms (`unit_of_work_scope` helper vs manual commit/rollback):
-  `outbox/relay.py:119-121` vs `125-150` — unify onto `unit_of_work_scope`.
+- [x] Relay transaction ownership is result-aware rather than mechanically uniform (Slice A, 2026-07-14): batch claim,
+  expiry, and reschedule use the neutral transaction substrate; send failure rolls back before policy evaluation;
+  delivered-recording and exhausted fallback keep explicit terminal phases because their outcome depends on whether the
+  broker send or previous terminal mutation already succeeded. All phases share `waku._internal.transaction` mechanics,
+  and failed cleanup prevents retry, fallback, or a normal result.
+- [x] Nested inline transactional handling now uses one physical owner with strict rollback-only propagation. A swallowed
+  nested failure rolls back and raises root `UnexpectedRollbackError`; cancellation remains cancellation after shielded
+  cleanup; deferred non-durable cascades flush only after committed success. Fresh Slice A verification: 654 focused
+  tests and `task all` with 4646 passed / 24 skipped / 98.99% coverage; test-engineer, code-reviewer, and code-architect
+  approved the final diff with no Critical/Important findings.
 - [ ] Duplicated `PollingConfig` default-tuning literal across `OutboxRelayConfig` (`relay.py:45-50`) and
   `DeadLetterConfig` (`config.py:53-58`) — extract one shared default.
 - [ ] **Coverage gap:** `waku/di/` was NOT a holistic-review cluster (audited only via its consumers). Audit the

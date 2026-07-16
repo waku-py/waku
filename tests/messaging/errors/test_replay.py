@@ -1,19 +1,32 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator  # noqa: TC003 -- Dishka resolves provider annotations at runtime
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
+import anyio
+import pytest
+from anyio.lowlevel import checkpoint
 from typing_extensions import override
 
-from waku.di import object_, scoped
+from waku.di import object_, provider, scoped
 from waku.messages import IEvent
-from waku.messaging import EventHandler, HandlerMap, MessagingConfig, MessagingExtension, MessagingModule
+from waku.messaging import (
+    EventHandler,
+    HandlerMap,
+    MessagingConfig,
+    MessagingExtension,
+    MessagingModule,
+    TransactionalBehavior,
+)
 from waku.messaging._internal.identity import MessageTypeRegistry
+from waku.messaging._internal.transaction import CompletedExecutionError
 from waku.messaging.config import DeadLetterConfig, OutboxConfig
 from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
 from waku.messaging.endpoints.base import Endpoint
+from waku.messaging.errors._internal.replay import IReplayExecution, ReplayExecution
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.inbox.config import InboxConfig
@@ -95,6 +108,25 @@ class _ReplayStore(RecordingDeadLetterStore):
         return self._entry
 
 
+class _CheckpointingReplayStore(_ReplayStore):
+    @override
+    async def mark_replayed(self, entry_id: UUID) -> None:
+        await checkpoint()
+        await super().mark_replayed(entry_id)
+
+
+class _FailingReplayMarkStore(_ReplayStore):
+    def __init__(self, mark_error: Exception) -> None:
+        super().__init__()
+        self.mark_calls = 0
+        self.mark_error = mark_error
+
+    @override
+    async def mark_replayed(self, entry_id: UUID) -> None:
+        self.mark_calls += 1
+        raise self.mark_error
+
+
 _DUMMY_CONTAINER: Any = object()  # endpoints under test ignore the scope arg
 _DUMMY_DISPATCHER: Any = object()  # ENDPOINT-branch tests never reach the handler dispatch
 _DUMMY_SCOPES: Any = object()
@@ -154,6 +186,33 @@ async def test_replay_reinjects_to_destination_preserving_original_message_id() 
     assert len(endpoint.dispatched) == 1
     # The original envelope message_id is preserved through the DLQ message_id column.
     assert endpoint.dispatched[0].message_id == envelope.message_id
+
+
+async def test_replay_successful_dispatch_mark_failure_becomes_fatal_completed_execution() -> None:
+    mark_error = RuntimeError('mark replayed failed')
+    envelope = make_envelope(_DlqEvent('mark-failure-after-dispatch'))
+    entry = _entry_for(envelope, destination='local://dlq')
+    endpoint = _RecordingEndpoint('local://dlq')
+    store = _FailingReplayMarkStore(mark_error)
+    execution = ReplayExecution(
+        container=_DUMMY_CONTAINER,
+        store=store,
+        codec=make_codec(),
+        type_registry=_make_type_registry(),
+        router=MessageRouter(routes={}, endpoints=[endpoint]),
+        dispatcher=_DUMMY_DISPATCHER,
+        handler_map=HandlerMap(),
+        scopes=_DUMMY_SCOPES,
+    )
+
+    with pytest.raises(CompletedExecutionError) as raised:
+        await execution.replay(entry)
+
+    assert raised.value.error is mark_error
+    assert len(endpoint.dispatched) == 1
+    assert store.mark_calls == 1
+    assert store.replayed == []
+    assert store.failures == []
 
 
 async def test_replay_unknown_destination_marks_failed() -> None:
@@ -254,6 +313,196 @@ async def test_replay_handler_kind_dispatches_resolved_handler() -> None:
 
     assert _handled == ['reprocessed']
     assert dlq_store.replayed == [entry.id]
+    assert dlq_store.failures == []
+
+
+async def test_replay_handler_rollback_failure_escapes_instead_of_marking_replay_failed() -> None:
+    class FailingHandler(EventHandler[_DlqEvent]):
+        @override
+        async def handle(self, _event: _DlqEvent, /) -> None:
+            msg = 'handler failed'
+            raise ValueError(msg)
+
+    envelope = make_envelope(_DlqEvent('rollback-failure'))
+    entry = _entry_for(
+        envelope,
+        destination=handler_destination(FailingHandler),
+        kind=DeadLetterDestinationKind.HANDLER,
+    )
+    rollback_error = RuntimeError('rollback failed')
+    dlq_store = _ReplayStore()
+    config = MessagingConfig(
+        dead_letter=DeadLetterConfig(),
+        global_pipeline_behaviors=[TransactionalBehavior],
+    )
+
+    async with (
+        create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(FailingHandler)],
+            providers=[
+                object_(RecordingUoW(rollback_error=rollback_error), provided_type=IUnitOfWork),
+                object_(dlq_store, provided_type=IDeadLetterStore),
+            ],
+        ) as app,
+        app.container() as scope,
+    ):
+        replayer = await scope.get(ReplayExecutor)
+        with pytest.raises(RuntimeError) as raised:
+            await replayer.replay(entry)
+
+    assert raised.value is rollback_error
+    assert dlq_store.replayed == []
+    assert dlq_store.failures == []
+
+
+async def test_replay_post_commit_scope_teardown_does_not_mark_committed_handler_failed() -> None:
+    calls: list[str] = []
+    teardown_error = RuntimeError('request scope teardown failed')
+    uow = RecordingUoW()
+
+    class SuccessfulHandler(EventHandler[_DlqEvent]):
+        @override
+        async def handle(self, event: _DlqEvent, /) -> None:
+            calls.append(event.value)
+
+    async def provide_uow() -> AsyncIterator[IUnitOfWork]:  # noqa: RUF029 -- Dishka async-generator provider
+        yield uow
+        raise teardown_error
+
+    envelope = make_envelope(_DlqEvent('post-commit-teardown'))
+    entry = _entry_for(
+        envelope,
+        destination=handler_destination(SuccessfulHandler),
+        kind=DeadLetterDestinationKind.HANDLER,
+    )
+    dlq_store = _ReplayStore()
+    config = MessagingConfig(
+        dead_letter=DeadLetterConfig(),
+        global_pipeline_behaviors=[TransactionalBehavior],
+    )
+
+    async with (
+        create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(SuccessfulHandler)],
+            providers=[
+                provider(provide_uow, provided_type=IUnitOfWork),
+                object_(dlq_store, provided_type=IDeadLetterStore),
+            ],
+        ) as app,
+        app.container() as scope,
+    ):
+        replayer = await scope.get(ReplayExecutor)
+        with pytest.raises(ExceptionGroup) as raised:
+            await replayer.replay(entry)
+
+    assert raised.value.exceptions == (teardown_error,)
+    assert calls == ['post-commit-teardown']
+    assert uow.commit_count == 1
+    assert uow.rollback_count == 0
+    assert dlq_store.replayed == [entry.id]
+    assert dlq_store.failures == []
+
+
+async def test_replay_post_commit_scope_teardown_cancellation_shields_replayed_mark() -> None:
+    calls: list[str] = []
+    cancel_scope = anyio.CancelScope()
+    uow = RecordingUoW()
+
+    class SuccessfulHandler(EventHandler[_DlqEvent]):
+        @override
+        async def handle(self, event: _DlqEvent, /) -> None:
+            calls.append(event.value)
+
+    async def provide_uow() -> AsyncIterator[IUnitOfWork]:
+        yield uow
+        cancel_scope.cancel()
+        await checkpoint()
+
+    envelope = make_envelope(_DlqEvent('cancelled-post-commit-teardown'))
+    entry = _entry_for(
+        envelope,
+        destination=handler_destination(SuccessfulHandler),
+        kind=DeadLetterDestinationKind.HANDLER,
+    )
+    dlq_store = _CheckpointingReplayStore()
+    config = MessagingConfig(
+        dead_letter=DeadLetterConfig(),
+        global_pipeline_behaviors=[TransactionalBehavior],
+    )
+
+    async with (
+        create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(SuccessfulHandler)],
+            providers=[
+                provider(provide_uow, provided_type=IUnitOfWork),
+                object_(dlq_store, provided_type=IDeadLetterStore),
+            ],
+        ) as app,
+        app.container() as scope,
+    ):
+        replayer = await scope.get(ReplayExecutor)
+        with cancel_scope:
+            await replayer.replay(entry)
+
+    assert cancel_scope.cancelled_caught
+    assert calls == ['cancelled-post-commit-teardown']
+    assert uow.commit_count == 1
+    assert uow.rollback_count == 0
+    assert dlq_store.replayed == [entry.id]
+    assert dlq_store.failures == []
+
+
+async def test_replay_post_commit_mark_failure_remains_fatal_completed_execution() -> None:
+    calls: list[str] = []
+    teardown_error = RuntimeError('request scope teardown failed')
+    mark_error = RuntimeError('mark replayed failed')
+    uow = RecordingUoW()
+
+    class SuccessfulHandler(EventHandler[_DlqEvent]):
+        @override
+        async def handle(self, event: _DlqEvent, /) -> None:
+            calls.append(event.value)
+
+    async def provide_uow() -> AsyncIterator[IUnitOfWork]:  # noqa: RUF029 -- Dishka async-generator provider
+        yield uow
+        raise teardown_error
+
+    envelope = make_envelope(_DlqEvent('post-commit-mark-failure'))
+    entry = _entry_for(
+        envelope,
+        destination=handler_destination(SuccessfulHandler),
+        kind=DeadLetterDestinationKind.HANDLER,
+    )
+    dlq_store = _FailingReplayMarkStore(mark_error)
+    config = MessagingConfig(
+        dead_letter=DeadLetterConfig(),
+        global_pipeline_behaviors=[TransactionalBehavior],
+    )
+
+    async with (
+        create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(SuccessfulHandler)],
+            providers=[
+                provider(provide_uow, provided_type=IUnitOfWork),
+                object_(dlq_store, provided_type=IDeadLetterStore),
+            ],
+        ) as app,
+        app.container() as scope,
+    ):
+        replayer = await scope.get(IReplayExecution)
+        with pytest.raises(CompletedExecutionError) as raised:
+            await replayer.replay(entry)
+
+    assert raised.value.error is mark_error
+    assert calls == ['post-commit-mark-failure']
+    assert uow.commit_count == 1
+    assert uow.rollback_count == 0
+    assert dlq_store.mark_calls == 1
+    assert dlq_store.replayed == []
     assert dlq_store.failures == []
 
 

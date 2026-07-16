@@ -15,7 +15,12 @@ from waku.messaging._internal.pauser import PauseToken
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
 from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
-from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionResult
+from waku.messaging.endpoints._internal.execution import (
+    ExecutionResult,
+    IEndpointExecution,
+    ResultObserver,
+    noop_result_observer,
+)
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.models import InboxStatus
@@ -34,9 +39,12 @@ from tests.messaging.helpers import (
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from typing import Any
 
     from pytest_mock import MockerFixture
+
+    from waku.messaging.contracts.envelope import MessageEnvelope
+    from waku.messaging.contracts.handler import HandlerType
 
 
 @dataclass
@@ -84,9 +92,8 @@ class _DepsProvider(Provider):
         return self._allocator
 
 
-class _StubExecutor(EndpointExecutor):
+class _StubExecutor(IEndpointExecution):
     def __init__(self, *, return_value: ExecutionOutcome, requeue_limit: int | None = None) -> None:
-        # Bypass parent __init__: tests don't exercise real dispatch.
         self.return_value = return_value
         self.requeue_limit = requeue_limit
         self.calls = 0
@@ -94,10 +101,10 @@ class _StubExecutor(EndpointExecutor):
     @override
     async def execute(
         self,
-        envelope: object,
-        handler_type: object,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
         *,
-        on_result: object = None,
+        on_result: ResultObserver = noop_result_observer,
     ) -> ExecutionResult:
         self.calls += 1
         return ExecutionResult(outcome=self.return_value, pause_duration=None, requeue_limit=self.requeue_limit)
@@ -105,7 +112,7 @@ class _StubExecutor(EndpointExecutor):
 
 def _receiver(
     container: AsyncContainer,
-    executor: EndpointExecutor,
+    executor: IEndpointExecution,
     *,
     max_requeue_attempts: int = 5,
     max_buffer_size: float = 100,
@@ -182,10 +189,10 @@ class TestDurableInboxReceiverProcess:
                 @override
                 async def execute(
                     self,
-                    envelope: object,
-                    handler_type: object,
+                    envelope: MessageEnvelope[Any],
+                    handler_type: HandlerType,
                     *,
-                    on_result: object = None,
+                    on_result: ResultObserver = noop_result_observer,
                 ) -> ExecutionResult:
                     nonlocal call_count
                     call_count += 1
@@ -257,7 +264,7 @@ class TestDurableInboxReceiverProcess:
         assert executor.calls == 4  # a different per-rule budget honored independently of the endpoint's 5
 
 
-class _ObservingExecutor(EndpointExecutor):
+class _ObservingExecutor(_StubExecutor):
     """Feeds the supplied outcome to ``on_result`` (like the real executor) so an attached breaker records it."""
 
     def __init__(self, *, outcome: ExecutionOutcome, exc: Exception | None) -> None:
@@ -267,17 +274,16 @@ class _ObservingExecutor(EndpointExecutor):
     @override
     async def execute(
         self,
-        envelope: object,
-        handler_type: object,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
         *,
-        on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
+        on_result: ResultObserver = noop_result_observer,
     ) -> ExecutionResult:
-        if on_result is not None:
-            await on_result(self._outcome, self._exc)
+        await on_result(self._outcome, self._exc)
         return ExecutionResult(outcome=self._outcome, pause_duration=None)
 
 
-class _BlockingExecutor(EndpointExecutor):
+class _BlockingExecutor(_StubExecutor):
     """Parks in the handler until released, so buffered items stay queued and queue_depth is observable."""
 
     def __init__(self, *, started: asyncio.Event, release: asyncio.Event) -> None:
@@ -287,10 +293,10 @@ class _BlockingExecutor(EndpointExecutor):
     @override
     async def execute(
         self,
-        envelope: object,
-        handler_type: object,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
         *,
-        on_result: object = None,
+        on_result: ResultObserver = noop_result_observer,
     ) -> ExecutionResult:
         self._started.set()
         await self._release.wait()

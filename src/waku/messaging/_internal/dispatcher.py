@@ -85,8 +85,9 @@ class MessageDispatcher:
         await run_in_transaction(uow, depth, _run_all)
         # The fan-out frame keeps depth >= 1 for every per-handler pipeline, so the per-handler
         # DeferredCascadingBehavior never flushes under invoke(event) — the dispatcher is the flush
-        # owner once ITS frame has committed. depth stays > 0 when this invoke_event is itself
-        # nested inside an open transaction: the true outermost owner flushes then.
+        # authority after run_in_transaction returns from its terminal action. depth stays > 0 when
+        # this invoke_event is itself nested inside an open transaction: the true outermost owner
+        # flushes after its committed return.
         if depth.depth == 0:
             flusher = await scope.get(DeferredCascadeFlusher)
             await flusher.flush()
@@ -101,10 +102,20 @@ class MessageDispatcher:
         re-escalating through policy evaluation. Fires the ``executing``/``executed``
         execution-lifecycle hooks under ``INVOKE_DESTINATION``.
         """
-        return await self._observed_invoke(scope, envelope, handler_type)
+        return await self._observed_invoke(
+            scope,
+            envelope,
+            handler_type,
+            result_aware_transaction=True,
+        )
 
     async def _observed_invoke(
-        self, scope: 'AsyncContainer', envelope: 'MessageEnvelope[Any]', handler_type: 'HandlerType'
+        self,
+        scope: 'AsyncContainer',
+        envelope: 'MessageEnvelope[Any]',
+        handler_type: 'HandlerType',
+        *,
+        result_aware_transaction: bool = False,
     ) -> Any:
         """Run one handler with execution-lifecycle observability (the invoke-path analog of the executor).
 
@@ -114,7 +125,12 @@ class MessageDispatcher:
         await self._observers.executing(envelope, INVOKE_DESTINATION, handler_type)
         start = time.perf_counter()
         try:
-            result = await self._invoker.invoke(scope, envelope.payload, handler_type)
+            result = await self._invoker.invoke(
+                scope,
+                envelope.payload,
+                handler_type,
+                result_aware_transaction=result_aware_transaction,
+            )
         except Exception as exc:
             duration = timedelta(seconds=time.perf_counter() - start)
             await self._observers.executed(

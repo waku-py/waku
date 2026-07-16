@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.endpoints.executor import EndpointExecutor
+    from waku.messaging.endpoints._internal.execution import IEndpointWorkerExecution
     from waku.messaging.observability.observer import MessageObservers
     from waku.messaging.router import HandlerSubscriptions
 
@@ -60,7 +60,7 @@ class LocalQueueEndpoint(Endpoint):
         *,
         uri: str,
         handler_subscriptions: HandlerSubscriptions,
-        executor: EndpointExecutor,
+        executor: IEndpointWorkerExecution,
         observers: MessageObservers,
         stop_timeout: timedelta,
         max_buffer_size: float,
@@ -130,7 +130,11 @@ class LocalQueueEndpoint(Endpoint):
         envelope, handler_types = work_item
         on_result = self._circuit_breaker.record
         for handler_type in handler_types:
-            result = await self._executor.execute(envelope, handler_type, on_result=on_result)
+            result = await self._executor.execute(
+                envelope,
+                handler_type,
+                on_result=on_result,
+            )
             await self._redelivery.handle_result(envelope, handler_type, result)
 
     async def _terminal_dead_letter(
@@ -142,6 +146,10 @@ class LocalQueueEndpoint(Endpoint):
         # Unconditional: IDeadLetterStore is always resolvable — a real store persists; the discarding
         # fallback logs the loss WARN and no-ops (a successful no-op write -> DEAD_LETTERED).
         exc = RequeueBudgetExceededError(envelope.message_id, attempts)
-        persisted = await self._executor.write_dead_letter(envelope, exc, attempts)
+        persisted = await self._executor.write_dead_letter(
+            envelope,
+            exc,
+            attempts,
+        )
         outcome = ExecutionOutcome.DEAD_LETTERED if persisted else ExecutionOutcome.DEAD_LETTER_FAILED
         await self._observers.executed(envelope, self._uri, handler_type, outcome, exc, timedelta())

@@ -52,12 +52,32 @@ from waku.backends.sqlalchemy import SqlAlchemyBackend
 
 ## TransactionalBehavior
 
-`TransactionalBehavior` follows a strict commit/rollback sequence:
+`TransactionalBehavior` follows a strict owner sequence:
 
 1. Call `call_next()` (the handler, plus any remaining behaviors).
-2. On success: `uow.commit()`.
-3. On handler exception: `uow.rollback()`, re-raise.
-4. On commit exception: `uow.rollback()`, re-raise.
+2. Nested inline invocations join the same physical transaction; only the outermost behavior may finish it.
+3. On normal completion: `uow.commit()` before returning success.
+4. On a handler failure or cancellation: complete a shielded `uow.rollback()`, then preserve the failure or cancellation.
+5. On a commit failure or commit cancellation: complete a shielded rollback, then preserve the commit failure or cancellation.
+
+Success therefore means the commit completed, not merely that the handler returned. Likewise, a retry, absorbed failure,
+or fallback result is allowed only after rollback completed. If that cleanup fails, the cleanup error escapes instead of
+the framework reporting a normal retry/fallback/failure result. When a primary failure or cancellation is already being
+preserved, a rollback failure is logged and the primary failure remains authoritative.
+
+### Nested rollback-only failure
+
+If a nested inline handler fails, the shared transaction becomes rollback-only. Catching that nested exception does not
+make the transaction committable again: when the outer handler returns, waku rolls the transaction back and raises
+`UnexpectedRollbackError` from the root package. The original nested failure is retained as its cause.
+
+```python linenums="1"
+from waku import UnexpectedRollbackError
+```
+
+Cancellation is never converted into `UnexpectedRollbackError` or a normal failure result. It remains cancellation after
+shielded rollback. Deferred non-durable cascading messages also run only after committed success, so neither a direct
+failure nor a swallowed nested failure can flush them after rollback.
 
 Register it as a global pipeline behavior:
 

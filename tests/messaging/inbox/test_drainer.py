@@ -7,15 +7,23 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from uuid import uuid4
 
 import anyio.lowlevel
+import pytest
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku._internal.transaction import TransactionCleanupError
 from waku.di import object_
 from waku.messages import IEvent
 from waku.messaging import EndpointDefaults, MessagingConfig, MessagingExtension, MessagingModule
 from waku.messaging._internal.identity import MessageTypeRegistry
+from waku.messaging._internal.transaction import CompletedExecutionError
 from waku.messaging.durability import IDeadLetterStore, IInboxStore
-from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionResult
+from waku.messaging.endpoints._internal.execution import (
+    ExecutionResult,
+    IEndpointExecution,
+    ResultObserver,
+    noop_result_observer,
+)
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore
 from waku.messaging.handler import EventHandler
@@ -40,10 +48,7 @@ from tests.messaging.helpers import (
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
     from uuid import UUID
-
-    import pytest
 
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
@@ -62,7 +67,7 @@ class _RecordingHandler(EventHandler[_OrderPlaced]):
         self.invocations.append(message.order_id)
 
 
-class _StubExecutor(EndpointExecutor):
+class _StubExecutor(IEndpointExecution):
     def __init__(self, *, return_value: ExecutionOutcome) -> None:
         self.return_value = return_value
         self.calls: list[tuple[str, HandlerType]] = []
@@ -73,11 +78,10 @@ class _StubExecutor(EndpointExecutor):
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
         *,
-        on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
+        on_result: ResultObserver = noop_result_observer,
     ) -> ExecutionResult:
         self.calls.append((envelope.message_type, handler_type))
-        if on_result is not None:
-            await on_result(self.return_value, None)
+        await on_result(self.return_value, None)
         return ExecutionResult(self.return_value)
 
 
@@ -140,7 +144,7 @@ class _DlqProvider(Provider):
         return self._dlq
 
 
-def _drainer(container: Any, executor: EndpointExecutor, *, max_attempts: int = 5) -> InboxDrainer:
+def _drainer(container: Any, executor: IEndpointExecution, *, max_attempts: int = 5) -> InboxDrainer:
     return InboxDrainer(
         container=container,
         codec=_CODEC,
@@ -154,22 +158,55 @@ def _drainer(container: Any, executor: EndpointExecutor, *, max_attempts: int = 
     )
 
 
-class _CapturingExecutor(EndpointExecutor):
+class _CapturingExecutor(IEndpointExecution):
     def __init__(self) -> None:
-        self.envelopes: list[Any] = []
+        self.envelopes: list[MessageEnvelope[Any]] = []
 
     @override
     async def execute(
         self,
-        envelope: Any,
+        envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
         *,
-        on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
+        on_result: ResultObserver = noop_result_observer,
     ) -> ExecutionResult:
         self.envelopes.append(envelope)
-        if on_result is not None:
-            await on_result(ExecutionOutcome.SUCCESS, None)
+        await on_result(ExecutionOutcome.SUCCESS, None)
         return ExecutionResult(ExecutionOutcome.SUCCESS)
+
+
+class _CleanupFailingExecutor(IEndpointExecution):
+    def __init__(self, rollback_error: Exception) -> None:
+        self.calls = 0
+        self.rollback_error = rollback_error
+
+    @override
+    async def execute(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        *,
+        on_result: ResultObserver = noop_result_observer,
+    ) -> ExecutionResult:
+        self.calls += 1
+        raise TransactionCleanupError(RuntimeError('handler failed'), self.rollback_error)
+
+
+class _CompletedFailingExecutor(IEndpointExecution):
+    def __init__(self, teardown_error: Exception) -> None:
+        self.calls = 0
+        self.teardown_error = teardown_error
+
+    @override
+    async def execute(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        *,
+        on_result: ResultObserver = noop_result_observer,
+    ) -> ExecutionResult:
+        self.calls += 1
+        raise CompletedExecutionError(self.teardown_error)
 
 
 async def test_drain_crash_recovery_rebuilds_envelope_from_decomposed_row() -> None:
@@ -215,6 +252,36 @@ async def test_drain_executes_and_marks_handled_on_success() -> None:
     assert processed == 1
     assert executor.calls == [(entry.message_type, _RecordingHandler)]
     assert inbox.entries[entry.id, entry.destination].status is InboxStatus.HANDLED
+
+
+async def test_drain_stops_batch_when_handler_transaction_cleanup_fails() -> None:
+    inbox = FakeInboxStore()
+    _abandoned_entry(inbox)
+    _abandoned_entry(inbox)
+    rollback_error = RuntimeError('rollback failed')
+    executor = _CleanupFailingExecutor(rollback_error)
+
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        with pytest.raises(TransactionCleanupError) as raised:
+            await _drainer(container, executor).drain_once()
+
+    assert raised.value.rollback_error is rollback_error
+    assert executor.calls == 1
+
+
+async def test_drain_stops_batch_after_committed_handler_scope_teardown_fails() -> None:
+    inbox = FakeInboxStore()
+    _abandoned_entry(inbox)
+    _abandoned_entry(inbox)
+    teardown_error = RuntimeError('request scope teardown failed')
+    executor = _CompletedFailingExecutor(teardown_error)
+
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        with pytest.raises(CompletedExecutionError) as raised:
+            await _drainer(container, executor).drain_once()
+
+    assert raised.value.error is teardown_error
+    assert executor.calls == 1
 
 
 async def test_drain_deletes_row_on_dead_letter() -> None:
@@ -407,7 +474,7 @@ async def test_drain_crash_recovery_keyed_on_scheme_qualified_source_uri() -> No
     executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
     factory_calls: list[str] = []
 
-    def capturing_factory(source_uri: str) -> EndpointExecutor:
+    def capturing_factory(source_uri: str) -> IEndpointExecution:
         factory_calls.append(source_uri)
         return executor
 

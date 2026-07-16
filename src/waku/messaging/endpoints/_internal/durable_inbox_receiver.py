@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 
 import anyio
 
+from waku._internal.transaction import unit_of_work_scope
 from waku.messaging._internal.circuit_breaker import CircuitBreaker, PassthroughCircuitBreaker
 from waku.messaging._internal.partition import resolve_and_allocate
-from waku.messaging._internal.transaction import unit_of_work_scope
 from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints._internal.redelivery import RedeliveryCoordinator, RedeliveryHooks
 from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.endpoints.executor import EndpointExecutor
+    from waku.messaging.endpoints._internal.execution import IEndpointExecution
     from waku.messaging.endpoints.outcome import ExecutionOutcome
     from waku.messaging.partition import PartitionKeyExtractor
 
@@ -67,7 +67,7 @@ class DurableInboxReceiver:
         *,
         uri: str,
         container: AsyncContainer,
-        executor: EndpointExecutor,
+        executor: IEndpointExecution,
         inbox_owner_id: str,
         keep_after_handled: timedelta,
         partition_by: PartitionKeyExtractor | None = None,
@@ -178,12 +178,16 @@ class DurableInboxReceiver:
         envelope, handler_types = work_item
         on_result = self._circuit_breaker.record
         for handler_type in handler_types:
-            result = await self._executor.execute(envelope, handler_type, on_result=on_result)
+            result = await self._executor.execute(
+                envelope,
+                handler_type,
+                on_result=on_result,
+            )
             await self._redelivery.handle_result(envelope, handler_type, result)
 
     async def _record_requeue_attempt(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> None:
         destination = handler_destination(handler_type)
-        async with unit_of_work_scope(self._container) as scope:
+        async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
             inbox = await scope.get(IInboxStore)
             await inbox.increment_attempts(envelope.message_id, destination)
 
@@ -194,7 +198,7 @@ class DurableInboxReceiver:
         attempts: int,
     ) -> None:
         destination = handler_destination(handler_type)
-        async with unit_of_work_scope(self._container) as scope:
+        async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
             inbox = await scope.get(IInboxStore)
             codec = await scope.get(PayloadCodec)
             dead_letter = DeadLetterEntry.from_failure(

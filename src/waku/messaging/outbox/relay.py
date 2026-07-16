@@ -10,6 +10,7 @@ from typing_extensions import override
 
 from waku._internal.clock import Now, utc_now
 from waku._internal.polling import PollingConfig
+from waku._internal.transaction import rollback_uow, transaction_scope, unit_of_work_scope
 from waku.messaging._internal.escalation import RetryAction
 from waku.messaging._internal.polling_agent import AdaptivePace, Placement, PollingAgent
 from waku.messaging.durability import IOutboxStore
@@ -114,22 +115,17 @@ class OutboxRelay(PollingAgent):
         return await self._process_batch()
 
     async def _process_batch(self) -> int:
-        async with self._container() as batch_scope:
+        async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as batch_scope:
             store = await batch_scope.get(IOutboxStore)
-            uow = await batch_scope.get(IUnitOfWork)
             messages = await store.fetch_head_of_queue(self._config.batch_size)
-            await uow.commit()
         processed = 0
         for message in messages:
             async with self._container() as scope:
-                try:
-                    await self._dispatch_message(scope, message)
+                if await self._dispatch_message(scope, message):
                     processed += 1
-                except Exception as exc:  # noqa: BLE001
-                    await self._on_dispatch_failure(scope, message, exc)
         return processed
 
-    async def _dispatch_message(self, scope: AsyncContainer, message: OutboxMessage) -> None:
+    async def _dispatch_message(self, scope: AsyncContainer, message: OutboxMessage) -> bool:
         store = await scope.get(IOutboxStore)
         uow = await scope.get(IUnitOfWork)
         try:
@@ -139,44 +135,63 @@ class OutboxRelay(PollingAgent):
             # immediately (the broker is never touched, no sending-retry budget is burned on a row that can
             # never be rebuilt) — distinct from _on_dispatch_failure's send-side retry policy.
             await self._handle_exhausted(store, uow, message, exc)
-            return
+            return True
         if metadata.expires_at is not None and metadata.expires_at <= self._now():
             # The delivery deadline (deliver_by/deliver_within) elapsed while the row sat queued (relay
             # downtime, retries, backpressure). Terminal-DISCARDED (never DLQ'd) before any broker send —
             # the send-side analog of the executor's receive-time discard.
-            await store.mark_discarded(message.id, 'expired before dispatch (delivery deadline elapsed)')
-            await uow.commit()
+            async with transaction_scope(uow, rollback_failure_is_primary=True):
+                await store.mark_discarded(message.id, 'expired before dispatch (delivery deadline elapsed)')
             logger.info(
                 'Discarding expired outbox message %s (expires_at=%s) before send', message.id, metadata.expires_at
             )
-            return
-        registry = await scope.get(TransportRegistry)
-        sender = registry.sender_for(message.destination)
-        queue = split_destination(message.destination, default_scheme=registry.default_scheme)[1]
-        # Resolve with the full URI (not the split queue) — the override map is keyed by the configured
-        # BrokerEndpointEntry.send.mapper source URI.
-        mapper = registry.mapper_for(message.destination)
-        # Phase 1 — send: a raise here means NOT delivered -> propagate to the caller's except,
-        # which runs the sending-failure policy (_on_dispatch_failure).
-        await sender.send(message.payload, destination=queue, metadata=metadata, mapper=mapper)
+            return True
+        try:
+            registry = await scope.get(TransportRegistry)
+            sender = registry.sender_for(message.destination)
+            queue = split_destination(message.destination, default_scheme=registry.default_scheme)[1]
+            # Resolve with the full URI (not the split queue) — the override map is keyed by the configured
+            # BrokerEndpointEntry.send.mapper source URI.
+            mapper = registry.mapper_for(message.destination)
+            # Phase 1 — send: a raise here means NOT delivered, so apply the sending-failure policy only
+            # after aborting the transaction associated with this attempt.
+            await sender.send(message.payload, destination=queue, metadata=metadata, mapper=mapper)
+        except Exception as exc:  # noqa: BLE001
+            await self._on_dispatch_failure(scope, message, exc)
+            return False
+        except BaseException as primary_error:
+            await rollback_uow(uow, primary_error=primary_error)
+            raise
         # Phase 2 — record: the message IS delivered; a recording failure must never reach the
         # sending policy (it would record a delivered message DISCARDED/DEAD_LETTERED). Roll back
         # and leave the row PROCESSING so recover_stuck re-dispatches it (at-least-once).
         try:
             await store.mark_dispatched(message.id)
             await uow.commit()
-        except Exception:
-            await uow.rollback()
+        except Exception as primary_error:
+            await rollback_uow(
+                uow,
+                primary_error=primary_error,
+                rollback_failure_is_primary=True,
+            )
             logger.exception(
                 'Outbox message %s was delivered but recording dispatch failed; '
                 'leaving PROCESSING for recovery (at-least-once)',
                 message.id,
             )
+        except BaseException as primary_error:
+            await rollback_uow(uow, primary_error=primary_error)
+            raise
+        return True
 
     async def _on_dispatch_failure(self, scope: AsyncContainer, message: OutboxMessage, exc: Exception) -> None:
         store = await scope.get(IOutboxStore)
         uow = await scope.get(IUnitOfWork)
-        await uow.rollback()
+        await rollback_uow(
+            uow,
+            primary_error=exc,
+            rollback_failure_is_primary=True,
+        )
 
         ctx = SendingFailureContext(
             destination=message.destination,
@@ -206,8 +221,8 @@ class OutboxRelay(PollingAgent):
                 next_retry_at = self._now() + delay
                 await self._reschedule(store, uow, message, exc, next_retry_at=next_retry_at)
             case RetryAction.DISCARD:
-                await store.mark_discarded(message.id, _format_error(exc))
-                await uow.commit()
+                async with transaction_scope(uow, rollback_failure_is_primary=True):
+                    await store.mark_discarded(message.id, _format_error(exc))
                 logger.info('Discarded outbox message %s after %d attempt(s)', message.id, message.retry_count + 1)
             case RetryAction.DEAD_LETTER:
                 await self._handle_exhausted(store, uow, message, exc)
@@ -226,8 +241,8 @@ class OutboxRelay(PollingAgent):
         *,
         next_retry_at: datetime,
     ) -> None:
-        await store.mark_failed(message.id, _format_error(exc), next_retry_at)
-        await uow.commit()
+        async with transaction_scope(uow, rollback_failure_is_primary=True):
+            await store.mark_failed(message.id, _format_error(exc), next_retry_at)
 
     @staticmethod
     async def _handle_exhausted(
@@ -252,9 +267,16 @@ class OutboxRelay(PollingAgent):
         try:
             await store.move_to_dead_letter(message.id, entry)
             await uow.commit()
-        except Exception:
+        except Exception as primary_error:
+            await rollback_uow(
+                uow,
+                primary_error=primary_error,
+                rollback_failure_is_primary=True,
+            )
             logger.exception('Failed to move message %s to dead letter', message.id)
-            await uow.rollback()
+        except BaseException as primary_error:
+            await rollback_uow(uow, primary_error=primary_error)
+            raise
         else:
             logger.info('Message %s moved to dead letter after %d attempts', message.id, message.retry_count + 1)
             return
@@ -262,7 +284,15 @@ class OutboxRelay(PollingAgent):
         try:
             await store.mark_failed(message.id, error, next_retry_at=None)
             await uow.commit()
-        except Exception:
+        except Exception as primary_error:
+            await rollback_uow(
+                uow,
+                primary_error=primary_error,
+                rollback_failure_is_primary=True,
+            )
             logger.exception('Failed to mark message %s as failed', message.id)
+        except BaseException as primary_error:
+            await rollback_uow(uow, primary_error=primary_error)
+            raise
         else:
             logger.warning('Message %s exhausted after %d attempts', message.id, message.retry_count + 1)

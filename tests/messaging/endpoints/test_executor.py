@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import AsyncIterator  # noqa: TC003 -- Dishka resolves provider annotations at runtime
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -13,7 +14,7 @@ import pytest
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
-from waku.di import object_, scoped
+from waku.di import object_, provider, scoped
 from waku.messaging import (
     EndpointDefaults,
     IRequest,
@@ -22,6 +23,7 @@ from waku.messaging import (
     MessagingModule,
     RequestHandler,
 )
+from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.durability import IDeadLetterStore
 from waku.messaging.endpoints.executor import EndpointExecutor, EndpointExecutorFactory
@@ -50,6 +52,7 @@ if TYPE_CHECKING:
     from waku.application import WakuApplication
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
+    from waku.messaging.errors.dead_letter import DeadLetterEntry
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +103,48 @@ def _make_observer() -> tuple[
         recorded.append((outcome, exc))
 
     return observer, recorded
+
+
+class _ActionRecordingDeadLetterStore(RecordingDeadLetterStore):
+    def __init__(self, actions: list[str]) -> None:
+        super().__init__()
+        self._actions = actions
+
+    @override
+    async def save(self, entry: DeadLetterEntry) -> None:
+        self._actions.append('save')
+        await super().save(entry)
+
+
+class _ActionRecordingUoW(IUnitOfWork):
+    def __init__(
+        self,
+        actions: list[str],
+        *,
+        commit_error: BaseException | None = None,
+        rollback_error: BaseException | None = None,
+        cancel_scope: anyio.CancelScope | None = None,
+    ) -> None:
+        self._actions = actions
+        self._commit_error = commit_error
+        self._rollback_error = rollback_error
+        self._cancel_scope = cancel_scope
+
+    @override
+    async def commit(self) -> None:
+        self._actions.append('commit')
+        if self._cancel_scope is not None:
+            self._cancel_scope.cancel()
+            await anyio.lowlevel.checkpoint()
+        if self._commit_error is not None:
+            raise self._commit_error
+
+    @override
+    async def rollback(self) -> None:
+        await anyio.lowlevel.checkpoint()
+        self._actions.append('rollback')
+        if self._rollback_error is not None:
+            raise self._rollback_error
 
 
 async def _make_executor(
@@ -299,6 +344,111 @@ class TestEndpointExecutorExpiry:
         assert calls == [1]
 
 
+class TestEndpointExecutorTransactionCleanup:
+    @staticmethod
+    async def test_rollback_failure_escapes_without_retry_or_terminal_outcome() -> None:
+        handler, calls = _make_always_fail_handler()
+        rollback_error = RuntimeError('transaction rollback failed')
+        uow = RecordingUoW(rollback_error=rollback_error)
+        config = MessagingConfig(
+            global_pipeline_behaviors=[TransactionalBehavior],
+            endpoint_defaults=EndpointDefaults(
+                error_policies=(ErrorPolicy.on_any_exception().retry(max_attempts=2).then_discard(),),
+            ),
+        )
+
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(handler)],
+            providers=[object_(uow, provided_type=IUnitOfWork)],
+        ) as app:
+            evaluator = await app.container.get(ErrorPolicyEvaluator)
+            executor = await _make_executor(app, evaluator)
+            envelope = make_envelope(_FailingCommand(value='rollback-fail'))
+            with pytest.raises(RuntimeError) as raised:
+                await executor.execute(envelope, handler)
+
+        assert raised.value is rollback_error
+        assert len(calls) == 1
+
+    @staticmethod
+    async def test_timeout_rollback_failure_escapes_without_retry_or_terminal_outcome() -> None:
+        calls: list[int] = []
+        rollback_error = RuntimeError('transaction rollback failed')
+        actions: list[str] = []
+        uow = _ActionRecordingUoW(actions, rollback_error=rollback_error)
+        observer, recorded = _make_observer()
+
+        class _BlockingHandler(RequestHandler[_FailingCommand, None]):
+            execution_timeout = timedelta(seconds=0.01)
+
+            @override
+            async def handle(self, request: _FailingCommand, /) -> None:
+                calls.append(1)
+                await anyio.Event().wait()
+
+        config = MessagingConfig(
+            global_pipeline_behaviors=[TransactionalBehavior],
+            endpoint_defaults=EndpointDefaults(
+                error_policies=(ErrorPolicy.on_any_exception().retry(max_attempts=2).then_discard(),),
+            ),
+        )
+
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_BlockingHandler)],
+            providers=[object_(uow, provided_type=IUnitOfWork)],
+        ) as app:
+            executor = await _make_executor(app, await app.container.get(ErrorPolicyEvaluator))
+            envelope = make_envelope(_FailingCommand(value='timeout-rollback-fail'))
+            with pytest.raises(RuntimeError) as raised:
+                await executor.execute(envelope, _BlockingHandler, on_result=observer)
+
+        assert raised.value is rollback_error
+        assert calls == [1]
+        assert actions == ['rollback']
+        assert recorded == []
+
+    @staticmethod
+    async def test_post_commit_scope_teardown_failure_does_not_retry_committed_handler() -> None:
+        calls: list[int] = []
+        teardown_error = RuntimeError('request scope teardown failed')
+        uow = RecordingUoW()
+        observer, recorded = _make_observer()
+
+        class _SuccessfulHandler(RequestHandler[_FailingCommand, None]):
+            @override
+            async def handle(self, request: _FailingCommand, /) -> None:
+                calls.append(1)
+
+        async def provide_uow() -> AsyncIterator[IUnitOfWork]:  # noqa: RUF029 -- Dishka async-generator provider
+            yield uow
+            raise teardown_error
+
+        config = MessagingConfig(
+            global_pipeline_behaviors=[TransactionalBehavior],
+            endpoint_defaults=EndpointDefaults(
+                error_policies=(ErrorPolicy.on_any_exception().retry(max_attempts=2).then_discard(),),
+            ),
+        )
+
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_SuccessfulHandler)],
+            providers=[provider(provide_uow, provided_type=IUnitOfWork)],
+        ) as app:
+            executor = await _make_executor(app, await app.container.get(ErrorPolicyEvaluator))
+            envelope = make_envelope(_FailingCommand(value='post-commit-teardown'))
+            with pytest.raises(ExceptionGroup) as raised:
+                await executor.execute(envelope, _SuccessfulHandler, on_result=observer)
+
+        assert raised.value.exceptions == (teardown_error,)
+        assert calls == [1]
+        assert uow.commit_count == 1
+        assert uow.rollback_count == 0
+        assert recorded == []
+
+
 class TestEndpointExecutorDeadLetter:
     @staticmethod
     async def test_dead_letter_policy_writes_entry_with_error_details() -> None:
@@ -357,7 +507,7 @@ class TestEndpointExecutorDeadLetter:
 
     @staticmethod
     async def test_dead_letter_write_failure_is_logged_not_raised(caplog: pytest.LogCaptureFixture) -> None:
-        handler, _ = _make_always_fail_handler()
+        uow = RecordingUoW()
 
         config = MessagingConfig(
             endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
@@ -367,19 +517,117 @@ class TestEndpointExecutorDeadLetter:
         with caplog.at_level(logging.ERROR, logger='waku.messaging.endpoints.executor'):
             async with create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(handler)],
                 providers=[
-                    object_(RecordingUoW(), provided_type=IUnitOfWork),
+                    object_(uow, provided_type=IUnitOfWork),
                     scoped(IDeadLetterStore, FailingDeadLetterStore),
                 ],
             ) as app:
                 evaluator = await app.container.get(ErrorPolicyEvaluator)
                 executor = await _make_executor(app, evaluator)
                 envelope = make_envelope(_FailingCommand(value='dlq-fail'))
-                outcome = (await executor.execute(envelope, handler)).outcome
+                persisted = await executor.write_dead_letter(envelope, RuntimeError('handler failed'), 1)
+
+        assert persisted is False
+        assert uow.rollback_count == 1
+        assert 'Failed to write dead letter entry' in caplog.text
+
+    @staticmethod
+    async def test_dead_letter_write_failure_returns_failed_outcome() -> None:
+        handler, _ = _make_always_fail_handler()
+        config = MessagingConfig(
+            endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
+            dead_letter=DeadLetterConfig(),
+        )
+
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(handler)],
+            providers=[
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
+                scoped(IDeadLetterStore, FailingDeadLetterStore),
+            ],
+        ) as app:
+            evaluator = await app.container.get(ErrorPolicyEvaluator)
+            executor = await _make_executor(app, evaluator)
+            envelope = make_envelope(_FailingCommand(value='dlq-fail'))
+            outcome = (await executor.execute(envelope, handler)).outcome
 
         assert outcome is ExecutionOutcome.DEAD_LETTER_FAILED  # ERR-2: failed DLQ write keeps the durable row
-        assert 'Failed to write dead letter entry' in caplog.text
+
+    @staticmethod
+    async def test_dead_letter_commit_failure_rolls_back_before_failed_outcome() -> None:
+        actions: list[str] = []
+        commit_error = RuntimeError('commit failed')
+        uow = _ActionRecordingUoW(actions, commit_error=commit_error)
+        dl_store = _ActionRecordingDeadLetterStore(actions)
+        config = MessagingConfig(
+            endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
+            dead_letter=DeadLetterConfig(),
+        )
+
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            providers=[object_(uow, provided_type=IUnitOfWork), object_(dl_store, provided_type=IDeadLetterStore)],
+        ) as app:
+            evaluator = await app.container.get(ErrorPolicyEvaluator)
+            executor = await _make_executor(app, evaluator)
+            envelope = make_envelope(_FailingCommand(value='dlq-commit-fail'))
+            persisted = await executor.write_dead_letter(envelope, RuntimeError('handler failed'), 1)
+
+        assert persisted is False
+        assert actions == ['save', 'commit', 'rollback']
+
+    @staticmethod
+    async def test_dead_letter_rollback_failure_escapes_instead_of_returning_failed_outcome() -> None:
+        actions: list[str] = []
+        rollback_error = RuntimeError('rollback failed')
+        uow = _ActionRecordingUoW(
+            actions,
+            commit_error=RuntimeError('commit failed'),
+            rollback_error=rollback_error,
+        )
+        dl_store = _ActionRecordingDeadLetterStore(actions)
+        config = MessagingConfig(
+            endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
+            dead_letter=DeadLetterConfig(),
+        )
+
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            providers=[object_(uow, provided_type=IUnitOfWork), object_(dl_store, provided_type=IDeadLetterStore)],
+        ) as app:
+            evaluator = await app.container.get(ErrorPolicyEvaluator)
+            executor = await _make_executor(app, evaluator)
+            envelope = make_envelope(_FailingCommand(value='dlq-rollback-fail'))
+            with pytest.raises(RuntimeError) as caught:
+                await executor.write_dead_letter(envelope, RuntimeError('handler failed'), 1)
+
+        assert caught.value is rollback_error
+        assert actions == ['save', 'commit', 'rollback']
+
+    @staticmethod
+    async def test_dead_letter_commit_cancellation_completes_rollback_and_remains_cancellation() -> None:
+        actions: list[str] = []
+        cancel_scope = anyio.CancelScope()
+        uow = _ActionRecordingUoW(actions, cancel_scope=cancel_scope)
+        dl_store = _ActionRecordingDeadLetterStore(actions)
+        config = MessagingConfig(
+            endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
+            dead_letter=DeadLetterConfig(),
+        )
+
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            providers=[object_(uow, provided_type=IUnitOfWork), object_(dl_store, provided_type=IDeadLetterStore)],
+        ) as app:
+            evaluator = await app.container.get(ErrorPolicyEvaluator)
+            executor = await _make_executor(app, evaluator)
+            envelope = make_envelope(_FailingCommand(value='dlq-commit-cancelled'))
+            with cancel_scope:
+                await executor.write_dead_letter(envelope, RuntimeError('handler failed'), 1)
+
+        assert cancel_scope.cancelled_caught
+        assert actions == ['save', 'commit', 'rollback']
 
 
 async def test_on_result_called_with_success() -> None:

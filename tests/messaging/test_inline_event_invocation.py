@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 import pytest
 from typing_extensions import override
 
+from waku import UnexpectedRollbackError
 from waku.di import object_, scoped
 from waku.messages import IEvent
 from waku.messaging import (
@@ -289,6 +291,49 @@ class TestInvokeEventAtomicity:
         # The INLINE subscriber ran exactly once, strictly AFTER the fan-out frame's single commit —
         # never from within the still-open transaction (a causal ordering, not a wall-clock race).
         assert commits_when_subscriber_ran == [1]
+
+    @staticmethod
+    async def test_rollback_only_discards_non_durable_cascade_and_raises_unexpected_rollback() -> None:
+        seen: dict[str, RecordingUoW] = {}
+        audit_calls: list[str] = []
+
+        class ShippedHandler(EventHandler[_OrderShipped]):
+            def __init__(self, bus: IMessageBus, outgoing: IOutgoingMessages, uow: IUnitOfWork) -> None:
+                self._bus = bus
+                self._outgoing = outgoing
+                self._uow = uow
+
+            @override
+            async def handle(self, event: _OrderShipped, /) -> None:
+                seen['uow'] = cast('RecordingUoW', self._uow)
+                with contextlib.suppress(ValueError):
+                    await self._bus.invoke(_PlaceOrder(order=event.order))
+                self._outgoing.publish(_AuditLogged(order=event.order))
+
+        class PlaceOrderHandler(RequestHandler[_PlaceOrder, None]):
+            @override
+            async def handle(self, request: _PlaceOrder, /) -> None:
+                msg = 'nested failed'
+                raise ValueError(msg)
+
+        class AuditSubscriber(EventHandler[_AuditLogged]):
+            @override
+            async def handle(self, event: _AuditLogged, /) -> None:
+                audit_calls.append(event.order)
+
+        async with (
+            _cascading_app(
+                MessagingExtension().bind(ShippedHandler).bind(PlaceOrderHandler).bind(AuditSubscriber),
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            with pytest.raises(UnexpectedRollbackError):
+                await bus.invoke(_OrderShipped(order='rollback-only'))
+
+        assert audit_calls == []
+        assert seen['uow'].commit_count == 0
+        assert seen['uow'].rollback_count == 1
 
     @staticmethod
     async def test_nested_invoke_event_rollback_discards_the_non_durable_cascade() -> None:

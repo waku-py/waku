@@ -113,7 +113,107 @@ def _config(*, mixed: bool = False) -> MessagingConfig:
     )
 
 
+def _endpoint_config() -> MessagingConfig:
+    return MessagingConfig(
+        endpoints=[local_queue('local://orders'), local_queue('local://logged')],
+        routing=[route(_PlaceOrder).to('local://orders'), route(_OrderLogged).to('local://logged')],
+        global_pipeline_behaviors=[TransactionalBehavior],
+    )
+
+
 class TestOutboxCascadingPerDestination:
+    @staticmethod
+    async def test_endpoint_owner_flushes_non_durable_cascade_after_commit() -> None:
+        trace: list[str] = []
+        logged_done = asyncio.Event()
+
+        class TracingUoW(IUnitOfWork):
+            @override
+            async def commit(self) -> None:
+                trace.append('commit')
+
+            @override
+            async def rollback(self) -> None:  # pragma: no cover - success path invariant
+                trace.append('rollback')
+
+        class PlaceOrderHandler(RequestHandler[_PlaceOrder, None]):
+            def __init__(self, outgoing: IOutgoingMessages) -> None:
+                self._outgoing = outgoing
+
+            @override
+            async def handle(self, cmd: _PlaceOrder, /) -> None:
+                self._outgoing.publish(_OrderLogged(order_id=cmd.order_id))
+
+        class LoggedHandler(EventHandler[_OrderLogged]):
+            @override
+            async def handle(self, _event: _OrderLogged, /) -> None:
+                trace.append('cascade')
+                logged_done.set()
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(_endpoint_config())],
+                extensions=[MessagingExtension().bind(PlaceOrderHandler).bind(LoggedHandler)],
+                providers=[object_(TracingUoW(), provided_type=IUnitOfWork)],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            await bus.send(_PlaceOrder(order_id='endpoint-success'))
+            with anyio.fail_after(5):
+                await logged_done.wait()
+
+        assert trace[:2] == ['commit', 'cascade']
+
+    @staticmethod
+    async def test_endpoint_owner_does_not_flush_non_durable_cascade_after_rollback() -> None:
+        trace: list[str] = []
+        rollback_done = asyncio.Event()
+        cascade_ran = asyncio.Event()
+
+        class TracingUoW(IUnitOfWork):
+            @override
+            async def commit(self) -> None:  # pragma: no cover - failure path invariant
+                trace.append('commit')
+
+            @override
+            async def rollback(self) -> None:
+                trace.append('rollback')
+                rollback_done.set()
+
+        class FailingHandler(RequestHandler[_PlaceOrder, None]):
+            def __init__(self, outgoing: IOutgoingMessages) -> None:
+                self._outgoing = outgoing
+
+            @override
+            async def handle(self, cmd: _PlaceOrder, /) -> None:
+                self._outgoing.publish(_OrderLogged(order_id=cmd.order_id))
+                msg = 'handler failed'
+                raise RuntimeError(msg)
+
+        class LoggedHandler(EventHandler[_OrderLogged]):
+            @override
+            async def handle(self, _event: _OrderLogged, /) -> None:  # pragma: no cover - invariant guard
+                cascade_ran.set()
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(_endpoint_config())],
+                extensions=[MessagingExtension().bind(FailingHandler).bind(LoggedHandler)],
+                providers=[object_(TracingUoW(), provided_type=IUnitOfWork)],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            await bus.send(_PlaceOrder(order_id='endpoint-failure'))
+            with anyio.fail_after(5):
+                await rollback_done.wait()
+            with anyio.move_on_after(0.05):
+                await cascade_ran.wait()
+
+        assert trace == ['rollback']
+        assert not cascade_ran.is_set()
+
     @staticmethod
     async def test_durable_cascade_writes_to_outbox_in_handler_transaction() -> None:
         outbox = RecordingOutboxStore()

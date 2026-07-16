@@ -6,9 +6,12 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import anyio
+import pytest
+from anyio.lowlevel import checkpoint
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku._internal.transaction import TransactionCleanupError
 from waku.messaging import PollingConfig
 from waku.messaging._internal.maintenance import (
     DurabilityMaintenanceAgent,
@@ -16,10 +19,11 @@ from waku.messaging._internal.maintenance import (
     _OutboxMaintenancePoller,
     _PromotionPoller,
 )
+from waku.messaging._internal.transaction import CompletedExecutionError
 from waku.messaging.config import DeadLetterConfig, MessagingConfig, OutboxConfig
 from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
+from waku.messaging.errors._internal.replay import IReplayExecution
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
-from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.outbox.relay import OutboxRelayConfig
 from waku.messaging.sequence import ISequenceAllocator
@@ -34,8 +38,6 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
     from uuid import UUID
-
-    import pytest
 
 _FAST = PollingConfig(poll_interval_min_seconds=0.01, poll_interval_max_seconds=0.05, poll_interval_step_seconds=0.01)
 
@@ -89,6 +91,17 @@ class _MaintDlqStore(RecordingDeadLetterStore):
         return self._purge_count
 
 
+class _RepeatingMaintDlqStore(_MaintDlqStore):
+    def __init__(self, *entries: DeadLetterEntry) -> None:
+        super().__init__()
+        self._entries = entries
+
+    @override
+    async def claim_replayable(self, batch_size: int, max_replay_count: int) -> Sequence[DeadLetterEntry]:
+        self.claim_calls += 1
+        return self._entries
+
+
 class _MaintInboxStore(FakeInboxStore):
     def __init__(self, *, promote_count: int = 0) -> None:
         super().__init__()
@@ -101,7 +114,7 @@ class _MaintInboxStore(FakeInboxStore):
         return self._promote_count
 
 
-class _RecordingReplayExecutor(ReplayExecutor):
+class _RecordingReplayExecutor(IReplayExecution):
     __slots__ = ('replayed',)
 
     def __init__(self) -> None:
@@ -113,7 +126,7 @@ class _RecordingReplayExecutor(ReplayExecutor):
         return True
 
 
-class _BlockingReplayExecutor(ReplayExecutor):
+class _BlockingReplayExecutor(IReplayExecution):
     __slots__ = ('_entered', '_released')
 
     def __init__(self, entered: anyio.Event, released: anyio.Event) -> None:
@@ -127,6 +140,101 @@ class _BlockingReplayExecutor(ReplayExecutor):
         return True
 
 
+class _CleanupFailingReplayExecutor(IReplayExecution):
+    __slots__ = ('calls', 'rollback_error')
+
+    def __init__(self, rollback_error: Exception) -> None:
+        self.calls = 0
+        self.rollback_error = rollback_error
+
+    @override
+    async def replay(self, entry: DeadLetterEntry) -> bool:
+        self.calls += 1
+        raise TransactionCleanupError(RuntimeError('replay failed'), self.rollback_error)
+
+
+class _CompletedReplayExecutor(IReplayExecution):
+    __slots__ = ('calls', 'teardown_error')
+
+    def __init__(self, teardown_error: Exception) -> None:
+        self.calls = 0
+        self.teardown_error = teardown_error
+
+    @override
+    async def replay(self, entry: DeadLetterEntry) -> bool:
+        self.calls += 1
+        raise CompletedExecutionError(self.teardown_error)
+
+
+class _CancellationCompletedReplayExecutor(IReplayExecution):
+    __slots__ = ('calls', 'cancel_scope', 'cancellation_error')
+
+    def __init__(self, cancel_scope: anyio.CancelScope, cancellation_error: BaseException) -> None:
+        self.calls = 0
+        self.cancel_scope = cancel_scope
+        self.cancellation_error = cancellation_error
+
+    @override
+    async def replay(self, entry: DeadLetterEntry) -> bool:
+        self.calls += 1
+        self.cancel_scope.cancel()
+        raise CompletedExecutionError(self.cancellation_error)
+
+
+class _PartialFailureReplayExecutor(IReplayExecution):
+    __slots__ = ('calls', 'failure', 'successful_entry_id')
+
+    def __init__(self, successful_entry_id: UUID, failure: BaseException) -> None:
+        self.calls: list[UUID] = []
+        self.successful_entry_id = successful_entry_id
+        self.failure = failure
+
+    @override
+    async def replay(self, entry: DeadLetterEntry) -> bool:
+        self.calls.append(entry.id)
+        if entry.id == self.successful_entry_id:
+            return True
+        raise self.failure
+
+
+class _FailOnceReplayExecutor(IReplayExecution):
+    __slots__ = ('calls', 'failure')
+
+    def __init__(self, failure: Exception) -> None:
+        self.calls = 0
+        self.failure = failure
+
+    @override
+    async def replay(self, entry: DeadLetterEntry) -> bool:
+        self.calls += 1
+        if self.calls == 1:
+            raise self.failure
+        return True
+
+
+class _RetryOnceMaintDlqStore(_MaintDlqStore):
+    def __init__(self, entry: DeadLetterEntry) -> None:
+        super().__init__()
+        self._entry = entry
+
+    @override
+    async def claim_replayable(self, batch_size: int, max_replay_count: int) -> Sequence[DeadLetterEntry]:
+        self.claim_calls += 1
+        return [self._entry] if self.claim_calls <= 2 else []
+
+
+class _CheckpointingUoW(RecordingUoW):
+    @override
+    async def commit(self) -> None:
+        await checkpoint()
+        await super().commit()
+
+
+class _TestableDlqMaintenancePoller(_DlqMaintenancePoller):
+    async def tick(self) -> int:
+        return await super()._tick()
+
+
 class _MaintenanceDepsProvider(Provider):
     scope = Scope.REQUEST
 
@@ -136,7 +244,8 @@ class _MaintenanceDepsProvider(Provider):
         outbox: IOutboxStore,
         dlq: IDeadLetterStore,
         inbox: IInboxStore,
-        replayer: ReplayExecutor,
+        replayer: IReplayExecution,
+        uow: IUnitOfWork | None = None,
     ) -> None:
         super().__init__()
         self._outbox = outbox
@@ -144,7 +253,7 @@ class _MaintenanceDepsProvider(Provider):
         self._inbox = inbox
         self._replayer = replayer
         self._allocator = RecordingAllocator()
-        self._uow: IUnitOfWork = RecordingUoW()
+        self._uow = uow or RecordingUoW()
 
     @provide
     def outbox(self) -> IOutboxStore:
@@ -163,7 +272,7 @@ class _MaintenanceDepsProvider(Provider):
         return self._allocator
 
     @provide
-    def replayer(self) -> ReplayExecutor:
+    def replayer(self) -> IReplayExecution:
         return self._replayer
 
     @provide
@@ -191,13 +300,15 @@ def _deps(
     outbox: IOutboxStore | None = None,
     dlq: IDeadLetterStore | None = None,
     inbox: IInboxStore | None = None,
-    replayer: ReplayExecutor | None = None,
+    replayer: IReplayExecution | None = None,
+    uow: IUnitOfWork | None = None,
 ) -> _MaintenanceDepsProvider:
     return _MaintenanceDepsProvider(
         outbox=outbox or _MaintOutboxStore(),
         dlq=dlq or _MaintDlqStore(),
         inbox=inbox or _MaintInboxStore(),
         replayer=replayer or _RecordingReplayExecutor(),
+        uow=uow,
     )
 
 
@@ -414,6 +525,34 @@ class TestOutboxMaintenancePoller:
         assert outbox.cleanup_calls == 1
 
 
+async def _assert_prefix_failure_stops(
+    failure: BaseException,
+    expected: BaseException,
+    *,
+    expected_commits: int,
+    expected_rollbacks: int,
+) -> None:
+    first = _dlq_entry()
+    second = _dlq_entry()
+    replayer = _PartialFailureReplayExecutor(first.id, failure)
+    uow = RecordingUoW()
+    dlq = _RepeatingMaintDlqStore(first, second)
+    config = MessagingConfig(dead_letter=DeadLetterConfig(auto_replay_enabled=True, polling=_FAST))
+
+    async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
+        agent = DurabilityMaintenanceAgent(container=container, config=config)
+        await agent.start()
+        await wait_until(lambda: len(replayer.calls) >= 2)
+        with pytest.raises(type(expected)) as raised:
+            await agent.stop()
+
+    assert raised.value is expected
+    assert replayer.calls == [first.id, second.id]
+    assert dlq.claim_calls == 1
+    assert uow.commit_count == expected_commits
+    assert uow.rollback_count == expected_rollbacks
+
+
 class TestDlqMaintenancePoller:
     # Ported from tests/messaging/errors/test_worker.py (DeadLetterWorker subsumed).
 
@@ -431,6 +570,205 @@ class TestDlqMaintenancePoller:
                 await agent.stop()
 
         assert replayer.replayed == [entry.id]
+
+    @staticmethod
+    async def test_cleanup_failure_stops_replay_poller_and_escapes_by_identity() -> None:
+        rollback_error = RuntimeError('rollback failed')
+        replayer = _CleanupFailingReplayExecutor(rollback_error)
+        config = MessagingConfig(dead_letter=DeadLetterConfig(auto_replay_enabled=True, polling=_FAST))
+
+        async with make_async_container(
+            _deps(dlq=_MaintDlqStore(claimable=[_dlq_entry()]), replayer=replayer),
+        ) as container:
+            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            await agent.start()
+            await wait_until(lambda: replayer.calls == 1)
+            with pytest.raises(RuntimeError) as raised:
+                await agent.stop()
+
+        assert raised.value is rollback_error
+        assert replayer.calls == 1
+
+    @staticmethod
+    async def test_post_commit_teardown_failure_commits_batch_then_stops_replay_poller() -> None:
+        teardown_error = RuntimeError('replay scope teardown failed')
+        replayer = _CompletedReplayExecutor(teardown_error)
+        uow = RecordingUoW()
+        config = MessagingConfig(dead_letter=DeadLetterConfig(auto_replay_enabled=True, polling=_FAST))
+
+        async with make_async_container(
+            _deps(dlq=_MaintDlqStore(claimable=[_dlq_entry()]), replayer=replayer, uow=uow),
+        ) as container:
+            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            await agent.start()
+            await wait_until(lambda: replayer.calls == 1)
+            with pytest.raises(RuntimeError) as raised:
+                await agent.stop()
+
+        assert raised.value is teardown_error
+        assert replayer.calls == 1
+        assert uow.commit_count == 1
+        assert uow.rollback_count == 0
+
+    @staticmethod
+    async def test_post_commit_teardown_cancellation_shields_replay_batch_commit() -> None:
+        cancel_scope = anyio.CancelScope()
+        cancellation_error = anyio.get_cancelled_exc_class()()
+        replayer = _CancellationCompletedReplayExecutor(cancel_scope, cancellation_error)
+        uow = _CheckpointingUoW()
+        config = DeadLetterConfig(auto_replay_enabled=True, polling=_FAST)
+
+        async with make_async_container(
+            _deps(dlq=_MaintDlqStore(claimable=[_dlq_entry()]), replayer=replayer, uow=uow),
+        ) as container:
+            poller = _TestableDlqMaintenancePoller(container=container, config=config)
+            with pytest.raises(CompletedExecutionError) as raised, cancel_scope:
+                await poller.tick()
+
+        assert raised.value.error is cancellation_error
+        assert replayer.calls == 1
+        assert uow.commit_count == 1
+        assert uow.rollback_count == 0
+
+    @staticmethod
+    async def test_post_commit_replay_batch_commit_failure_stops_before_next_tick() -> None:
+        commit_error = RuntimeError('replay batch commit failed')
+        replayer = _CompletedReplayExecutor(RuntimeError('request scope teardown failed'))
+        uow = RecordingUoW(commit_error=commit_error)
+        dlq = _RepeatingMaintDlqStore(_dlq_entry())
+        config = MessagingConfig(dead_letter=DeadLetterConfig(auto_replay_enabled=True, polling=_FAST))
+
+        async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
+            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            await agent.start()
+            await wait_until(lambda: replayer.calls == 1)
+            with pytest.raises(RuntimeError) as raised:
+                await agent.stop()
+
+        assert raised.value is commit_error
+        assert replayer.calls == 1
+        assert dlq.claim_calls == 1
+        assert uow.commit_count == 0
+        assert uow.rollback_count == 1
+
+    @staticmethod
+    async def test_successful_replay_batch_commit_failure_stops_before_next_tick() -> None:
+        commit_error = RuntimeError('replay batch commit failed')
+        entry = _dlq_entry()
+        replayer = _RecordingReplayExecutor()
+        uow = RecordingUoW(commit_error=commit_error)
+        dlq = _RepeatingMaintDlqStore(entry)
+        config = MessagingConfig(dead_letter=DeadLetterConfig(auto_replay_enabled=True, polling=_FAST))
+
+        async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
+            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            await agent.start()
+            await wait_until(lambda: bool(replayer.replayed))
+            with pytest.raises(RuntimeError) as raised:
+                await agent.stop()
+
+        assert raised.value is commit_error
+        assert replayer.replayed == [entry.id]
+        assert dlq.claim_calls == 1
+        assert uow.commit_count == 0
+        assert uow.rollback_count == 1
+
+    @staticmethod
+    async def test_successful_batch_prefix_then_plain_failure_commits_prefix_and_stops() -> None:
+        first = _dlq_entry()
+        second = _dlq_entry()
+        failure = RuntimeError('second replay failed')
+        replayer = _PartialFailureReplayExecutor(first.id, failure)
+        uow = RecordingUoW()
+        dlq = _RepeatingMaintDlqStore(first, second)
+        config = MessagingConfig(dead_letter=DeadLetterConfig(auto_replay_enabled=True, polling=_FAST))
+
+        async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
+            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            await agent.start()
+            await wait_until(lambda: len(replayer.calls) >= 2)
+            with pytest.raises(RuntimeError) as raised:
+                await agent.stop()
+
+        assert raised.value is failure
+        assert replayer.calls == [first.id, second.id]
+        assert dlq.claim_calls == 1
+        assert uow.commit_count == 1
+        assert uow.rollback_count == 0
+
+    @staticmethod
+    async def test_successful_batch_prefix_then_cancellation_commits_prefix_and_stops() -> None:
+        cancellation_error = anyio.get_cancelled_exc_class()()
+        await _assert_prefix_failure_stops(
+            cancellation_error,
+            cancellation_error,
+            expected_commits=1,
+            expected_rollbacks=0,
+        )
+
+    @staticmethod
+    async def test_successful_batch_prefix_then_completed_execution_commits_and_stops() -> None:
+        teardown_error = RuntimeError('second replay scope teardown failed')
+        await _assert_prefix_failure_stops(
+            CompletedExecutionError(teardown_error),
+            teardown_error,
+            expected_commits=1,
+            expected_rollbacks=0,
+        )
+
+    @staticmethod
+    async def test_successful_batch_prefix_then_cleanup_failure_rolls_back_and_stops() -> None:
+        rollback_error = RuntimeError('second replay rollback failed')
+        await _assert_prefix_failure_stops(
+            TransactionCleanupError(RuntimeError('second replay failed'), rollback_error),
+            rollback_error,
+            expected_commits=0,
+            expected_rollbacks=1,
+        )
+
+    @staticmethod
+    async def test_first_plain_failure_remains_recoverable_then_commits_retry() -> None:
+        entry = _dlq_entry()
+        failure = RuntimeError('first replay failed')
+        replayer = _FailOnceReplayExecutor(failure)
+        uow = RecordingUoW()
+        dlq = _RetryOnceMaintDlqStore(entry)
+        config = MessagingConfig(dead_letter=DeadLetterConfig(auto_replay_enabled=True, polling=_FAST))
+
+        async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
+            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            await agent.start()
+            try:
+                await wait_until(lambda: replayer.calls == 2)
+            finally:
+                await agent.stop()
+
+        assert replayer.calls == 2
+        assert dlq.claim_calls == 2
+        assert uow.commit_count == 1
+        assert uow.rollback_count == 1
+
+    @staticmethod
+    async def test_first_cancellation_rolls_back_and_stops_without_retry() -> None:
+        entry = _dlq_entry()
+        cancellation_error = anyio.get_cancelled_exc_class()()
+        replayer = _PartialFailureReplayExecutor(uuid4(), cancellation_error)
+        uow = RecordingUoW()
+        dlq = _RepeatingMaintDlqStore(entry)
+        config = MessagingConfig(dead_letter=DeadLetterConfig(auto_replay_enabled=True, polling=_FAST))
+
+        async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
+            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            await agent.start()
+            await wait_until(lambda: len(replayer.calls) == 1)
+            with pytest.raises(anyio.get_cancelled_exc_class()) as raised:
+                await agent.stop()
+
+        assert raised.value is cancellation_error
+        assert replayer.calls == [entry.id]
+        assert dlq.claim_calls == 1
+        assert uow.commit_count == 0
+        assert uow.rollback_count == 1
 
     @staticmethod
     async def test_does_not_claim_when_auto_replay_disabled() -> None:

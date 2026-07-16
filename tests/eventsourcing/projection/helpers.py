@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import anyio
+import anyio.lowlevel
 from typing_extensions import override
 
 from waku.eventsourcing.contracts.event import EventEnvelope
@@ -106,8 +108,8 @@ class _SessionAbortedError(Exception):
 # Models the scoped AsyncSession shared by checkpoint store, UoW, and (optionally) a projection.
 # Writes buffer as pending until commit() promotes them to durable state; abort() puts the session
 # into a pending-rollback state (any subsequent write or commit raises, as SQLAlchemy does) until
-# rollback() resets it. load_checkpoint clears the pending buffers first, modelling "new scope = new
-# transaction" — the previous scope's uncommitted writes rolled back.
+# rollback() resets it. Loading a checkpoint does not clean pending state: transaction ownership tests
+# must prove an explicit rollback rather than receiving cleanup as a side effect of the next read.
 class FakeSession:
     def __init__(self) -> None:
         self.aborted = False
@@ -128,8 +130,6 @@ class FakeSession:
         self._pending_checkpoints[checkpoint.projection_name] = checkpoint
 
     def load_checkpoint(self, projection_name: str) -> Checkpoint | None:
-        self._pending_checkpoints.clear()
-        self._pending_writes.clear()
         return self._durable_checkpoints.get(projection_name)
 
     def commit(self) -> None:
@@ -157,8 +157,15 @@ class FakeSession:
 
 
 class CommitGatedCheckpointStore(ICheckpointStore):
-    def __init__(self, session: FakeSession) -> None:
+    def __init__(
+        self,
+        session: FakeSession,
+        *,
+        save_failures: dict[int, BaseException] | None = None,
+    ) -> None:
         self._session = session
+        self._save_failures = save_failures or {}
+        self.save_count = 0
 
     @override
     async def load(self, projection_name: str, /) -> Checkpoint | None:
@@ -166,19 +173,55 @@ class CommitGatedCheckpointStore(ICheckpointStore):
 
     @override
     async def save(self, checkpoint: Checkpoint, /) -> None:
+        self.save_count += 1
+        if error := self._save_failures.get(self.save_count):
+            raise error
         self._session.save_checkpoint(checkpoint)
 
 
 class CommitGatedUnitOfWork(IUnitOfWork):
-    def __init__(self, session: FakeSession) -> None:
+    def __init__(
+        self,
+        session: FakeSession,
+        *,
+        trace: list[str] | None = None,
+        commit_failures: dict[int, BaseException] | None = None,
+        rollback_failures: dict[int, BaseException] | None = None,
+        cancel_commit_at: int | None = None,
+        cancel_scope: anyio.CancelScope | None = None,
+    ) -> None:
         self._session = session
+        self._trace = trace
+        self._commit_failures = commit_failures or {}
+        self._rollback_failures = rollback_failures or {}
+        self._cancel_commit_at = cancel_commit_at
+        self._cancel_scope = cancel_scope
+        self.commit_count = 0
+        self.rollback_count = 0
 
     @override
     async def commit(self) -> None:
+        self.commit_count += 1
+        if self._trace is not None:
+            self._trace.append(f'commit-{self.commit_count}')
+        if self.commit_count == self._cancel_commit_at:
+            if self._cancel_scope is None:  # pragma: no cover - invalid test-double setup
+                msg = 'cancel_scope is required when cancel_commit_at is set'
+                raise RuntimeError(msg)
+            self._cancel_scope.cancel()
+            await anyio.lowlevel.checkpoint()
+        if error := self._commit_failures.get(self.commit_count):
+            raise error
         self._session.commit()
 
     @override
     async def rollback(self) -> None:
+        self.rollback_count += 1
+        await anyio.lowlevel.checkpoint()
+        if self._trace is not None:
+            self._trace.append('rollback')
+        if error := self._rollback_failures.get(self.rollback_count):
+            raise error
         self._session.rollback()
 
 

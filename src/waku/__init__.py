@@ -1,5 +1,5 @@
 from waku.application import WakuApplication
-from waku.exceptions import ImproperlyConfiguredError, WakuError
+from waku.exceptions import ImproperlyConfiguredError, UnexpectedRollbackError, WakuError
 from waku.factory import ContainerConfig, WakuFactory
 from waku.lifespan import LifespanFunc, LifespanWrapper
 from waku.modules._internal.metadata import DynamicModule, module
@@ -14,6 +14,7 @@ __all__ = [
     'LifespanFunc',
     'LifespanWrapper',
     'Module',
+    'UnexpectedRollbackError',
     'WakuApplication',
     'WakuError',
     'WakuFactory',

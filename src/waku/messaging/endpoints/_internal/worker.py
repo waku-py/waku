@@ -10,7 +10,9 @@ import anyio
 from anyio import create_memory_object_stream
 from typing_extensions import TypeVar
 
+from waku._internal.transaction import TransactionCleanupError
 from waku.messaging._internal.pauser import PauseRegistry, TimedPauser
+from waku.messaging._internal.transaction import CompletedExecutionError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -32,13 +34,26 @@ logger = logging.getLogger(__name__)
 _ItemT = TypeVar('_ItemT', default='MessageEnvelope[Any]')
 
 
+def _find_fatal_execution_error(
+    error: BaseException,
+) -> CompletedExecutionError | TransactionCleanupError | None:
+    if isinstance(error, CompletedExecutionError | TransactionCleanupError):
+        return error
+    if isinstance(error, BaseExceptionGroup):
+        for nested_error in error.exceptions:
+            if fatal_error := _find_fatal_execution_error(nested_error):
+                return fatal_error
+    return None
+
+
 class MemoryStreamWorker(Generic[_ItemT]):
     """Memory-stream + background-task lifecycle for an endpoint (GRASP Pure Fabrication).
 
     ``start(handler)`` runs a bounded pool of ``max_parallel`` consumers over items of type
     ``_ItemT``. A consumer dequeues *before* checking the pause gate, so up to ``max_parallel`` items
-    may be in flight while paused. The per-item ``handler`` owns its own error context; the consumer
-    only guarantees one failure never kills the pool. asyncio backend only.
+    may be in flight while paused. The per-item ``handler`` owns its own error context; ordinary
+    message failures never kill the pool, while fatal transaction-cleanup signals stop it. asyncio
+    backend only.
     """
 
     __slots__ = (
@@ -154,7 +169,11 @@ class MemoryStreamWorker(Generic[_ItemT]):
             await task
         except asyncio.CancelledError:
             pass
-        except Exception:
+        except Exception as exc:
+            if fatal_error := _find_fatal_execution_error(exc):
+                if isinstance(fatal_error, TransactionCleanupError):
+                    raise fatal_error.rollback_error from fatal_error.primary_error
+                raise fatal_error.error from fatal_error
             logger.exception('MemoryStreamWorker task failed during shutdown')
 
     async def _run(
@@ -177,10 +196,13 @@ class MemoryStreamWorker(Generic[_ItemT]):
             await self._pauses.wait()
             try:
                 await handler(item)
+            except (CompletedExecutionError, TransactionCleanupError):
+                raise
             except Exception:
                 # Safety net only — items are opaque here, so the handler owns message-level logging.
                 logger.exception('Unhandled error in worker consumer, continuing')
-            finally:
-                # Post-dequeue depth feeds the low-watermark check (resume the listener once drained).
-                if self._on_drain is not None:
-                    await self._on_drain(self.queue_depth)
+            # Post-dequeue depth feeds the low-watermark check (resume the listener once drained).
+            # A fatal execution signal stops the worker before this hook: listener/backpressure
+            # cleanup must never replace a failed rollback or post-commit teardown error.
+            if self._on_drain is not None:
+                await self._on_drain(self.queue_depth)

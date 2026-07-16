@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
+from waku._internal.transaction import unit_of_work_scope
 from waku.messaging._internal.polling_agent import FixedPace, Placement, PollingAgent
-from waku.messaging._internal.transaction import unit_of_work_scope
 from waku.messaging.durability import IInboxStore
 
 if TYPE_CHECKING:
@@ -56,7 +56,7 @@ class InboxRecoveryWorker(PollingAgent):
 
     @override
     async def _tick(self) -> int:
-        async with unit_of_work_scope(self._container) as scope:
+        async with unit_of_work_scope(self._container, rollback_failure_is_primary=True) as scope:
             store = await scope.get(IInboxStore)
             recovered: int = await store.recover_stale(self._config.stuck_threshold)
             cleaned: int = await store.cleanup_handled(self._now())

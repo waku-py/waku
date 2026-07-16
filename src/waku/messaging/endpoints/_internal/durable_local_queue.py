@@ -8,8 +8,8 @@ import anyio
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
+from waku._internal.transaction import unit_of_work_scope
 from waku.messaging._internal.partition import resolve_group_id
-from waku.messaging._internal.transaction import unit_of_work_scope
 from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
 from waku.messaging.endpoints.base import Endpoint
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.endpoints.executor import EndpointExecutor
+    from waku.messaging.endpoints._internal.execution import IEndpointExecution
     from waku.messaging.observability.observer import MessageObservers
     from waku.messaging.partition import PartitionKeyExtractor
     from waku.messaging.router import HandlerSubscriptions
@@ -57,7 +57,7 @@ class DurableLocalQueueEndpoint(Endpoint):
         *,
         uri: str,
         handler_subscriptions: HandlerSubscriptions,
-        executor: EndpointExecutor,
+        executor: IEndpointExecution,
         observers: MessageObservers,
         container: AsyncContainer,
         inbox_config_keep_after_handled_seconds: float,

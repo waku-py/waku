@@ -11,7 +11,7 @@ from typing_extensions import override
 from waku import module
 from waku._internal.lease import ILease, InMemoryLease
 from waku.di import object_
-from waku.eventsourcing.exceptions import ProjectionLockedError, UnknownProjectionError
+from waku.eventsourcing.exceptions import ProjectionLockedError, ProjectionStoppedError, UnknownProjectionError
 from waku.eventsourcing.projection.config import PollingConfig
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ProjectionErrorPolicy
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
@@ -69,6 +69,13 @@ class AlwaysLockedLock(ILease):
         yield False
 
 
+class AlwaysAcquiredLock(ILease):
+    @override
+    @contextlib.asynccontextmanager
+    async def acquire(self, name: str) -> AsyncGenerator[bool]:
+        yield True
+
+
 class FailingAcquireLock(ILease):
     def __init__(self, failing_name: str) -> None:
         self._failing_name = failing_name
@@ -114,6 +121,33 @@ class IdleProjection(ICatchUpProjection):
     @override
     async def project(self, _events: Sequence[StoredEvent], /) -> None:
         pass
+
+
+class _WritingProjection(ICatchUpProjection):
+    projection_name = 'writing'
+
+    def __init__(
+        self,
+        session: FakeSession,
+        trace: list[str],
+        *,
+        failures: int = 0,
+        error: Exception | None = None,
+    ) -> None:
+        self._session = session
+        self._trace = trace
+        self._remaining_failures = failures
+        self._error = error or RuntimeError('projection failed')
+        self.attempts = 0
+
+    @override
+    async def project(self, events: Sequence[StoredEvent], /) -> None:
+        self.attempts += 1
+        self._trace.append(f'project-attempt-{self.attempts}')
+        self._session.write(sample_event_values(events))
+        if self._remaining_failures > 0:
+            self._remaining_failures -= 1
+            raise self._error
 
 
 def _make_app(
@@ -641,6 +675,277 @@ async def test_rebuild_retries_transient_failure_then_completes(
     checkpoint = session.durable_checkpoint('flaky')
     assert checkpoint is not None
     assert checkpoint.position == 4
+
+
+async def test_rebuild_retry_rolls_back_partial_writes_before_next_attempt(
+    event_store: InMemoryEventStore,
+) -> None:
+    await seed_events(event_store, count=2)
+    trace: list[str] = []
+    session = FakeSession()
+    projection = _WritingProjection(session, trace, failures=1)
+    binding = make_binding(_WritingProjection, max_retry_attempts=1, base_retry_delay_seconds=0.0)
+    uow = CommitGatedUnitOfWork(session, trace=trace)
+    lock = AlwaysAcquiredLock()
+    app = _make_app(
+        event_store,
+        CommitGatedCheckpointStore(session),
+        lock,
+        (projection,),
+        (binding,),
+        uow=uow,
+    )
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        await runner.rebuild('writing')
+
+    assert trace.index('rollback') < trace.index('project-attempt-2')
+    assert session.durable_writes() == [[0, 1]]
+
+
+async def test_rebuild_retry_does_not_continue_when_rollback_fails(
+    event_store: InMemoryEventStore,
+) -> None:
+    await seed_events(event_store, count=1)
+    trace: list[str] = []
+    session = FakeSession()
+    projection = _WritingProjection(session, trace, failures=1)
+    binding = make_binding(_WritingProjection, max_retry_attempts=1, base_retry_delay_seconds=0.0)
+    rollback_error = RuntimeError('rollback failed')
+    uow = CommitGatedUnitOfWork(session, trace=trace, rollback_failures={1: rollback_error})
+    lock = AlwaysAcquiredLock()
+    app = _make_app(
+        event_store,
+        CommitGatedCheckpointStore(session),
+        lock,
+        (projection,),
+        (binding,),
+        uow=uow,
+    )
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        with pytest.raises(RuntimeError) as raised:
+            await runner.rebuild('writing')
+
+    assert raised.value is rollback_error
+    assert projection.attempts == 1
+
+
+async def test_poll_loop_does_not_retry_when_retry_rollback_fails(
+    event_store: InMemoryEventStore,
+) -> None:
+    await seed_events(event_store, count=1)
+    trace: list[str] = []
+    session = FakeSession()
+    projection = _WritingProjection(session, trace, failures=2)
+    binding = make_binding(_WritingProjection, max_retry_attempts=1, base_retry_delay_seconds=0.0)
+    rollback_error = RuntimeError('rollback failed')
+    uow = CommitGatedUnitOfWork(session, trace=trace, rollback_failures={1: rollback_error})
+    lock = AlwaysAcquiredLock()
+    app = _make_app(
+        event_store,
+        CommitGatedCheckpointStore(session),
+        lock,
+        (projection,),
+        (binding,),
+        uow=uow,
+    )
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        with anyio.fail_after(2):
+            await runner.run()
+
+    assert projection.attempts == 1
+    assert trace[-1] == 'rollback'
+
+
+async def test_rebuild_processing_failure_rolls_back_and_preserves_error(
+    event_store: InMemoryEventStore,
+) -> None:
+    await seed_events(event_store, count=1)
+    trace: list[str] = []
+    session = FakeSession()
+    processing_error = RuntimeError('projection failed')
+    projection = _WritingProjection(session, trace, failures=1, error=processing_error)
+    binding = make_binding(_WritingProjection)
+    uow = CommitGatedUnitOfWork(session, trace=trace)
+    lock = AlwaysAcquiredLock()
+    app = _make_app(
+        event_store,
+        CommitGatedCheckpointStore(session),
+        lock,
+        (projection,),
+        (binding,),
+        uow=uow,
+    )
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        with pytest.raises(ProjectionStoppedError) as raised:
+            await runner.rebuild('writing')
+
+    assert raised.value.cause is processing_error
+    assert trace[-1] == 'rollback'
+    assert session.durable_writes() == []
+
+
+@pytest.mark.parametrize('commit_at', [3, 4], ids=('progress', 'clean-idle'))
+async def test_rebuild_cycle_commit_failure_rolls_back_and_preserves_error(
+    event_store: InMemoryEventStore,
+    commit_at: int,
+) -> None:
+    await seed_events(event_store, count=1)
+    trace: list[str] = []
+    session = FakeSession()
+    projection = _WritingProjection(session, trace)
+    binding = make_binding(_WritingProjection)
+    commit_error = RuntimeError(f'commit {commit_at} failed')
+    uow = CommitGatedUnitOfWork(session, trace=trace, commit_failures={commit_at: commit_error})
+    lock = AlwaysAcquiredLock()
+    app = _make_app(
+        event_store,
+        CommitGatedCheckpointStore(session),
+        lock,
+        (projection,),
+        (binding,),
+        uow=uow,
+    )
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        with pytest.raises(RuntimeError) as raised:
+            await runner.rebuild('writing')
+
+    assert raised.value is commit_error
+    assert trace[-2:] == [f'commit-{commit_at}', 'rollback']
+
+
+async def test_rebuild_cancellation_completes_shielded_rollback(
+    event_store: InMemoryEventStore,
+) -> None:
+    await seed_events(event_store, count=1)
+    trace: list[str] = []
+    session = FakeSession()
+    projection = _WritingProjection(session, trace)
+    binding = make_binding(_WritingProjection)
+    cancel_scope = anyio.CancelScope()
+    uow = CommitGatedUnitOfWork(
+        session,
+        trace=trace,
+        cancel_commit_at=3,
+        cancel_scope=cancel_scope,
+    )
+    lock = AlwaysAcquiredLock()
+    app = _make_app(
+        event_store,
+        CommitGatedCheckpointStore(session),
+        lock,
+        (projection,),
+        (binding,),
+        uow=uow,
+    )
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        with cancel_scope:
+            await runner.rebuild('writing')
+
+    assert cancel_scope.cancelled_caught
+    assert trace[-2:] == ['commit-3', 'rollback']
+    assert session.durable_writes() == []
+
+
+async def test_rebuild_teardown_commit_failure_rolls_back(
+    event_store: InMemoryEventStore,
+) -> None:
+    trace: list[str] = []
+    session = FakeSession()
+    projection = _WritingProjection(session, trace)
+    binding = make_binding(_WritingProjection)
+    commit_error = RuntimeError('teardown commit failed')
+    uow = CommitGatedUnitOfWork(session, trace=trace, commit_failures={1: commit_error})
+    lock = AlwaysAcquiredLock()
+    app = _make_app(
+        event_store,
+        CommitGatedCheckpointStore(session),
+        lock,
+        (projection,),
+        (binding,),
+        uow=uow,
+    )
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        with pytest.raises(RuntimeError) as raised:
+            await runner.rebuild('writing')
+
+    assert raised.value is commit_error
+    assert trace == ['commit-1', 'rollback']
+
+
+async def test_rebuild_checkpoint_reset_commit_failure_rolls_back(
+    event_store: InMemoryEventStore,
+) -> None:
+    trace: list[str] = []
+    session = FakeSession()
+    projection = _WritingProjection(session, trace)
+    binding = make_binding(_WritingProjection)
+    commit_error = RuntimeError('checkpoint reset commit failed')
+    uow = CommitGatedUnitOfWork(session, trace=trace, commit_failures={2: commit_error})
+    lock = AlwaysAcquiredLock()
+    app = _make_app(
+        event_store,
+        CommitGatedCheckpointStore(session),
+        lock,
+        (projection,),
+        (binding,),
+        uow=uow,
+    )
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        with pytest.raises(RuntimeError) as raised:
+            await runner.rebuild('writing')
+
+    assert raised.value is commit_error
+    assert trace[-2:] == ['commit-2', 'rollback']
+    assert session.durable_checkpoint('writing') is None
+
+
+@pytest.mark.parametrize('failure_site', ['save', 'commit'])
+async def test_skip_checkpoint_failure_rolls_back(
+    event_store: InMemoryEventStore,
+    failure_site: str,
+) -> None:
+    await seed_events(event_store, count=1)
+    trace: list[str] = []
+    session = FakeSession()
+    checkpoint_error = RuntimeError(f'checkpoint {failure_site} failed')
+    checkpoint_store = CommitGatedCheckpointStore(
+        session,
+        save_failures={2: checkpoint_error} if failure_site == 'save' else None,
+    )
+    uow = CommitGatedUnitOfWork(
+        session,
+        trace=trace,
+        commit_failures={3: checkpoint_error} if failure_site == 'commit' else None,
+    )
+    projection = PoisonProjection(poison_value=0, session=session)
+    binding = make_binding(PoisonProjection, error_policy=ProjectionErrorPolicy.SKIP, batch_size=1)
+    lock = AlwaysAcquiredLock()
+    app = _make_app(event_store, checkpoint_store, lock, (projection,), (binding,), uow=uow)
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        with pytest.raises(RuntimeError) as raised:
+            await runner.rebuild('poison')
+
+    assert raised.value is checkpoint_error
+    assert uow.rollback_count == 2
+    assert session.durable_checkpoint('poison') is not None
 
 
 async def test_poll_loop_retries_transient_failure_and_commits_recovery(

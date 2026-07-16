@@ -1,4 +1,5 @@
 from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, Self, TypeAlias, assert_never, cast, get_args, get_origin, overload
 
 from typing_extensions import override
@@ -46,6 +47,7 @@ from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
 from waku.messaging.endpoints._internal.durable_local_queue import DurableLocalQueueEndpoint
+from waku.messaging.endpoints._internal.execution import EndpointExecutionFactory
 from waku.messaging.endpoints._internal.external import ExternalEndpoint
 from waku.messaging.endpoints._internal.inline import InlineEndpoint
 from waku.messaging.endpoints._internal.listening_agent import create_listening_agent
@@ -59,6 +61,7 @@ from waku.messaging.endpoints.base import (
 )
 from waku.messaging.endpoints.executor import EndpointExecutorFactory
 from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore
+from waku.messaging.errors._internal.replay import IReplayExecution, ReplayExecution
 from waku.messaging.errors._internal.reprocess import ReprocessScopeOpener
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import policies_have_deferred_terminal, policies_need_dead_letter
@@ -206,7 +209,11 @@ class MessagingModule:
         if config.dead_letter is not None:
             # The opener is the PIN-F seam: the scoped executor reprocesses HANDLER-kind entries in
             # fresh request scopes opened from the app container the singleton captures.
-            providers.extend((singleton(ReprocessScopeOpener), scoped(ReplayExecutor)))
+            providers.extend((
+                singleton(ReprocessScopeOpener),
+                scoped(IReplayExecution, ReplayExecution),
+                scoped(ReplayExecutor),
+            ))
         if config.inbox is not None:
             providers.append(object_(config.inbox, provided_type=InboxConfig))
         return tuple(providers)
@@ -445,6 +452,24 @@ def _build_endpoint_executor_factory(
     )
 
 
+def _build_endpoint_execution_factory(
+    container: AsyncContainer,
+    evaluator: ErrorPolicyEvaluator,
+    invoker: HandlerPipelineInvoker,
+    plan: ObserverPlan,
+    config: MessagingConfig,
+    now: Now,
+) -> EndpointExecutionFactory:
+    return EndpointExecutionFactory(
+        container=container,
+        evaluator=evaluator,
+        invoker=invoker,
+        plan=plan,
+        default_execution_timeout=config.endpoint_defaults.execution_timeout,
+        now=now,
+    )
+
+
 def _build_message_type_registry(
     handler_map: HandlerMap,
     config: MessagingConfig,
@@ -524,16 +549,37 @@ def _endpoint_dispatch_alias() -> Provider:
     return provider_
 
 
+@dataclass(frozen=True, slots=True)
+class _EndpointBuildContext:
+    routing_table: RoutingTable
+    container: AsyncContainer
+    executor_factory: EndpointExecutorFactory
+    execution_factory: EndpointExecutionFactory
+    config: MessagingConfig
+    now: Now
+    observer_plan: ObserverPlan
+
+
 def _build_router(
     routing_table: RoutingTable,
     container: AsyncContainer,
     factory: EndpointExecutorFactory,
+    execution_factory: EndpointExecutionFactory,
     config: MessagingConfig,
     now: Now,
     plan: ObserverPlan,
 ) -> MessageRouter:
+    context = _EndpointBuildContext(
+        routing_table=routing_table,
+        container=container,
+        executor_factory=factory,
+        execution_factory=execution_factory,
+        config=config,
+        now=now,
+        observer_plan=plan,
+    )
     endpoints_by_uri = {
-        entry.uri: _build_endpoint(entry, routing_table, container, factory, config, now, plan)
+        entry.uri: _build_endpoint(entry, context)
         for entry in routing_table.entries
         if isinstance(entry, LocalQueueEntry) or entry.send is not None
     }
@@ -548,58 +594,52 @@ def _build_router(
 
 def _build_endpoint(
     entry: MergedBrokerEndpoint | LocalQueueEntry,
-    routing_table: RoutingTable,
-    container: AsyncContainer,
-    factory: EndpointExecutorFactory,
-    config: MessagingConfig,
-    now: Now,
-    plan: ObserverPlan,
+    context: _EndpointBuildContext,
 ) -> Endpoint:
-    observers = plan.for_endpoint(entry.uri)
+    observers = context.observer_plan.for_endpoint(entry.uri)
     if isinstance(entry, MergedBrokerEndpoint):
         return ExternalEndpoint(uri=entry.uri, partition_by=entry.partition_by, observers=observers)
 
-    executor = factory.for_uri(entry.uri)
-    subscriptions = routing_table.endpoint_subscriptions.get(entry.uri, {})
-    effective_mode = _resolve_mode(entry, config)  # resolve MISSING before the match
+    subscriptions = context.routing_table.endpoint_subscriptions.get(entry.uri, {})
+    effective_mode = _resolve_mode(entry, context.config)  # resolve MISSING before the match
     match effective_mode:
         case EndpointMode.INLINE:
             return InlineEndpoint(
                 uri=entry.uri,
                 handler_subscriptions=subscriptions,
-                executor=executor,
+                executor=context.executor_factory.for_uri(entry.uri),
             )
         case EndpointMode.BUFFERED:
             return LocalQueueEndpoint(
                 uri=entry.uri,
                 handler_subscriptions=subscriptions,
-                executor=executor,
+                executor=context.execution_factory.for_uri(entry.uri),
                 observers=observers,
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,
                 max_parallel=entry.max_parallel,
-                max_requeue_attempts=_resolve_max_requeue_attempts(entry, config),
-                circuit_breaker_config=_resolve_circuit_breaker(entry, config),
+                max_requeue_attempts=_resolve_max_requeue_attempts(entry, context.config),
+                circuit_breaker_config=_resolve_circuit_breaker(entry, context.config),
             )
         case EndpointMode.DURABLE:
             # config.inbox is guaranteed present here by _validate_config (a DURABLE local queue
             # requires an inbox). Narrow the type off that single validated invariant rather than
             # re-asserting the business rule a second time.
-            inbox = cast('InboxConfig', config.inbox)
+            inbox = cast('InboxConfig', context.config.inbox)
             return DurableLocalQueueEndpoint(
                 uri=entry.uri,
                 handler_subscriptions=subscriptions,
-                executor=executor,
+                executor=context.execution_factory.for_uri(entry.uri),
                 observers=observers,
-                container=container,
+                container=context.container,
                 inbox_config_keep_after_handled_seconds=inbox.keep_after_handled.total_seconds(),
                 inbox_owner_id=inbox.resolve_owner_id(),
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,
                 partition_by=entry.partition_by,
-                max_requeue_attempts=_resolve_max_requeue_attempts(entry, config),
-                circuit_breaker_config=_resolve_circuit_breaker(entry, config),
-                now=now,
+                max_requeue_attempts=_resolve_max_requeue_attempts(entry, context.config),
+                circuit_breaker_config=_resolve_circuit_breaker(entry, context.config),
+                now=context.now,
             )
         case _:
             assert_never(effective_mode)
@@ -696,6 +736,7 @@ class HandlerMapAggregator(RegistryAggregator['MessagingExtension', HandlerMap])
         evaluator = ErrorPolicyEvaluator(registry=error_policy_registry)
         registry.add_provider(owning_module, object_(evaluator))
         registry.add_provider(owning_module, singleton(EndpointExecutorFactory, _build_endpoint_executor_factory))
+        registry.add_provider(owning_module, singleton(EndpointExecutionFactory, _build_endpoint_execution_factory))
 
         sending_registry = _build_sending_failure_registry(merged, self._config)
         registry.add_provider(owning_module, object_(sending_registry))
@@ -912,7 +953,7 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
         codec = await app.container.get(PayloadCodec)
         type_registry = await app.container.get(MessageTypeRegistry)
         handler_map = await app.container.get(HandlerMap)
-        factory = await app.container.get(EndpointExecutorFactory)
+        factory = await app.container.get(EndpointExecutionFactory)
         for ep in merged:
             if ep.listen is None:
                 continue

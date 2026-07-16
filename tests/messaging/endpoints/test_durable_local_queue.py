@@ -14,7 +14,12 @@ from waku.messages import IEvent
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
 from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.endpoints._internal.durable_local_queue import DurableLocalQueueEndpoint
-from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionResult
+from waku.messaging.endpoints._internal.execution import (
+    ExecutionResult,
+    IEndpointExecution,
+    ResultObserver,
+    noop_result_observer,
+)
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.models import InboxStatus
@@ -73,7 +78,7 @@ class _SecondHandler(EventHandler[_DomainEvent]):
         self.invocations.append(message.kind)
 
 
-class _StubExecutor(EndpointExecutor):
+class _StubExecutor(IEndpointExecution):
     def __init__(
         self,
         *,
@@ -81,7 +86,6 @@ class _StubExecutor(EndpointExecutor):
         exc: Exception | None = None,
         pause_duration: timedelta | None = None,
     ) -> None:
-        # Bypass parent __init__: tests don't exercise real dispatch.
         self.return_value = return_value
         self.exc = exc
         self._pause_duration = pause_duration
@@ -94,16 +98,15 @@ class _StubExecutor(EndpointExecutor):
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
         *,
-        on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
+        on_result: ResultObserver = noop_result_observer,
     ) -> ExecutionResult:
         self.calls += 1
         self.handled.append(handler_type)
-        if on_result is not None:
-            await on_result(self.return_value, self.exc)
+        await on_result(self.return_value, self.exc)
         return ExecutionResult(self.return_value, self._pause_duration)
 
 
-class _PauseOnceExecutor(EndpointExecutor):
+class _PauseOnceExecutor(IEndpointExecution):
     def __init__(self, *, pause_duration: timedelta) -> None:
         # PAUSED (with duration) on the first delivery, SUCCESS on the redelivery.
         self.calls = 0
@@ -115,21 +118,20 @@ class _PauseOnceExecutor(EndpointExecutor):
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
         *,
-        on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
+        on_result: ResultObserver = noop_result_observer,
     ) -> ExecutionResult:
         self.calls += 1
         if self.calls == 1:
             result = ExecutionResult(ExecutionOutcome.PAUSED, self._pause_duration)
         else:
             result = ExecutionResult(ExecutionOutcome.SUCCESS)
-        if on_result is not None:
-            await on_result(result.outcome, None)
+        await on_result(result.outcome, None)
         return result
 
 
-class _RequeueOnceExecutor(EndpointExecutor):
+class _RequeueOnceExecutor(IEndpointExecution):
     def __init__(self) -> None:
-        # Bypass parent __init__: returns REQUEUED on the first delivery, SUCCESS on the redelivery.
+        # Returns REQUEUED on the first delivery, SUCCESS on the redelivery.
         self.calls = 0
 
     @override
@@ -138,12 +140,11 @@ class _RequeueOnceExecutor(EndpointExecutor):
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
         *,
-        on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
+        on_result: ResultObserver = noop_result_observer,
     ) -> ExecutionResult:
         self.calls += 1
         outcome = ExecutionOutcome.REQUEUED if self.calls == 1 else ExecutionOutcome.SUCCESS
-        if on_result is not None:
-            await on_result(outcome, None)
+        await on_result(outcome, None)
         return ExecutionResult(outcome)
 
 
@@ -186,7 +187,7 @@ class _EndpointDepsProvider(Provider):
 
 def _endpoint(  # noqa: PLR0913 -- test helper mirroring DurableLocalQueueEndpoint's config surface
     container: AsyncContainer,
-    executor: EndpointExecutor,
+    executor: IEndpointExecution,
     handlers: frozenset[type[EventHandler[_DomainEvent]]],
     *,
     partition_by: PartitionKeyExtractor | None = None,

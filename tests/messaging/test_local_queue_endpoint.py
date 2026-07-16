@@ -27,8 +27,14 @@ from waku.messaging import (
     RequestHandler,
 )
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
+from waku.messaging.endpoints._internal.execution import (
+    EndpointExecution,
+    ExecutionResult,
+    IEndpointWorkerExecution,
+    ResultObserver,
+    noop_result_observer,
+)
 from waku.messaging.endpoints._internal.local_queue import LocalQueueEndpoint
-from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionResult
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers
 from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
@@ -39,8 +45,6 @@ from tests._wait import wait_until
 from tests.messaging.helpers import NOOP_EVALUATOR, NOOP_OBSERVERS, make_envelope
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
     from pytest_mock import MockerFixture
 
     from waku.messaging.contracts.envelope import MessageEnvelope
@@ -48,8 +52,8 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture
-def noop_executor(mocker: MockerFixture) -> EndpointExecutor:
-    return EndpointExecutor(
+def noop_executor(mocker: MockerFixture) -> EndpointExecution:
+    return EndpointExecution(
         container=mocker.Mock(spec_set=AsyncContainer),
         evaluator=NOOP_EVALUATOR,
         endpoint_uri='test://q',
@@ -59,7 +63,7 @@ def noop_executor(mocker: MockerFixture) -> EndpointExecutor:
 
 
 @pytest.fixture
-def stopped_endpoint(noop_executor: EndpointExecutor) -> LocalQueueEndpoint:
+def stopped_endpoint(noop_executor: EndpointExecution) -> LocalQueueEndpoint:
     return LocalQueueEndpoint(
         uri='test://q',
         handler_subscriptions={},
@@ -168,7 +172,7 @@ class _SentSpy(IMessageObserver):
 class TestLocalQueueOnSent:
     @staticmethod
     async def test_dispatch_fires_on_sent_after_successful_hand_off(
-        noop_executor: EndpointExecutor,
+        noop_executor: EndpointExecution,
         mocker: MockerFixture,
     ) -> None:
         spy = _SentSpy()
@@ -189,7 +193,7 @@ class TestLocalQueueOnSent:
 
     @staticmethod
     async def test_dispatch_to_stopped_endpoint_does_not_fire_on_sent(
-        noop_executor: EndpointExecutor,
+        noop_executor: EndpointExecution,
         mocker: MockerFixture,
     ) -> None:
         spy = _SentSpy()
@@ -265,7 +269,7 @@ class _CbHandler(EventHandler[_CbEvent]):
     async def handle(self, event: _CbEvent, /) -> None: ...
 
 
-class _AlwaysFailStubExecutor(EndpointExecutor):
+class _AlwaysFailStubExecutor(IEndpointWorkerExecution):
     def __init__(self) -> None:
         self.calls = 0
 
@@ -275,12 +279,15 @@ class _AlwaysFailStubExecutor(EndpointExecutor):
         envelope: MessageEnvelope[Any],
         handler_type: HandlerType,
         *,
-        on_result: Callable[[ExecutionOutcome, Exception | None], Awaitable[None]] | None = None,
+        on_result: ResultObserver = noop_result_observer,
     ) -> ExecutionResult:
         self.calls += 1
-        if on_result is not None:
-            await on_result(ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
+        await on_result(ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
         return ExecutionResult(ExecutionOutcome.FAILED_NO_POLICY)
+
+    @override
+    async def write_dead_letter(self, envelope: MessageEnvelope[Any], exc: Exception, attempt: int) -> bool:
+        return True
 
 
 class TestLocalQueueCircuitBreaker:

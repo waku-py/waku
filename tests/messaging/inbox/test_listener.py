@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from typing import ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
 from typing_extensions import override
@@ -14,7 +14,12 @@ from waku.messaging import HandlerMap
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
-from waku.messaging.endpoints.executor import EndpointExecutor, ExecutionResult
+from waku.messaging.endpoints._internal.execution import (
+    ExecutionResult,
+    IEndpointExecution,
+    ResultObserver,
+    noop_result_observer,
+)
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox._internal.listener import InboundListener
@@ -35,6 +40,10 @@ from tests.messaging.helpers import (
     make_envelope,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
+
+if TYPE_CHECKING:
+    from waku.messaging.contracts.envelope import MessageEnvelope
+    from waku.messaging.contracts.handler import HandlerType
 
 
 @dataclass
@@ -90,7 +99,7 @@ class _DepsProvider(Provider):
         return self._allocator
 
 
-class _StubExecutor(EndpointExecutor):
+class _StubExecutor(IEndpointExecution):
     def __init__(self, *, return_value: ExecutionOutcome) -> None:
         self.return_value = return_value
         self.calls = 0
@@ -98,16 +107,16 @@ class _StubExecutor(EndpointExecutor):
     @override
     async def execute(
         self,
-        envelope: object,
-        handler_type: object,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
         *,
-        on_result: object = None,
+        on_result: ResultObserver = noop_result_observer,
     ) -> ExecutionResult:
         self.calls += 1
         return ExecutionResult(outcome=self.return_value, pause_duration=None)
 
 
-def _receiver(container: AsyncContainer, executor: EndpointExecutor) -> DurableInboxReceiver:
+def _receiver(container: AsyncContainer, executor: IEndpointExecution) -> DurableInboxReceiver:
     return DurableInboxReceiver(
         uri='local://test',
         container=container,
@@ -271,12 +280,18 @@ class _FakeSub(Subscription):
         self.events.append('resume')
 
 
-class _BlockingExecutor(EndpointExecutor):
+class _BlockingExecutor(IEndpointExecution):
     def __init__(self, *, release: asyncio.Event) -> None:
         self._release = release
 
     @override
-    async def execute(self, envelope: object, handler_type: object, *, on_result: object = None) -> ExecutionResult:
+    async def execute(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        *,
+        on_result: ResultObserver = noop_result_observer,
+    ) -> ExecutionResult:
         await self._release.wait()
         return ExecutionResult(outcome=ExecutionOutcome.SUCCESS, pause_duration=None)
 
