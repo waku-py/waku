@@ -1,5 +1,5 @@
 [build-system]
-requires = ["uv_build>=0.11.27,<0.12.0"]
+requires = ["uv_build>=0.11.28,<0.12.0"]
 build-backend = "uv_build"
 
 [project]
@@ -84,7 +84,7 @@ typecheck = [
 # ----- UV settings -----
 [tool.uv]
 default-groups = "all"
-required-version = ">=0.11.26"
+required-version = ">=0.11.28"
 override-dependencies = ["click>=8.4.2"]
 
 # ----- Pytest settings -----
