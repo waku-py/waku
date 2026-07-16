@@ -22,7 +22,7 @@ from waku.messaging import (
     TransactionalBehavior,
     external_endpoint,
 )
-from waku.messaging.durability import IInboxStore, IOutboxStore
+from waku.messaging.durability import IDurabilityStore, IInboxStore, IOutboxStore
 from waku.messaging.endpoints._internal.external import ExternalEndpoint
 from waku.messaging.endpoints._internal.merge import MergedBrokerEndpoint
 from waku.messaging.inbox.config import InboxConfig
@@ -32,7 +32,7 @@ from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMappe
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import RecordingTransport, RecordingUoW
+from tests.messaging.helpers import RecordingTransport, RecordingUoW, durability_for_outbox_and_inbox
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
@@ -49,7 +49,11 @@ class _DummyNotifHandler(EventHandler[_Notif]):
 
 
 def _store_providers() -> tuple[Provider, ...]:
-    return (scoped(IOutboxStore, RecordingOutboxStore), scoped(IInboxStore, FakeInboxStore))
+    return (
+        scoped(IOutboxStore, RecordingOutboxStore),
+        scoped(IInboxStore, FakeInboxStore),
+        scoped(IDurabilityStore, durability_for_outbox_and_inbox),
+    )
 
 
 class TestRoutingBranches:

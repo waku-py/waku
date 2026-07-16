@@ -9,6 +9,8 @@ import pytest
 from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
+from waku.backends.memory._internal.outbox import InMemoryOutboxStore
 from waku.di import object_, scoped
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IEvent
@@ -22,7 +24,13 @@ from waku.messaging import (
 )
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
-from waku.messaging.durability import IInboxStore
+from waku.messaging.durability import (
+    DefaultDurabilityStore,
+    IDeadLetterStore,
+    IDurabilityStore,
+    IInboxStore,
+    IOutboxStore,
+)
 from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
 from waku.messaging.endpoints._internal.execution import (
     EndpointExecutionFactory,
@@ -481,6 +489,9 @@ class TestCreateListeningAgent:
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                scoped(IDeadLetterStore, InMemoryDeadLetterStore),
+                scoped(IOutboxStore, InMemoryOutboxStore),
+                scoped(IDurabilityStore, DefaultDurabilityStore),
             ],
         ) as app:
             merged = merge_broker_endpoints([listen(_URI, max_requeue_attempts=3)], inbox_configured=True)[0]
@@ -514,6 +525,9 @@ class TestCreateListeningAgent:
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IInboxStore, FakeInboxStore),
+                scoped(IDeadLetterStore, InMemoryDeadLetterStore),
+                scoped(IOutboxStore, InMemoryOutboxStore),
+                scoped(IDurabilityStore, DefaultDurabilityStore),
             ],
         ) as app:
             merged = merge_broker_endpoints([external_endpoint(_URI)], inbox_configured=True)[0]
@@ -544,6 +558,9 @@ class TestCreateListeningAgent:
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                scoped(IDeadLetterStore, InMemoryDeadLetterStore),
+                scoped(IOutboxStore, InMemoryOutboxStore),
+                scoped(IDurabilityStore, DefaultDurabilityStore),
             ],
         ) as app:
             codec = await app.container.get(PayloadCodec)

@@ -14,18 +14,25 @@ import pytest
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
-from waku.di import object_, provider, scoped
+from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
+from waku.di import object_, provider
+from waku.messages import IEvent
 from waku.messaging import (
     EndpointDefaults,
+    EndpointMode,
+    EventHandler,
+    IOutgoingMessages,
     IRequest,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
     RequestHandler,
+    local_queue,
+    route,
 )
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import DeadLetterConfig
-from waku.messaging.durability import IDeadLetterStore
+from waku.messaging.durability import IDeadLetterStore, IDurabilityStore
 from waku.messaging.endpoints.executor import EndpointExecutor, EndpointExecutorFactory
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
@@ -41,9 +48,12 @@ from tests.messaging.helpers import (
     NOOP_EVALUATOR,
     FailingDeadLetterStore,
     RecordingDeadLetterStore,
+    RecordingDurabilityStore,
     RecordingUoW,
     make_envelope,
 )
+from tests.messaging.inbox.fake_store import FakeInboxStore
+from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -58,6 +68,31 @@ if TYPE_CHECKING:
 @dataclass(frozen=True, slots=True)
 class _FailingCommand(IRequest[None]):
     value: str
+
+
+@dataclass(frozen=True, slots=True)
+class _CascadeEvent(IEvent):
+    value: str
+
+
+class _ScopeProbe: ...
+
+
+class _TracingUoW(RecordingUoW):
+    def __init__(self, trace: list[str], identity: int) -> None:
+        super().__init__()
+        self._trace = trace
+        self.identity = identity
+
+    @override
+    async def commit(self) -> None:
+        self._trace.append(f'commit:{self.identity}')
+        await super().commit()
+
+    @override
+    async def rollback(self) -> None:
+        self._trace.append(f'rollback:{self.identity}')
+        await super().rollback()
 
 
 def _make_fail_n_times_handler(
@@ -145,6 +180,15 @@ class _ActionRecordingUoW(IUnitOfWork):
         self._actions.append('rollback')
         if self._rollback_error is not None:
             raise self._rollback_error
+
+
+def _durability(dead_letters: IDeadLetterStore, unit_of_work: IUnitOfWork) -> RecordingDurabilityStore:
+    return RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=RecordingOutboxStore(),
+        inbox=FakeInboxStore(),
+        dead_letters=dead_letters,
+    )
 
 
 async def _make_executor(
@@ -365,10 +409,11 @@ class TestEndpointExecutorTransactionCleanup:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
             executor = await _make_executor(app, evaluator)
             envelope = make_envelope(_FailingCommand(value='rollback-fail'))
-            with pytest.raises(RuntimeError) as raised:
+            with pytest.raises(TransactionExecutionError) as raised:
                 await executor.execute(envelope, handler)
 
-        assert raised.value is rollback_error
+        assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert raised.value.error is rollback_error
         assert len(calls) == 1
 
     @staticmethod
@@ -401,10 +446,11 @@ class TestEndpointExecutorTransactionCleanup:
         ) as app:
             executor = await _make_executor(app, await app.container.get(ErrorPolicyEvaluator))
             envelope = make_envelope(_FailingCommand(value='timeout-rollback-fail'))
-            with pytest.raises(RuntimeError) as raised:
+            with pytest.raises(TransactionExecutionError) as raised:
                 await executor.execute(envelope, _BlockingHandler, on_result=observer)
 
-        assert raised.value is rollback_error
+        assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert raised.value.error is rollback_error
         assert calls == [1]
         assert actions == ['rollback']
         assert recorded == []
@@ -439,14 +485,121 @@ class TestEndpointExecutorTransactionCleanup:
         ) as app:
             executor = await _make_executor(app, await app.container.get(ErrorPolicyEvaluator))
             envelope = make_envelope(_FailingCommand(value='post-commit-teardown'))
-            with pytest.raises(ExceptionGroup) as raised:
+            with pytest.raises(TransactionExecutionError) as raised:
                 await executor.execute(envelope, _SuccessfulHandler, on_result=observer)
 
-        assert raised.value.exceptions == (teardown_error,)
+        assert raised.value.kind is TransactionFailureKind.AFTER_COMMIT
+        assert isinstance(raised.value.error, ExceptionGroup)
+        assert raised.value.error.exceptions == (teardown_error,)
         assert calls == [1]
         assert uow.commit_count == 1
         assert uow.rollback_count == 0
         assert recorded == []
+
+    @staticmethod
+    async def test_transactional_cascade_flush_uses_fresh_scope_after_origin_exit() -> None:
+        trace: list[str] = []
+        uows: list[IUnitOfWork] = []
+
+        def provide_uow() -> IUnitOfWork:
+            uow = _TracingUoW(trace, len(uows) + 1)
+            uows.append(uow)
+            return uow
+
+        async def provide_probe() -> AsyncIterator[_ScopeProbe]:
+            await anyio.lowlevel.checkpoint()
+            yield _ScopeProbe()
+            trace.append('origin-exit')
+
+        class _OuterHandler(RequestHandler[_FailingCommand, None]):
+            def __init__(self, outgoing: IOutgoingMessages, uow: IUnitOfWork, _probe: _ScopeProbe) -> None:
+                self._outgoing = outgoing
+                self._uow = uow
+
+            @override
+            async def handle(self, request: _FailingCommand, /) -> None:
+                trace.append(f'handler:{uows.index(self._uow) + 1}')
+                self._outgoing.publish(_CascadeEvent(value=request.value))
+
+        class _CascadeHandler(EventHandler[_CascadeEvent]):
+            def __init__(self, uow: IUnitOfWork) -> None:
+                self._uow = uow
+
+            @override
+            async def handle(self, event: _CascadeEvent, /) -> None:
+                trace.append(f'cascade:{uows.index(self._uow) + 1}')
+
+        config = MessagingConfig(
+            endpoints=[local_queue('local://cascade', mode=EndpointMode.INLINE)],
+            routing=[route(_CascadeEvent).to('local://cascade')],
+            global_pipeline_behaviors=[TransactionalBehavior],
+        )
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_OuterHandler).bind(_CascadeHandler)],
+            providers=[
+                provider(provide_uow, provided_type=IUnitOfWork),
+                provider(provide_probe),
+            ],
+        ) as app:
+            executor = await _make_executor(app, await app.container.get(ErrorPolicyEvaluator))
+            result = await executor.execute(make_envelope(_FailingCommand(value='cascade')), _OuterHandler)
+
+        assert result.outcome is ExecutionOutcome.SUCCESS
+        assert trace == ['handler:1', 'commit:1', 'origin-exit', 'cascade:2', 'commit:2']
+        assert uows[0] is not uows[1]
+
+    @staticmethod
+    async def test_fresh_flush_teardown_failure_is_after_commit_without_handler_retry() -> None:
+        calls: list[str] = []
+        teardown_error = RuntimeError('fresh flush scope teardown failed')
+
+        class _OuterHandler(RequestHandler[_FailingCommand, None]):
+            def __init__(self, outgoing: IOutgoingMessages) -> None:
+                self._outgoing = outgoing
+
+            @override
+            async def handle(self, request: _FailingCommand, /) -> None:
+                calls.append('outer')
+                self._outgoing.publish(_CascadeEvent(value=request.value))
+
+        class _CascadeHandler(EventHandler[_CascadeEvent]):
+            def __init__(self, probe: _ScopeProbe) -> None:
+                self._probe = probe
+
+            @override
+            async def handle(self, event: _CascadeEvent, /) -> None:
+                calls.append('cascade')
+
+        async def provide_probe() -> AsyncIterator[_ScopeProbe]:
+            await anyio.lowlevel.checkpoint()
+            yield _ScopeProbe()
+            raise teardown_error
+
+        uow = RecordingUoW()
+        config = MessagingConfig(
+            endpoints=[local_queue('local://cascade', mode=EndpointMode.INLINE)],
+            routing=[route(_CascadeEvent).to('local://cascade')],
+            global_pipeline_behaviors=[TransactionalBehavior],
+            endpoint_defaults=EndpointDefaults(
+                error_policies=(ErrorPolicy.on_any_exception().retry(max_attempts=2).then_discard(),),
+            ),
+        )
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_OuterHandler).bind(_CascadeHandler)],
+            providers=[
+                object_(uow, provided_type=IUnitOfWork),
+                provider(provide_probe),
+            ],
+        ) as app:
+            executor = await _make_executor(app, await app.container.get(ErrorPolicyEvaluator))
+            with pytest.raises(TransactionExecutionError) as raised:
+                await executor.execute(make_envelope(_FailingCommand(value='cascade')), _OuterHandler)
+
+        assert raised.value.kind is TransactionFailureKind.AFTER_COMMIT
+        assert uow.rollback_count == 0
+        assert calls == ['outer', 'cascade']
 
 
 class TestEndpointExecutorDeadLetter:
@@ -464,7 +617,11 @@ class TestEndpointExecutorDeadLetter:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(handler)],
-            providers=[object_(uow, provided_type=IUnitOfWork), object_(dl_store, provided_type=IDeadLetterStore)],
+            providers=[
+                object_(uow, provided_type=IUnitOfWork),
+                object_(dl_store, provided_type=IDeadLetterStore),
+                object_(_durability(dl_store, uow), provided_type=IDurabilityStore),
+            ],
         ) as app:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
             executor = await _make_executor(app, evaluator)
@@ -481,6 +638,7 @@ class TestEndpointExecutorDeadLetter:
     async def test_dead_letter_entry_carries_envelope_wire_name() -> None:
         handler, _ = _make_always_fail_handler()
         dl_store = RecordingDeadLetterStore()
+        uow = RecordingUoW()
 
         config = MessagingConfig(
             endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
@@ -491,8 +649,9 @@ class TestEndpointExecutorDeadLetter:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(handler)],
             providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
+                object_(uow, provided_type=IUnitOfWork),
                 object_(dl_store, provided_type=IDeadLetterStore),
+                object_(_durability(dl_store, uow), provided_type=IDurabilityStore),
             ],
         ) as app:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
@@ -508,6 +667,7 @@ class TestEndpointExecutorDeadLetter:
     @staticmethod
     async def test_dead_letter_write_failure_is_logged_not_raised(caplog: pytest.LogCaptureFixture) -> None:
         uow = RecordingUoW()
+        dead_letters = FailingDeadLetterStore()
 
         config = MessagingConfig(
             endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
@@ -519,7 +679,8 @@ class TestEndpointExecutorDeadLetter:
                 imports=[MessagingModule.register(config)],
                 providers=[
                     object_(uow, provided_type=IUnitOfWork),
-                    scoped(IDeadLetterStore, FailingDeadLetterStore),
+                    object_(dead_letters, provided_type=IDeadLetterStore),
+                    object_(_durability(dead_letters, uow), provided_type=IDurabilityStore),
                 ],
             ) as app:
                 evaluator = await app.container.get(ErrorPolicyEvaluator)
@@ -534,6 +695,8 @@ class TestEndpointExecutorDeadLetter:
     @staticmethod
     async def test_dead_letter_write_failure_returns_failed_outcome() -> None:
         handler, _ = _make_always_fail_handler()
+        dead_letters = FailingDeadLetterStore()
+        uow = RecordingUoW()
         config = MessagingConfig(
             endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
             dead_letter=DeadLetterConfig(),
@@ -543,8 +706,9 @@ class TestEndpointExecutorDeadLetter:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(handler)],
             providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
-                scoped(IDeadLetterStore, FailingDeadLetterStore),
+                object_(uow, provided_type=IUnitOfWork),
+                object_(dead_letters, provided_type=IDeadLetterStore),
+                object_(_durability(dead_letters, uow), provided_type=IDurabilityStore),
             ],
         ) as app:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
@@ -567,7 +731,11 @@ class TestEndpointExecutorDeadLetter:
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
-            providers=[object_(uow, provided_type=IUnitOfWork), object_(dl_store, provided_type=IDeadLetterStore)],
+            providers=[
+                object_(uow, provided_type=IUnitOfWork),
+                object_(dl_store, provided_type=IDeadLetterStore),
+                object_(_durability(dl_store, uow), provided_type=IDurabilityStore),
+            ],
         ) as app:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
             executor = await _make_executor(app, evaluator)
@@ -594,15 +762,20 @@ class TestEndpointExecutorDeadLetter:
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
-            providers=[object_(uow, provided_type=IUnitOfWork), object_(dl_store, provided_type=IDeadLetterStore)],
+            providers=[
+                object_(uow, provided_type=IUnitOfWork),
+                object_(dl_store, provided_type=IDeadLetterStore),
+                object_(_durability(dl_store, uow), provided_type=IDurabilityStore),
+            ],
         ) as app:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
             executor = await _make_executor(app, evaluator)
             envelope = make_envelope(_FailingCommand(value='dlq-rollback-fail'))
-            with pytest.raises(RuntimeError) as caught:
+            with pytest.raises(TransactionExecutionError) as caught:
                 await executor.write_dead_letter(envelope, RuntimeError('handler failed'), 1)
 
-        assert caught.value is rollback_error
+        assert caught.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert caught.value.error is rollback_error
         assert actions == ['save', 'commit', 'rollback']
 
     @staticmethod
@@ -618,7 +791,11 @@ class TestEndpointExecutorDeadLetter:
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
-            providers=[object_(uow, provided_type=IUnitOfWork), object_(dl_store, provided_type=IDeadLetterStore)],
+            providers=[
+                object_(uow, provided_type=IUnitOfWork),
+                object_(dl_store, provided_type=IDeadLetterStore),
+                object_(_durability(dl_store, uow), provided_type=IDurabilityStore),
+            ],
         ) as app:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
             executor = await _make_executor(app, evaluator)
@@ -701,6 +878,7 @@ class TestHandlerExecutionTimeout:
     @staticmethod
     async def test_handler_execution_timeout_overrun_dead_letters() -> None:
         dl_store = RecordingDeadLetterStore()
+        uow = RecordingUoW()
         blocked = anyio.Event()  # never set: the handler stalls until the deadline cancels it
 
         class _BlockingHandler(RequestHandler[_FailingCommand, None]):
@@ -720,8 +898,9 @@ class TestHandlerExecutionTimeout:
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_BlockingHandler)],
             providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
+                object_(uow, provided_type=IUnitOfWork),
                 object_(dl_store, provided_type=IDeadLetterStore),
+                object_(_durability(dl_store, uow), provided_type=IDurabilityStore),
             ],
         ) as app:
             evaluator = await app.container.get(ErrorPolicyEvaluator)

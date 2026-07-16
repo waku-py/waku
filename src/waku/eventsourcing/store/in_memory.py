@@ -3,8 +3,9 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Sequence  # noqa: TC003  # Dishka needs runtime access
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, assert_never
+from typing import TYPE_CHECKING, TypeAlias, assert_never
 
 import anyio
 from typing_extensions import override
@@ -20,7 +21,7 @@ from waku.eventsourcing.exceptions import (
 from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.store.enrichment import enrich_metadata
-from waku.eventsourcing.store.interfaces import IEventStore
+from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventStore, ISnapshotStore
 from waku.eventsourcing.store.version_check import check_expected_version
 from waku.exceptions import ImproperlyConfiguredError
 
@@ -30,9 +31,24 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from waku.eventsourcing.contracts.stream import ExpectedVersion, StreamId
-    from waku.eventsourcing.store.interfaces import ICheckpointStore, ISnapshotStore
+
+    _SnapshotStoreDependency: TypeAlias = ISnapshotStore | None
+    _CheckpointStoreDependency: TypeAlias = ICheckpointStore | None
+else:
+    _SnapshotStoreDependency = ISnapshotStore
+    _CheckpointStoreDependency = ICheckpointStore
 
 __all__ = ['InMemoryEventStore']
+
+
+@dataclass
+class InMemoryEventStoreState:
+    """Mutable state backing one in-memory event store view."""
+
+    streams: dict[str, list[StoredEvent]] = field(default_factory=dict)
+    idempotency_keys: dict[str, set[str]] = field(default_factory=dict)
+    deleted_streams: set[str] = field(default_factory=set)
+    global_position: int = 0
 
 
 # Task-ownership reentrant lock over anyio.Lock (which is non-reentrant). append_to_stream holds the
@@ -63,30 +79,36 @@ class _TaskReentrantLock:
             self._lock.release()
 
 
-class InMemoryEventStore(IEventStore):
+class _InMemoryEventStoreOperations(IEventStore):
+    __slots__ = ('_checkpoints', '_enrichers', '_lock', '_projections', '_registry', '_snapshots')
+
     def __init__(
         self,
         registry: EventTypeRegistry,
         projections: Sequence[IProjection] = (),
         enrichers: Sequence[IMetadataEnricher] = (),
         *,
-        snapshots: ISnapshotStore | None = None,
-        checkpoints: ICheckpointStore | None = None,
+        snapshots: _SnapshotStoreDependency = None,
+        checkpoints: _CheckpointStoreDependency = None,
     ) -> None:
         self._registry = registry
-        self._snapshots = snapshots
-        self._checkpoints = checkpoints
-        self._streams: dict[str, list[StoredEvent]] = {}
-        self._idempotency_keys: dict[str, set[str]] = {}
-        self._deleted_streams: set[str] = set()
-        self._global_position: int = 0
+        self._snapshots: ISnapshotStore | None = snapshots
+        self._checkpoints: ICheckpointStore | None = checkpoints
         self._lock = _TaskReentrantLock()
         self._projections = projections
         self._enrichers = enrichers
 
+    def _get_state(self) -> InMemoryEventStoreState:
+        msg = 'subclasses must provide event-store state'
+        raise NotImplementedError(msg)
+
+    def _require_active_state(self) -> InMemoryEventStoreState:
+        return self._get_state()
+
     @property
     @override
     def snapshots(self) -> ISnapshotStore:
+        self._require_active_state()
         if self._snapshots is None:
             msg = 'InMemoryEventStore was constructed without a snapshots facet; pass snapshots= or wire MemoryBackend'
             raise ImproperlyConfiguredError(msg)
@@ -95,6 +117,7 @@ class InMemoryEventStore(IEventStore):
     @property
     @override
     def checkpoints(self) -> ICheckpointStore:
+        self._require_active_state()
         if self._checkpoints is None:
             msg = (
                 'InMemoryEventStore was constructed without a checkpoints facet; '
@@ -113,10 +136,11 @@ class InMemoryEventStore(IEventStore):
         count: int | None = None,
     ) -> list[StoredEvent]:
         async with self._lock:
+            state = self._get_state()
             key = str(stream_id)
-            if key not in self._streams:
+            if key not in state.streams:
                 raise StreamNotFoundError(stream_id)
-            events = self._streams[key]
+            events = state.streams[key]
             match start:
                 case StreamPosition.START:
                     offset = 0
@@ -134,10 +158,11 @@ class InMemoryEventStore(IEventStore):
     @override
     async def archive_stream(self, stream_id: StreamId, /) -> None:
         async with self._lock:
+            state = self._get_state()
             key = str(stream_id)
-            if key not in self._streams:
+            if key not in state.streams:
                 raise StreamNotFoundError(stream_id)
-            self._deleted_streams.add(key)
+            state.deleted_streams.add(key)
 
     @override
     async def read_all(
@@ -148,9 +173,10 @@ class InMemoryEventStore(IEventStore):
         event_types: Sequence[str] | None = None,
     ) -> list[StoredEvent]:
         async with self._lock:
+            state = self._get_state()
             all_events: list[StoredEvent] = []
-            for key, stream_events in self._streams.items():
-                if key not in self._deleted_streams:
+            for key, stream_events in state.streams.items():
+                if key not in state.deleted_streams:
                     all_events.extend(stream_events)
             all_events.sort(key=lambda e: e.global_position)
 
@@ -167,13 +193,14 @@ class InMemoryEventStore(IEventStore):
     @override
     async def stream_exists(self, stream_id: StreamId, /) -> bool:
         async with self._lock:
+            state = self._get_state()
             key = str(stream_id)
-            return key in self._streams and key not in self._deleted_streams
+            return key in state.streams and key not in state.deleted_streams
 
     @override
     async def global_head_position(self) -> int:
         async with self._lock:
-            return self._global_position - 1
+            return self._get_state().global_position - 1
 
     @override
     async def read_positions(
@@ -183,9 +210,10 @@ class InMemoryEventStore(IEventStore):
         up_to_position: int,
     ) -> list[int]:
         async with self._lock:
+            state = self._get_state()
             positions: list[int] = []
-            for key, stream_events in self._streams.items():
-                if key in self._deleted_streams:
+            for key, stream_events in state.streams.items():
+                if key in state.deleted_streams:
                     continue
                 positions.extend(
                     event.global_position
@@ -208,10 +236,11 @@ class InMemoryEventStore(IEventStore):
         # interleave with an append (mirroring the SQLAlchemy store, which projects inside the
         # append's transaction), while a projection may still read back through the public API.
         async with self._lock:
+            state = self._get_state()
             key = str(stream_id)
-            if key in self._deleted_streams:
+            if key in state.deleted_streams:
                 raise StreamArchivedError(stream_id)
-            stream = self._streams.get(key)
+            stream = state.streams.get(key)
             current_version = len(stream) - 1 if stream is not None else -1
 
             if not events:
@@ -226,7 +255,7 @@ class InMemoryEventStore(IEventStore):
 
             if stream is None:
                 stream = []
-                self._streams[key] = stream
+                state.streams[key] = stream
                 is_new_stream = True
             else:
                 is_new_stream = False
@@ -239,7 +268,7 @@ class InMemoryEventStore(IEventStore):
                     stream_id=stream_id,
                     event_type=self._registry.get_name(type(envelope.domain_event)),
                     position=position,
-                    global_position=self._global_position,
+                    global_position=state.global_position,
                     timestamp=datetime.now(UTC),
                     data=envelope.domain_event,
                     metadata=enrich_metadata(envelope.metadata, self._enrichers),
@@ -248,9 +277,9 @@ class InMemoryEventStore(IEventStore):
                 )
                 stream.append(stored)
                 stored_events.append(stored)
-                self._global_position += 1
+                state.global_position += 1
 
-            stream_keys = self._idempotency_keys.setdefault(key, set())
+            stream_keys = state.idempotency_keys.setdefault(key, set())
             for envelope in events:
                 stream_keys.add(envelope.idempotency_key)
 
@@ -275,18 +304,19 @@ class InMemoryEventStore(IEventStore):
         # Runs under the held store lock. Global positions consumed by the rolled-back events are
         # burned permanently (the counter is never reset), matching the documented burned-position
         # model: real backends burn sequence values on a rolled-back append too.
-        stream = self._streams.get(key)
+        state = self._get_state()
+        stream = state.streams.get(key)
         if stream is not None:
             appended_ids = {e.event_id for e in stored_events}
             stream[:] = [e for e in stream if e.event_id not in appended_ids]
             if is_new_stream and not stream:
-                del self._streams[key]
-        stream_keys = self._idempotency_keys.get(key)
+                del state.streams[key]
+        stream_keys = state.idempotency_keys.get(key)
         if stream_keys is not None:
             for event in stored_events:
                 stream_keys.discard(event.idempotency_key)
             if not stream_keys:
-                del self._idempotency_keys[key]
+                del state.idempotency_keys[key]
 
     def _check_idempotency(
         self,
@@ -299,7 +329,7 @@ class InMemoryEventStore(IEventStore):
         if len(unique_keys) != len(keys):
             raise DuplicateIdempotencyKeyError(stream_id, reason='duplicate keys within batch')
 
-        existing = self._idempotency_keys.get(str(stream_id), set())
+        existing = self._get_state().idempotency_keys.get(str(stream_id), set())
         found = unique_keys & existing
 
         if not found:
@@ -309,3 +339,29 @@ class InMemoryEventStore(IEventStore):
             return current_version
 
         raise PartialDuplicateAppendError(stream_id, len(found), len(keys))
+
+
+class InMemoryEventStore(_InMemoryEventStoreOperations):
+    __slots__ = ('_state',)
+
+    def __init__(
+        self,
+        registry: EventTypeRegistry,
+        projections: Sequence[IProjection] = (),
+        enrichers: Sequence[IMetadataEnricher] = (),
+        *,
+        snapshots: _SnapshotStoreDependency = None,
+        checkpoints: _CheckpointStoreDependency = None,
+    ) -> None:
+        super().__init__(
+            registry,
+            projections,
+            enrichers,
+            snapshots=snapshots,
+            checkpoints=checkpoints,
+        )
+        self._state = InMemoryEventStoreState()
+
+    @override
+    def _get_state(self) -> InMemoryEventStoreState:
+        return self._state

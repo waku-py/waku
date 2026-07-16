@@ -24,7 +24,7 @@ from waku.messaging import (
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging._internal.transaction import CompletedExecutionError
 from waku.messaging.config import DeadLetterConfig, OutboxConfig
-from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
+from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore, IOutboxStore
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.errors._internal.replay import IReplayExecution, ReplayExecution
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
@@ -40,6 +40,7 @@ from waku.uow import IUnitOfWork
 from tests.messaging.helpers import (
     RecordingAllocator,
     RecordingDeadLetterStore,
+    RecordingDurabilityStore,
     RecordingTransport,
     RecordingUoW,
     make_codec,
@@ -106,6 +107,20 @@ class _ReplayStore(RecordingDeadLetterStore):
         if self._entry is None:
             raise KeyError(entry_id)
         return self._entry
+
+
+def _durability(
+    unit_of_work: IUnitOfWork,
+    outbox: IOutboxStore,
+    inbox: IInboxStore,
+    dead_letters: IDeadLetterStore,
+) -> IDurabilityStore:
+    return RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=outbox,
+        inbox=inbox,
+        dead_letters=dead_letters,
+    )
 
 
 class _CheckpointingReplayStore(_ReplayStore):
@@ -256,6 +271,7 @@ async def test_replay_bidirectional_endpoint_dispatches() -> None:
                 object_(dlq_store, provided_type=IDeadLetterStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IOutboxStore, RecordingOutboxStore),
+                scoped(IDurabilityStore, _durability),
             ],
         ) as app,
         app.container() as scope,
@@ -302,7 +318,10 @@ async def test_replay_handler_kind_dispatches_resolved_handler() -> None:
             extensions=[MessagingExtension().bind(_DlqEventHandler)],
             providers=[
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
+                scoped(IOutboxStore, RecordingOutboxStore),
+                scoped(IInboxStore, FakeInboxStore),
                 object_(dlq_store, provided_type=IDeadLetterStore),
+                scoped(IDurabilityStore, _durability),
             ],
         ) as app,
         app.container() as scope,
@@ -342,7 +361,10 @@ async def test_replay_handler_rollback_failure_escapes_instead_of_marking_replay
             extensions=[MessagingExtension().bind(FailingHandler)],
             providers=[
                 object_(RecordingUoW(rollback_error=rollback_error), provided_type=IUnitOfWork),
+                scoped(IOutboxStore, RecordingOutboxStore),
+                scoped(IInboxStore, FakeInboxStore),
                 object_(dlq_store, provided_type=IDeadLetterStore),
+                scoped(IDurabilityStore, _durability),
             ],
         ) as app,
         app.container() as scope,
@@ -360,6 +382,7 @@ async def test_replay_post_commit_scope_teardown_does_not_mark_committed_handler
     calls: list[str] = []
     teardown_error = RuntimeError('request scope teardown failed')
     uow = RecordingUoW()
+    scope_count = 0
 
     class SuccessfulHandler(EventHandler[_DlqEvent]):
         @override
@@ -367,8 +390,11 @@ async def test_replay_post_commit_scope_teardown_does_not_mark_committed_handler
             calls.append(event.value)
 
     async def provide_uow() -> AsyncIterator[IUnitOfWork]:  # noqa: RUF029 -- Dishka async-generator provider
+        nonlocal scope_count
+        scope_count += 1
         yield uow
-        raise teardown_error
+        if scope_count > 1:
+            raise teardown_error
 
     envelope = make_envelope(_DlqEvent('post-commit-teardown'))
     entry = _entry_for(
@@ -388,7 +414,10 @@ async def test_replay_post_commit_scope_teardown_does_not_mark_committed_handler
             extensions=[MessagingExtension().bind(SuccessfulHandler)],
             providers=[
                 provider(provide_uow, provided_type=IUnitOfWork),
+                scoped(IOutboxStore, RecordingOutboxStore),
+                scoped(IInboxStore, FakeInboxStore),
                 object_(dlq_store, provided_type=IDeadLetterStore),
+                scoped(IDurabilityStore, _durability),
             ],
         ) as app,
         app.container() as scope,
@@ -438,7 +467,10 @@ async def test_replay_post_commit_scope_teardown_cancellation_shields_replayed_m
             extensions=[MessagingExtension().bind(SuccessfulHandler)],
             providers=[
                 provider(provide_uow, provided_type=IUnitOfWork),
+                scoped(IOutboxStore, RecordingOutboxStore),
+                scoped(IInboxStore, FakeInboxStore),
                 object_(dlq_store, provided_type=IDeadLetterStore),
+                scoped(IDurabilityStore, _durability),
             ],
         ) as app,
         app.container() as scope,
@@ -460,6 +492,7 @@ async def test_replay_post_commit_mark_failure_remains_fatal_completed_execution
     teardown_error = RuntimeError('request scope teardown failed')
     mark_error = RuntimeError('mark replayed failed')
     uow = RecordingUoW()
+    scope_count = 0
 
     class SuccessfulHandler(EventHandler[_DlqEvent]):
         @override
@@ -467,8 +500,11 @@ async def test_replay_post_commit_mark_failure_remains_fatal_completed_execution
             calls.append(event.value)
 
     async def provide_uow() -> AsyncIterator[IUnitOfWork]:  # noqa: RUF029 -- Dishka async-generator provider
+        nonlocal scope_count
+        scope_count += 1
         yield uow
-        raise teardown_error
+        if scope_count > 1:
+            raise teardown_error
 
     envelope = make_envelope(_DlqEvent('post-commit-mark-failure'))
     entry = _entry_for(
@@ -488,7 +524,10 @@ async def test_replay_post_commit_mark_failure_remains_fatal_completed_execution
             extensions=[MessagingExtension().bind(SuccessfulHandler)],
             providers=[
                 provider(provide_uow, provided_type=IUnitOfWork),
+                scoped(IOutboxStore, RecordingOutboxStore),
+                scoped(IInboxStore, FakeInboxStore),
                 object_(dlq_store, provided_type=IDeadLetterStore),
+                scoped(IDurabilityStore, _durability),
             ],
         ) as app,
         app.container() as scope,

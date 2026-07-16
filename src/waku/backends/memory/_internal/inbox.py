@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -14,13 +14,21 @@ if TYPE_CHECKING:
     from datetime import timedelta
     from uuid import UUID
 
+    from waku.backends.memory._internal.transaction import InMemoryWorkspaceAccessor
     from waku.messaging.errors.dead_letter import DeadLetterEntry
     from waku.messaging.sequence import ISequenceAllocator
 
 __all__ = ['InMemoryInboxStore']
 
 
-class InMemoryInboxStore(IInboxStore):
+@dataclass
+class InMemoryInboxState:
+    """Mutable state backing one in-memory inbox store view."""
+
+    entries: dict[tuple[UUID, str], InboxEntry] = field(default_factory=dict)
+
+
+class _InMemoryInboxStoreOperations(IInboxStore):
     """Faithful in-memory ``IInboxStore`` mirroring ``SqlAlchemyInboxStore``'s observable semantics.
 
     The memory backend's inbox facet: keyed by the composite ``(id, destination)`` so fan-out
@@ -28,11 +36,18 @@ class InMemoryInboxStore(IInboxStore):
     Not thread-safe.
     """
 
-    __slots__ = ('_dead_letters', 'entries')
+    __slots__ = ('_dead_letters',)
 
     def __init__(self, dead_letters: IDeadLetterStore) -> None:
-        self.entries: dict[tuple[UUID, str], InboxEntry] = {}
         self._dead_letters = dead_letters
+
+    def _get_state(self) -> InMemoryInboxState:
+        msg = 'subclasses must provide inbox state'
+        raise NotImplementedError(msg)
+
+    @property
+    def entries(self) -> dict[tuple[UUID, str], InboxEntry]:
+        return self._get_state().entries
 
     @override
     async def store_incoming(self, entry: InboxEntry) -> bool:
@@ -59,7 +74,7 @@ class InMemoryInboxStore(IInboxStore):
     @override
     async def move_to_dead_letter(self, entry_id: UUID, destination: str, dead_letter: DeadLetterEntry) -> None:
         # Mirror the SQLAlchemy peer's atomic delete+insert: the entry lands in the SHARED dead-letter
-        # store (the singleton the worker/replay read), not in inbox-local state.
+        # facet from this transaction workspace, not in inbox-local state.
         self.entries.pop((entry_id, destination), None)
         await self._dead_letters.save(dead_letter)
 
@@ -155,3 +170,28 @@ class InMemoryInboxStore(IInboxStore):
         for key, entry in due:
             self.entries[key] = replace(entry, status=InboxStatus.INCOMING, sequence_number=sequence_by_id[entry.id])
         return len(due)
+
+
+class InMemoryInboxStore(_InMemoryInboxStoreOperations):
+    __slots__ = ('_state',)
+
+    def __init__(self, dead_letters: IDeadLetterStore) -> None:
+        super().__init__(dead_letters)
+        self._state = InMemoryInboxState()
+
+    @override
+    def _get_state(self) -> InMemoryInboxState:
+        return self._state
+
+
+class WorkspaceInboxStore(_InMemoryInboxStoreOperations):
+    __slots__ = ('_accessor',)
+
+    def __init__(self, dead_letters: IDeadLetterStore, accessor: InMemoryWorkspaceAccessor) -> None:
+        accessor.ensure_active()
+        super().__init__(dead_letters)
+        self._accessor = accessor
+
+    @override
+    def _get_state(self) -> InMemoryInboxState:
+        return self._accessor.select(lambda state: state.inbox)

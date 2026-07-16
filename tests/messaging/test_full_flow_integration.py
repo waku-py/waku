@@ -35,7 +35,7 @@ from waku.messaging import (
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import message_context_scope
 from waku.messaging.contracts.pipeline import CallNext, IPipelineBehavior
-from waku.messaging.durability import IDeadLetterStore, IOutboxStore
+from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IOutboxStore
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
@@ -53,6 +53,8 @@ from tests.messaging.helpers import (
     RecordingTransport,
     RecordingUoW,
     RelayDepsProvider,
+    durability_for_dead_letters,
+    durability_for_outbox,
     make_codec,
     make_envelope,
     make_relay_evaluator,
@@ -116,7 +118,9 @@ class TestEndToEndOutboxFlow:
                 imports=[MessagingModule.register(config), TestModule],
                 providers=[
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
+                    scoped(IDeadLetterStore, InMemoryDeadLetterStore),
                     scoped(IOutboxStore, InMemoryOutboxStore),
+                    scoped(IDurabilityStore, durability_for_outbox),
                 ],
             ) as app,
             app.container() as c,
@@ -168,6 +172,7 @@ class TestErrorPolicyIntegration:
                 providers=[
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(dl_store, provided_type=IDeadLetterStore),
+                    scoped(IDurabilityStore, durability_for_dead_letters),
                 ],
             ) as app,
             app.container() as c,
@@ -210,6 +215,7 @@ class TestOutboxRelayLifecycleIntegration:
                 providers=[
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(outbox, provided_type=IOutboxStore),
+                    scoped(IDurabilityStore, durability_for_outbox),
                 ],
             ) as app,
             app.container() as c,
@@ -290,7 +296,11 @@ class TestTransportStartupOrdering:
 
         async with create_test_app(
             imports=[MessagingModule.register(config), TestModule],
-            providers=[object_(RecordingUoW(), provided_type=IUnitOfWork), object_(outbox, provided_type=IOutboxStore)],
+            providers=[
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
+                object_(outbox, provided_type=IOutboxStore),
+                scoped(IDurabilityStore, durability_for_outbox),
+            ],
         ):
             await wait_until(lambda: len(transport.sent) == 1)
 
@@ -320,6 +330,7 @@ class TestMessageIdentityPropagation:
                 providers=[
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(store, provided_type=IOutboxStore),
+                    scoped(IDurabilityStore, durability_for_outbox),
                 ],
             ) as app,
             app.container() as c,
@@ -350,6 +361,7 @@ class TestMessageIdentityPropagation:
                 providers=[
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(store, provided_type=IOutboxStore),
+                    scoped(IDurabilityStore, durability_for_outbox),
                 ],
             ) as app,
             app.container() as c,
@@ -569,6 +581,7 @@ class TestGroupIdPropagation:
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     object_(outbox, provided_type=IOutboxStore),
+                    scoped(IDurabilityStore, durability_for_outbox),
                 ],
             ) as app,
             app.container() as c,
@@ -611,6 +624,7 @@ class TestPartitionOrderingEndToEnd:
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     object_(outbox, provided_type=IOutboxStore),
+                    scoped(IDurabilityStore, durability_for_outbox),
                 ],
             ) as app,
             app.container() as c,
@@ -663,6 +677,7 @@ class TestMultiDestinationFanOut:
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     object_(outbox, provided_type=IOutboxStore),
+                    scoped(IDurabilityStore, durability_for_outbox),
                 ],
             ) as app,
             app.container() as c,

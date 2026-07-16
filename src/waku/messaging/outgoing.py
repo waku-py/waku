@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, TypeAlias
 
 from typing_extensions import override
 
@@ -28,6 +28,9 @@ class PendingMessage:
     action: Action
 
 
+DeferredCascadeBatch: TypeAlias = tuple[PendingMessage, ...]
+
+
 class IOutgoingMessages(Protocol):
     """Handler-facing collector for cascading messages.
 
@@ -48,8 +51,7 @@ class IOutgoingMessagesFrames(Protocol):
     """Framework-internal frame lifecycle + deferred-bucket API.
 
     Consumed by the cascade family: ``DeferredCascadingBehavior`` (outer) owns the
-    frame (push/pop/discard around pipeline dispatch) and calls ``drain_deferred`` to
-    flush non-durable legs post-commit; ``OutboxCascadingBehavior`` (inner) calls
+    frame (push/pop/discard around pipeline dispatch); ``OutboxCascadingBehavior`` (inner) calls
     ``drain_current_frame``, dispatches each cascade's outbox-backed destinations
     pre-commit, and calls ``defer`` for cascades that also (or only) resolve to
     non-durable destinations. NOT exported from ``waku.messaging`` — handler authors
@@ -61,7 +63,7 @@ class IOutgoingMessagesFrames(Protocol):
     def discard_frame(self) -> None: ...
     def drain_current_frame(self) -> list[PendingMessage]: ...
     def defer(self, messages: Sequence[PendingMessage], /) -> None: ...
-    def drain_deferred(self) -> list[PendingMessage]: ...
+    def detach_deferred(self) -> DeferredCascadeBatch: ...
 
     @property
     def pending(self) -> Sequence[PendingMessage]: ...
@@ -140,11 +142,11 @@ class OutgoingMessages(IOutgoingMessages, IOutgoingMessagesFrames):
         self._deferred.extend(messages)
 
     @override
-    def drain_deferred(self) -> list[PendingMessage]:
-        """Return + clear the deferred bucket. Called by ``DeferredCascadingBehavior``."""
-        drained = list(self._deferred)
+    def detach_deferred(self) -> DeferredCascadeBatch:
+        """Detach an immutable FIFO batch and clear the scoped deferred bucket."""
+        detached = tuple(self._deferred)
         self._deferred.clear()
-        return drained
+        return detached
 
     @property
     @override

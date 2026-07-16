@@ -13,7 +13,7 @@ from faststream.rabbit import TestRabbitBroker
 from waku import module
 from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.backends.memory._internal.outbox import InMemoryOutboxStore
-from waku.di import object_
+from waku.di import object_, scoped
 from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
@@ -26,7 +26,7 @@ from waku.messaging import (
     external_endpoint,
     route,
 )
-from waku.messaging.durability import IInboxStore, IOutboxStore
+from waku.messaging.durability import IDurabilityStore, IInboxStore, IOutboxStore
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.router import listen
@@ -36,7 +36,7 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import RecordingAllocator, RecordingUoW
+from tests.messaging.helpers import RecordingAllocator, RecordingUoW, durability_for_outbox_and_inbox
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -81,6 +81,7 @@ class TestTransportCollectionIntegration:
                     object_(outbox, provided_type=IOutboxStore),
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                    scoped(IDurabilityStore, durability_for_outbox_and_inbox),
                 ],
             ) as app,
             app.container() as c,

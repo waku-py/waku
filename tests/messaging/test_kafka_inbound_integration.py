@@ -10,7 +10,7 @@ pytest.importorskip('faststream.kafka')
 from faststream.kafka import KafkaBroker, TestKafkaBroker
 
 from waku._internal.retort import default_retort
-from waku.di import object_
+from waku.di import object_, scoped
 from waku.messages import IEvent
 from waku.messaging import (
     InboxConfig,
@@ -19,7 +19,7 @@ from waku.messaging import (
     MessagingModule,
     TransactionalBehavior,
 )
-from waku.messaging.durability import IInboxStore
+from waku.messaging.durability import IDurabilityStore, IInboxStore
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.router import listen
@@ -32,7 +32,7 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import RecordingAllocator, RecordingUoW, make_envelope
+from tests.messaging.helpers import RecordingAllocator, RecordingUoW, durability_for_inbox, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -77,6 +77,7 @@ class TestKafkaInboundIntegration:
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                    scoped(IDurabilityStore, durability_for_inbox),
                 ],
             ),
         ):

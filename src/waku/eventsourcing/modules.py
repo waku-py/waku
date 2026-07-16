@@ -182,7 +182,7 @@ class _ForwardingValidationExtension(OnContainerBuilt):
             store = await scope.get(IEventStore)
             if not store.records_appended_events:
                 msg = (
-                    f'forwarding=[...] is configured against {type(store).__name__}, which does not record '
+                    'forwarding=[...] is configured against a non-recording event store, which does not record '
                     'appended events, so every forwarded event is silently dropped. Use a recording event '
                     'store (e.g. SqlAlchemyEventStore via make_sqlalchemy_event_store).'
                 )

@@ -4,12 +4,12 @@ import pytest
 from typing_extensions import override
 
 from waku._internal.sentinel import MISSING
-from waku.di import object_, scoped
+from waku.di import object_
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IMessage
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
 from waku.messaging.config import MessagingConfig
-from waku.messaging.durability import IInboxStore
+from waku.messaging.durability import IDurabilityStore, IInboxStore
 from waku.messaging.inbox.backpressure import BufferingLimits
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.modules import MessagingModule
@@ -20,8 +20,24 @@ from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMappe
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import RecordingAllocator, RecordingUoW, StubSubscription
+from tests.messaging.helpers import (
+    RecordingAllocator,
+    RecordingDeadLetterStore,
+    RecordingDurabilityStore,
+    RecordingUoW,
+    StubSubscription,
+)
 from tests.messaging.inbox.fake_store import FakeInboxStore
+from tests.messaging.outbox.fake_store import RecordingOutboxStore
+
+
+def _durability(inbox: IInboxStore, unit_of_work: IUnitOfWork) -> RecordingDurabilityStore:
+    return RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=RecordingOutboxStore(),
+        inbox=inbox,
+        dead_letters=RecordingDeadLetterStore(),
+    )
 
 
 class _StubTransport(ITransport):
@@ -86,6 +102,8 @@ def test_listen_carries_backpressure_and_circuit_breaker() -> None:
 
 
 async def test_consumer_boots_with_backpressure_and_circuit_breaker() -> None:
+    unit_of_work = RecordingUoW()
+    inbox = FakeInboxStore()
     config = MessagingConfig(
         endpoints=[
             listen(
@@ -100,15 +118,18 @@ async def test_consumer_boots_with_backpressure_and_circuit_breaker() -> None:
     async with create_test_app(
         imports=[MessagingModule.register(config)],
         providers=[
-            object_(RecordingUoW(), provided_type=IUnitOfWork),
+            object_(unit_of_work, provided_type=IUnitOfWork),
             object_(RecordingAllocator(), provided_type=ISequenceAllocator),
-            scoped(IInboxStore, FakeInboxStore),
+            object_(inbox, provided_type=IInboxStore),
+            object_(_durability(inbox, unit_of_work), provided_type=IDurabilityStore),
         ],
     ):
         pass  # wiring builds the listener gate + inbound breaker without error
 
 
 async def test_inbound_partition_by_without_allocator_raises_at_startup() -> None:
+    inbox = FakeInboxStore()
+    unit_of_work = RecordingUoW()
     config = MessagingConfig(
         endpoints=[listen('orders', partition_by=_partition_key)],
         inbox=InboxConfig(owner_id='test-node:1'),
@@ -117,6 +138,10 @@ async def test_inbound_partition_by_without_allocator_raises_at_startup() -> Non
     with pytest.raises(ImproperlyConfiguredError, match='ISequenceAllocator'):
         async with create_test_app(
             imports=[MessagingModule.register(config)],
-            providers=[object_(RecordingUoW(), provided_type=IUnitOfWork), scoped(IInboxStore, FakeInboxStore)],
+            providers=[
+                object_(unit_of_work, provided_type=IUnitOfWork),
+                object_(inbox, provided_type=IInboxStore),
+                object_(_durability(inbox, unit_of_work), provided_type=IDurabilityStore),
+            ],
         ):
             pass  # pragma: no cover

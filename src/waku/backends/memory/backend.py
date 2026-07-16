@@ -9,19 +9,26 @@ from typing_extensions import override
 from waku._internal.clock import Now
 from waku._internal.lease import ILease, InMemoryLease
 from waku._internal.provider_scan import provided_type_hints
-from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
-from waku.backends.memory._internal.inbox import InMemoryInboxStore
-from waku.backends.memory._internal.outbox import InMemoryOutboxStore
-from waku.backends.memory._internal.sequence import InMemorySequenceAllocator
+from waku.backends.memory._internal.dead_letter import WorkspaceDeadLetterStore
+from waku.backends.memory._internal.eventsourcing import (
+    WorkspaceCheckpointStore,
+    WorkspaceEventStore,
+    WorkspaceSnapshotStore,
+)
+from waku.backends.memory._internal.inbox import WorkspaceInboxStore
+from waku.backends.memory._internal.outbox import WorkspaceOutboxStore
+from waku.backends.memory._internal.sequence import WorkspaceSequenceAllocator
+from waku.backends.memory._internal.transaction import (
+    InMemoryCommittedState,
+    InMemoryTransactionWorkspace,
+    provide_in_memory_transaction_workspace,
+)
 from waku.backends.memory._internal.uow import InMemoryUnitOfWork
 from waku.di import Has, Marker, activator, scoped, singleton
 from waku.eventsourcing.contracts.event import IMetadataEnricher
 from waku.eventsourcing.modules import EventSourcingConfig
-from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
 from waku.eventsourcing.projection.interfaces import IProjection
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
-from waku.eventsourcing.snapshot.in_memory import InMemorySnapshotStore
-from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventStore, ISnapshotStore
 from waku.exceptions import ImproperlyConfiguredError
 from waku.extensions import OnModuleRegistration
@@ -88,25 +95,58 @@ def _build_in_memory_event_store(
     checkpoints: ICheckpointStore,
     projections: Sequence[IProjection],
     enrichers: Sequence[IMetadataEnricher],
+    workspace: InMemoryTransactionWorkspace,
 ) -> IEventStore:
-    # Factory function so dishka introspects this signature, not the class __init__ (whose optional
-    # facet params carry union types dishka would eagerly require).
-    return InMemoryEventStore(registry, projections, enrichers, snapshots=snapshots, checkpoints=checkpoints)
+    return WorkspaceEventStore(
+        workspace.accessor,
+        registry,
+        projections,
+        enrichers,
+        snapshots=snapshots,
+        checkpoints=checkpoints,
+    )
+
+
+def _build_in_memory_dead_letter_store(workspace: InMemoryTransactionWorkspace) -> IDeadLetterStore:
+    return WorkspaceDeadLetterStore(workspace.accessor)
+
+
+def _build_in_memory_outbox_store(
+    dead_letters: IDeadLetterStore,
+    workspace: InMemoryTransactionWorkspace,
+) -> IOutboxStore:
+    return WorkspaceOutboxStore(dead_letters, workspace.accessor)
+
+
+def _build_in_memory_inbox_store(
+    dead_letters: IDeadLetterStore,
+    workspace: InMemoryTransactionWorkspace,
+) -> IInboxStore:
+    return WorkspaceInboxStore(dead_letters, workspace.accessor)
+
+
+def _build_in_memory_sequence_allocator(workspace: InMemoryTransactionWorkspace) -> ISequenceAllocator:
+    return WorkspaceSequenceAllocator(workspace.accessor)
+
+
+def _build_in_memory_snapshot_store(workspace: InMemoryTransactionWorkspace) -> ISnapshotStore:
+    return WorkspaceSnapshotStore(workspace.accessor)
+
+
+def _build_in_memory_checkpoint_store(workspace: InMemoryTransactionWorkspace) -> ICheckpointStore:
+    return WorkspaceCheckpointStore(workspace.accessor)
 
 
 @module()
 class MemoryBackend:
-    """Whole-app in-memory durability backend: a wiring stub for examples, quickstarts, and app-level tests.
+    """Whole-app in-memory durability backend for examples, quickstarts, and app-level tests.
 
-    Provides in-memory store objects for both subsystems plus a no-op committer — NOT a replacement
-    for per-store fakes in unit/contract tests (those stay per-store provider overrides). Never
-    register it alongside another backend in one app: two providers for one store port fail the
-    container build.
+    Store facets in one scope share a staged snapshot of app-lifetime committed state. The scoped
+    unit of work atomically publishes or discards that composite snapshot. Directly constructed
+    stores remain isolated adapters for unit and port-contract tests.
 
-    Event-sourcing data is request-scope-local: the `IEventStore` facet is `scoped` because it
-    injects the request-scoped projection/enricher collectors, so each scope gets a fresh
-    `InMemoryEventStore`. The durable-messaging facets (outbox/inbox/DLQ/sequence) are singletons
-    and DO survive across scopes. Multi-scope ES read-back needs the SQLAlchemy backend.
+    Never register this backend alongside another backend in one app: two providers for one store
+    port fail the container build.
     """
 
     @classmethod
@@ -114,15 +154,15 @@ class MemoryBackend:
         return DynamicModule(
             parent_module=cls,
             providers=[
+                singleton(InMemoryCommittedState),
+                scoped(InMemoryTransactionWorkspace, provide_in_memory_transaction_workspace),
                 scoped(IUnitOfWork, InMemoryUnitOfWork),
-                # Store state is app-lifetime (the store IS the "database"), so facet stores are
-                # singletons — durable rows must survive across request scopes (relay/drainer polls).
-                singleton(IOutboxStore, InMemoryOutboxStore),
-                singleton(IInboxStore, InMemoryInboxStore),
-                singleton(IDeadLetterStore, InMemoryDeadLetterStore),
-                singleton(ISequenceAllocator, InMemorySequenceAllocator),
-                singleton(ISnapshotStore, InMemorySnapshotStore),
-                singleton(ICheckpointStore, InMemoryCheckpointStore),
+                scoped(IOutboxStore, _build_in_memory_outbox_store),
+                scoped(IInboxStore, _build_in_memory_inbox_store),
+                scoped(IDeadLetterStore, _build_in_memory_dead_letter_store),
+                scoped(ISequenceAllocator, _build_in_memory_sequence_allocator),
+                scoped(ISnapshotStore, _build_in_memory_snapshot_store),
+                scoped(ICheckpointStore, _build_in_memory_checkpoint_store),
                 # The two composites are the only gated providers (gate budget = 2).
                 scoped(IDurabilityStore, DefaultDurabilityStore, when=Has(MessagingConfig)),
                 scoped(IEventStore, _build_in_memory_event_store, when=Has(EventSourcingConfig)),

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,6 +10,7 @@ import pytest
 from typing_extensions import override
 
 from waku import UnexpectedRollbackError, module
+from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
 from waku.di import object_
 from waku.exceptions import ImproperlyConfiguredError
 from waku.factory import ContainerConfig, WakuFactory
@@ -97,30 +97,28 @@ class TestTransactionalBehavior:
         assert uow.rolled_back
 
     @staticmethod
-    async def test_logs_and_reraises_when_rollback_fails_after_handler_error(caplog: Any) -> None:
+    async def test_rollback_failure_after_handler_error_is_fatal() -> None:
         uow = RecordingUoW(rollback_error=RuntimeError('rollback exploded'))
         behavior = TransactionalBehavior(uow, TransactionDepth())
 
-        with (
-            caplog.at_level(logging.ERROR, logger='waku._internal.transaction'),
-            pytest.raises(ValueError, match='handler broke'),
-        ):
+        with pytest.raises(TransactionExecutionError) as caught:
             await behavior.handle('msg', call_next=_fail)
 
-        assert 'Rollback failed' in caplog.text
+        assert caught.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert str(caught.value.error) == 'rollback exploded'
+        assert isinstance(caught.value.primary_error, ValueError)
 
     @staticmethod
-    async def test_logs_and_reraises_when_rollback_fails_after_commit_error(caplog: Any) -> None:
+    async def test_rollback_failure_after_commit_error_is_fatal() -> None:
         uow = RecordingUoW(commit_error=RuntimeError('commit boom'), rollback_error=OSError('rollback boom'))
         behavior = TransactionalBehavior(uow, TransactionDepth())
 
-        with (
-            caplog.at_level(logging.ERROR, logger='waku._internal.transaction'),
-            pytest.raises(RuntimeError, match='commit boom'),
-        ):
+        with pytest.raises(TransactionExecutionError) as caught:
             await behavior.handle('msg', call_next=_ok)
 
-        assert 'Rollback failed' in caplog.text
+        assert caught.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert str(caught.value.error) == 'rollback boom'
+        assert isinstance(caught.value.primary_error, RuntimeError)
 
 
 class TestNestingAwareTransactional:
@@ -192,6 +190,36 @@ class TestNestingAwareTransactional:
         assert raised.value.__cause__ is first_error
         assert uow.commit_count == 0
         assert uow.rollback_count == 1
+
+    @staticmethod
+    async def test_rollback_only_failure_keeps_one_unexpected_rollback_with_first_nested_cause() -> None:
+        rollback_error = RuntimeError('rollback exploded')
+        uow = RecordingUoW(rollback_error=rollback_error)
+        depth = TransactionDepth()
+        outer = TransactionalBehavior(uow, depth)
+        inner = TransactionalBehavior(uow, depth)
+        first_error = ValueError('first failed')
+        second_error = ValueError('second failed')
+
+        async def fail_first() -> None:  # noqa: RUF029
+            raise first_error
+
+        async def fail_second() -> None:  # noqa: RUF029
+            raise second_error
+
+        async def swallow_both_failures() -> None:
+            with contextlib.suppress(ValueError):
+                await inner.handle('first', call_next=fail_first)
+            with contextlib.suppress(ValueError):
+                await inner.handle('second', call_next=fail_second)
+
+        with pytest.raises(TransactionExecutionError) as raised:
+            await outer.handle('outer', call_next=swallow_both_failures)
+
+        assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert raised.value.error is rollback_error
+        assert isinstance(raised.value.primary_error, UnexpectedRollbackError)
+        assert raised.value.primary_error.__cause__ is first_error
 
     @staticmethod
     async def test_swallowed_nested_control_flow_is_reraised_by_identity() -> None:

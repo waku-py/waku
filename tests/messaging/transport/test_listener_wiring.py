@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from typing_extensions import override
 
+from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.backends.memory._internal.outbox import InMemoryOutboxStore
 from waku.di import object_, scoped, singleton
 from waku.messages import IEvent
@@ -17,7 +18,13 @@ from waku.messaging import (
     OutboxConfig,
     TransactionalBehavior,
 )
-from waku.messaging.durability import IInboxStore, IOutboxStore
+from waku.messaging.durability import (
+    DefaultDurabilityStore,
+    IDeadLetterStore,
+    IDurabilityStore,
+    IInboxStore,
+    IOutboxStore,
+)
 from waku.messaging.endpoints.base import BrokerEndpointEntry
 from waku.messaging.handler import EventHandler
 from waku.messaging.router import external_endpoint, listen
@@ -108,8 +115,10 @@ class TestListenerMapperOverrideWiring:
             providers=[
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                scoped(IDeadLetterStore, InMemoryDeadLetterStore),
                 scoped(IOutboxStore, InMemoryOutboxStore),
                 scoped(IInboxStore, FakeInboxStore),
+                scoped(IDurabilityStore, DefaultDurabilityStore),
             ],
         ):
             pass
@@ -133,8 +142,10 @@ class TestListenerMapperOverrideWiring:
             providers=[
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                scoped(IDeadLetterStore, InMemoryDeadLetterStore),
                 scoped(IOutboxStore, InMemoryOutboxStore),
                 scoped(IInboxStore, FakeInboxStore),
+                scoped(IDurabilityStore, DefaultDurabilityStore),
             ],
         ):
             pass
@@ -170,8 +181,10 @@ class TestBidirectionalEndpointMapperInheritance:
             providers=[
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                scoped(IDeadLetterStore, InMemoryDeadLetterStore),
                 scoped(IOutboxStore, InMemoryOutboxStore),
                 scoped(IInboxStore, FakeInboxStore),
+                scoped(IDurabilityStore, DefaultDurabilityStore),
             ],
         ):
             pass
@@ -201,6 +214,9 @@ class TestListenerObserverWiring:
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                scoped(IDeadLetterStore, InMemoryDeadLetterStore),
+                scoped(IOutboxStore, InMemoryOutboxStore),
+                scoped(IDurabilityStore, DefaultDurabilityStore),
                 singleton(_EndpointSink),
             ],
         ) as app:

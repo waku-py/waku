@@ -9,6 +9,7 @@ import anyio
 import pytest
 from typing_extensions import override
 
+from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
 from waku.di import object_, scoped
 from waku.messages import IEvent
 from waku.messaging import (
@@ -27,13 +28,14 @@ from waku.messaging import (
     local_queue,
     route,
 )
-from waku.messaging.durability import IOutboxStore
+from waku.messaging.durability import IDurabilityStore, IOutboxStore
 from waku.messaging.endpoints import EndpointEntry
 from waku.messaging.endpoints._internal.local_queue import LocalQueueEndpoint
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import RecordingTransport, RecordingUoW
+from tests.messaging.helpers import RecordingDeadLetterStore, RecordingDurabilityStore, RecordingTransport, RecordingUoW
+from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 if TYPE_CHECKING:
@@ -93,6 +95,15 @@ class _FailingOutboxStore(RecordingOutboxStore):
 
 def _fresh_uow() -> RecordingUoW:
     return RecordingUoW()
+
+
+def _durability(unit_of_work: IUnitOfWork, outbox: IOutboxStore) -> IDurabilityStore:
+    return RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=outbox,
+        inbox=FakeInboxStore(),
+        dead_letters=RecordingDeadLetterStore(),
+    )
 
 
 def _config(*, mixed: bool = False) -> MessagingConfig:
@@ -241,6 +252,7 @@ class TestOutboxCascadingPerDestination:
                 providers=[
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(outbox, provided_type=IOutboxStore),
+                    scoped(IDurabilityStore, _durability),
                 ],
             ) as app,
             app.container() as container,
@@ -281,6 +293,7 @@ class TestOutboxCascadingPerDestination:
                 providers=[
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(outbox, provided_type=IOutboxStore),
+                    scoped(IDurabilityStore, _durability),
                 ],
             ) as app,
             app.container() as container,
@@ -321,7 +334,11 @@ class TestOutboxCascadingPerDestination:
                 extensions=[
                     MessagingExtension().bind(FailingHandler).bind(_NoopShippedHandler).bind(LoggedHandler),
                 ],
-                providers=[object_(uow, provided_type=IUnitOfWork), object_(outbox, provided_type=IOutboxStore)],
+                providers=[
+                    object_(uow, provided_type=IUnitOfWork),
+                    object_(outbox, provided_type=IOutboxStore),
+                    scoped(IDurabilityStore, _durability),
+                ],
             ) as app,
             app.container() as container,
         ):
@@ -359,7 +376,11 @@ class TestOutboxCascadingPerDestination:
                 extensions=[
                     MessagingExtension().bind(PlaceOrderHandler).bind(_NoopShippedHandler).bind(LoggedHandler),
                 ],
-                providers=[object_(uow, provided_type=IUnitOfWork), object_(outbox, provided_type=IOutboxStore)],
+                providers=[
+                    object_(uow, provided_type=IUnitOfWork),
+                    object_(outbox, provided_type=IOutboxStore),
+                    scoped(IDurabilityStore, _durability),
+                ],
             ) as app,
             app.container() as container,
         ):
@@ -406,7 +427,11 @@ class TestMixedDurabilityCascade:
                 ],
                 # A FRESH UoW per scope: the shared-instance pattern would let the background
                 # outbox relay's commits pollute the `committed` flag this test observes.
-                providers=[scoped(IUnitOfWork, _fresh_uow), object_(outbox, provided_type=IOutboxStore)],
+                providers=[
+                    scoped(IUnitOfWork, _fresh_uow),
+                    object_(outbox, provided_type=IOutboxStore),
+                    scoped(IDurabilityStore, _durability),
+                ],
             ) as app,
             app.container() as container,
         ):
@@ -449,7 +474,11 @@ class TestMixedDurabilityCascade:
                     .bind(_NoopLoggedHandler)
                     .bind(MixedHandler),
                 ],
-                providers=[object_(uow, provided_type=IUnitOfWork), object_(outbox, provided_type=IOutboxStore)],
+                providers=[
+                    object_(uow, provided_type=IUnitOfWork),
+                    object_(outbox, provided_type=IOutboxStore),
+                    scoped(IDurabilityStore, _durability),
+                ],
             ) as app,
             app.container() as container,
         ):
@@ -493,7 +522,11 @@ class TestMixedDurabilityCascade:
                     .bind(_NoopLoggedHandler)
                     .bind(MixedHandler),
                 ],
-                providers=[object_(uow, provided_type=IUnitOfWork), object_(outbox, provided_type=IOutboxStore)],
+                providers=[
+                    object_(uow, provided_type=IUnitOfWork),
+                    object_(outbox, provided_type=IOutboxStore),
+                    scoped(IDurabilityStore, _durability),
+                ],
             ) as app,
             app.container() as container,
         ):
@@ -534,6 +567,7 @@ class TestCascadeEdgeCases:
                 providers=[
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(outbox, provided_type=IOutboxStore),
+                    scoped(IDurabilityStore, _durability),
                 ],
             ) as app,
             app.container() as container,
@@ -549,9 +583,8 @@ class TestCascadeEdgeCases:
         assert outbox.saved == []
 
     @staticmethod
-    async def test_post_commit_non_durable_dispatch_failure_does_not_fail_the_invoke(
+    async def test_post_commit_non_durable_dispatch_failure_is_fatal_after_commit(
         mocker: MockerFixture,
-        caplog: pytest.LogCaptureFixture,
     ) -> None:
         outbox = RecordingOutboxStore()
 
@@ -583,12 +616,14 @@ class TestCascadeEdgeCases:
                 providers=[
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(outbox, provided_type=IOutboxStore),
+                    scoped(IDurabilityStore, _durability),
                 ],
             ) as app,
             app.container() as container,
         ):
             bus = await container.get(IMessageBus)
-            with caplog.at_level(logging.ERROR, logger=_CASCADE_LOGGER):
-                await bus.invoke(_PlaceOrder(order_id='o-9'))  # tx committed; flush failure is best-effort
+            with pytest.raises(TransactionExecutionError) as raised:
+                await bus.invoke(_PlaceOrder(order_id='o-9'))
 
-        assert any('cascade dispatch failed' in record.getMessage() for record in caplog.records)
+        assert raised.value.kind is TransactionFailureKind.AFTER_COMMIT
+        assert str(raised.value.error) == 'queue unavailable'

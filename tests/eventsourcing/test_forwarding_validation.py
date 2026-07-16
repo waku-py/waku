@@ -46,7 +46,7 @@ async def test_forwarding_without_bridge_raises() -> None:
 
 
 async def test_forwarding_with_non_recording_store_raises() -> None:
-    with pytest.raises(ImproperlyConfiguredError, match='InMemoryEventStore'):
+    with pytest.raises(ImproperlyConfiguredError, match='does not record appended events'):
         async with create_test_app(
             imports=[
                 EventSourcingModule.register(

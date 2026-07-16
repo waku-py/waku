@@ -5,23 +5,33 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Final, TypeAlias, assert_never
+from typing import TYPE_CHECKING, Any, Final, Generic, Never, TypeAlias, TypeVar, assert_never
 
 import anyio
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
 from waku._internal.sentinel import MISSING
-from waku._internal.transaction import TransactionCleanupError, rollback_uow
-from waku.messaging._internal.transaction import CompletedExecutionError
-from waku.messaging._internal.uow import resolve_uow
+from waku._internal.transaction import (
+    Abort,
+    Aborted,
+    Commit,
+    Committed,
+    RolledBack,
+    TransactionDecision,
+    execute_in_uow_scope,
+)
+from waku.messaging._internal.outbox_cascading import DeferredCascadeFlusher
+from waku.messaging._internal.transaction import TransactionDepth
+from waku.messaging.behaviors.transactional import decide_transaction
 from waku.messaging.context import message_context_scope
-from waku.messaging.durability import IDeadLetterStore
+from waku.messaging.durability import IDurabilityStore
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.errors.executor import FailureContext
 from waku.messaging.errors.policy import RetryAction
 from waku.messaging.exceptions import HandlerTimeoutError
+from waku.messaging.outgoing import IOutgoingMessagesFrames
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
 
@@ -36,9 +46,12 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.pipeline import CallNext
     from waku.messaging.errors.executor import ErrorPolicyEvaluator, PolicyOutcome
     from waku.messaging.observability.observer import MessageObservers, ObserverPlan
+    from waku.messaging.outgoing import DeferredCascadeBatch
     from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
 
 logger = logging.getLogger(__name__)
+
+_ResultT_co = TypeVar('_ResultT_co', covariant=True)
 
 
 DEFERRED_TERMINAL_OUTCOMES: Final[frozenset[ExecutionOutcome]] = frozenset({
@@ -54,7 +67,19 @@ class ExecutionResult:
     requeue_limit: int | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _DetachedInvocation(Generic[_ResultT_co]):
+    value: _ResultT_co
+    cascades: DeferredCascadeBatch
+
+
+@dataclass(frozen=True, slots=True)
+class _HandlerAttemptFailure:
+    error: Exception
+
+
 ResultObserver: TypeAlias = 'Callable[[ExecutionOutcome, Exception | None], Awaitable[None]]'
+_ExecutionWrapper: TypeAlias = 'Callable[[CallNext[Any]], Awaitable[Any]]'
 
 
 async def noop_result_observer(outcome: ExecutionOutcome, exc: Exception | None) -> None:
@@ -150,27 +175,29 @@ class EndpointExecution(IEndpointWorkerExecution):
         attempt = 0
         while True:
             attempt += 1
-            try:
-                await self._dispatch_in_scope(envelope, handler_type)
-            except (CompletedExecutionError, TransactionCleanupError):
-                raise
-            except Exception as exc:
-                outcome = self._evaluate(envelope, handler_type, exc, attempt)
-                if outcome is None:
-                    logger.exception('%s failed: message_id=%s', handler_type.__name__, envelope.message_id)
-                    return ExecutionResult(ExecutionOutcome.FAILED_NO_POLICY), exc
-                result = await self._handle_failure(outcome, envelope, exc, attempt)
-                if result is None:
-                    continue
-                return result, exc
-            else:
+            failure = await self._dispatch_in_scope(envelope, handler_type)
+            if failure is None:
                 return ExecutionResult(ExecutionOutcome.SUCCESS), None
+
+            exc = failure.error
+            outcome = self._evaluate(envelope, handler_type, exc, attempt)
+            if outcome is None:
+                logger.error('%s failed: message_id=%s', handler_type.__name__, envelope.message_id, exc_info=exc)
+                return ExecutionResult(ExecutionOutcome.FAILED_NO_POLICY), exc
+            result = await self._handle_failure(outcome, envelope, exc, attempt)
+            if result is None:
+                continue
+            return result, exc
 
     def _resolve_timeout(self, handler_type: HandlerType) -> timedelta | None:
         value = handler_type.execution_timeout
         return self._default_execution_timeout if value is MISSING else value  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
 
-    async def _dispatch_in_scope(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> None:
+    async def _dispatch_in_scope(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+    ) -> _HandlerAttemptFailure | None:
         timeout = self._resolve_timeout(handler_type)
 
         async def execute_with_timeout(call_next: CallNext[Any]) -> Any:
@@ -180,22 +207,86 @@ class EndpointExecution(IEndpointWorkerExecution):
                 raise HandlerTimeoutError(envelope.message_id, timeout)
             return result
 
-        execution_completed = False
-        try:
-            async with self._container() as scope:
+        if self._invoker.has_transaction(handler_type):
+            return await self._dispatch_transactional(envelope, handler_type, execute_with_timeout)
+        return await self._dispatch_direct(envelope, handler_type, execute_with_timeout)
+
+    async def _dispatch_transactional(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        execute_with_timeout: _ExecutionWrapper,
+    ) -> _HandlerAttemptFailure | None:
+        async def invoke_transactional(
+            scope: AsyncContainer,
+        ) -> TransactionDecision[_DetachedInvocation[Any], Never]:
+            depth = await scope.get(TransactionDepth)
+
+            async def invoke() -> Any:
+                with message_context_scope(envelope):
+                    return await self._invoker.invoke(
+                        scope,
+                        envelope.payload,
+                        handler_type,
+                        execution_wrapper=execute_with_timeout,
+                    )
+
+            decision = await decide_transaction(depth, invoke)
+            if isinstance(decision, Abort):
+                return decision
+            if not isinstance(decision, Commit):
+                assert_never(decision.value)
+            outgoing = await scope.get(IOutgoingMessagesFrames)
+            return Commit(_DetachedInvocation(decision.value, outgoing.detach_deferred()))
+
+        async def flush_committed(invocation: _DetachedInvocation[Any]) -> None:
+            await self._flush_batch(invocation.cascades)
+
+        result = await execute_in_uow_scope(
+            self._container,
+            invoke_transactional,
+            after_commit=flush_committed,
+        )
+        if isinstance(result, Committed):
+            return None
+        if isinstance(result, Aborted):
+            return _HandlerAttemptFailure(result.error)
+        if isinstance(result, RolledBack):
+            assert_never(result.value)
+        assert_never(result)
+
+    async def _dispatch_direct(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        execute_with_timeout: _ExecutionWrapper,
+    ) -> _HandlerAttemptFailure | None:
+        async with self._container() as scope:
+            try:
                 with message_context_scope(envelope):
                     await self._invoker.invoke(
                         scope,
                         envelope.payload,
                         handler_type,
-                        result_aware_transaction=True,
                         execution_wrapper=execute_with_timeout,
                     )
-                execution_completed = True
-        except BaseException as error:
-            if execution_completed:
-                raise CompletedExecutionError(error) from error
-            raise
+            except Exception as error:  # noqa: BLE001 -- only handler failures become retryable attempt evidence
+                outgoing = await scope.get(IOutgoingMessagesFrames)
+                outgoing.detach_deferred()
+                return _HandlerAttemptFailure(error)
+            else:
+                outgoing = await scope.get(IOutgoingMessagesFrames)
+                batch = outgoing.detach_deferred()
+
+        await self._flush_batch(batch)
+        return None
+
+    async def _flush_batch(self, batch: DeferredCascadeBatch, /) -> None:
+        if not batch:
+            return
+        async with self._container() as fresh_scope:
+            flusher = await fresh_scope.get(DeferredCascadeFlusher)
+            await flusher.flush(batch)
 
     def _evaluate(
         self,
@@ -254,10 +345,9 @@ class EndpointExecution(IEndpointWorkerExecution):
 
     @override
     async def write_dead_letter(self, envelope: MessageEnvelope[Any], exc: Exception, attempt: int) -> bool:
-        async with self._container() as scope:
-            store = await scope.get(IDeadLetterStore)
+        async def save(scope: AsyncContainer) -> TransactionDecision[bool, Never]:
+            durability = await scope.get(IDurabilityStore)
             codec = await scope.get(PayloadCodec)
-            uow = await resolve_uow(scope)
             entry = DeadLetterEntry.from_failure(
                 message_type=envelope.message_type,
                 payload=encode_payload(envelope, codec),
@@ -271,21 +361,22 @@ class EndpointExecution(IEndpointWorkerExecution):
                 metadata=encode_metadata(envelope),
                 group_id=envelope.group_id,
             )
-            try:
-                await store.save(entry)
-                await uow.commit()
-            except Exception as primary_error:
-                await rollback_uow(
-                    uow,
-                    primary_error=primary_error,
-                    rollback_failure_is_primary=True,
-                )
-                logger.exception('Failed to write dead letter entry for message_id=%s', envelope.message_id)
-                return False
-            except BaseException as primary_error:
-                await rollback_uow(uow, primary_error=primary_error)
-                raise
-            return True
+            await durability.dead_letters.save(entry)
+            return Commit(value=True)
+
+        result = await execute_in_uow_scope(self._container, save)
+        if isinstance(result, Committed):
+            return result.value
+        if isinstance(result, Aborted):
+            logger.error(
+                'Failed to write dead letter entry for message_id=%s',
+                envelope.message_id,
+                exc_info=result.error,
+            )
+            return False
+        if isinstance(result, RolledBack):
+            assert_never(result.value)
+        assert_never(result)
 
 
 class EndpointExecutionFactory:

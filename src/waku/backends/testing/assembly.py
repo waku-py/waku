@@ -73,9 +73,8 @@ class BackendAssemblyContract:
 
     Subclass in your backend's test suite and override the ``backend_module`` fixture to return
     your registered backend (plus any resource setup/teardown around the yield). Backends whose
-    ``IUnitOfWork`` cannot stage-and-commit/roll-back real writes (e.g. an in-memory wiring stub)
-    opt out of the atomicity assertions (commit-together and roll-back-together) with
-    ``supports_rollback = False``.
+    ``IUnitOfWork`` cannot stage-and-commit/roll-back real writes opt out of the atomicity
+    assertions (commit-together and roll-back-together) with ``supports_rollback = False``.
     """
 
     supports_rollback: ClassVar[bool] = True
@@ -118,6 +117,7 @@ class BackendAssemblyContract:
             assert durability.outbox is await scope.get(IOutboxStore)
             assert durability.inbox is await scope.get(IInboxStore)
             assert durability.dead_letters is await scope.get(IDeadLetterStore)
+            assert durability.unit_of_work is await scope.get(IUnitOfWork)
             assert event_store.snapshots is await scope.get(ISnapshotStore)
             assert event_store.checkpoints is await scope.get(ICheckpointStore)
 

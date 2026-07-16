@@ -17,7 +17,7 @@ from waku.messages import IEvent
 from waku.messaging import EndpointDefaults, MessagingConfig, MessagingExtension, MessagingModule
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging._internal.transaction import CompletedExecutionError
-from waku.messaging.durability import IDeadLetterStore, IInboxStore
+from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore
 from waku.messaging.endpoints._internal.execution import (
     ExecutionResult,
     IEndpointExecution,
@@ -25,7 +25,6 @@ from waku.messaging.endpoints._internal.execution import (
     noop_result_observer,
 )
 from waku.messaging.endpoints.outcome import ExecutionOutcome
-from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox import EndpointUri, HandlerDestination
 from waku.messaging.inbox._internal.drainer import InboxDrainer, build_inbox_drainer
@@ -41,11 +40,13 @@ from waku.uow import IUnitOfWork
 from tests.messaging.helpers import (
     RecordingAllocator,
     RecordingDeadLetterStore,
+    RecordingDurabilityStore,
     RecordingUoW,
     make_codec,
     make_envelope,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
+from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -351,18 +352,14 @@ async def test_drain_poison_corrupt_metadata_blob_at_cap_dead_letters() -> None:
     assert dlq.entries[0].message_type == entry.message_type
 
 
-async def test_drain_poison_at_cap_discards_and_deletes(caplog: pytest.LogCaptureFixture) -> None:
-    # dead_letter unconfigured => the always-present DiscardingDeadLetterStore fallback. Poison-at-cap
-    # deletes the row and (N5) emits the discarding WARN naming the loss before the drop.
+async def test_drain_poison_at_cap_without_dlq_keeps_row(caplog: pytest.LogCaptureFixture) -> None:
     inbox = FakeInboxStore()
     entry = _abandoned_entry(inbox, destination='tests.GoneHandler', attempts=2)
-    async with make_async_container(
-        _Deps(inbox, RecordingUoW()), _DlqProvider(DiscardingDeadLetterStore())
-    ) as container:
-        with caplog.at_level(logging.WARNING, logger='waku.messaging.errors._internal.discarding_store'):
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        with caplog.at_level(logging.ERROR, logger='waku.messaging.inbox._internal.drainer'):
             await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
-    assert (entry.id, entry.destination) not in inbox.entries
-    assert 'not persisted' in caplog.text.lower()
+    assert (entry.id, entry.destination) in inbox.entries
+    assert 'Unhandled error draining inbox entry' in caplog.text
 
 
 async def test_drain_isolates_poison_from_healthy_entries_in_a_batch() -> None:
@@ -410,7 +407,7 @@ async def test_drain_logs_and_continues_when_an_entry_raises() -> None:
     assert inbox.entries[poison.id, poison.destination].status is InboxStatus.INCOMING
 
 
-async def test_drain_deferred_terminal_under_cap_bumps_attempts_and_leaves_claimed() -> None:
+async def test_drain_requeue_outcome_under_cap_bumps_attempts_and_leaves_claimed() -> None:
     # A REQUEUE/PAUSE outcome can't be enacted on the recovery path (no live listener), so it is bounded
     # like poison: under the cap the row is left INCOMING with attempts bumped — never an endless oscillation.
     inbox = FakeInboxStore()
@@ -425,7 +422,7 @@ async def test_drain_deferred_terminal_under_cap_bumps_attempts_and_leaves_claim
     assert stored.attempts == 1
 
 
-async def test_drain_deferred_terminal_at_cap_dead_letters() -> None:
+async def test_drain_requeue_outcome_at_cap_dead_letters() -> None:
     inbox = FakeInboxStore()
     dlq = RecordingDeadLetterStore()
     entry = _abandoned_entry(inbox, attempts=2)
@@ -515,18 +512,26 @@ class _DrainCheckpointHandler(EventHandler[_DrainSignal]):
 
 async def test_build_inbox_drainer_executor_enforces_config_deadline() -> None:
     fake_inbox = FakeInboxStore()
+    unit_of_work = RecordingUoW()
     inbox_config = InboxConfig()
     config = MessagingConfig(
         endpoint_defaults=EndpointDefaults(execution_timeout=timedelta()),
         inbox=inbox_config,
     )
+    durability = RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=RecordingOutboxStore(),
+        inbox=fake_inbox,
+        dead_letters=RecordingDeadLetterStore(),
+    )
     async with create_test_app(
         imports=[MessagingModule.register(config)],
         extensions=[MessagingExtension().bind(_DrainCheckpointHandler)],
         providers=[
-            object_(RecordingUoW(), provided_type=IUnitOfWork),
+            object_(unit_of_work, provided_type=IUnitOfWork),
             object_(fake_inbox, provided_type=IInboxStore),
             object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+            object_(durability, provided_type=IDurabilityStore),
         ],
     ) as app:
         codec = await app.container.get(PayloadCodec)

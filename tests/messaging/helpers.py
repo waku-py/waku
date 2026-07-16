@@ -10,7 +10,7 @@ from typing_extensions import override
 
 from waku._internal.retort import default_retort
 from waku.messaging.contracts.envelope import MessageEnvelope
-from waku.messaging.durability import IDeadLetterStore, IOutboxStore
+from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore, IOutboxStore
 from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.registry import ErrorPolicyRegistry
@@ -23,6 +23,9 @@ from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMappe
 from waku.serialization import UpcasterChain
 from waku.serialization.codec import PayloadCodec
 from waku.uow import IUnitOfWork
+
+from tests.messaging.inbox.fake_store import FakeInboxStore
+from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -110,6 +113,112 @@ class RecordingUoW(IUnitOfWork):
             raise self._rollback_error
         self.rolled_back = True
         self.rollback_count += 1
+
+
+class RecordingDurabilityStore(IDurabilityStore):
+    """Coherent test capability whose facets are the exact objects supplied by a fixture."""
+
+    def __init__(
+        self,
+        *,
+        unit_of_work: IUnitOfWork,
+        outbox: IOutboxStore,
+        inbox: IInboxStore,
+        dead_letters: IDeadLetterStore,
+    ) -> None:
+        self._unit_of_work = unit_of_work
+        self._outbox = outbox
+        self._inbox = inbox
+        self._dead_letters = dead_letters
+
+    @property
+    @override
+    def unit_of_work(self) -> IUnitOfWork:
+        return self._unit_of_work
+
+    @property
+    @override
+    def outbox(self) -> IOutboxStore:
+        return self._outbox
+
+    @property
+    @override
+    def inbox(self) -> IInboxStore:
+        return self._inbox
+
+    @property
+    @override
+    def dead_letters(self) -> IDeadLetterStore:
+        return self._dead_letters
+
+
+def durability_for_inbox(unit_of_work: IUnitOfWork, inbox: IInboxStore) -> IDurabilityStore:
+    return RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=RecordingOutboxStore(),
+        inbox=inbox,
+        dead_letters=RecordingDeadLetterStore(),
+    )
+
+
+def durability_for_outbox(unit_of_work: IUnitOfWork, outbox: IOutboxStore) -> IDurabilityStore:
+    return RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=outbox,
+        inbox=FakeInboxStore(),
+        dead_letters=RecordingDeadLetterStore(),
+    )
+
+
+def durability_for_outbox_and_inbox(
+    unit_of_work: IUnitOfWork,
+    outbox: IOutboxStore,
+    inbox: IInboxStore,
+) -> IDurabilityStore:
+    return RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=outbox,
+        inbox=inbox,
+        dead_letters=RecordingDeadLetterStore(),
+    )
+
+
+def durability_for_inbox_and_dead_letters(
+    unit_of_work: IUnitOfWork,
+    inbox: IInboxStore,
+    dead_letters: IDeadLetterStore,
+) -> IDurabilityStore:
+    return RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=RecordingOutboxStore(),
+        inbox=inbox,
+        dead_letters=dead_letters,
+    )
+
+
+def durability_for_outbox_and_dead_letters(
+    unit_of_work: IUnitOfWork,
+    outbox: IOutboxStore,
+    dead_letters: IDeadLetterStore,
+) -> IDurabilityStore:
+    return RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=outbox,
+        inbox=FakeInboxStore(),
+        dead_letters=dead_letters,
+    )
+
+
+def durability_for_dead_letters(
+    unit_of_work: IUnitOfWork,
+    dead_letters: IDeadLetterStore,
+) -> IDurabilityStore:
+    return RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=RecordingOutboxStore(),
+        inbox=FakeInboxStore(),
+        dead_letters=dead_letters,
+    )
 
 
 class RecordingDeadLetterStore(IDeadLetterStore):

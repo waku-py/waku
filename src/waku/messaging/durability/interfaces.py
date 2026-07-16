@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from waku.messaging.inbox.models import InboxEntry
     from waku.messaging.outbox.models import OutboxMessage
     from waku.messaging.sequence import ISequenceAllocator
+    from waku.uow import IUnitOfWork
 
 __all__ = [
     'IDeadLetterStore',
@@ -204,14 +205,19 @@ class IDeadLetterStore(abc.ABC):
 
 
 class IDurabilityStore(abc.ABC):
-    """Cohesive per-backend messaging durability store: three facet ports over ONE resource.
+    """Cohesive messaging durability capability over one backend resource.
 
-    A backend assembles every facet over its single scoped resource (e.g. one ``AsyncSession``), so
-    a facet port resolved from the same scope IS the corresponding facet of this object. One store
-    OBJECT is not one transaction: inbox and dead-letter writes stay separate-transaction by design;
-    facets do not change transactional semantics. Scheduled-message operations live on the inbox
-    facet — Waku scheduled delivery IS inbox storage (no separate scheduled facet).
+    A backend assembles every facet and the scope's real ``IUnitOfWork`` over the same scoped
+    resource (for example, one ``AsyncSession`` or one in-memory transactional workspace). A facet
+    port resolved from that scope is the corresponding facet of this object; mixing independent
+    facet objects with an unrelated UoW is not a valid capability. One store object is not one
+    transaction: owners still define transaction boundaries. Scheduled-message operations live on
+    the inbox facet because Waku scheduled delivery is inbox storage.
     """
+
+    @property
+    @abc.abstractmethod
+    def unit_of_work(self) -> IUnitOfWork: ...
 
     @property
     @abc.abstractmethod

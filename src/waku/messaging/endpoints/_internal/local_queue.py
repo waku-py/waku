@@ -143,8 +143,8 @@ class LocalQueueEndpoint(Endpoint):
         handler_type: HandlerType,
         attempts: int,
     ) -> None:
-        # Unconditional: IDeadLetterStore is always resolvable — a real store persists; the discarding
-        # fallback logs the loss WARN and no-ops (a successful no-op write -> DEAD_LETTERED).
+        # Persistence availability is finalized by the delivery owner; this method only reports the
+        # configured dead-letter write result.
         exc = RequeueBudgetExceededError(envelope.message_id, attempts)
         persisted = await self._executor.write_dead_letter(
             envelope,

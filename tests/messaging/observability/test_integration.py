@@ -29,7 +29,7 @@ from waku.messaging import (
     TransactionalBehavior,
     external_endpoint,
 )
-from waku.messaging.durability import IInboxStore, IOutboxStore
+from waku.messaging.durability import IDurabilityStore, IInboxStore, IOutboxStore
 from waku.messaging.endpoints import ExecutionOutcome
 from waku.messaging.endpoints.base import EndpointMode
 from waku.messaging.inbox import EndpointUri, InboxEntry, InboxStatus
@@ -42,7 +42,14 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import RecordingAllocator, RecordingTransport, RecordingUoW, make_envelope
+from tests.messaging.helpers import (
+    RecordingAllocator,
+    RecordingTransport,
+    RecordingUoW,
+    durability_for_inbox,
+    durability_for_outbox,
+    make_envelope,
+)
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
@@ -317,6 +324,7 @@ async def test_durable_and_drainer_paths_fire_executing_and_executed(caplog: pyt
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                scoped(IDurabilityStore, durability_for_inbox),
             ],
         ) as app,
         app.container() as container,
@@ -548,6 +556,7 @@ async def test_external_endpoint_declared_observer_fires_on_sent() -> None:
             providers=[
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
                 scoped(IOutboxStore, RecordingOutboxStore),
+                scoped(IDurabilityStore, durability_for_outbox),
                 singleton(_EndpointSink),
             ],
         ) as app,

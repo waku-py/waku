@@ -45,7 +45,7 @@ from waku.messaging.config import MessagingConfig
 from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.contracts.request import IRequest
-from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
+from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore, IOutboxStore
 from waku.messaging.endpoints._internal.durable_local_queue import DurableLocalQueueEndpoint
 from waku.messaging.endpoints._internal.execution import EndpointExecutionFactory
 from waku.messaging.endpoints._internal.external import ExternalEndpoint
@@ -60,7 +60,6 @@ from waku.messaging.endpoints.base import (
     LocalQueueEntry,
 )
 from waku.messaging.endpoints.executor import EndpointExecutorFactory
-from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore
 from waku.messaging.errors._internal.replay import IReplayExecution, ReplayExecution
 from waku.messaging.errors._internal.reprocess import ReprocessScopeOpener
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
@@ -87,7 +86,6 @@ from waku.messaging.pipeline._internal.policies import (
     OutboxDrainPolicy,
     TransactionalPolicy,
     UserGlobalPolicy,
-    config_requires_uow,
 )
 from waku.messaging.pipeline.policy import BehaviorPolicyExtension, IBehaviorPolicy
 from waku.messaging.router import MessageRouter, RoutingTable
@@ -203,8 +201,7 @@ class MessagingModule:
     @staticmethod
     def _infrastructure_providers(config: MessagingConfig) -> _HandlerProviders:
         # Store ports are backend-provided (or explicit provider overrides); the aggregator's
-        # registration-time scan fail-louds when a durable sub-config has no store provider and
-        # contributes the discarding DLQ fallback when nothing provides IDeadLetterStore.
+        # registration-time scan fails loudly when a durable sub-config has no coherent capability.
         providers: list[Provider] = []
         if config.transports:
             providers.append(singleton(TransportRegistry, _build_transport_registry))
@@ -705,23 +702,8 @@ class HandlerMapAggregator(RegistryAggregator['MessagingExtension', HandlerMap])
         registry.add_provider(owning_module, singleton(MessageRouter, _build_router))
 
         provided = provided_type_hints(registry)
-        self._require_store_providers(provided)
+        self._require_store_providers(provided, aggregated)
         self._require_sequence_allocator_when_active(provided)
-        dead_letter_store_provided = IDeadLetterStore in provided
-
-        if (
-            _requires_dead_letter_store(aggregated, self._config)
-            and self._config.dead_letter is None
-            and not dead_letter_store_provided
-        ):
-            msg = 'error policies with DEAD_LETTER action require dead_letter in MessagingConfig or a backend module'
-            raise ImproperlyConfiguredError(msg)
-
-        if not dead_letter_store_provided:
-            # Discarding fallback only for the no-backend app: consumers never branch on the store's
-            # absence, and a backend-provided real store must not be shadowed (two providers for one
-            # port fail the build). With a backend present, dead letters persist even without config.
-            registry.add_provider(owning_module, scoped(IDeadLetterStore, DiscardingDeadLetterStore))
 
         handler_policies = {
             handler_type: handler_type.error_policies
@@ -744,23 +726,40 @@ class HandlerMapAggregator(RegistryAggregator['MessagingExtension', HandlerMap])
         registry.add_provider(owning_module, object_(sending_registry))
         registry.add_provider(owning_module, object_(SendingFailureEvaluator(registry=sending_registry)))
 
-    def _require_store_providers(self, provided: 'frozenset[Any]') -> None:
-        # Fail-loud BEFORE container build: dishka's eager GraphMissingFactoryError is only the
-        # backstop, never the user-facing surface. Per durable sub-config, some module (a backend,
-        # or an explicit provider override) must provide the store port.
-        required: list[tuple[object | None, type, str]] = [
-            (self._config.outbox, IOutboxStore, 'outbox'),
-            (self._config.inbox, IInboxStore, 'inbox'),
-            (self._config.dead_letter, IDeadLetterStore, 'dead_letter'),
+    def _require_store_providers(self, provided: 'frozenset[Any]', handler_map: HandlerMap) -> None:
+        dead_letters_required = _requires_dead_letter_store(handler_map, self._config)
+        durability_required = (
+            any((self._config.outbox, self._config.inbox, self._config.dead_letter)) or dead_letters_required
+        )
+        if not durability_required:
+            return
+
+        capability_name = (
+            'dead_letter'
+            if dead_letters_required and not self._config.outbox and not self._config.inbox
+            else 'durability'
+        )
+        required: list[tuple[type, str]] = [
+            (IDurabilityStore, capability_name),
+            (IUnitOfWork, capability_name),
         ]
-        for sub_config, port, name in required:
-            if sub_config is not None and port not in provided:
-                msg = (
-                    f'{name} is configured in MessagingConfig but no module provides {port.__name__}. '
-                    'Import a durability backend, e.g. SqlAlchemyBackend.register(session_factory=...) '
-                    'from waku.backends.sqlalchemy, in your root module imports.'
-                )
-                raise ImproperlyConfiguredError(msg)
+        if self._config.outbox is not None:
+            required.append((IOutboxStore, 'outbox'))
+        if self._config.inbox is not None:
+            required.append((IInboxStore, 'inbox'))
+        if self._config.dead_letter is not None or dead_letters_required:
+            required.append((IDeadLetterStore, 'dead_letter'))
+
+        for port, name in required:
+            if port in provided:
+                continue
+            msg = (
+                f'{name} requires a coherent IDurabilityStore and real IUnitOfWork, but no module provides '
+                f'{port.__name__}. Import a durability backend, e.g. '
+                'SqlAlchemyBackend.register(session_factory=...) from waku.backends.sqlalchemy, '
+                'in your root module imports.'
+            )
+            raise ImproperlyConfiguredError(msg)
 
     def _require_sequence_allocator_when_active(self, provided: 'frozenset[Any]') -> None:
         # The allocator's CONSUMER activation condition, not just the user's partition intent: the
@@ -848,30 +847,50 @@ class _UnitOfWorkValidationExtension(OnContainerBuilt):
 
     @override
     async def on_container_built(self, app: 'WakuApplication') -> None:
-        if not await self._uow_required(app):
-            return
-        async with (
-            app.container() as scope
-        ):  # is_registered is a pure presence check; IUnitOfWork is scoped, not app-scope
-            has_uow = await is_registered(scope, IUnitOfWork)
-        if not has_uow:
-            msg = (
-                'IUnitOfWork is required but not registered. Import a durability backend, e.g. '
-                'SqlAlchemyBackend.register(session_factory=...), or register your own: '
-                'scoped(IUnitOfWork, MyUnitOfWork)'
-            )
-            raise ImproperlyConfiguredError(msg)
-
-    async def _uow_required(self, app: 'WakuApplication') -> bool:
-        # Durable infra or global TransactionalBehavior needs a UoW even without local handlers.
-        if config_requires_uow(self._config):
-            return True
         plan = await app.container.get(BehaviorPlan)
-        registry = await app.container.get(HandlerMap)
-        return any(
+        handler_map = await app.container.get(HandlerMap)
+        transactional_required = any(
             any(issubclass(behavior, TransactionalBehavior) for behavior in plan.for_handler(handler_type))
-            for handler_type in registry.handler_types()
+            for handler_type in handler_map.handler_types()
         )
+        dead_letters_required = _requires_dead_letter_store(handler_map, self._config)
+        durability_required = (
+            any((self._config.outbox, self._config.inbox, self._config.dead_letter)) or dead_letters_required
+        )
+        if not transactional_required and not durability_required:
+            return
+
+        async with app.container() as scope:
+            has_uow = await is_registered(scope, IUnitOfWork)
+            if not has_uow:
+                msg = (
+                    'IUnitOfWork is required but not registered. Import a durability backend, e.g. '
+                    'SqlAlchemyBackend.register(session_factory=...), or register your own: '
+                    'scoped(IUnitOfWork, MyUnitOfWork)'
+                )
+                raise ImproperlyConfiguredError(msg)
+            if not durability_required:
+                return
+
+            durability = await scope.get(IDurabilityStore)
+            unit_of_work = await scope.get(IUnitOfWork)
+            self._require_identity('unit_of_work', durability.unit_of_work, unit_of_work)
+            if self._config.outbox is not None:
+                self._require_identity('outbox', durability.outbox, await scope.get(IOutboxStore))
+            if self._config.inbox is not None:
+                self._require_identity('inbox', durability.inbox, await scope.get(IInboxStore))
+            if self._config.dead_letter is not None or dead_letters_required:
+                self._require_identity('dead_letters', durability.dead_letters, await scope.get(IDeadLetterStore))
+
+    @staticmethod
+    def _require_identity(name: str, capability_value: object, resolved_value: object) -> None:
+        if capability_value is resolved_value:
+            return
+        msg = (
+            f'IDurabilityStore.{name} must be the exact scoped {type(resolved_value).__name__} '
+            'resolved from the active child container'
+        )
+        raise ImproperlyConfiguredError(msg)
 
 
 class OutboxRelayLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):

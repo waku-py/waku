@@ -13,12 +13,20 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from uuid import UUID
 
+    from waku.backends.memory._internal.transaction import InMemoryWorkspaceAccessor
     from waku.messaging.errors.dead_letter import DeadLetterQuery
 
 __all__ = ['InMemoryDeadLetterStore']
 
 
-class InMemoryDeadLetterStore(IDeadLetterStore):
+@dataclasses.dataclass
+class InMemoryDeadLetterState:
+    """Mutable state backing one in-memory dead-letter store view."""
+
+    entries: dict[UUID, DeadLetterEntry] = dataclasses.field(default_factory=dict)
+
+
+class _InMemoryDeadLetterStoreOperations(IDeadLetterStore):
     """Faithful in-memory ``IDeadLetterStore`` mirroring ``SqlAlchemyDeadLetterStore``'s observable semantics.
 
     The memory backend's dead-letter facet: ``created_at`` is stamped at save time (mirroring the
@@ -26,10 +34,15 @@ class InMemoryDeadLetterStore(IDeadLetterStore):
     the same filter set. Not thread-safe.
     """
 
-    __slots__ = ('entries',)
+    __slots__ = ()
 
-    def __init__(self) -> None:
-        self.entries: dict[UUID, DeadLetterEntry] = {}
+    def _get_state(self) -> InMemoryDeadLetterState:
+        msg = 'subclasses must provide dead-letter state'
+        raise NotImplementedError(msg)
+
+    @property
+    def entries(self) -> dict[UUID, DeadLetterEntry]:
+        return self._get_state().entries
 
     @override
     async def save(self, entry: DeadLetterEntry) -> None:
@@ -116,3 +129,26 @@ class InMemoryDeadLetterStore(IDeadLetterStore):
             or (entry.created_at is not None and entry.created_at < filters.created_before),
         )
         return all(conditions)
+
+
+class InMemoryDeadLetterStore(_InMemoryDeadLetterStoreOperations):
+    __slots__ = ('_state',)
+
+    def __init__(self) -> None:
+        self._state = InMemoryDeadLetterState()
+
+    @override
+    def _get_state(self) -> InMemoryDeadLetterState:
+        return self._state
+
+
+class WorkspaceDeadLetterStore(_InMemoryDeadLetterStoreOperations):
+    __slots__ = ('_accessor',)
+
+    def __init__(self, accessor: InMemoryWorkspaceAccessor) -> None:
+        accessor.ensure_active()
+        self._accessor = accessor
+
+    @override
+    def _get_state(self) -> InMemoryDeadLetterState:
+        return self._accessor.select(lambda state: state.dead_letters)

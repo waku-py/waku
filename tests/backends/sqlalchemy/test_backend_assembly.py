@@ -60,27 +60,27 @@ async def assembled_app(pg_engine: AsyncEngine) -> AsyncIterator[WakuApplication
     class DomainModule:
         pass
 
-    async with create_test_app(
-        imports=[
-            MessagingModule.register(
-                MessagingConfig(
-                    outbox=OutboxConfig(),
-                    inbox=InboxConfig(owner_id='assembly-node:1'),
-                    dead_letter=DeadLetterConfig(),
+    try:
+        async with create_test_app(
+            imports=[
+                MessagingModule.register(
+                    MessagingConfig(
+                        outbox=OutboxConfig(),
+                        inbox=InboxConfig(owner_id='assembly-node:1'),
+                        dead_letter=DeadLetterConfig(),
+                    ),
                 ),
-            ),
-            EventSourcingModule.register(EventSourcingConfig(event_serializer=JsonEventSerializer)),
-            SqlAlchemyBackend.register(session_factory=_session_factory, metadata=metadata),
-            DomainModule,
-        ],
-    ) as app:
-        async with pg_engine.begin() as conn:
-            await conn.run_sync(metadata.create_all)
-        try:
-            yield app
-        finally:
+                EventSourcingModule.register(EventSourcingConfig(event_serializer=JsonEventSerializer)),
+                SqlAlchemyBackend.register(session_factory=_session_factory, metadata=metadata),
+                DomainModule,
+            ],
+        ) as app:
             async with pg_engine.begin() as conn:
-                await conn.run_sync(metadata.drop_all)
+                await conn.run_sync(metadata.create_all)
+            yield app
+    finally:
+        async with pg_engine.begin() as conn:
+            await conn.run_sync(metadata.drop_all)
 
 
 async def test_both_composites_resolve_and_expose_the_scope_facet_ports(assembled_app: WakuApplication) -> None:
@@ -91,6 +91,7 @@ async def test_both_composites_resolve_and_expose_the_scope_facet_ports(assemble
         assert durability.outbox is await scope.get(IOutboxStore)
         assert durability.inbox is await scope.get(IInboxStore)
         assert durability.dead_letters is await scope.get(IDeadLetterStore)
+        assert durability.unit_of_work is await scope.get(IUnitOfWork)
         assert event_store.snapshots is await scope.get(ISnapshotStore)
         assert event_store.checkpoints is await scope.get(ICheckpointStore)
 

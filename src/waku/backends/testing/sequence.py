@@ -28,8 +28,8 @@ class SequenceAllocatorContract:
 
     Subclass in your backend's test suite and override the ``backend_module`` fixture to return
     your registered backend (plus any resource setup/teardown around the yield). Backends whose
-    ``IUnitOfWork`` cannot stage-and-roll-back real writes (e.g. an in-memory wiring stub) opt out
-    of the rollback-coupling assertion with ``supports_rollback = False``.
+    ``IUnitOfWork`` cannot stage-and-roll-back real writes opt out of the rollback-coupling
+    assertion with ``supports_rollback = False``.
     """
 
     supports_rollback: ClassVar[bool] = True

@@ -15,12 +15,20 @@ if TYPE_CHECKING:
     from typing import Any
     from uuid import UUID
 
+    from waku.backends.memory._internal.transaction import InMemoryWorkspaceAccessor
     from waku.messaging.errors.dead_letter import DeadLetterEntry
 
 __all__ = ['InMemoryOutboxStore']
 
 
-class InMemoryOutboxStore(IOutboxStore):
+@dataclasses.dataclass
+class InMemoryOutboxState:
+    """Mutable state backing one in-memory outbox store view."""
+
+    messages: list[OutboxMessage] = dataclasses.field(default_factory=list)
+
+
+class _InMemoryOutboxStoreOperations(IOutboxStore):
     """Faithful in-memory ``IOutboxStore`` mirroring ``SqlAlchemyOutboxStore``'s observable semantics.
 
     The memory backend's outbox facet and the canonical fake for the store contract suite:
@@ -33,11 +41,18 @@ class InMemoryOutboxStore(IOutboxStore):
     (server-assigned ascending). Not thread-safe.
     """
 
-    __slots__ = ('_dead_letters', 'messages')
+    __slots__ = ('_dead_letters',)
 
     def __init__(self, dead_letters: IDeadLetterStore) -> None:
-        self.messages: list[OutboxMessage] = []
         self._dead_letters = dead_letters
+
+    def _get_state(self) -> InMemoryOutboxState:
+        msg = 'subclasses must provide outbox state'
+        raise NotImplementedError(msg)
+
+    @property
+    def messages(self) -> list[OutboxMessage]:
+        return self._get_state().messages
 
     def _replace(self, message_id: UUID, **changes: Any) -> None:
         for i, msg in enumerate(self.messages):
@@ -101,8 +116,8 @@ class InMemoryOutboxStore(IOutboxStore):
     async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry) -> None:
         # Mirror the SQLAlchemy peer's atomic delete+insert: the row leaves the outbox (freeing its
         # (idempotency_key, destination) pair for a replay re-dispatch) and the entry lands in the
-        # SHARED dead-letter store (the singleton the worker/replay read), not in outbox-local state.
-        self.messages = [msg for msg in self.messages if msg.id != message_id]
+        # SHARED dead-letter facet from this transaction workspace, not in outbox-local state.
+        self.messages[:] = [msg for msg in self.messages if msg.id != message_id]
         await self._dead_letters.save(entry)
 
     @override
@@ -141,7 +156,7 @@ class InMemoryOutboxStore(IOutboxStore):
     async def cleanup_dispatched(self, older_than: timedelta) -> int:
         cutoff = datetime.now(tz=UTC) - older_than
         before = len(self.messages)
-        self.messages = [
+        self.messages[:] = [
             msg
             for msg in self.messages
             if not (
@@ -149,3 +164,28 @@ class InMemoryOutboxStore(IOutboxStore):
             )
         ]
         return before - len(self.messages)
+
+
+class InMemoryOutboxStore(_InMemoryOutboxStoreOperations):
+    __slots__ = ('_state',)
+
+    def __init__(self, dead_letters: IDeadLetterStore) -> None:
+        super().__init__(dead_letters)
+        self._state = InMemoryOutboxState()
+
+    @override
+    def _get_state(self) -> InMemoryOutboxState:
+        return self._state
+
+
+class WorkspaceOutboxStore(_InMemoryOutboxStoreOperations):
+    __slots__ = ('_accessor',)
+
+    def __init__(self, dead_letters: IDeadLetterStore, accessor: InMemoryWorkspaceAccessor) -> None:
+        accessor.ensure_active()
+        super().__init__(dead_letters)
+        self._accessor = accessor
+
+    @override
+    def _get_state(self) -> InMemoryOutboxState:
+        return self._accessor.select(lambda state: state.outbox)

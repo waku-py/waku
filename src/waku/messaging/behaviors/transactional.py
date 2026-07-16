@@ -1,10 +1,18 @@
 from __future__ import annotations
 
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, Never, TypeVar, assert_never
 
 from typing_extensions import override
 
-from waku._internal.transaction import commit_uow, rollback_uow
+from waku._internal.transaction import (
+    Abort,
+    Aborted,
+    Commit,
+    Committed,
+    RolledBack,
+    TransactionDecision,
+    TransactionExecution,
+)
 
 # Runtime imports: dishka introspects __init__ type hints at container-build time
 # (get_type_hints), so these DI-injected types must resolve at runtime — not under TYPE_CHECKING.
@@ -19,13 +27,43 @@ __all__ = [
 
 _ResultT = TypeVar('_ResultT')
 
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+
+async def decide_transaction(
+    depth: TransactionDepth,
+    call_next: Callable[[], Awaitable[_ResultT]],
+) -> TransactionDecision[_ResultT, Never]:
+    """Translate messaging nesting and rollback-only state into a transaction decision."""
+    is_owner = depth.enter()
+    try:
+        try:
+            result = await call_next()
+        except BaseException as error:
+            depth.mark_rollback_only(error)
+            raise
+
+        if not is_owner:
+            return Commit(result)
+
+        cause = depth.rollback_cause
+        if cause is None:
+            return Commit(result)
+        if not isinstance(cause, Exception):
+            raise cause
+
+        error = UnexpectedRollbackError('Transaction rolled back because a nested operation failed')
+        error.__cause__ = cause
+        return Abort(error)
+    finally:
+        depth.exit()
+
 
 async def run_in_transaction(
     uow: IUnitOfWork,
     depth: TransactionDepth,
     call_next: CallNext[_ResultT],
-    *,
-    rollback_failure_is_primary: bool = False,
 ) -> _ResultT:
     """Run *call_next* inside a single physical transaction owned by the outermost frame.
 
@@ -36,39 +74,24 @@ async def run_in_transaction(
     even if an outer handler swallows the exception (Spring-strict). A normal outer return from a
     rollback-only transaction raises ``UnexpectedRollbackError`` instead of reporting success. The
     ``finally`` always decrements depth.
+
     """
-    is_owner = depth.enter()
-    try:
-        try:
-            result = await call_next()
-        except BaseException as exc:
-            depth.mark_rollback_only(exc)
-            if is_owner:
-                await rollback_uow(
-                    uow,
-                    primary_error=exc,
-                    rollback_failure_is_primary=rollback_failure_is_primary,
-                )
-            raise
+    if depth.depth != 0:
+        nested = await decide_transaction(depth, call_next)
+        if isinstance(nested, Commit):
+            return nested.value
+        if isinstance(nested, Abort):
+            raise nested.error
+        assert_never(nested.value)
 
-        cause = depth.rollback_cause
-        if is_owner and cause is not None:
-            if isinstance(cause, Exception):
-                failure = UnexpectedRollbackError('Transaction rolled back because a nested operation failed')
-                await rollback_uow(
-                    uow,
-                    primary_error=failure,
-                    rollback_failure_is_primary=rollback_failure_is_primary,
-                )
-                raise failure from cause
-            await rollback_uow(uow, primary_error=cause)
-            raise cause
-
-        if is_owner:
-            await commit_uow(uow, rollback_failure_is_primary=rollback_failure_is_primary)
-        return result
-    finally:
-        depth.exit()
+    outcome = await TransactionExecution(uow).execute(lambda: decide_transaction(depth, call_next))
+    if isinstance(outcome, Committed):
+        return outcome.value
+    if isinstance(outcome, Aborted):
+        raise outcome.error
+    if isinstance(outcome, RolledBack):
+        assert_never(outcome.value)
+    assert_never(outcome)
 
 
 class TransactionalBehavior(IPipelineBehavior[Any, Any]):

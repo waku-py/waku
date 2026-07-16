@@ -10,9 +10,8 @@ import anyio
 import pytest
 from anyio.lowlevel import checkpoint
 
-from waku._internal.transaction import TransactionCleanupError
+from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
 from waku.messages import IMessage
-from waku.messaging._internal.transaction import CompletedExecutionError
 from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
 
@@ -192,23 +191,82 @@ class TestMemoryStreamWorkerErrorIsolation:
         assert 'Unhandled error' in caplog.text
 
     @staticmethod
+    async def test_mixed_control_flow_group_remains_primary_during_stop() -> None:
+        cancelled = asyncio.CancelledError()
+        fatal = TransactionExecutionError(
+            TransactionFailureKind.ROLLBACK_FAILED,
+            RuntimeError('rollback failed'),
+            RuntimeError('handler failed'),
+        )
+        failure = BaseExceptionGroup('mixed failure', [cancelled, fatal])
+        handled = asyncio.Event()
+
+        async def handler(_item: int) -> None:  # noqa: RUF029
+            handled.set()
+            raise failure
+
+        worker: MemoryStreamWorker[int] = MemoryStreamWorker(max_buffer_size=1, stop_timeout=timedelta(seconds=0.5))
+        await worker.start(handler)
+        await worker.send(1)
+        await handled.wait()
+
+        with pytest.raises(BaseExceptionGroup) as raised:
+            await worker.stop()
+
+        assert list(_exception_group_leaves(raised.value)) == [cancelled, fatal]
+
+    @staticmethod
+    async def test_fatal_group_unwrapping_preserves_identity_without_causal_chain() -> None:
+        fatal = TransactionExecutionError(
+            TransactionFailureKind.ROLLBACK_FAILED,
+            RuntimeError('rollback failed'),
+            RuntimeError('handler failed'),
+        )
+        failure = BaseExceptionGroup('fatal failure', [fatal])
+        handled = asyncio.Event()
+
+        async def handler(_item: int) -> None:  # noqa: RUF029
+            handled.set()
+            raise failure
+
+        worker: MemoryStreamWorker[int] = MemoryStreamWorker(max_buffer_size=1, stop_timeout=timedelta(seconds=0.5))
+        await worker.start(handler)
+        await worker.send(1)
+        await handled.wait()
+
+        with pytest.raises(TransactionExecutionError) as raised:
+            await worker.stop()
+
+        assert raised.value is fatal
+        assert fatal.__cause__ is None
+        assert fatal.__context__ is None
+
+    @staticmethod
     async def test_failing_on_drain_does_not_mask_post_commit_failure() -> None:
         teardown_error = RuntimeError('request scope teardown failed')
         await _assert_fatal_signal_survives_failing_on_drain(
-            CompletedExecutionError(teardown_error),
-            teardown_error,
+            TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, teardown_error, None),
         )
 
     @staticmethod
     async def test_failing_on_drain_does_not_mask_rollback_failure() -> None:
         rollback_error = RuntimeError('rollback failed')
         await _assert_fatal_signal_survives_failing_on_drain(
-            TransactionCleanupError(RuntimeError('handler failed'), rollback_error),
-            rollback_error,
+            TransactionExecutionError(
+                TransactionFailureKind.ROLLBACK_FAILED,
+                rollback_error,
+                RuntimeError('handler failed'),
+            ),
         )
 
 
-async def _assert_fatal_signal_survives_failing_on_drain(signal: Exception, expected: RuntimeError) -> None:
+def _exception_group_leaves(error: BaseException) -> tuple[BaseException, ...]:
+    if isinstance(error, BaseExceptionGroup):
+        return tuple(leaf for nested in error.exceptions for leaf in _exception_group_leaves(nested))
+    return (error,)
+
+
+async def _assert_fatal_signal_survives_failing_on_drain(signal: TransactionExecutionError) -> None:
     async def handler(_item: int) -> None:  # noqa: RUF029
         raise signal
 
@@ -223,10 +281,10 @@ async def _assert_fatal_signal_survives_failing_on_drain(signal: Exception, expe
     await worker.start(handler, on_drain=on_drain)
     await worker.send(1)
 
-    with pytest.raises(RuntimeError) as raised:
+    with pytest.raises(TransactionExecutionError) as raised:
         await worker.stop()
 
-    assert raised.value is expected
+    assert raised.value is signal
 
 
 class TestMemoryStreamWorkerPauseResume:

@@ -10,9 +10,8 @@ import anyio
 from anyio import create_memory_object_stream
 from typing_extensions import TypeVar
 
-from waku._internal.transaction import TransactionCleanupError
+from waku._internal.transaction import TransactionExecutionError, extract_transaction_execution_error
 from waku.messaging._internal.pauser import PauseRegistry, TimedPauser
-from waku.messaging._internal.transaction import CompletedExecutionError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -32,18 +31,6 @@ logger = logging.getLogger(__name__)
 # Default to MessageEnvelope so buffered queues stay untyped at the construction site; durable queues
 # parametrize with their per-handler work item (e.g. tuple[envelope, handlers]).
 _ItemT = TypeVar('_ItemT', default='MessageEnvelope[Any]')
-
-
-def _find_fatal_execution_error(
-    error: BaseException,
-) -> CompletedExecutionError | TransactionCleanupError | None:
-    if isinstance(error, CompletedExecutionError | TransactionCleanupError):
-        return error
-    if isinstance(error, BaseExceptionGroup):
-        for nested_error in error.exceptions:
-            if fatal_error := _find_fatal_execution_error(nested_error):
-                return fatal_error
-    return None
 
 
 class MemoryStreamWorker(Generic[_ItemT]):
@@ -165,16 +152,30 @@ class MemoryStreamWorker(Generic[_ItemT]):
                 self._stop_timeout.total_seconds(),
             )
             task.cancel()
+        fatal_to_raise: TransactionExecutionError | None = None
         try:
             await task
         except asyncio.CancelledError:
             pass
-        except Exception as exc:
-            if fatal_error := _find_fatal_execution_error(exc):
-                if isinstance(fatal_error, TransactionCleanupError):
-                    raise fatal_error.rollback_error from fatal_error.primary_error
-                raise fatal_error.error from fatal_error
-            logger.exception('MemoryStreamWorker task failed during shutdown')
+        except BaseException as error:
+            if fatal_error := extract_transaction_execution_error(error):
+                if fatal_error is error:
+                    raise
+                if isinstance(error, BaseExceptionGroup):
+                    _, remaining = error.split(TransactionExecutionError)
+                    if remaining is None or isinstance(remaining, Exception):
+                        fatal_to_raise = fatal_error
+                    else:
+                        raise
+                else:
+                    raise
+            elif isinstance(error, Exception):
+                logger.exception('MemoryStreamWorker task failed during shutdown')
+                return
+            else:
+                raise
+        if fatal_to_raise is not None:
+            raise fatal_to_raise
 
     async def _run(
         self,
@@ -196,7 +197,7 @@ class MemoryStreamWorker(Generic[_ItemT]):
             await self._pauses.wait()
             try:
                 await handler(item)
-            except (CompletedExecutionError, TransactionCleanupError):
+            except TransactionExecutionError:
                 raise
             except Exception:
                 # Safety net only — items are opaque here, so the handler owns message-level logging.

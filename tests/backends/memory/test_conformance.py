@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING
 
 import pytest
 from typing_extensions import override
@@ -9,6 +9,7 @@ from waku.backends.memory import MemoryBackend
 from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.backends.memory._internal.inbox import InMemoryInboxStore
 from waku.backends.memory._internal.outbox import InMemoryOutboxStore
+from waku.backends.memory._internal.sequence import InMemorySequenceAllocator
 from waku.backends.testing import (
     BackendAssemblyContract,
     CheckpointStoreContract,
@@ -19,9 +20,17 @@ from waku.backends.testing import (
     SequenceAllocatorContract,
     SnapshotStoreContract,
 )
+from waku.di import scoped
+from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingModule
 from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
+from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.snapshot.in_memory import InMemorySnapshotStore
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
+from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventStore, ISnapshotStore
+from waku.exceptions import ImproperlyConfiguredError
+from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
+from waku.messaging.sequence import ISequenceAllocator
+from waku.testing import create_test_app
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -30,18 +39,9 @@ if TYPE_CHECKING:
     from waku.backends.testing import EventStoreFactory
     from waku.eventsourcing.contracts.event import IMetadataEnricher
     from waku.eventsourcing.projection.interfaces import IProjection
-    from waku.eventsourcing.serialization.registry import EventTypeRegistry
-    from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventStore, ISnapshotStore
-    from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
-
-# The memory backend is the conformance kit's second subscriber. Its no-op committer cannot
-# stage-and-roll-back real writes, so the append+forward rollback assertion is opted out
-# (supports_rollback=False) — the wiring stub dogfoods assembly identity + facet conformance.
 
 
 class TestMemoryBackendAssembly(BackendAssemblyContract):
-    supports_rollback: ClassVar[bool] = False
-
     @pytest.fixture
     @override
     def backend_module(self) -> DynamicModule:
@@ -49,8 +49,6 @@ class TestMemoryBackendAssembly(BackendAssemblyContract):
 
 
 class TestMemorySequenceConformance(SequenceAllocatorContract):
-    supports_rollback: ClassVar[bool] = False
-
     @pytest.fixture
     @override
     def backend_module(self) -> DynamicModule:
@@ -103,3 +101,38 @@ class TestMemoryCheckpointConformance(CheckpointStoreContract):
     @override
     def checkpoint_store(self) -> ICheckpointStore:
         return InMemoryCheckpointStore()
+
+
+def test_standalone_event_store_without_facets_reports_missing_facet_diagnostics() -> None:
+    store = InMemoryEventStore(EventTypeRegistry(), snapshots=None, checkpoints=None)
+
+    with pytest.raises(ImproperlyConfiguredError, match='constructed without a snapshots facet'):
+        _ = store.snapshots
+
+    with pytest.raises(ImproperlyConfiguredError, match='constructed without a checkpoints facet'):
+        _ = store.checkpoints
+
+
+async def test_standalone_memory_adapters_resolve_through_direct_dishka_class_registration() -> None:
+    async with (
+        create_test_app(
+            imports=[EventSourcingModule.register(EventSourcingConfig())],
+            providers=[
+                scoped(IDeadLetterStore, InMemoryDeadLetterStore),
+                scoped(IInboxStore, InMemoryInboxStore),
+                scoped(IOutboxStore, InMemoryOutboxStore),
+                scoped(ISequenceAllocator, InMemorySequenceAllocator),
+                scoped(ISnapshotStore, InMemorySnapshotStore),
+                scoped(ICheckpointStore, InMemoryCheckpointStore),
+                scoped(IEventStore, InMemoryEventStore),
+            ],
+        ) as app,
+        app.container() as scope,
+    ):
+        assert isinstance(await scope.get(IDeadLetterStore), InMemoryDeadLetterStore)
+        assert isinstance(await scope.get(IInboxStore), InMemoryInboxStore)
+        assert isinstance(await scope.get(IOutboxStore), InMemoryOutboxStore)
+        assert isinstance(await scope.get(ISequenceAllocator), InMemorySequenceAllocator)
+        assert isinstance(await scope.get(ISnapshotStore), InMemorySnapshotStore)
+        assert isinstance(await scope.get(ICheckpointStore), InMemoryCheckpointStore)
+        assert isinstance(await scope.get(IEventStore), InMemoryEventStore)

@@ -14,16 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import override
 
 from waku import module
-from waku.backends.sqlalchemy.event_store.store import make_sqlalchemy_event_store
-from waku.backends.sqlalchemy.event_store.tables import bind_event_store_tables
-from waku.backends.sqlalchemy.uow import SqlAlchemyUnitOfWork
-from waku.di import scoped
+from waku.backends.sqlalchemy import SqlAlchemyBackend
 from waku.eventsourcing import ForwardDescriptor, forward
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
-from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
-from waku.eventsourcing.snapshot.in_memory import InMemorySnapshotStore
-from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventStore, ISnapshotStore
+from waku.eventsourcing.store.interfaces import IEventStore
 from waku.integrations.eventsourcing_messaging import EventSourcedVoidCommandHandler, EventSourcingMessagingModule
 from waku.messages import IEvent
 from waku.messaging import (
@@ -39,12 +34,11 @@ from waku.messaging import (
     route,
 )
 from waku.messaging.durability import IOutboxStore
+from waku.messaging.outbox.models import OutboxMessage
 from waku.testing import create_test_app
-from waku.uow import IUnitOfWork
 
 from tests.eventsourcing.domain import Note, NoteCreated, NoteEdited, NoteRepository
 from tests.messaging.helpers import RecordingTransport
-from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -141,9 +135,6 @@ async def _forwarding_app(
     forwarding: Sequence[ForwardDescriptor] = (),
 ) -> AsyncGenerator[AsyncContainer]:
     metadata = MetaData()
-    es_tables = bind_event_store_tables(metadata)
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(metadata.create_all)
 
     # Request-scoped session: the store, UoW, and outbox share ONE session per scope (atomic), and
     # the background relay gets its own session per poll — no cross-session concurrency.
@@ -169,6 +160,7 @@ async def _forwarding_app(
             EventSourcingModule.register(es_config),
             EventSourcingMessagingModule.register(),
             MessagingModule.register(msg_config),
+            SqlAlchemyBackend.register(session_factory=_session_factory, metadata=metadata),
         ],
         extensions=[es_ext, msg_ext],
     )
@@ -176,24 +168,19 @@ async def _forwarding_app(
         pass
 
     try:
-        async with (
-            create_test_app(
-                imports=[_AppModule],
-                providers=[
-                    scoped(AsyncSession, _session_factory),
-                    scoped(IUnitOfWork, SqlAlchemyUnitOfWork),
-                    scoped(ISnapshotStore, InMemorySnapshotStore),
-                    scoped(ICheckpointStore, InMemoryCheckpointStore),
-                    scoped(IEventStore, make_sqlalchemy_event_store(es_tables)),
-                    scoped(IOutboxStore, RecordingOutboxStore),
-                ],
-            ) as app,
-            app.container() as container,
-        ):
-            yield container
+        async with create_test_app(imports=[_AppModule]) as app:
+            async with pg_engine.begin() as conn:
+                await conn.run_sync(metadata.create_all)
+            async with app.container() as container:
+                yield container
     finally:
         async with pg_engine.begin() as conn:
             await conn.run_sync(metadata.drop_all)
+
+
+async def _resolved_outbox_rows(container: AsyncContainer) -> list[OutboxMessage]:
+    outbox = await container.get(IOutboxStore)
+    return list(await outbox.fetch_head_of_queue(batch_size=100))
 
 
 async def test_appended_event_forwarded_to_outbox_exactly_once(pg_engine: AsyncEngine) -> None:
@@ -203,14 +190,13 @@ async def test_appended_event_forwarded_to_outbox_exactly_once(pg_engine: AsyncE
         await bus.invoke(CreateNote(note_id='n-1', title='Hello'))
 
         store = await c.get(IEventStore)
-        outbox = await c.get(IOutboxStore)
+        outbox_rows = await _resolved_outbox_rows(c)
         events = await store.read_stream(StreamId.for_aggregate('Note', 'n-1'))
 
-    assert isinstance(outbox, RecordingOutboxStore)
     assert len(events) == 1
-    assert len(outbox.saved) == 1
-    assert outbox.saved[0].destination == 'test://notes'
-    assert 'NoteCreated' in outbox.saved[0].message_type
+    assert len(outbox_rows) == 1
+    assert outbox_rows[0].destination == 'test://notes'
+    assert 'NoteCreated' in outbox_rows[0].message_type
 
 
 async def test_each_appended_event_forwarded_once_no_double_flush(pg_engine: AsyncEngine) -> None:
@@ -222,10 +208,9 @@ async def test_each_appended_event_forwarded_once_no_double_flush(pg_engine: Asy
         bus = await c.get(IMessageBus)
         await bus.invoke(CreateNote(note_id='n-2', title='Hello'))
 
-        outbox = await c.get(IOutboxStore)
+        outbox_rows = await _resolved_outbox_rows(c)
 
-    assert isinstance(outbox, RecordingOutboxStore)
-    forwarded_types = sorted(m.message_type.rsplit('.', 1)[-1] for m in outbox.saved)
+    forwarded_types = sorted(m.message_type.rsplit('.', 1)[-1] for m in outbox_rows)
     assert forwarded_types == ['NoteCreated', 'NoteEdited']
 
 
@@ -236,12 +221,11 @@ async def test_unrouted_appended_event_not_forwarded(pg_engine: AsyncEngine) -> 
         await bus.invoke(CreateNote(note_id='n-3', title='Hello'))
 
         store = await c.get(IEventStore)
-        outbox = await c.get(IOutboxStore)
+        outbox_rows = await _resolved_outbox_rows(c)
         events = await store.read_stream(StreamId.for_aggregate('Note', 'n-3'))
 
-    assert isinstance(outbox, RecordingOutboxStore)
     assert len(events) == 1  # appended
-    assert outbox.saved == []  # but not forwarded (no subscriber)
+    assert outbox_rows == []  # but not forwarded (no subscriber)
 
 
 async def test_rollback_after_append_forwards_nothing(pg_engine: AsyncEngine) -> None:
@@ -252,12 +236,11 @@ async def test_rollback_after_append_forwards_nothing(pg_engine: AsyncEngine) ->
             await bus.invoke(CreateNote(note_id='n-4', title='Hello'))
 
         store = await c.get(IEventStore)
-        outbox = await c.get(IOutboxStore)
+        outbox_rows = await _resolved_outbox_rows(c)
         stream_exists = await store.stream_exists(StreamId.for_aggregate('Note', 'n-4'))
 
-    assert isinstance(outbox, RecordingOutboxStore)
     assert stream_exists is False  # append rolled back
-    assert outbox.saved == []  # nothing forwarded (the torn-write fix)
+    assert outbox_rows == []  # nothing forwarded (the torn-write fix)
 
 
 async def test_translation_seam_forwards_integration_event(pg_engine: AsyncEngine) -> None:
@@ -272,11 +255,10 @@ async def test_translation_seam_forwards_integration_event(pg_engine: AsyncEngin
         bus = await c.get(IMessageBus)
         await bus.invoke(CreateNote(note_id='n-5', title='Hello'))
 
-        outbox = await c.get(IOutboxStore)
+        outbox_rows = await _resolved_outbox_rows(c)
 
-    assert isinstance(outbox, RecordingOutboxStore)
-    assert len(outbox.saved) == 1
-    assert 'NoteCreatedIntegration' in outbox.saved[0].message_type
+    assert len(outbox_rows) == 1
+    assert 'NoteCreatedIntegration' in outbox_rows[0].message_type
 
 
 def _note_title(event: IEvent) -> str:

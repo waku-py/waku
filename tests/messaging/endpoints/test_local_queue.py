@@ -10,12 +10,17 @@ import pytest
 from anyio.lowlevel import checkpoint
 from typing_extensions import override
 
-from waku.di import object_, provider
+from waku._internal.transaction import (
+    TransactionExecutionError,
+    TransactionFailureKind,
+    extract_transaction_execution_error,
+)
+from waku.di import Provider, object_, provider, scoped
 from waku.messages import IEvent
 from waku.messaging import EventHandler, MessagingConfig, MessagingExtension, MessagingModule, TransactionalBehavior
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import MessageContext, get_message_context
-from waku.messaging.durability import IDeadLetterStore
+from waku.messaging.durability import IDeadLetterStore, IDurabilityStore
 from waku.messaging.endpoints._internal.execution import EndpointExecution
 from waku.messaging.endpoints._internal.local_queue import LocalQueueEndpoint
 from waku.messaging.endpoints.outcome import ExecutionOutcome
@@ -33,9 +38,12 @@ from tests.messaging.helpers import (
     NOOP_EVALUATOR,
     NOOP_OBSERVERS,
     RecordingDeadLetterStore,
+    RecordingDurabilityStore,
     RecordingUoW,
     make_envelope,
 )
+from tests.messaging.inbox.fake_store import FakeInboxStore
+from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -49,6 +57,26 @@ if TYPE_CHECKING:
     from waku.messaging.router import HandlerSubscriptions
 
 _DISCARDING_LOGGER = 'waku.messaging.errors._internal.discarding_store'
+
+
+def _build_dead_letter_durability(
+    unit_of_work: IUnitOfWork,
+    dead_letters: IDeadLetterStore,
+) -> IDurabilityStore:
+    return RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=RecordingOutboxStore(),
+        inbox=FakeInboxStore(),
+        dead_letters=dead_letters,
+    )
+
+
+def _configured_dead_letter_providers(dead_letters: IDeadLetterStore) -> list[Provider]:
+    return [
+        object_(RecordingUoW(), provided_type=IUnitOfWork),
+        object_(dead_letters, provided_type=IDeadLetterStore),
+        scoped(IDurabilityStore, _build_dead_letter_durability),
+    ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -354,10 +382,15 @@ class TestLocalQueueEndpoint:
             await wait_until(lambda: uow.rollback_count >= 1)
             for _ in range(5):
                 await checkpoint()
-            with pytest.raises(RuntimeError) as raised:
+            with pytest.raises((TransactionExecutionError, BaseExceptionGroup)) as raised:
                 await endpoint.stop()
 
-        assert raised.value is rollback_error
+        fatal = extract_transaction_execution_error(raised.value)
+        assert fatal is not None
+        assert fatal.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert fatal.error is rollback_error
+        assert isinstance(fatal.primary_error, RuntimeError)
+        assert fatal.primary_error.__cause__ is None
         assert uow.rollback_count == 1
         assert _AlwaysFailingHandler.call_count == 1
 
@@ -385,10 +418,14 @@ class TestLocalQueueEndpoint:
             await wait_until(lambda: uow.commit_count == 1)
             for _ in range(5):
                 await checkpoint()
-            with pytest.raises(ExceptionGroup) as raised:
+            with pytest.raises((TransactionExecutionError, BaseExceptionGroup)) as raised:
                 await endpoint.stop()
 
-        assert raised.value.exceptions == (teardown_error,)
+        fatal = extract_transaction_execution_error(raised.value)
+        assert fatal is not None
+        assert fatal.kind is TransactionFailureKind.AFTER_COMMIT
+        assert isinstance(fatal.error, ExceptionGroup)
+        assert fatal.error.exceptions == (teardown_error,)
         assert uow.commit_count == 1
         assert uow.rollback_count == 0
         assert [event.order_id for event in _RecordingHandler.received] == ['committed']
@@ -424,10 +461,7 @@ class TestLocalQueueRequeue:
 
         async with create_test_app(
             imports=[MessagingModule.register(MessagingConfig(dead_letter=DeadLetterConfig()))],
-            providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
-                object_(dl_store, provided_type=IDeadLetterStore),
-            ],
+            providers=_configured_dead_letter_providers(dl_store),
             extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
         ) as app:
             endpoint = await _make_endpoint_with_requeue(
@@ -472,7 +506,7 @@ class TestLocalQueueRequeue:
             await endpoint.stop()
 
         assert _AlwaysFailingHandler.call_count == 2
-        assert 'not persisted' in caplog.text.lower()  # loss WARN comes from the discarding store, not the endpoint
+        assert 'not persisted' in caplog.text.lower()
         terminal = [(o, exc) for _, o, exc in spy.executed if o is ExecutionOutcome.DEAD_LETTERED]
         assert len(terminal) == 1
         assert isinstance(terminal[0][1], RequeueBudgetExceededError)
@@ -484,11 +518,7 @@ class TestLocalQueueRequeue:
         dl_store = RecordingDeadLetterStore()
         spy = _TerminalSpy()
         config = MessagingConfig(dead_letter=DeadLetterConfig()) if configured else None
-        providers = (
-            [object_(RecordingUoW(), provided_type=IUnitOfWork), object_(dl_store, provided_type=IDeadLetterStore)]
-            if configured
-            else []
-        )
+        providers = _configured_dead_letter_providers(dl_store) if configured else []
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
@@ -545,10 +575,7 @@ class TestLocalQueueRequeue:
 
         async with create_test_app(
             imports=[MessagingModule.register(MessagingConfig(dead_letter=DeadLetterConfig()))],
-            providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
-                object_(dl_store, provided_type=IDeadLetterStore),
-            ],
+            providers=_configured_dead_letter_providers(dl_store),
             extensions=[MessagingExtension().bind(_RecordingHandler, _AlwaysFailingHandler)],
         ) as app:
             endpoint = await _make_endpoint_with_requeue(
@@ -573,10 +600,7 @@ class TestLocalQueueRequeue:
 
         async with create_test_app(
             imports=[MessagingModule.register(MessagingConfig(dead_letter=DeadLetterConfig()))],
-            providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
-                object_(dl_store, provided_type=IDeadLetterStore),
-            ],
+            providers=_configured_dead_letter_providers(dl_store),
             extensions=[MessagingExtension().bind(_BudgetTwoHandler)],
         ) as app:
             endpoint = await _make_endpoint_with_requeue(

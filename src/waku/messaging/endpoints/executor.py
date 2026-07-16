@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, Any
 import anyio
 
 from waku._internal.clock import utc_now
-from waku._internal.transaction import TransactionCleanupError
-from waku.messaging._internal.transaction import CompletedExecutionError
 from waku.messaging.endpoints._internal.execution import (
     EndpointExecution,
     ExecutionResult,
@@ -36,7 +34,7 @@ __all__ = [
 
 
 class EndpointExecutor:
-    """Public endpoint execution boundary that exposes the original rollback failure."""
+    """Public endpoint execution boundary."""
 
     __slots__ = ('_execution',)
 
@@ -72,18 +70,10 @@ class EndpointExecutor:
         *,
         on_result: ResultObserver = noop_result_observer,
     ) -> ExecutionResult:
-        try:
-            return await self._execution.execute(envelope, handler_type, on_result=on_result)
-        except TransactionCleanupError as exc:
-            raise exc.rollback_error from exc.primary_error
-        except CompletedExecutionError as exc:
-            raise exc.error from exc
+        return await self._execution.execute(envelope, handler_type, on_result=on_result)
 
     async def write_dead_letter(self, envelope: MessageEnvelope[Any], exc: Exception, attempt: int) -> bool:
-        try:
-            return await self._execution.write_dead_letter(envelope, exc, attempt)
-        except TransactionCleanupError as cleanup_error:
-            raise cleanup_error.rollback_error from cleanup_error.primary_error
+        return await self._execution.write_dead_letter(envelope, exc, attempt)
 
 
 class EndpointExecutorFactory:

@@ -6,7 +6,7 @@ from typing import ClassVar
 
 from typing_extensions import override
 
-from waku.di import object_
+from waku.di import object_, scoped
 from waku.messages import IEvent
 from waku.messaging import (
     EndpointMode,
@@ -18,7 +18,7 @@ from waku.messaging import (
     local_queue,
     route,
 )
-from waku.messaging.durability import IInboxStore
+from waku.messaging.durability import IDurabilityStore, IInboxStore
 from waku.messaging.inbox import EndpointUri
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.destination import handler_destination
@@ -30,7 +30,7 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import RecordingAllocator, RecordingUoW, make_envelope
+from tests.messaging.helpers import RecordingAllocator, RecordingUoW, durability_for_inbox, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -64,6 +64,7 @@ async def test_abandoned_row_is_drained_and_handled() -> None:
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                scoped(IDurabilityStore, durability_for_inbox),
             ],
         ) as app,
         app.container() as scope,

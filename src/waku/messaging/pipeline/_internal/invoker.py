@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, TypeAlias
 
-from waku.messaging._internal.outbox_cascading import DeferredCascadeFlusher
 from waku.messaging._internal.transaction import TransactionDepth
-from waku.messaging._internal.uow import resolve_uow
 from waku.messaging.behaviors.transactional import TransactionalBehavior, run_in_transaction
 from waku.messaging.pipeline._internal.executor import PipelineExecutor
 from waku.messaging.pipeline._internal.plan import BehaviorPlan  # noqa: TC001 -- Dishka introspects __init__ at runtime
+from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -34,13 +33,15 @@ class HandlerPipelineInvoker:
     def __init__(self, plan: BehaviorPlan) -> None:
         self._plan = plan
 
+    def has_transaction(self, handler_type: HandlerType) -> bool:
+        return any(issubclass(behavior, TransactionalBehavior) for behavior in self._plan.for_handler(handler_type))
+
     async def invoke(
         self,
         scope: AsyncContainer,
         message: IMessage,
         handler_type: HandlerType,
         *,
-        result_aware_transaction: bool = False,
         execution_wrapper: _ExecutionWrapper = _execute_direct,
     ) -> Any:
         handler = await scope.get(handler_type)
@@ -53,19 +54,28 @@ class HandlerPipelineInvoker:
         async def execute() -> Any:
             return await execution_wrapper(execute_pipeline)
 
-        has_transaction = any(issubclass(behavior, TransactionalBehavior) for behavior in behavior_types)
-        if not result_aware_transaction or not has_transaction:
-            return await execute()
+        return await execute()
 
-        uow = await resolve_uow(scope)
+    async def invoke_transactional(
+        self,
+        scope: AsyncContainer,
+        message: IMessage,
+        handler_type: HandlerType,
+        *,
+        execution_wrapper: _ExecutionWrapper = _execute_direct,
+    ) -> Any:
+        if not self.has_transaction(handler_type):
+            msg = f'{handler_type.__name__} has no transactional pipeline'
+            raise RuntimeError(msg)
+        uow = await scope.get(IUnitOfWork)
         depth = await scope.get(TransactionDepth)
-        result = await run_in_transaction(
+        return await run_in_transaction(
             uow,
             depth,
-            execute,
-            rollback_failure_is_primary=True,
+            lambda: self.invoke(
+                scope,
+                message,
+                handler_type,
+                execution_wrapper=execution_wrapper,
+            ),
         )
-        if depth.depth == 0:
-            flusher = await scope.get(DeferredCascadeFlusher)
-            await flusher.flush()
-        return result

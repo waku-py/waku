@@ -8,13 +8,15 @@ import pytest
 from typing_extensions import override
 
 from waku.backends.memory import MemoryBackend
+from waku.di import is_registered
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IEvent
 from waku.messaging import MessagingConfig, MessagingExtension, MessagingModule
-from waku.messaging.durability import IDeadLetterStore
+from waku.messaging.durability import IDeadLetterStore, IDurabilityStore
 from waku.messaging.errors import DeadLetterDestinationKind, DeadLetterEntry, ErrorPolicy
 from waku.messaging.handler import EventHandler
 from waku.testing import create_test_app
+from waku.uow import IUnitOfWork
 
 if TYPE_CHECKING:
     from typing import ClassVar
@@ -47,19 +49,14 @@ class _DeadLetteringHandler(EventHandler[_BoomEvent]):
         raise RuntimeError(msg)
 
 
-async def test_no_backend_resolves_the_discarding_store_that_persists_nothing() -> None:
+async def test_backendless_messaging_registers_no_persistence_capability() -> None:
     async with (
         create_test_app(imports=[MessagingModule.register(MessagingConfig())]) as app,
         app.container() as scope,
     ):
-        store = await scope.get(IDeadLetterStore)
-        entry = _entry()
-
-        await store.save(entry)
-
-        assert await store.fetch() == ()
-        with pytest.raises(KeyError):
-            await store.fetch_one(entry.id)
+        assert not await is_registered(scope, IDeadLetterStore)
+        assert not await is_registered(scope, IUnitOfWork)
+        assert not await is_registered(scope, IDurabilityStore)
 
 
 async def test_backend_present_persists_dead_letters_even_without_dead_letter_config() -> None:
@@ -70,10 +67,14 @@ async def test_backend_present_persists_dead_letters_even_without_dead_letter_co
         app.container() as scope,
     ):
         store = await scope.get(IDeadLetterStore)
+        durability = await scope.get(IDurabilityStore)
+        unit_of_work = await scope.get(IUnitOfWork)
         entry = _entry()
 
         await store.save(entry)
 
+        assert durability.dead_letters is store
+        assert durability.unit_of_work is unit_of_work
         assert (await store.fetch_one(entry.id)).id == entry.id
 
 
@@ -86,7 +87,7 @@ async def test_dead_letter_policy_without_config_boots_when_a_backend_provides_t
 
 
 async def test_dead_letter_policy_without_config_and_without_backend_still_raises() -> None:
-    with pytest.raises(ImproperlyConfiguredError, match='require dead_letter'):
+    with pytest.raises(ImproperlyConfiguredError, match='dead_letter requires'):
         async with create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
             extensions=[MessagingExtension().bind(_DeadLetteringHandler)],

@@ -29,7 +29,7 @@ from waku.messaging import (
 )
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import get_message_context
-from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
+from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore, IOutboxStore
 from waku.messaging.endpoints.base import EndpointMode
 from waku.messaging.errors.dead_letter import (
     DeadLetterDestinationKind,
@@ -50,7 +50,13 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import RecordingAllocator, RecordingUoW, StubSubscription, make_envelope
+from tests.messaging.helpers import (
+    RecordingAllocator,
+    RecordingDurabilityStore,
+    RecordingUoW,
+    StubSubscription,
+    make_envelope,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -120,6 +126,20 @@ class _DictDeadLetterStore(IDeadLetterStore):
         return 0
 
 
+def _durability(
+    unit_of_work: IUnitOfWork,
+    outbox: IOutboxStore,
+    inbox: IInboxStore,
+    dead_letters: IDeadLetterStore,
+) -> IDurabilityStore:
+    return RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=outbox,
+        inbox=inbox,
+        dead_letters=dead_letters,
+    )
+
+
 async def test_dead_letter_then_replay_reprocesses_message() -> None:
     _attempts.clear()
     dl_store = _DictDeadLetterStore()
@@ -134,7 +154,10 @@ async def test_dead_letter_then_replay_reprocesses_message() -> None:
             extensions=[MessagingExtension().bind(_ChargeHandler)],
             providers=[
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
+                object_(InMemoryOutboxStore(dl_store), provided_type=IOutboxStore),
+                object_(InMemoryInboxStore(dl_store), provided_type=IInboxStore),
                 object_(dl_store, provided_type=IDeadLetterStore),
+                scoped(IDurabilityStore, _durability),
             ],
         ) as app,
         app.container() as scope,
@@ -266,7 +289,9 @@ async def test_tenant_id_survives_outbox_dead_letter_replay_via_metadata_blob() 
             providers=[
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(outbox, provided_type=IOutboxStore),
+                object_(InMemoryInboxStore(dlq), provided_type=IInboxStore),
                 object_(dlq, provided_type=IDeadLetterStore),
+                scoped(IDurabilityStore, _durability),
             ],
         ) as app,
         app.container() as scope,
@@ -311,8 +336,10 @@ async def test_tenant_id_survives_inbox_dead_letter_replay_to_handler_context() 
             extensions=[MessagingExtension().bind(_TenantRecordingHandler)],
             providers=[
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
+                object_(InMemoryOutboxStore(dlq), provided_type=IOutboxStore),
                 object_(inbox, provided_type=IInboxStore),
                 object_(dlq, provided_type=IDeadLetterStore),
+                scoped(IDurabilityStore, _durability),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
             ],
         ) as app,
@@ -379,7 +406,9 @@ async def test_outbox_exhaustion_dead_letter_replays() -> None:
             providers=[
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(outbox, provided_type=IOutboxStore),
+                object_(InMemoryInboxStore(dlq), provided_type=IInboxStore),
                 object_(dlq, provided_type=IDeadLetterStore),
+                scoped(IDurabilityStore, _durability),
             ],
         ) as app,
         app.container() as scope,
@@ -428,8 +457,10 @@ async def test_inbox_poison_dead_letter_replays() -> None:
             extensions=[MessagingExtension().bind(_FlakyOrderHandler)],
             providers=[
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
+                object_(InMemoryOutboxStore(dlq), provided_type=IOutboxStore),
                 object_(inbox, provided_type=IInboxStore),
                 object_(dlq, provided_type=IDeadLetterStore),
+                scoped(IDurabilityStore, _durability),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
             ],
         ) as app,
@@ -476,7 +507,10 @@ async def test_replay_of_handler_entry_does_not_commit_worker_claim_tx() -> None
             extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
             providers=[
                 scoped(IUnitOfWork, _ScopedRecordingUoW),
+                object_(InMemoryOutboxStore(dlq), provided_type=IOutboxStore),
+                object_(InMemoryInboxStore(dlq), provided_type=IInboxStore),
                 object_(dlq, provided_type=IDeadLetterStore),
+                scoped(IDurabilityStore, _durability),
             ],
         ) as app,
         app.container() as scope,
@@ -508,6 +542,10 @@ async def test_replay_of_handler_entry_does_not_commit_worker_claim_tx() -> None
     rolled_back = [uow for uow in _ScopedRecordingUoW.instances if uow.rollback_count]
     assert len(rolled_back) == 1
     assert rolled_back[0].commit_count == 0
-    worker_scopes = [uow for uow in _ScopedRecordingUoW.instances if uow.rollback_count == 0]
+    worker_scopes = [uow for uow in _ScopedRecordingUoW.instances if uow.commit_count]
     assert worker_scopes  # the claim/mark scope exists and is distinct from the reprocess scope
     assert all(uow.commit_count == 1 for uow in worker_scopes)
+    validation_scopes = [
+        uow for uow in _ScopedRecordingUoW.instances if not uow.commit_count and not uow.rollback_count
+    ]
+    assert len(validation_scopes) == 1  # same-child capability validation is intentionally side-effect free

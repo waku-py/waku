@@ -23,7 +23,7 @@ from waku.messaging import (
     TransactionalBehavior,
 )
 from waku.messaging.config import DeadLetterConfig
-from waku.messaging.durability import IDeadLetterStore, IInboxStore
+from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore
 from waku.messaging.endpoints.base import EndpointMode
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.handler import EventHandler
@@ -43,6 +43,8 @@ from tests.messaging.helpers import (
     RecordingAllocator,
     RecordingDeadLetterStore,
     RecordingUoW,
+    durability_for_inbox,
+    durability_for_inbox_and_dead_letters,
     make_envelope,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
@@ -154,6 +156,7 @@ class TestDurableInboxIntegration:
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                    scoped(IDurabilityStore, durability_for_inbox),
                 ],
             ) as app,
             app.container() as container,
@@ -179,6 +182,7 @@ class TestDurableInboxIntegration:
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                    scoped(IDurabilityStore, durability_for_inbox),
                 ],
             ) as app,
             app.container() as container,
@@ -209,6 +213,7 @@ class TestDurableInboxIntegration:
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                    scoped(IDurabilityStore, durability_for_inbox),
                 ],
             ) as app,
             app.container() as container,
@@ -238,6 +243,7 @@ class TestDurableInboxIntegration:
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     scoped(IDeadLetterStore, FailingDeadLetterStore),
+                    scoped(IDurabilityStore, durability_for_inbox_and_dead_letters),
                 ],
             ) as app,
             app.container() as container,
@@ -270,6 +276,7 @@ class TestDurableInboxIntegration:
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                    scoped(IDurabilityStore, durability_for_inbox),
                 ],
             ) as app,
             app.container() as container,
@@ -302,6 +309,7 @@ class TestDurableInboxIntegration:
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                    scoped(IDurabilityStore, durability_for_inbox),
                 ],
             ) as app,
             app.container() as container,
@@ -397,6 +405,7 @@ class TestDurableInboxIntegration:
                 object_(inbox, provided_type=IInboxStore),
                 object_(dlq, provided_type=IDeadLetterStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                scoped(IDurabilityStore, durability_for_inbox_and_dead_letters),
             ],
         ) as app:
             codec = await app.container.get(PayloadCodec)
@@ -441,6 +450,7 @@ class TestDurableInboxIntegration:
                 object_(inbox, provided_type=IInboxStore),
                 object_(dlq, provided_type=IDeadLetterStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                scoped(IDurabilityStore, durability_for_inbox_and_dead_letters),
             ],
         ) as app:
             codec = await app.container.get(PayloadCodec)
@@ -494,6 +504,7 @@ class TestDurableInboxIntegration:
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                scoped(IDurabilityStore, durability_for_inbox),
                 singleton(_EndpointSink),
             ],
         ) as app:
@@ -541,6 +552,7 @@ class TestDurableInboxIntegration:
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                scoped(IDurabilityStore, durability_for_inbox),
             ],
         ) as app:
             codec = await app.container.get(PayloadCodec)
@@ -587,6 +599,7 @@ class TestDurableInboxIntegration:
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(allocator, provided_type=ISequenceAllocator),
+                scoped(IDurabilityStore, durability_for_inbox),
             ],
         ) as app:
             codec = await app.container.get(PayloadCodec)

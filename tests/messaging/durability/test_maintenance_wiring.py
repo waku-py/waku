@@ -3,8 +3,10 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import anyio
+import anyio.lowlevel
+
 from waku.backends.memory import MemoryBackend
-from waku.backends.memory._internal.inbox import InMemoryInboxStore
 from waku.messaging import MessagingConfig, MessagingModule, OutboxConfig
 from waku.messaging._internal.maintenance import DurabilityMaintenanceLifecycleExtension
 from waku.messaging.config import DeadLetterConfig
@@ -13,8 +15,7 @@ from waku.messaging.inbox import EndpointUri, HandlerDestination
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 from waku.testing import create_test_app
-
-from tests._wait import wait_until
+from waku.uow import IUnitOfWork
 
 
 def _maintenance_config() -> MessagingConfig:
@@ -43,14 +44,9 @@ def test_no_maintenance_owner_when_nothing_to_maintain() -> None:
 async def test_maintenance_runs_unconditionally_promoting_scheduled_rows() -> None:
     # The no-leader path (leadership unset): booting a memory-backend app starts the maintenance agent
     # unconditionally through the real lifecycle — a due SCHEDULED inbox row gets promoted to INCOMING.
-    async with (
-        create_test_app(
-            imports=[MessagingModule.register(_maintenance_config()), MemoryBackend.register()],
-        ) as app,
-        app.container() as scope,
-    ):
-        inbox = await scope.get(IInboxStore)
-        assert isinstance(inbox, InMemoryInboxStore)
+    async with create_test_app(
+        imports=[MessagingModule.register(_maintenance_config()), MemoryBackend.register()],
+    ) as app:
         due = InboxEntry(
             id=uuid4(),
             payload={'test': True},
@@ -63,8 +59,19 @@ async def test_maintenance_runs_unconditionally_promoting_scheduled_rows() -> No
             execution_time=datetime.now(tz=UTC) - timedelta(minutes=1),
             owner_id=None,
         )
-        await inbox.store_incoming(due)
 
-        await wait_until(lambda: any(e.status is InboxStatus.INCOMING for e in inbox.entries.values()))
+        async with app.container() as scope:
+            inbox = await scope.get(IInboxStore)
+            await inbox.store_incoming(due)
+            await (await scope.get(IUnitOfWork)).commit()
 
-    assert any(e.status is InboxStatus.INCOMING for e in inbox.entries.values())
+        claimed: list[InboxEntry] = []
+        with anyio.fail_after(5):
+            while not claimed:
+                async with app.container() as scope:
+                    inbox = await scope.get(IInboxStore)
+                    claimed = list(await inbox.fetch_pending_partitioned(batch_size=1, owner_id='observer'))
+                    await (await scope.get(IUnitOfWork)).rollback()
+                await anyio.lowlevel.checkpoint()
+
+    assert [entry.id for entry in claimed] == [due.id]

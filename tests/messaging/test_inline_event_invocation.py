@@ -26,12 +26,13 @@ from waku.messaging import (
 )
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.context import get_message_context
-from waku.messaging.durability import IOutboxStore
+from waku.messaging.durability import IDurabilityStore, IOutboxStore
 from waku.messaging.exceptions import HandlerNotFoundError
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import RecordingUoW
+from tests.messaging.helpers import RecordingDeadLetterStore, RecordingDurabilityStore, RecordingUoW
+from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 if TYPE_CHECKING:
@@ -69,6 +70,15 @@ def _fresh_uow() -> RecordingUoW:
     return RecordingUoW()
 
 
+def _cascading_durability(unit_of_work: IUnitOfWork, outbox: IOutboxStore) -> IDurabilityStore:
+    return RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=outbox,
+        inbox=FakeInboxStore(),
+        dead_letters=RecordingDeadLetterStore(),
+    )
+
+
 def _cascading_app(extension: MessagingExtension) -> AbstractAsyncContextManager[WakuApplication]:
     # INLINE mode: the non-durable subscriber runs synchronously wherever it is dispatched from, so
     # the tests observe deterministically WHEN it runs relative to the fan-out frame's commit.
@@ -79,8 +89,13 @@ def _cascading_app(extension: MessagingExtension) -> AbstractAsyncContextManager
         outbox=OutboxConfig(),
         global_pipeline_behaviors=[TransactionalBehavior],
     )
+    outbox = RecordingOutboxStore()
     return create_test_app(
-        providers=[scoped(IUnitOfWork, _fresh_uow), scoped(IOutboxStore, RecordingOutboxStore)],
+        providers=[
+            scoped(IUnitOfWork, _fresh_uow),
+            object_(outbox, provided_type=IOutboxStore),
+            scoped(IDurabilityStore, _cascading_durability),
+        ],
         imports=[MessagingModule.register(config)],
         extensions=[extension],
     )
@@ -123,6 +138,46 @@ class TestInvokeEventEndToEnd:
             bus = await container.get(IMessageBus)
             with pytest.raises(HandlerNotFoundError, match='_OrderShipped'):
                 await bus.invoke(_OrderShipped(order='o-2'))
+
+    @staticmethod
+    async def test_direct_fanout_failure_clears_successful_sibling_cascades() -> None:
+        delivered: list[str] = []
+
+        class CascadingHandler(EventHandler[_OrderShipped]):
+            def __init__(self, outgoing: IOutgoingMessages) -> None:
+                self._outgoing = outgoing
+
+            @override
+            async def handle(self, event: _OrderShipped, /) -> None:
+                self._outgoing.publish(_AuditLogged(order=event.order))
+
+        class FailingHandler(EventHandler[_OrderShipped]):
+            @override
+            async def handle(self, event: _OrderShipped, /) -> None:
+                msg = 'second handler failed'
+                raise RuntimeError(msg)
+
+        class AuditHandler(EventHandler[_AuditLogged]):
+            @override
+            async def handle(self, event: _AuditLogged, /) -> None:
+                delivered.append(event.order)
+
+        config = MessagingConfig(
+            endpoints=[local_queue('local://audit', mode=EndpointMode.INLINE)],
+            routing=[route(_AuditLogged).to('local://audit')],
+        )
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(config)],
+                extensions=[MessagingExtension().bind(CascadingHandler, FailingHandler).bind(AuditHandler)],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            with pytest.raises(RuntimeError, match='second handler failed'):
+                await bus.invoke(_OrderShipped(order='o-direct'))
+
+        assert delivered == []
 
     @staticmethod
     async def test_nested_invoke_inherits_causation_chain() -> None:

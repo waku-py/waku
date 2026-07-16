@@ -31,8 +31,7 @@ from waku.messaging import (
 from waku.messaging._internal.maintenance import DurabilityMaintenanceLifecycleExtension
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import get_message_context
-from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
-from waku.messaging.errors._internal.discarding_store import DiscardingDeadLetterStore
+from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore, IOutboxStore
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.exceptions import (
@@ -49,12 +48,28 @@ from waku.uow import IUnitOfWork
 from tests.messaging.helpers import (
     RecordingAllocator,
     RecordingDeadLetterStore,
+    RecordingDurabilityStore,
     RecordingTransport,
     RecordingUoW,
     order_id_partition,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
+
+
+def _durability(
+    *,
+    unit_of_work: IUnitOfWork,
+    outbox: IOutboxStore | None = None,
+    inbox: IInboxStore | None = None,
+    dead_letters: IDeadLetterStore | None = None,
+) -> RecordingDurabilityStore:
+    return RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=outbox or RecordingOutboxStore(),
+        inbox=inbox or FakeInboxStore(),
+        dead_letters=dead_letters or RecordingDeadLetterStore(),
+    )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -383,7 +398,7 @@ async def test_publish_propagates_correlation_context_through_queue() -> None:
     assert event_context['causation_id'] == str(command_context['message_id'])
 
 
-class TestMessagingConfigValidation:
+class TestMessagingConfigValidation:  # noqa: PLR0904 -- cohesive startup validation matrix
     @staticmethod
     def test_external_endpoint_without_outbox_raises() -> None:
         config = MessagingConfig(
@@ -417,15 +432,24 @@ class TestMessagingConfigValidation:
         config = MessagingConfig(
             dead_letter=DeadLetterConfig(),
         )
-        with pytest.raises(ImproperlyConfiguredError, match='IUnitOfWork is required'):
+        dead_letters = RecordingDeadLetterStore()
+        with pytest.raises(ImproperlyConfiguredError, match='IUnitOfWork'):
             async with create_test_app(
                 imports=[MessagingModule.register(config)],
-                providers=[scoped(IDeadLetterStore, RecordingDeadLetterStore)],
+                providers=[
+                    object_(dead_letters, provided_type=IDeadLetterStore),
+                    object_(
+                        _durability(unit_of_work=RecordingUoW(), dead_letters=dead_letters),
+                        provided_type=IDurabilityStore,
+                    ),
+                ],
             ):
                 pass  # pragma: no cover
 
     @staticmethod
     async def test_durable_outbox_without_explicit_transactional_behavior_boots() -> None:
+        outbox = RecordingOutboxStore()
+        unit_of_work = RecordingUoW()
         config = MessagingConfig(
             outbox=OutboxConfig(),
             transports={'test': RecordingTransport},
@@ -433,7 +457,11 @@ class TestMessagingConfigValidation:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_CommandHandler)],
-            providers=[object_(RecordingUoW(), provided_type=IUnitOfWork), scoped(IOutboxStore, RecordingOutboxStore)],
+            providers=[
+                object_(unit_of_work, provided_type=IUnitOfWork),
+                object_(outbox, provided_type=IOutboxStore),
+                object_(_durability(unit_of_work=unit_of_work, outbox=outbox), provided_type=IDurabilityStore),
+            ],
         ) as app:
             plan = await app.container.get(BehaviorPlan)
             registry = await app.container.get(HandlerMap)
@@ -451,12 +479,18 @@ class TestMessagingConfigValidation:
     @staticmethod
     async def test_dead_letter_config_registers_store_and_replay_executor() -> None:
         config = MessagingConfig(dead_letter=DeadLetterConfig())
+        dead_letters = RecordingDeadLetterStore()
+        unit_of_work = RecordingUoW()
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
                 providers=[
-                    object_(RecordingUoW(), provided_type=IUnitOfWork),
-                    scoped(IDeadLetterStore, RecordingDeadLetterStore),
+                    object_(unit_of_work, provided_type=IUnitOfWork),
+                    object_(dead_letters, provided_type=IDeadLetterStore),
+                    object_(
+                        _durability(unit_of_work=unit_of_work, dead_letters=dead_letters),
+                        provided_type=IDurabilityStore,
+                    ),
                 ],
             ) as app,
             app.container() as scope,
@@ -465,16 +499,66 @@ class TestMessagingConfigValidation:
             assert await is_registered(scope, ReplayExecutor)
 
     @staticmethod
-    async def test_dead_letter_none_resolves_discarding_store_and_no_replay_executor() -> None:
+    async def test_backendless_config_resolves_no_persistence_capability() -> None:
         async with (
             create_test_app(imports=[MessagingModule.register(MessagingConfig())]) as app,
             app.container() as scope,
         ):
-            assert isinstance(await scope.get(IDeadLetterStore), DiscardingDeadLetterStore)
+            assert not await is_registered(scope, IDeadLetterStore)
+            assert not await is_registered(scope, IUnitOfWork)
             assert not await is_registered(scope, ReplayExecutor)
 
     @staticmethod
+    @pytest.mark.parametrize('mismatch', ['unit_of_work', 'outbox', 'inbox', 'dead_letters'])
+    async def test_durability_capability_rejects_mismatched_scoped_identity(mismatch: str) -> None:
+        unit_of_work = RecordingUoW()
+        outbox = RecordingOutboxStore()
+        inbox = FakeInboxStore()
+        dead_letters = RecordingDeadLetterStore()
+        durability = RecordingDurabilityStore(
+            unit_of_work=RecordingUoW() if mismatch == 'unit_of_work' else unit_of_work,
+            outbox=RecordingOutboxStore() if mismatch == 'outbox' else outbox,
+            inbox=FakeInboxStore() if mismatch == 'inbox' else inbox,
+            dead_letters=RecordingDeadLetterStore() if mismatch == 'dead_letters' else dead_letters,
+        )
+        config = MessagingConfig(
+            outbox=OutboxConfig(),
+            inbox=InboxConfig(),
+            dead_letter=DeadLetterConfig(),
+        )
+
+        with pytest.raises(ImproperlyConfiguredError, match=mismatch):
+            async with create_test_app(
+                imports=[MessagingModule.register(config)],
+                providers=[
+                    object_(unit_of_work, provided_type=IUnitOfWork),
+                    object_(outbox, provided_type=IOutboxStore),
+                    object_(inbox, provided_type=IInboxStore),
+                    object_(dead_letters, provided_type=IDeadLetterStore),
+                    object_(durability, provided_type=IDurabilityStore),
+                    object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                ],
+            ):
+                pass  # pragma: no cover
+
+    @staticmethod
+    async def test_dead_letter_config_rejects_unrelated_store_and_uow() -> None:
+        config = MessagingConfig(dead_letter=DeadLetterConfig())
+
+        with pytest.raises(ImproperlyConfiguredError, match='IDurabilityStore'):
+            async with create_test_app(
+                imports=[MessagingModule.register(config)],
+                providers=[
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
+                    scoped(IDeadLetterStore, RecordingDeadLetterStore),
+                ],
+            ):
+                pass  # pragma: no cover
+
+    @staticmethod
     async def test_partition_by_without_allocator_raises_at_startup() -> None:
+        outbox = RecordingOutboxStore()
+        unit_of_work = RecordingUoW()
         config = MessagingConfig(
             endpoints=[external_endpoint('ext://orders', partition_by=order_id_partition)],
             outbox=OutboxConfig(),
@@ -485,8 +569,9 @@ class TestMessagingConfigValidation:
             async with create_test_app(
                 imports=[MessagingModule.register(config)],
                 providers=[
-                    object_(RecordingUoW(), provided_type=IUnitOfWork),
-                    scoped(IOutboxStore, RecordingOutboxStore),
+                    object_(unit_of_work, provided_type=IUnitOfWork),
+                    object_(outbox, provided_type=IOutboxStore),
+                    object_(_durability(unit_of_work=unit_of_work, outbox=outbox), provided_type=IDurabilityStore),
                 ],
             ):
                 pass  # pragma: no cover
@@ -510,6 +595,7 @@ class TestMessagingConfigValidation:
     @staticmethod
     async def test_partition_by_on_durable_local_queue_does_not_raise() -> None:
         inbox = FakeInboxStore()
+        unit_of_work = RecordingUoW()
         config = MessagingConfig(
             endpoints=[local_queue('q://orders', mode=EndpointMode.DURABLE, partition_by=order_id_partition)],
             inbox=InboxConfig(),
@@ -518,9 +604,10 @@ class TestMessagingConfigValidation:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
+                object_(unit_of_work, provided_type=IUnitOfWork),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 object_(inbox, provided_type=IInboxStore),
+                object_(_durability(unit_of_work=unit_of_work, inbox=inbox), provided_type=IDurabilityStore),
             ],
         ):
             pass
@@ -529,6 +616,8 @@ class TestMessagingConfigValidation:
     async def test_partition_by_on_broker_endpoint_does_not_raise_local_reject() -> None:
         # The local-only reject must not fire for broker endpoints; ISequenceAllocator is registered
         # so the (separate) allocator-presence guard is satisfied too.
+        outbox = RecordingOutboxStore()
+        unit_of_work = RecordingUoW()
         config = MessagingConfig(
             endpoints=[external_endpoint('ext://orders', partition_by=order_id_partition)],
             outbox=OutboxConfig(),
@@ -538,9 +627,10 @@ class TestMessagingConfigValidation:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
+                object_(unit_of_work, provided_type=IUnitOfWork),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
-                scoped(IOutboxStore, RecordingOutboxStore),
+                object_(outbox, provided_type=IOutboxStore),
+                object_(_durability(unit_of_work=unit_of_work, outbox=outbox), provided_type=IDurabilityStore),
             ],
         ):
             pass
@@ -566,6 +656,7 @@ class TestMessagingConfigValidation:
     @staticmethod
     async def test_local_broker_distinct_uri_namespaces_does_not_raise() -> None:
         inbox = FakeInboxStore()
+        unit_of_work = RecordingUoW()
         config = MessagingConfig(
             endpoints=[local_queue('local://orders'), listen('rabbitmq://orders')],
             inbox=InboxConfig(),
@@ -575,23 +666,30 @@ class TestMessagingConfigValidation:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
+                object_(unit_of_work, provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                object_(_durability(unit_of_work=unit_of_work, inbox=inbox), provided_type=IDurabilityStore),
             ],
         ):
             pass
 
     @staticmethod
     async def test_dead_letter_worker_starts_when_auto_replay_enabled() -> None:
+        dead_letters = RecordingDeadLetterStore()
+        unit_of_work = RecordingUoW()
         config = MessagingConfig(
             dead_letter=DeadLetterConfig(auto_replay_enabled=True),
         )
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
-                scoped(IDeadLetterStore, RecordingDeadLetterStore),
+                object_(unit_of_work, provided_type=IUnitOfWork),
+                object_(dead_letters, provided_type=IDeadLetterStore),
+                object_(
+                    _durability(unit_of_work=unit_of_work, dead_letters=dead_letters),
+                    provided_type=IDurabilityStore,
+                ),
             ],
         ):
             pass  # the lifecycle hooks start + stop the worker without error

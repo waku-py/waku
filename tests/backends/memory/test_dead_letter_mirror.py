@@ -1,17 +1,30 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
+import pytest
+
+from waku.backends.memory import MemoryBackend
 from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.backends.memory._internal.inbox import InMemoryInboxStore
 from waku.backends.memory._internal.outbox import InMemoryOutboxStore
+from waku.messaging import MessagingConfig, MessagingModule
+from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.inbox import EndpointUri, HandlerDestination
 from waku.messaging.inbox.models import InboxEntry
 from waku.messaging.outbox.models import OutboxMessage
+from waku.testing import create_test_app
+from waku.uow import IUnitOfWork
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from waku.application import WakuApplication
 
 # B-28/B-29 regression net: the memory outbox/inbox mirror the SQLAlchemy peers by writing the
-# DeadLetterEntry into the SHARED dead-letter store (the same singleton the worker/replay read).
+# DeadLetterEntry into the shared dead-letter facet from the same transaction workspace.
 
 
 def _dead_letter(destination: str, kind: DeadLetterDestinationKind) -> DeadLetterEntry:
@@ -25,6 +38,26 @@ def _dead_letter(destination: str, kind: DeadLetterDestinationKind) -> DeadLette
         exc=RuntimeError('boom'),
         attempt=3,
     )
+
+
+def _inbox_entry() -> InboxEntry:
+    return InboxEntry(
+        id=uuid4(),
+        payload={'test': True},
+        message_type='test.Event',
+        source_uri=EndpointUri('local://orders'),
+        destination=HandlerDestination('tests.messaging.HandlerA'),
+        correlation_id=str(uuid4()),
+        causation_id=str(uuid4()),
+    )
+
+
+@pytest.fixture
+async def memory_app() -> AsyncIterator[WakuApplication]:
+    async with create_test_app(
+        imports=[MessagingModule.register(MessagingConfig()), MemoryBackend.register()],
+    ) as app:
+        yield app
 
 
 async def test_memory_outbox_move_to_dead_letter_visible_in_shared_dlq() -> None:
@@ -54,15 +87,7 @@ async def test_memory_outbox_move_to_dead_letter_visible_in_shared_dlq() -> None
 async def test_memory_inbox_move_to_dead_letter_visible_in_shared_dlq() -> None:
     dlq = InMemoryDeadLetterStore()
     inbox = InMemoryInboxStore(dlq)
-    entry = InboxEntry(
-        id=uuid4(),
-        payload={'test': True},
-        message_type='test.Event',
-        source_uri=EndpointUri('local://orders'),
-        destination=HandlerDestination('tests.messaging.HandlerA'),
-        correlation_id=str(uuid4()),
-        causation_id=str(uuid4()),
-    )
+    entry = _inbox_entry()
     await inbox.store_incoming(entry)
     dead_letter = _dead_letter(entry.destination, DeadLetterDestinationKind.HANDLER)
 
@@ -72,3 +97,49 @@ async def test_memory_inbox_move_to_dead_letter_visible_in_shared_dlq() -> None:
     assert await inbox.store_incoming(entry) is True
     fetched = await dlq.fetch(batch_size=10)
     assert [e.id for e in fetched] == [dead_letter.id]
+
+
+async def test_memory_inbox_dead_letter_move_rolls_back_source_and_dlq_together(memory_app: WakuApplication) -> None:
+    entry = _inbox_entry()
+    dead_letter = _dead_letter(entry.destination, DeadLetterDestinationKind.HANDLER)
+
+    async with memory_app.container() as scope:
+        inbox = await scope.get(IInboxStore)
+        assert await inbox.store_incoming(entry) is True
+        await (await scope.get(IUnitOfWork)).commit()
+
+    async with memory_app.container() as scope:
+        inbox = await scope.get(IInboxStore)
+        await inbox.move_to_dead_letter(entry.id, entry.destination, dead_letter)
+        await (await scope.get(IUnitOfWork)).rollback()
+
+    async with memory_app.container() as scope:
+        inbox = await scope.get(IInboxStore)
+        dead_letters = await scope.get(IDeadLetterStore)
+
+        assert await inbox.store_incoming(entry) is False
+        assert await dead_letters.fetch(batch_size=10) == []
+        await (await scope.get(IUnitOfWork)).rollback()
+
+
+async def test_memory_inbox_dead_letter_move_commits_source_and_dlq_together(memory_app: WakuApplication) -> None:
+    entry = _inbox_entry()
+    dead_letter = _dead_letter(entry.destination, DeadLetterDestinationKind.HANDLER)
+
+    async with memory_app.container() as scope:
+        inbox = await scope.get(IInboxStore)
+        assert await inbox.store_incoming(entry) is True
+        await (await scope.get(IUnitOfWork)).commit()
+
+    async with memory_app.container() as scope:
+        inbox = await scope.get(IInboxStore)
+        await inbox.move_to_dead_letter(entry.id, entry.destination, dead_letter)
+        await (await scope.get(IUnitOfWork)).commit()
+
+    async with memory_app.container() as scope:
+        inbox = await scope.get(IInboxStore)
+        dead_letters = await scope.get(IDeadLetterStore)
+
+        assert await inbox.store_incoming(entry) is True
+        assert [stored.id for stored in await dead_letters.fetch(batch_size=10)] == [dead_letter.id]
+        await (await scope.get(IUnitOfWork)).rollback()

@@ -19,11 +19,12 @@ from waku.messaging import (
     external_endpoint,
     route,
 )
-from waku.messaging.durability import IOutboxStore
+from waku.messaging.durability import IDurabilityStore, IOutboxStore
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import RecordingTransport, RecordingUoW
+from tests.messaging.helpers import RecordingDeadLetterStore, RecordingDurabilityStore, RecordingTransport, RecordingUoW
+from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 
@@ -38,6 +39,15 @@ class _InlineHandler(EventHandler[_OrderPlaced]):
     @override
     async def handle(self, event: _OrderPlaced, /) -> None:
         self.received.append(event.order_id)
+
+
+def _durability(unit_of_work: IUnitOfWork, outbox: IOutboxStore) -> IDurabilityStore:
+    return RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=outbox,
+        inbox=FakeInboxStore(),
+        dead_letters=RecordingDeadLetterStore(),
+    )
 
 
 class TestBusOutboxIntegration:
@@ -61,6 +71,7 @@ class TestBusOutboxIntegration:
                 providers=[
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     scoped(IOutboxStore, RecordingOutboxStore),
+                    scoped(IDurabilityStore, _durability),
                 ],
             ) as app,
             app.container() as c,
@@ -93,6 +104,7 @@ class TestBusOutboxIntegration:
                 providers=[
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     scoped(IOutboxStore, RecordingOutboxStore),
+                    scoped(IDurabilityStore, _durability),
                 ],
             ) as app,
             app.container() as c,
