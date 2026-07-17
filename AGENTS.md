@@ -20,6 +20,24 @@ This file provides guidance to different agent harnesses e.g. Claude Code, codex
   every other role have read-only access.
 - If the global skill is unavailable or the role/path mapping is ambiguous, do not mutate memory; report the blocker.
 
+## Design Authority and Reference Parity
+
+- Optimize first for a clean architecture, explicit invariants, reliability, and truthful failure behavior. The smallest
+  diff or preservation of an existing design is not a goal by itself.
+- Treat historical plans, specs, decision notes, comments, and tests as evidence of prior intent, never as normative
+  authority merely because they were approved, implemented, or previously green. Re-prove inherited premises against
+  the current checkout and executable behavior; replace them when they are wrong or force a workaround.
+- Verify relevant behavior against the current Wolverine/Marten reference before designing framework substrate. Prefer
+  the local checkouts at `/Users/dexofan/Code/wolverine` and `/Users/dexofan/Code/marten` when present, record the exact
+  reference HEAD, and use upstream primary sources only when the local checkout is unavailable or stale.
+- Preserve semantic parity with sound production-proven Wolverine/Marten behavior by default. A divergence requires a
+  concrete Waku advantage and explicit documentation; parity does not require copying an upstream defect,
+  contradiction, language-specific representation, or accidental implementation detail.
+- Before 1.0, choose one clean end state when a finding requires breaking cleanup. Do not add compatibility aliases,
+  dual authorities, hidden coercion, or legacy fallback paths unless a real compatibility contract is demonstrated.
+- Keep every expansion traceable to the active finding, its invariant, required cleanup, or verified reference parity;
+  this authority order does not permit unrelated redesign.
+
 ## Project Overview
 
 Waku is a modular, type-safe Python framework (3.11+) initially inspired by NestJS, built on dishka IoC container. It provides:
@@ -34,7 +52,8 @@ Waku is a modular, type-safe Python framework (3.11+) initially inspired by Nest
 Every module under `src/waku` is in exactly one of four states — a facade `__init__` (has `__all__`),
 a structural `__init__` (empty), an `_internal/` module, or a leaf whose `__all__` names are re-exported
 by an ancestor facade. `scripts/check_visibility.py` (run by `task check`) enforces this plus single-home
-exports (one facade per symbol; `PollingConfig` is the one allowlisted dual-home) and zero underscore
+exports (one facade per symbol; the dual-home allowlist in `scripts/check_visibility.py` is authoritative —
+currently `PollingConfig` and `LeaseConfig`) and zero underscore
 filenames/import-targets outside `_internal/`. Privacy boundary is the DOMAIN: sibling subpackages may
 reach into each other's `_internal`; import-linter `protected` contracts stop everyone else. Tests may
 import `_internal` freely (PLC2701 is per-file-ignored for `tests/**`).
@@ -193,4 +212,4 @@ Conventional Commits: `type(scope): description`. Breaking changes: append `!` a
 
 **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `ci`, `build`, `perf`
 
-**Scopes**: `core`, `deps`, `di`, `docs`, `es`, `ext`, `infra`, `linters`, `messaging`, `release`, `tests`, `validation`
+**Scopes**: `backends`, `core`, `deps`, `di`, `docs`, `es`, `ext`, `infra`, `linters`, `messaging`, `release`, `tests`, `validation`
