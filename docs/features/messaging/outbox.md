@@ -273,6 +273,13 @@ own `PollingConfig`, whose field defaults are:
 | `poll_interval_step_seconds`   | `float` | `1.0`   | Seconds added to the interval when idle              |
 | `poll_interval_jitter_factor`  | `float` | `0.1`   | Random jitter factor applied to poll timing          |
 
+All four values must be finite. The minimum must be `> 0`, the maximum must be greater than or
+equal to the minimum, the step must be `>= 0`, and jitter must be in `[0, 1)`. Equal min/max, a zero
+step, and zero jitter are valid boundaries when the complete domain remains representable. The
+derived jittered minimum must remain `> 0` and the derived jittered maximum must remain finite under
+runtime float arithmetic. Invalid values raise `ImproperlyConfiguredError` when `PollingConfig` is
+created.
+
 ### Adaptive Polling
 
 The relay uses **adaptive polling** — when there is work to process, it polls at the minimum

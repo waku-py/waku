@@ -4,9 +4,9 @@ from datetime import timedelta
 
 import anyio.lowlevel
 
+from waku.messaging import CircuitBreakerConfig
 from waku.messaging._internal.circuit_breaker import CircuitBreaker, CircuitState, PassthroughCircuitBreaker
 from waku.messaging._internal.pauser import PauseRegistry, PauseToken
-from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 
 from tests._wait import ControllableSleep, wait_until
@@ -80,7 +80,7 @@ async def test_does_not_trip_below_minimum_throughput() -> None:
     await breaker.aclose()  # cancel the parked resume task — clean teardown
 
 
-async def test_trips_and_pauses_when_rate_exceeds_threshold() -> None:
+async def test_trips_and_pauses_when_rate_meets_threshold() -> None:
     clock, sleep = _Clock(), ControllableSleep()
     breaker, calls = _make_breaker(
         CircuitBreakerConfig(failure_rate_threshold=0.5, minimum_throughput=4),
@@ -90,13 +90,30 @@ async def test_trips_and_pauses_when_rate_exceeds_threshold() -> None:
     await _record(breaker, ExecutionOutcome.SUCCESS, None)
     await _record(breaker, ExecutionOutcome.SUCCESS, None)
     await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
-    _assert_state(breaker, CircuitState.CLOSED)  # 1/3 ≤ 0.5, and total 3 < 4
-    await _record(breaker, ExecutionOutcome.DEAD_LETTERED, RuntimeError())  # 2/4 = 0.5, not > 0.5
     _assert_state(breaker, CircuitState.CLOSED)
-    await _record(breaker, ExecutionOutcome.DEAD_LETTERED, RuntimeError())  # 3/5 = 0.6 > 0.5
+
+    await _record(breaker, ExecutionOutcome.DEAD_LETTERED, RuntimeError())
+
     _assert_state(breaker, CircuitState.OPEN)
     assert calls == ['pause']
-    await breaker.aclose()  # cancel the parked resume task — clean teardown
+    await breaker.aclose()
+
+
+async def test_threshold_one_trips_at_full_failure_rate() -> None:
+    clock, sleep = _Clock(), ControllableSleep()
+    breaker, calls = _make_breaker(
+        CircuitBreakerConfig(failure_rate_threshold=1.0, minimum_throughput=2),
+        clock=clock,
+        sleep=sleep,
+    )
+    await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
+    _assert_state(breaker, CircuitState.CLOSED)
+
+    await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
+
+    _assert_state(breaker, CircuitState.OPEN)
+    assert calls == ['pause']
+    await breaker.aclose()
 
 
 async def test_resumes_and_resets_after_pause_time() -> None:
@@ -142,18 +159,18 @@ async def test_discarded_does_not_occupy_a_window_slot() -> None:
 async def test_only_tracked_exceptions_count_as_failures() -> None:
     clock, sleep = _Clock(), ControllableSleep()
     breaker, calls = _make_breaker(
-        CircuitBreakerConfig(failure_rate_threshold=0.5, minimum_throughput=2, track_exceptions=(TimeoutError,)),
+        CircuitBreakerConfig(failure_rate_threshold=0.51, minimum_throughput=2, track_exceptions=(TimeoutError,)),
         clock=clock,
         sleep=sleep,
     )
     await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, ValueError())  # untracked → non-failure
     await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, ValueError())  # 0/2 → CLOSED
     _assert_state(breaker, CircuitState.CLOSED)
-    await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, TimeoutError())  # 1/3 = 0.33, not > 0.5
+    await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, TimeoutError())  # 1/3 = 0.33, below 0.51
     _assert_state(breaker, CircuitState.CLOSED)
-    await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, TimeoutError())  # 2/4 = 0.5, NOT > 0.5 (strict)
+    await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, TimeoutError())  # 2/4 = 0.5, below 0.51
     _assert_state(breaker, CircuitState.CLOSED)
-    await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, TimeoutError())  # 3/5 = 0.6 > 0.5 → trips
+    await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, TimeoutError())  # 3/5 = 0.6, at/above 0.51 → trips
     _assert_state(breaker, CircuitState.OPEN)
     assert calls == ['pause']
     await breaker.aclose()  # cancel the parked resume task — clean teardown

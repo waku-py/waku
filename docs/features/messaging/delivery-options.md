@@ -36,13 +36,17 @@ async def enqueue(sender: ISender, order_id: str) -> None:
 | `causation_id`   | `str`                   | Override the propagated causation id                   |
 | `group_id`       | `str`                   | Partition / ordering key (per-group FIFO)              |
 | `tenant_id`      | `str`                   | Reserved tenant marker (carried; drives no routing)    |
-| `scheduled_time` | `datetime`              | Deliver at an absolute time                            |
+| `scheduled_time` | `datetime` (aware)      | Deliver at an absolute, timezone-aware time            |
 | `schedule_delay` | `timedelta`             | Deliver after a relative delay                         |
-| `deliver_by`     | `datetime`              | Discard if not delivered by this absolute time         |
+| `deliver_by`     | `datetime` (aware)      | Discard if not delivered by this absolute, aware time  |
 | `deliver_within` | `timedelta`             | Discard if not delivered within this window            |
 
 `scheduled_time` and `schedule_delay` are mutually exclusive, as are `deliver_by` and
-`deliver_within` — setting both of a pair raises `ConflictingDeliveryOptionsError`.
+`deliver_within` — setting both of a pair raises `InvalidDeliveryOptionsError`.
+
+Absolute `scheduled_time` and `deliver_by` values must be timezone-aware. Waku rejects a naive
+`datetime` immediately with `InvalidDeliveryOptionsError`; it never assumes UTC or the host's local
+timezone. Any aware UTC offset is accepted.
 
 !!! info "`invoke()` takes only envelope-native fields"
     Because `invoke()` runs inline and returns a response, scheduling and expiration make no sense on
@@ -53,8 +57,8 @@ async def enqueue(sender: ISender, order_id: str) -> None:
 ## Scheduling
 
 `schedule_send` and `schedule_publish` are sugar over `send` and `publish` that set a schedule.
-Exactly one of `at` (an absolute `datetime`) or `delay` (a relative `timedelta`) is required —
-neither or both raises `ConflictingDeliveryOptionsError`:
+Exactly one of `at` (an absolute, timezone-aware `datetime`) or `delay` (a relative `timedelta`) is
+required — neither or both raises `InvalidDeliveryOptionsError`:
 
 ```python linenums="1"
 from datetime import timedelta

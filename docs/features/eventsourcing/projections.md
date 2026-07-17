@@ -173,7 +173,7 @@ catch-up projections. Each projection runs in its own concurrent task.
 Use the `create()` classmethod to build a runner from a DI container:
 
 ```python
-from waku.eventsourcing.projection.config import PollingConfig
+from waku.eventsourcing.projection import PollingConfig
 
 runner = await CatchUpProjectionRunner.create(
     container,
@@ -233,6 +233,13 @@ constructor, defaults to sensible values if omitted):
 | `poll_interval_max_seconds` | `5.0` | Maximum polling interval when idle |
 | `poll_interval_step_seconds` | `1.0` | Increment per idle cycle |
 | `poll_interval_jitter_factor` | `0.1` | Random jitter factor applied to the interval |
+
+All four values must be finite. The minimum must be `> 0`, the maximum must be greater than or
+equal to the minimum, the step must be `>= 0`, and jitter must be in `[0, 1)`. Equal min/max, a zero
+step, and zero jitter are valid boundaries when the complete domain remains representable. The
+derived jittered minimum must remain `> 0` and the derived jittered maximum must remain finite under
+runtime float arithmetic. Invalid values raise `ImproperlyConfiguredError` when `PollingConfig` is
+created.
 
 ## Gap Detection
 

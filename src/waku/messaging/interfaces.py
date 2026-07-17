@@ -59,7 +59,7 @@ class ISender(abc.ABC):
     ) -> None:
         """Sugar over ``send`` with a scheduling option. Exactly one of ``at``/``delay`` required.
 
-        Raises ``ConflictingDeliveryOptionsError`` if both or neither are set.
+        Raises ``InvalidDeliveryOptionsError`` if both or neither are set.
         Raises ``SchedulingNotSupportedError`` when routed to a non-durable endpoint.
         """
 
@@ -86,7 +86,7 @@ class IPublisher(abc.ABC):
         """Sugar over ``publish`` with a scheduling option. Exactly one of ``at``/``delay`` required.
 
         Silent no-op when no subscribers exist.
-        Raises ``ConflictingDeliveryOptionsError`` if both or neither are set.
+        Raises ``InvalidDeliveryOptionsError`` if both or neither are set.
         Raises ``SchedulingNotSupportedError`` when any subscriber endpoint is non-durable.
         """
 

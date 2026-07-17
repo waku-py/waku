@@ -14,11 +14,11 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.handler import HandlerType
 
 __all__ = [
-    'ConflictingDeliveryOptionsError',
     'DeliveryOptionNotApplicableError',
     'HandlerAlreadyRegisteredError',
     'HandlerNotFoundError',
     'HandlerTimeoutError',
+    'InvalidDeliveryOptionsError',
     'MapFrozenError',
     'MessagingError',
     'MultipleHandlersRegisteredError',
@@ -78,13 +78,13 @@ class NoRouteError(MessagingError):
         )
 
 
-class ConflictingDeliveryOptionsError(MessagingError):
+class InvalidDeliveryOptionsError(MessagingError):
     def __init__(self, reason: str) -> None:
         self.reason = reason
 
     @override
     def __str__(self) -> str:
-        return f'Conflicting delivery options: {self.reason}'
+        return f'Invalid delivery options: {self.reason}'
 
 
 class DeliveryOptionNotApplicableError(MessagingError):

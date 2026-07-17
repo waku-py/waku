@@ -22,13 +22,13 @@ depth*.
 ## Circuit Breaker
 
 `CircuitBreakerConfig` tunes a rate-based breaker (no half-open probe). Over `tracking_period` it
-trips when at least `minimum_throughput` messages were recorded **and** the failure fraction exceeds
-`failure_rate_threshold`. On a trip the endpoint pauses for `pause_time`, then resumes and re-samples
+trips when at least `minimum_throughput` messages were recorded **and** the failure fraction meets or
+exceeds `failure_rate_threshold`. On a trip the endpoint pauses for `pause_time`, then resumes and re-samples
 from a clean slate — `CLOSED → OPEN (pause) → resume + reset`.
 
 | Field                    | Type                            | Default        | Description                                                     |
 |--------------------------|---------------------------------|----------------|-----------------------------------------------------------------|
-| `failure_rate_threshold` | `float`                         | `0.15`         | Failure fraction in `(0.0, 1.0]` that trips the breaker         |
+| `failure_rate_threshold` | `float`                         | `0.15`         | Failure fraction in `(0.0, 1.0]`; the breaker trips when the observed rate meets or exceeds it |
 | `tracking_period`        | `timedelta`                     | `10 minutes`   | Rolling window over which failures are counted                  |
 | `minimum_throughput`     | `int`                           | `10`           | Minimum messages in the window before the breaker can trip      |
 | `pause_time`             | `timedelta`                     | `5 minutes`    | How long the endpoint pauses after a trip                       |

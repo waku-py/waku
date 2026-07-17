@@ -545,7 +545,10 @@ class TestOutboxRelayOperations:
         transport = RecordingTransport()
 
         slow_config = OutboxRelayConfig(
-            polling=PollingConfig(poll_interval_min_seconds=10.0),
+            polling=PollingConfig(
+                poll_interval_min_seconds=10.0,
+                poll_interval_max_seconds=10.0,
+            ),
             recovery_interval=timedelta(hours=1),
         )
 

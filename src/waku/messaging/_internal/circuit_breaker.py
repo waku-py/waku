@@ -60,7 +60,7 @@ class CircuitBreaker(ICircuitBreaker):
     One sample per handler-execution. `DISCARDED` is not recorded; `REQUEUED`/`PAUSED` record as
     NEUTRAL — the message is re-sampled on its eventual terminal outcome (counting them as failures
     would double-pause via a trip). Trips when total ≥ `minimum_throughput` AND
-    failures/total > `failure_rate_threshold` within `tracking_period`. `now`/`sleep` are injected.
+    failures/total >= `failure_rate_threshold` within `tracking_period`. `now`/`sleep` are injected.
     """
 
     __slots__ = (
@@ -133,7 +133,7 @@ class CircuitBreaker(ICircuitBreaker):
         if total < self._config.minimum_throughput:
             return False
         failures = sum(1 for _, failed in self._window if failed)
-        return failures / total > self._config.failure_rate_threshold
+        return failures / total >= self._config.failure_rate_threshold
 
     async def _trip(self) -> None:
         self._state = CircuitState.OPEN

@@ -11,11 +11,11 @@ from waku.messaging.contracts.request import IRequest, RequestT
 from waku.messaging.delivery import DeliveryOptions
 from waku.messaging.endpoints.base import EndpointMode
 from waku.messaging.exceptions import (
-    ConflictingDeliveryOptionsError,
     DeliveryOptionNotApplicableError,
     HandlerAlreadyRegisteredError,
     HandlerNotFoundError,
     HandlerTimeoutError,
+    InvalidDeliveryOptionsError,
     MapFrozenError,
     MessagingError,
     MultipleHandlersRegisteredError,
@@ -44,7 +44,6 @@ __all__ = [
     'BufferingLimits',
     'CallNext',
     'CircuitBreakerConfig',
-    'ConflictingDeliveryOptionsError',
     'DeadLetterConfig',
     'DeliveryOptionNotApplicableError',
     'DeliveryOptions',
@@ -65,6 +64,7 @@ __all__ = [
     'IRequest',
     'ISender',
     'InboxConfig',
+    'InvalidDeliveryOptionsError',
     'LeadershipConfig',
     'LoggingMessageObserver',
     'MapFrozenError',

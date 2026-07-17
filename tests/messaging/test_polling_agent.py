@@ -1,11 +1,13 @@
 import asyncio
 import logging
+import math
 from datetime import timedelta
 
 import anyio
 import pytest
 from typing_extensions import override
 
+from waku import ImproperlyConfiguredError
 from waku._internal.transaction import RollbackFailedError, TransactionExecutionError
 from waku.messaging import PollingConfig
 from waku.messaging._internal.polling_agent import (
@@ -16,6 +18,72 @@ from waku.messaging._internal.polling_agent import (
 )
 
 from tests._wait import wait_until
+
+
+@pytest.mark.parametrize('value', [0.0, -1.0, math.inf, -math.inf, math.nan])
+def test_polling_config_rejects_invalid_minimum(value: float) -> None:
+    with pytest.raises(ImproperlyConfiguredError, match='poll_interval_min_seconds must be finite and > 0'):
+        PollingConfig(poll_interval_min_seconds=value)
+
+
+@pytest.mark.parametrize('value', [math.inf, -math.inf, math.nan])
+def test_polling_config_rejects_non_finite_maximum(value: float) -> None:
+    with pytest.raises(
+        ImproperlyConfiguredError,
+        match='poll_interval_max_seconds must be finite and >= poll_interval_min_seconds',
+    ):
+        PollingConfig(poll_interval_max_seconds=value)
+
+
+def test_polling_config_rejects_reversed_bounds() -> None:
+    with pytest.raises(ImproperlyConfiguredError, match='poll_interval_max_seconds'):
+        PollingConfig(poll_interval_min_seconds=0.5, poll_interval_max_seconds=0.49)
+
+
+@pytest.mark.parametrize('value', [-1.0, math.inf, -math.inf, math.nan])
+def test_polling_config_rejects_invalid_step(value: float) -> None:
+    with pytest.raises(ImproperlyConfiguredError, match='poll_interval_step_seconds must be finite and >= 0'):
+        PollingConfig(poll_interval_step_seconds=value)
+
+
+@pytest.mark.parametrize('value', [-0.1, 1.0, 1.1, math.inf, -math.inf, math.nan])
+def test_polling_config_rejects_invalid_jitter(value: float) -> None:
+    with pytest.raises(
+        ImproperlyConfiguredError,
+        match=r'poll_interval_jitter_factor must be finite and in \[0, 1\)',
+    ):
+        PollingConfig(poll_interval_jitter_factor=value)
+
+
+def test_polling_config_rejects_jittered_minimum_underflow() -> None:
+    with pytest.raises(ImproperlyConfiguredError, match='jittered minimum'):
+        PollingConfig(
+            poll_interval_min_seconds=math.ulp(0.0),
+            poll_interval_max_seconds=1.0,
+            poll_interval_jitter_factor=0.5,
+        )
+
+
+def test_polling_config_rejects_jittered_maximum_overflow() -> None:
+    with pytest.raises(ImproperlyConfiguredError, match='jittered maximum'):
+        PollingConfig(
+            poll_interval_max_seconds=math.nextafter(math.inf, 0.0),
+            poll_interval_jitter_factor=0.5,
+        )
+
+
+def test_polling_config_accepts_fixed_pace_boundaries() -> None:
+    config = PollingConfig(
+        poll_interval_min_seconds=0.5,
+        poll_interval_max_seconds=0.5,
+        poll_interval_step_seconds=0.0,
+        poll_interval_jitter_factor=0.0,
+    )
+
+    pace = AdaptivePace(config)
+    pace.record(0)
+
+    assert pace.next_delay() == 0.5
 
 
 def test_fixed_pace_returns_constant_delay_regardless_of_record() -> None:

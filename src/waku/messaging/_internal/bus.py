@@ -14,8 +14,8 @@ from waku.messaging._internal.envelope_factory import EnvelopeFactory  # noqa: T
 from waku.messaging.context import message_context_scope, try_get_message_context
 from waku.messaging.delivery import DeliveryOptions
 from waku.messaging.exceptions import (
-    ConflictingDeliveryOptionsError,
     DeliveryOptionNotApplicableError,
+    InvalidDeliveryOptionsError,
     NoRouteError,
     SchedulingNotSupportedError,
 )
@@ -149,7 +149,7 @@ class MessageBus(IMessageBus, IEndpointDispatch):
         # Both-set falls through to DeliveryOptions.__post_init__ (canonical message); guard the neither-case.
         if at is None and delay is None:
             msg = 'schedule_send requires exactly one of at or delay'
-            raise ConflictingDeliveryOptionsError(msg)
+            raise InvalidDeliveryOptionsError(msg)
         await self.send(message, DeliveryOptions(scheduled_time=at, schedule_delay=delay))
 
     @override
@@ -164,7 +164,7 @@ class MessageBus(IMessageBus, IEndpointDispatch):
         # Both-set falls through to DeliveryOptions.__post_init__ (canonical message); guard the neither-case.
         if at is None and delay is None:
             msg = 'schedule_publish requires exactly one of at or delay'
-            raise ConflictingDeliveryOptionsError(msg)
+            raise InvalidDeliveryOptionsError(msg)
         await self.publish(message, DeliveryOptions(scheduled_time=at, schedule_delay=delay))
 
     def _create_envelope(self, message: IMessage, options: DeliveryOptions | None = None) -> MessageEnvelope[Any]:

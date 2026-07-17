@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from waku._internal.lease import LeaseConfig
-from waku.eventsourcing.projection.config import PollingConfig
+from waku.eventsourcing.projection import PollingConfig
 from waku.exceptions import ImproperlyConfiguredError
 
 

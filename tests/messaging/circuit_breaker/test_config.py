@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import math
 from datetime import timedelta
 
 import pytest
 
-from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
+from waku import ImproperlyConfiguredError
+from waku.messaging import CircuitBreakerConfig
 
 
 def test_default_config_matches_wolverine_defaults() -> None:
@@ -17,22 +19,22 @@ def test_default_config_matches_wolverine_defaults() -> None:
     assert config.ignore_exceptions == ()
 
 
-@pytest.mark.parametrize('bad_rate', [0.0, -0.1, 1.5])
+@pytest.mark.parametrize('bad_rate', [0.0, -0.1, 1.5, math.inf, -math.inf, math.nan])
 def test_failure_rate_threshold_must_be_in_unit_interval(bad_rate: float) -> None:
-    with pytest.raises(ValueError, match='failure_rate_threshold'):
+    with pytest.raises(ImproperlyConfiguredError, match='failure_rate_threshold'):
         CircuitBreakerConfig(failure_rate_threshold=bad_rate)
 
 
 def test_minimum_throughput_must_be_positive() -> None:
-    with pytest.raises(ValueError, match='minimum_throughput'):
+    with pytest.raises(ImproperlyConfiguredError, match='minimum_throughput'):
         CircuitBreakerConfig(minimum_throughput=0)
 
 
 def test_tracking_period_must_be_positive() -> None:
-    with pytest.raises(ValueError, match='tracking_period'):
+    with pytest.raises(ImproperlyConfiguredError, match='tracking_period'):
         CircuitBreakerConfig(tracking_period=timedelta(0))
 
 
 def test_pause_time_must_be_positive() -> None:
-    with pytest.raises(ValueError, match='pause_time'):
+    with pytest.raises(ImproperlyConfiguredError, match='pause_time'):
         CircuitBreakerConfig(pause_time=timedelta(0))

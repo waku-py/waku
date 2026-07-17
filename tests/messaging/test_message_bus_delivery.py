@@ -12,6 +12,7 @@ from waku.messages import IEvent, IMessage
 from waku.messaging import (
     DeliveryOptions,
     IMessageBus,
+    InvalidDeliveryOptionsError,
     IRequest,
     MessagingConfig,
     MessagingExtension,
@@ -24,7 +25,6 @@ from waku.messaging._internal.envelope_factory import EnvelopeFactory
 from waku.messaging.context import get_message_context, message_context_scope
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.exceptions import (
-    ConflictingDeliveryOptionsError,
     DeliveryOptionNotApplicableError,
     SchedulingNotSupportedError,
 )
@@ -321,7 +321,7 @@ async def test_schedule_send_with_relative_delay_resolves_scheduled_time(contain
 async def test_schedule_without_at_or_delay_raises(container: AsyncContainer, verb: str) -> None:
     bus, _ = await _spy_bus(container)
 
-    with pytest.raises(ConflictingDeliveryOptionsError):
+    with pytest.raises(InvalidDeliveryOptionsError):
         await getattr(bus, verb)(_Note())
 
 
@@ -329,8 +329,17 @@ async def test_schedule_without_at_or_delay_raises(container: AsyncContainer, ve
 async def test_schedule_with_both_at_and_delay_raises(container: AsyncContainer, verb: str) -> None:
     bus, _ = await _spy_bus(container)
 
-    with pytest.raises(ConflictingDeliveryOptionsError):
+    with pytest.raises(InvalidDeliveryOptionsError):
         await getattr(bus, verb)(_Note(), at=_NOW, delay=timedelta(seconds=5))
+
+
+@pytest.mark.parametrize('verb', ['schedule_send', 'schedule_publish'])
+async def test_schedule_with_naive_at_raises(container: AsyncContainer, verb: str) -> None:
+    bus, _ = await _spy_bus(container, endpoint=_CapturingEndpoint(supports_scheduling=True))
+    naive = datetime(2026, 6, 21, 12, 0)  # noqa: DTZ001 -- intentionally exercises naive input
+
+    with pytest.raises(InvalidDeliveryOptionsError, match=r'scheduled_time.*timezone-aware'):
+        await getattr(bus, verb)(_Note(), at=naive)
 
 
 async def test_schedule_publish_with_absolute_at_resolves_scheduled_time(container: AsyncContainer) -> None:
