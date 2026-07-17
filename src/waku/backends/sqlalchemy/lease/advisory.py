@@ -2,18 +2,20 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
 
 import anyio
 from sqlalchemy import text
 from typing_extensions import override
 
-from waku._internal.lease import ILease, LeaseConfig
+from waku._internal.lease import DEFAULT_LEASE_CONFIG, ILease
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
+
+    from waku._internal.lease import LeaseConfig
 
 __all__ = ['PostgresAdvisoryLease']
 
@@ -29,8 +31,6 @@ _UNLOCK_SQL = text('SELECT pg_advisory_unlock(hashtextextended(:name, 0))')
 # held. Any statement on that connection raises the instant the session drops, which is exactly the
 # exclusivity loss to detect — no pg_locks reconstruction of the split 64-bit key is needed.
 _PROBE_SQL = text('SELECT 1')
-
-_DEFAULT_CONFIG: Final = LeaseConfig()
 
 
 class PostgresAdvisoryLease(ILease):
@@ -51,7 +51,7 @@ class PostgresAdvisoryLease(ILease):
     that wants instant crash-release failover instead.
     """
 
-    def __init__(self, engine: AsyncEngine, config: LeaseConfig = _DEFAULT_CONFIG) -> None:
+    def __init__(self, engine: AsyncEngine, config: LeaseConfig = DEFAULT_LEASE_CONFIG) -> None:
         self._engine = engine
         self._config = config
 

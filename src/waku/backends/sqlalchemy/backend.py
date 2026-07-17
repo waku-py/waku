@@ -8,7 +8,7 @@ from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from typing_extensions import override
 
-from waku._internal.lease import ILease, LeaseConfig
+from waku._internal.lease import DEFAULT_LEASE_CONFIG, ILease, LeaseConfig
 from waku._internal.provider_scan import provided_type_hints
 from waku.backends.sqlalchemy.checkpoint.store import SqlAlchemyCheckpointStore
 from waku.backends.sqlalchemy.checkpoint.tables import CheckpointTables, bind_checkpoint_tables
@@ -203,7 +203,7 @@ class SqlAlchemyBackend:
         session_factory: Callable[..., AsyncSession] | Callable[..., AsyncIterator[AsyncSession]],
         metadata: MetaData | None = None,
         engine: AsyncEngine | None = None,
-        lease_config: LeaseConfig | None = None,
+        lease_config: LeaseConfig = DEFAULT_LEASE_CONFIG,
     ) -> DynamicModule:
         """Register the backend.
 
@@ -221,12 +221,12 @@ class SqlAlchemyBackend:
             lease_config: Timing (``ttl_seconds``, ``renew_interval_factor``) for the backend-owned
                 :class:`PostgresLease`; the single authority for both the projection daemon lease and
                 the leadership lease. ``ttl_seconds`` bounds leadership failover. Defaults to
-                ``LeaseConfig()``.
+                ``DEFAULT_LEASE_CONFIG``.
         """
         wiring = _SqlAlchemyBackendWiring(
             metadata if metadata is not None else MetaData(),
             engine,
-            lease_config if lease_config is not None else LeaseConfig(),
+            lease_config,
         )
         return DynamicModule(
             parent_module=cls,

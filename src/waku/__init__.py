@@ -1,4 +1,4 @@
-from waku._internal.lease import LeaseConfig
+from waku._internal.lease import ILease, LeaseConfig
 from waku.application import WakuApplication
 from waku.exceptions import ImproperlyConfiguredError, UnexpectedRollbackError, WakuError
 from waku.factory import ContainerConfig, WakuFactory
@@ -10,6 +10,7 @@ from waku.uow import IUnitOfWork
 __all__ = [
     'ContainerConfig',
     'DynamicModule',
+    'ILease',
     'IUnitOfWork',
     'ImproperlyConfiguredError',
     'LeaseConfig',

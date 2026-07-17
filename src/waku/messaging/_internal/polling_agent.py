@@ -6,12 +6,13 @@ import contextlib
 import enum
 import logging
 import random
-from typing import TYPE_CHECKING, ClassVar, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, ClassVar, Final, Protocol, runtime_checkable
 
 import anyio
 from typing_extensions import override
 
 from waku._internal.adaptive_interval import AdaptiveInterval
+from waku._internal.polling import PollingConfig
 from waku._internal.transaction import (
     TransactionExecutionError,
     can_defer_transaction_fatal,
@@ -21,9 +22,8 @@ from waku._internal.transaction import (
 if TYPE_CHECKING:
     from datetime import timedelta
 
-    from waku._internal.polling import PollingConfig
-
 __all__ = [
+    'DEFAULT_DURABILITY_POLLING_CONFIG',
     'AdaptivePace',
     'FixedPace',
     'IPaceStrategy',
@@ -33,6 +33,16 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+# Shared background cadence for the durability poll-loop agents (outbox relay, dead-letter worker):
+# slower than the projection default so idle nodes don't hammer the store. The ONE authority both the
+# ``OutboxRelayConfig`` and ``DeadLetterConfig`` polling defaults resolve to.
+DEFAULT_DURABILITY_POLLING_CONFIG: Final = PollingConfig(
+    poll_interval_min_seconds=1.0,
+    poll_interval_max_seconds=30.0,
+    poll_interval_step_seconds=1.0,
+    poll_interval_jitter_factor=0.1,
+)
 
 
 def log_fatal_task_death(task: asyncio.Task[None], owner: str, *, task_logger: logging.Logger) -> None:

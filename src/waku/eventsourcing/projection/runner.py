@@ -8,6 +8,7 @@ import anyio
 
 from waku._internal.adaptive_interval import AdaptiveInterval
 from waku._internal.lease import ILease
+from waku._internal.polling import DEFAULT_POLLING_CONFIG
 from waku._internal.shutdown import wait_for_shutdown
 from waku._internal.transaction import (
     Aborted,
@@ -23,12 +24,9 @@ from waku._internal.transaction import (
 from waku.di import is_registered
 from waku.eventsourcing.exceptions import ProjectionError, ProjectionLockedError
 from waku.eventsourcing.projection._internal.processor import CycleOutcome, ProjectionProcessor
-from waku.eventsourcing.projection.config import PollingConfig
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventReader
 from waku.exceptions import ImproperlyConfiguredError
-
-_DEFAULT_POLLING: Final = PollingConfig()
 
 # The backend hands ONE ILease singleton to both this runner and the leadership coordinator. Namespacing
 # the projection-daemon lease keys keeps the projection keyspace disjoint from every 'waku:'-prefixed
@@ -44,6 +42,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Never
 
+    from waku._internal.polling import PollingConfig
     from waku._internal.transaction import TransactionDecision
     from waku.di import AsyncContainer
     from waku.eventsourcing.projection._internal.processor import SkipRequest
@@ -63,7 +62,7 @@ class CatchUpProjectionRunner:
         container: AsyncContainer,
         lock: ILease,
         registry: CatchUpProjectionRegistry,
-        polling: PollingConfig = _DEFAULT_POLLING,
+        polling: PollingConfig = DEFAULT_POLLING_CONFIG,
     ) -> None:
         self._container = container
         self._lock = lock
@@ -76,7 +75,7 @@ class CatchUpProjectionRunner:
         cls,
         container: AsyncContainer,
         projections: Sequence[type[ICatchUpProjection]] | None = None,
-        polling: PollingConfig = _DEFAULT_POLLING,
+        polling: PollingConfig = DEFAULT_POLLING_CONFIG,
     ) -> CatchUpProjectionRunner:
         # The projection-daemon lease is backend-owned: the durability backend registers an ``ILease``
         # (memory -> in-process, sqlalchemy -> Postgres table). Fail loud and name the fix when none is

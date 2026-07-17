@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
 __all__ = [
+    'DEFAULT_LEASE_CONFIG',
     'HeartbeatLease',
     'ILease',
     'InMemoryLease',
@@ -63,7 +64,7 @@ class LeaseConfig:
         return self.ttl_seconds * self.renew_interval_factor
 
 
-_DEFAULT_CONFIG: Final = LeaseConfig()
+DEFAULT_LEASE_CONFIG: Final = LeaseConfig()
 
 
 class HeartbeatLease(ILease):
@@ -124,7 +125,7 @@ class InMemoryLease(HeartbeatLease):
 
     def __init__(
         self,
-        config: LeaseConfig = _DEFAULT_CONFIG,
+        config: LeaseConfig = DEFAULT_LEASE_CONFIG,
         *,
         store: dict[str, _Entry] | None = None,
         now: Now = utc_now,

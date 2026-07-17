@@ -7,7 +7,7 @@ from typing import Any
 from typing_extensions import override
 
 from waku._internal.clock import Now
-from waku._internal.lease import ILease, InMemoryLease, LeaseConfig
+from waku._internal.lease import DEFAULT_LEASE_CONFIG, ILease, InMemoryLease, LeaseConfig
 from waku._internal.provider_scan import provided_type_hints
 from waku.backends.memory._internal.dead_letter import WorkspaceDeadLetterStore
 from waku.backends.memory._internal.eventsourcing import (
@@ -167,7 +167,7 @@ class MemoryBackend:
     """
 
     @classmethod
-    def register(cls, *, lease_config: LeaseConfig | None = None) -> DynamicModule:
+    def register(cls, *, lease_config: LeaseConfig = DEFAULT_LEASE_CONFIG) -> DynamicModule:
         return DynamicModule(
             parent_module=cls,
             providers=[
@@ -184,6 +184,6 @@ class MemoryBackend:
                 scoped(IDurabilityStore, DefaultDurabilityStore, when=Has(MessagingConfig)),
                 scoped(IEventStore, _build_in_memory_event_store, when=Has(EventSourcingConfig)),
             ],
-            extensions=[_MemoryBackendWiring(lease_config if lease_config is not None else LeaseConfig())],
+            extensions=[_MemoryBackendWiring(lease_config)],
             is_global=True,
         )

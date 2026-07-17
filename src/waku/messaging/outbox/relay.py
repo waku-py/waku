@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Final, Never, TypeVar, assert_never
 from typing_extensions import override
 
 from waku._internal.clock import Now, utc_now
-from waku._internal.polling import PollingConfig
 from waku._internal.transaction import (
     Aborted,
     Commit,
@@ -20,7 +19,12 @@ from waku._internal.transaction import (
     require_committed,
 )
 from waku.messaging._internal.escalation import RetryAction
-from waku.messaging._internal.polling_agent import AdaptivePace, Placement, PollingAgent
+from waku.messaging._internal.polling_agent import (
+    DEFAULT_DURABILITY_POLLING_CONFIG,
+    AdaptivePace,
+    Placement,
+    PollingAgent,
+)
 from waku.messaging.durability import IOutboxStore
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.sending.evaluator import SendingFailureContext, SendingFailureEvaluator
@@ -34,6 +38,7 @@ if TYPE_CHECKING:
 
     from dishka import AsyncContainer
 
+    from waku._internal.polling import PollingConfig
     from waku.messaging._internal.escalation import PolicyOutcome
     from waku.messaging.outbox.models import OutboxMessage
 
@@ -54,12 +59,7 @@ _DEFAULT_CLEANUP_INTERVAL: Final[timedelta] = timedelta(hours=1)
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OutboxRelayConfig:
     batch_size: int = 100
-    polling: PollingConfig = PollingConfig(  # noqa: RUF009
-        poll_interval_min_seconds=1.0,
-        poll_interval_max_seconds=30.0,
-        poll_interval_step_seconds=1.0,
-        poll_interval_jitter_factor=0.1,
-    )
+    polling: PollingConfig = DEFAULT_DURABILITY_POLLING_CONFIG
     max_attempts: int = 5
     base_delay: timedelta = timedelta(seconds=1)
     max_delay: timedelta = timedelta(seconds=60)
@@ -68,6 +68,9 @@ class OutboxRelayConfig:
     retention: timedelta | None = None
     cleanup_interval: timedelta = _DEFAULT_CLEANUP_INTERVAL
     stop_timeout: timedelta = timedelta(seconds=10)
+
+
+DEFAULT_RELAY_CONFIG: Final = OutboxRelayConfig()
 
 
 def build_relay_default_policy(config: OutboxRelayConfig) -> SendingFailurePolicy:

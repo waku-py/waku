@@ -652,7 +652,7 @@ class TestLocalQueueRequeue:
         _AlwaysFailingHandler.call_count = 0
         dl_store = RecordingDeadLetterStore()
         spy = _TerminalSpy()
-        config = MessagingConfig(dead_letter=DeadLetterConfig()) if configured else None
+        config = MessagingConfig(dead_letter=DeadLetterConfig()) if configured else MessagingConfig()
         providers = _configured_dead_letter_providers(dl_store) if configured else _backendless_poison_providers()
 
         async with create_test_app(

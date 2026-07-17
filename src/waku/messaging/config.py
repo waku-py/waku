@@ -2,16 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Final
 
 from waku._internal.lease import LeaseConfig
-from waku._internal.polling import PollingConfig
+from waku.messaging._internal.polling_agent import DEFAULT_DURABILITY_POLLING_CONFIG
 from waku.messaging.endpoints.base import EndpointMode
-from waku.messaging.outbox.relay import OutboxRelayConfig
+from waku.messaging.outbox.relay import DEFAULT_RELAY_CONFIG
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from waku._internal.polling import PollingConfig
     from waku.messages import IMessage, MessageIdentity
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.pipeline import IPipelineBehavior
@@ -20,6 +22,7 @@ if TYPE_CHECKING:
     from waku.messaging.inbox.backpressure import BufferingLimits
     from waku.messaging.inbox.config import InboxConfig
     from waku.messaging.observability.observer import IMessageObserver
+    from waku.messaging.outbox.relay import OutboxRelayConfig
     from waku.messaging.router import ModuleRouteDescriptor, RouteDescriptor
     from waku.messaging.sending.policy import SendingFailurePolicy
     from waku.messaging.transport.interfaces import TransportFactory
@@ -32,10 +35,14 @@ __all__ = [
     'OutboxConfig',
 ]
 
+# Messaging-role tuning of the neutral lease: dead-letter replay holds ownership longer than the 30s
+# default so a slow replay batch cannot lose the lease mid-flight.
+DEFAULT_REPLAY_LEASE_CONFIG: Final = LeaseConfig(ttl_seconds=120.0)
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class OutboxConfig:
-    relay: OutboxRelayConfig = OutboxRelayConfig()  # noqa: RUF009
+    relay: OutboxRelayConfig = DEFAULT_RELAY_CONFIG
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -48,13 +55,8 @@ class DeadLetterConfig:
     """When set, the worker periodically purges entries older than this. None = no purge."""
     cleanup_interval: timedelta = field(default_factory=lambda: timedelta(hours=1))
     batch_size: int = 100
-    replay_lease: LeaseConfig = LeaseConfig(ttl_seconds=120.0)  # noqa: RUF009
-    polling: PollingConfig = PollingConfig(  # noqa: RUF009
-        poll_interval_min_seconds=1.0,
-        poll_interval_max_seconds=30.0,
-        poll_interval_step_seconds=1.0,
-        poll_interval_jitter_factor=0.1,
-    )
+    replay_lease: LeaseConfig = DEFAULT_REPLAY_LEASE_CONFIG
+    polling: PollingConfig = DEFAULT_DURABILITY_POLLING_CONFIG
     stop_timeout: timedelta = timedelta(seconds=10)
 
 
@@ -111,9 +113,11 @@ class MessagingConfig:
     leadership: LeadershipConfig | None = None
     """Opt-in cluster leader election gating the durability maintenance agent (see :class:`LeadershipConfig`).
     Default ``None`` = every node runs maintenance unconditionally."""
-    message_identities: Mapping[type[IMessage], str | MessageIdentity] = field(default_factory=dict)
+    message_identities: Mapping[type[IMessage], str | MessageIdentity] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
     """Third-party override for types you can't annotate; the default path is the ClassVar."""
-    audited_members: Mapping[type[IMessage], Sequence[str]] = field(default_factory=dict)
+    audited_members: Mapping[type[IMessage], Sequence[str]] = field(default_factory=lambda: MappingProxyType({}))
     """Third-party override for types you can't annotate with Audit; the default path is the field marker.
     Names must be ANNOTATED fields (visible to ``typing.get_type_hints``): naming a property or an attribute
     assigned only in ``__init__`` fails fast at startup with ``ImproperlyConfiguredError``."""
@@ -122,6 +126,9 @@ class MessagingConfig:
     at APP scope and fired alongside the built-in logging observer (never replacing it — silence logging via
     the ``waku.message`` logger level). Constructor dependencies must be APP-scope. For observers scoped to a
     single endpoint, use the ``observers=`` kwarg on ``listen``/``local_queue``/``external_endpoint`` instead."""
-    transports: Mapping[str, TransportFactory] = field(default_factory=dict)
+    transports: Mapping[str, TransportFactory] = field(default_factory=lambda: MappingProxyType({}))
     """Transport factories keyed by scheme (e.g. ``{'rabbitmq': rabbit_transport(url=...)}``); each factory is
     invoked once during DI bootstrap to build the :class:`TransportRegistry`."""
+
+
+DEFAULT_MESSAGING_CONFIG: Final = MessagingConfig()

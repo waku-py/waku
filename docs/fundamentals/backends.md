@@ -236,8 +236,7 @@ leadership coordinator resolve). A backend also publishes its `LeaseConfig` so t
 coordinator can read the failover cadence, so register both:
 
 ```python
-from waku import LeaseConfig
-from waku._internal.lease import ILease
+from waku import ILease, LeaseConfig
 from waku.backends.sqlalchemy import PostgresAdvisoryLease
 from waku.di import object_
 
@@ -266,6 +265,7 @@ A backend is an `is_global=True` module (no exports) with a classmethod `registe
 | Event-sourcing store ports | `waku.eventsourcing.store` | `IEventStore`, `ISnapshotStore`, `ICheckpointStore` |
 | Committer port | `waku.uow` | `IUnitOfWork` |
 | Sequencing port | `waku.messaging.sequence` | `ISequenceAllocator` |
+| Coordination lease | `waku` | `ILease`, `LeaseConfig` |
 | First-party SQLAlchemy parts | `waku.backends.sqlalchemy` | the store classes, `SqlAlchemySequenceAllocator`, `SqlAlchemyUnitOfWork`, `*Tables` + `bind_*_tables`, `make_sqlalchemy_*`, `EnumFromValues` |
 | Module + DI machinery | `waku`, `waku.di` | `module`, `DynamicModule`; `scoped`, `singleton`, `Has` |
 | Gating configs | `waku.messaging`, `waku.eventsourcing.modules` | `MessagingConfig`, `EventSourcingConfig` |
@@ -289,10 +289,14 @@ The contract a backend implements:
    once `inbox` is configured, so a backend that omitted it would crash any inbox-active app.
    Allocation must be atomic with the row insert under the scope owner's commit; the allocator
    never commits.
-5. **Module shape.** `is_global=True`, no exports.
-6. **Exactly one backend per app.** Say so in your docstring; a second backend fails the container
+5. **Lease publication.** A backend that supports cluster leader election or catch-up projections MUST
+   publish both an `ILease` provider and the `LeaseConfig` it was built from — the one lease-timing
+   authority both the leadership coordinator and the projection daemon resolve. A leadership- or
+   projection-active app whose backend publishes only one of the pair fails loud at startup.
+6. **Module shape.** `is_global=True`, no exports.
+7. **Exactly one backend per app.** Say so in your docstring; a second backend fails the container
    build ([above](#one-backend-per-app)).
-7. **Conformance.** Your test suite subclasses `BackendAssemblyContract` (overriding
+8. **Conformance.** Your test suite subclasses `BackendAssemblyContract` (overriding
    `backend_module`) plus the per-store contracts for every subsystem you support. Passing the kit
    is what "is a waku backend" means.
 
