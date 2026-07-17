@@ -118,6 +118,20 @@ class TestFailLoud:
         finally:
             await engine.dispose()
 
+    @staticmethod
+    async def test_leadership_with_lease_but_no_lease_config_fails_loud() -> None:
+        # A custom backend publishing ILease but omitting its LeaseConfig ⇒ the coordinator fails loud at
+        # after_app_init naming LeaseConfig, mirroring the ILease guard rather than a raw dishka error.
+        lease = InMemoryLease(LeaseConfig(), store={}, now=utc_now)
+        config = MessagingConfig(outbox=OutboxConfig(), leadership=LeadershipConfig())
+        async with create_test_app(
+            imports=[MessagingModule.register(MessagingConfig())],
+            providers=[object_(lease, provided_type=ILease)],
+        ) as app:
+            coordinator = LeadershipCoordinator(config)
+            with pytest.raises(ImproperlyConfiguredError, match='LeaseConfig'):
+                await coordinator.after_app_init(app)
+
 
 class TestLeaderRunsAgent:
     @staticmethod

@@ -363,6 +363,13 @@ class LeadershipCoordinator(AfterApplicationInit, OnApplicationShutdown):
             )
             raise ImproperlyConfiguredError(msg)
         lease = await app.container.get(ILease)
+        if not await is_registered(app.container, LeaseConfig):
+            msg = (
+                'MessagingConfig.leadership is configured and an ILease is registered, but no LeaseConfig '
+                'provider is available — a backend must publish its LeaseConfig alongside ILease, e.g. '
+                'SqlAlchemyBackend.register(..., engine=<AsyncEngine>, lease_config=<LeaseConfig>).'
+            )
+            raise ImproperlyConfiguredError(msg)
         # Lease timing is backend-owned (one authority): the same LeaseConfig the backend built the
         # lease from drives the standby re-acquire cadence, so failover stays bounded by the lease TTL.
         lease_config = await app.container.get(LeaseConfig)

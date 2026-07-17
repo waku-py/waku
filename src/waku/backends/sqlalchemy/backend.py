@@ -186,10 +186,12 @@ class SqlAlchemyBackend:
     the container build.
 
     The backend-owned lease is :class:`PostgresLease` — a plain transactional heartbeat over the
-    ``waku_leases`` table. This deliberately diverges from Marten's default session-level advisory lock:
-    a table heartbeat is compatible with PgBouncer transaction-mode pooling (each heartbeat is a short
-    AUTOCOMMIT statement holding no connection between renewals), trading Marten's instant crash-release
-    failover for failover bounded by ``lease_config.ttl_seconds``. For the reference-shaped instant
+    ``waku_leases`` table. This deliberately diverges from Marten's default monitored advisory-lock
+    leadership: a table heartbeat is compatible with PgBouncer transaction-mode pooling (each heartbeat
+    is a short AUTOCOMMIT statement holding no connection between renewals), trading Marten's instant
+    crash-release failover for failover bounded by ``lease_config.ttl_seconds``. Marten's own docs flag
+    the pooler friction the divergence sidesteps — advisory-lock leadership needs special Npgsql
+    settings under PgBouncer (async-daemon.md, PgBouncer section). For the reference-shaped instant
     failover, compose a custom backend around :class:`PostgresAdvisoryLease` (session-bound, holds a
     connection, not pooler-compatible).
     """

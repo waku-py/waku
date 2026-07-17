@@ -12,15 +12,22 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
 
-async def _terminate_advisory_backends(engine: AsyncEngine) -> None:
+# Scope termination to the one lock under test, not every advisory-lock holder on the server: the
+# 64-bit hashtextextended(name, 0) key is split across pg_locks (classid = high 32 bits, objid = low 32).
+# Reconstructing the halves via bitwise mask isolates this lease's backend and removes the cross-test
+# blast radius of killing unrelated pooled advisory connections.
+_TERMINATE_HELD_BY_NAME = text(
+    'SELECT pg_terminate_backend(pid) FROM pg_locks '
+    "WHERE locktype = 'advisory' AND pid <> pg_backend_pid() "
+    'AND classid::bigint = ((hashtextextended(:name, 0) >> 32) & 4294967295) '
+    'AND objid::bigint = (hashtextextended(:name, 0) & 4294967295)',
+)
+
+
+async def _terminate_advisory_backend(engine: AsyncEngine, name: str) -> None:
     async with engine.connect() as conn:
         await conn.execution_options(isolation_level='AUTOCOMMIT')
-        await conn.execute(
-            text(
-                'SELECT pg_terminate_backend(pid) FROM pg_locks '
-                "WHERE locktype = 'advisory' AND pid <> pg_backend_pid()",
-            ),
-        )
+        await conn.execute(_TERMINATE_HELD_BY_NAME, {'name': name})
 
 
 async def test_advisory_lock_acquire_succeeds(pg_engine: AsyncEngine) -> None:
@@ -93,5 +100,5 @@ async def test_advisory_lock_cancels_held_body_when_session_dropped(pg_engine: A
         async with anyio.create_task_group() as tg:
             tg.start_soon(hold)
             await entered.wait()
-            await _terminate_advisory_backends(pg_engine)
+            await _terminate_advisory_backend(pg_engine, 'orders')
             await body_exited.wait()
