@@ -1,19 +1,14 @@
 from __future__ import annotations
 
-import contextlib
 import logging
-import uuid
 from typing import TYPE_CHECKING
 
-import anyio
 from sqlalchemy import text
 from typing_extensions import override
 
-from waku._internal.lease import ILease
+from waku._internal.lease import HeartbeatLease
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
-
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from waku._internal.lease import LeaseConfig
@@ -46,17 +41,15 @@ WHERE name = :name AND holder_id = :holder;
 """)
 
 
-class PostgresLease(ILease):
+class PostgresLease(HeartbeatLease):
     """Production lease backed by PostgreSQL, keyed by an opaque ``name``."""
 
     def __init__(self, engine: AsyncEngine, config: LeaseConfig) -> None:
+        super().__init__(config)
         self._engine = engine
-        self._config = config
-        self._holder_id = str(uuid.uuid4())
 
-    @contextlib.asynccontextmanager
     @override
-    async def acquire(self, name: str) -> AsyncGenerator[bool]:
+    async def _try_claim(self, name: str) -> bool:
         async with self._engine.connect() as conn:
             await conn.execution_options(isolation_level='AUTOCOMMIT')
             result = await conn.execute(
@@ -64,41 +57,26 @@ class PostgresLease(ILease):
                 {'name': name, 'holder': self._holder_id, 'ttl': self._config.ttl_seconds},
             )
             row = result.fetchone()
-
         if row is None:
-            yield False
-            return
-
+            return False
         logger.debug('Lease acquired for %s by %s', name, self._holder_id)
+        return True
 
-        try:
-            async with anyio.create_task_group() as tg:
-                tg.start_soon(self._heartbeat, name, tg.cancel_scope)
-                try:
-                    yield True
-                finally:
-                    tg.cancel_scope.cancel()
-        finally:
-            await self._release(name)
+    @override
+    async def _renew(self, name: str) -> bool:
+        async with self._engine.connect() as conn:
+            await conn.execution_options(isolation_level='AUTOCOMMIT')
+            result = await conn.execute(
+                _RENEW_SQL,
+                {'name': name, 'holder': self._holder_id, 'ttl': self._config.ttl_seconds},
+            )
+        if result.rowcount == 0:
+            logger.warning('Lease for %s was stolen from holder %s', name, self._holder_id)
+            return False
+        logger.debug('Lease renewed for %s by %s', name, self._holder_id)
+        return True
 
-    async def _heartbeat(self, name: str, cancel_scope: anyio.CancelScope) -> None:
-        while not cancel_scope.cancel_called:
-            await anyio.sleep(self._config.renew_interval_seconds)
-
-            async with self._engine.connect() as conn:
-                await conn.execution_options(isolation_level='AUTOCOMMIT')
-                result = await conn.execute(
-                    _RENEW_SQL,
-                    {'name': name, 'holder': self._holder_id, 'ttl': self._config.ttl_seconds},
-                )
-
-            if result.rowcount == 0:
-                logger.warning('Lease for %s was stolen from holder %s', name, self._holder_id)
-                cancel_scope.cancel()
-                return
-
-            logger.debug('Lease renewed for %s by %s', name, self._holder_id)
-
+    @override
     async def _release(self, name: str) -> None:
         try:
             async with self._engine.connect() as conn:

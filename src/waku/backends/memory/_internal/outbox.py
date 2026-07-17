@@ -129,7 +129,7 @@ class _InMemoryOutboxStoreOperations(IOutboxStore):
                     msg,
                     status=status,
                     last_error=error,
-                    retry_count=msg.retry_count + 1,
+                    attempts=msg.attempts + 1,
                     next_retry_at=next_retry_at,
                 )
                 return
@@ -139,7 +139,7 @@ class _InMemoryOutboxStoreOperations(IOutboxStore):
         self._replace(message_id, status=OutboxStatus.DISCARDED, last_error=error)
 
     @override
-    async def recover_stuck(self, threshold: timedelta) -> int:
+    async def recover_abandoned(self, threshold: timedelta) -> int:
         cutoff = datetime.now(tz=UTC) - threshold
         recovered = 0
         for i, msg in enumerate(self.messages):
@@ -153,7 +153,7 @@ class _InMemoryOutboxStoreOperations(IOutboxStore):
         return recovered
 
     @override
-    async def cleanup_dispatched(self, older_than: timedelta) -> int:
+    async def delete_expired_dispatched(self, older_than: timedelta) -> int:
         cutoff = datetime.now(tz=UTC) - older_than
         before = len(self.messages)
         self.messages[:] = [

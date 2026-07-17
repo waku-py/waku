@@ -11,8 +11,8 @@ from dishka import AsyncContainer, Provider, Scope, make_async_container, provid
 from typing_extensions import override
 
 from waku._internal.transaction import (
+    RollbackFailedError,
     TransactionExecutionError,
-    TransactionFailureKind,
     extract_transaction_execution_error,
 )
 from waku.backends.memory import MemoryBackend
@@ -551,7 +551,7 @@ class TestDurableInboxReceiverFinalization:
 
         fatal = extract_transaction_execution_error(raised.value)
         assert fatal is not None
-        assert fatal.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert isinstance(fatal, RollbackFailedError)
         assert fatal.error is rollback_error
         assert fatal.primary_error is commit_error
         assert control.staged_source_absent is True
@@ -621,8 +621,8 @@ class TestDurableInboxReceiverPersist:
     @staticmethod
     async def test_persist_failed_rollback_is_fatal() -> None:
         # The persist transaction commits the inbox rows; if that commit fails and its rollback also
-        # fails, the loss is uniformly fatal — a TransactionExecutionError(ROLLBACK_FAILED) that carries
-        # the primary, not a silently-logged rollback that lets an unwritten inbox pass as persisted.
+        # fails, the loss is uniformly fatal — a RollbackFailedError that carries the primary, not a
+        # silently-logged rollback that lets an unwritten inbox pass as persisted.
         inbox = FakeInboxStore()
         commit_error = RuntimeError('commit failed')
         rollback_error = RuntimeError('rollback failed')
@@ -636,7 +636,7 @@ class TestDurableInboxReceiverPersist:
 
         fatal = extract_transaction_execution_error(raised.value)
         assert fatal is not None
-        assert fatal.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert isinstance(fatal, RollbackFailedError)
         assert fatal.error is rollback_error
         assert fatal.primary_error is commit_error
 

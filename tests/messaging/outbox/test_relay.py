@@ -16,7 +16,7 @@ from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
 from waku._internal.clock import Now, utc_now
-from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
+from waku._internal.transaction import AfterCommitError, RollbackFailedError, TransactionExecutionError
 from waku.messages import IEvent
 from waku.messaging import PollingConfig
 from waku.messaging._internal.escalation import RetryAction, walk_stages
@@ -108,7 +108,7 @@ class _RecordingOutboxStore(IOutboxStore):
     cleanup_count: int = 0
     move_to_dead_letter_error: BaseException | None = None
     mark_failed_error: Exception | None = None
-    recover_stuck_error: Exception | None = None
+    recover_abandoned_error: Exception | None = None
     mark_dispatched_error: Exception | None = None
     trace: list[str] | None = None
 
@@ -161,16 +161,16 @@ class _RecordingOutboxStore(IOutboxStore):
         self.discarded_ids.append(message_id)
 
     @override
-    async def recover_stuck(self, threshold: timedelta) -> int:
+    async def recover_abandoned(self, threshold: timedelta) -> int:
         self.recovered += 1
-        if self.recover_stuck_error is not None:
-            err = self.recover_stuck_error
-            self.recover_stuck_error = None
+        if self.recover_abandoned_error is not None:
+            err = self.recover_abandoned_error
+            self.recover_abandoned_error = None
             raise err
         return 0
 
     @override
-    async def cleanup_dispatched(self, older_than: timedelta) -> int:
+    async def delete_expired_dispatched(self, older_than: timedelta) -> int:
         self.cleanup_calls += 1
         return self.cleanup_count
 
@@ -358,7 +358,7 @@ def test_build_relay_default_policy_mirrors_config() -> None:
 
 
 def test_build_relay_default_policy_boundary_matches_legacy_loop() -> None:
-    # Pins behavior-equivalence with the legacy fixed loop for N>1: with relay attempt = retry_count+1,
+    # Pins behavior-equivalence with the legacy fixed loop for N>1: with relay attempt = attempts+1,
     # retries at attempts 1..N-1, dead-letters at attempt N. A mutation to walk_stages' boundary
     # (< vs <=) is caught here.
     stages = build_relay_default_policy(OutboxRelayConfig(max_attempts=2)).stages
@@ -497,7 +497,7 @@ class TestOutboxRelaySendFailureOwnership:
             async with _run_relay(provider):
                 await wait_until(lambda: 'phase-1:rollback' in trace)
 
-        assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert isinstance(raised.value, RollbackFailedError)
         assert raised.value.error is rollback_error
         assert store.poll_calls == 1
         assert 'broker-send' not in trace
@@ -507,7 +507,7 @@ class TestOutboxRelaySendFailureOwnership:
 class TestOutboxRelayOperations:
     @staticmethod
     async def test_tick_only_dispatches_no_recover_or_cleanup() -> None:
-        # Dispatch-only relay (D9): recover_stuck/cleanup_dispatched moved to DurabilityMaintenanceAgent.
+        # Dispatch-only relay (D9): recover_abandoned/delete_expired_dispatched moved to DurabilityMaintenanceAgent.
         # Even with the eager recovery/cleanup intervals set, the relay never touches them — only
         # fetch_head_of_queue runs.
         store = _RecordingOutboxStore(cleanup_count=3)
@@ -522,8 +522,8 @@ class TestOutboxRelayOperations:
         async with _run_relay(RelayDepsProvider(store, transport), config):
             await wait_until(lambda: store.poll_calls >= 1)
 
-        assert store.recovered == 0  # recover_stuck never called
-        assert store.cleanup_calls == 0  # cleanup_dispatched never called
+        assert store.recovered == 0  # recover_abandoned never called
+        assert store.cleanup_calls == 0  # delete_expired_dispatched never called
         assert store.poll_calls >= 1  # fetch_head_of_queue WAS called
 
     @staticmethod
@@ -720,7 +720,7 @@ class TestOutboxRelayOperations:
             async with _run_relay(provider, _EXHAUST_ON_FIRST_FAILURE_CONFIG):
                 await wait_until(lambda: 'phase-2:rollback' in trace)
 
-        assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert isinstance(raised.value, RollbackFailedError)
         assert raised.value.error is rollback_error
         assert len(provider.uows) == 2
         assert 'mark-failed' not in trace
@@ -742,7 +742,7 @@ class TestOutboxRelayOperations:
             async with _run_relay(provider, _EXHAUST_ON_FIRST_FAILURE_CONFIG):
                 await wait_until(lambda: 'phase-2:exit' in trace)
 
-        assert raised.value.kind is TransactionFailureKind.AFTER_COMMIT
+        assert isinstance(raised.value, AfterCommitError)
         assert len(provider.uows) == 2
         assert 'mark-failed' not in trace
         assert 'moved to dead letter' not in caplog.text
@@ -791,7 +791,7 @@ class TestOutboxRelayOperations:
             async with _run_relay(provider, _EXHAUST_ON_FIRST_FAILURE_CONFIG):
                 await wait_until(lambda: 'phase-3:rollback' in trace)
 
-        assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert isinstance(raised.value, RollbackFailedError)
         assert raised.value.error is rollback_error
         assert 'exhausted after' not in caplog.text
         assert 'moved to dead letter' not in caplog.text
@@ -967,7 +967,7 @@ class TestRelayDispatchQuarantine:
     @staticmethod
     async def test_post_send_persistence_failure_is_not_recorded_terminal() -> None:
         # The message WAS delivered; only recording failed. It must stay claimed (PROCESSING) for
-        # recover_stuck — never routed into the sending-failure policy (FAILED/DISCARDED/DEAD_LETTERED),
+        # recover_abandoned — never routed into the sending-failure policy (FAILED/DISCARDED/DEAD_LETTERED),
         # which would let a DLQ replay double-deliver.
         store, msg = _make_pending_store()
         store.mark_dispatched_error = ConnectionError('db down after send')
@@ -981,7 +981,7 @@ class TestRelayDispatchQuarantine:
         assert msg.id not in store.failed_ids
         assert msg.id not in store.discarded_ids
         assert msg.id not in store.dead_lettered_ids
-        assert not store.pending  # never re-enqueued PENDING; stays claimed for recover_stuck
+        assert not store.pending  # never re-enqueued PENDING; stays claimed for recover_abandoned
 
     @staticmethod
     async def test_post_send_persistence_failure_rolls_back_exactly_once() -> None:

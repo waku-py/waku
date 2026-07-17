@@ -8,8 +8,7 @@ from waku._internal.transaction import (
     Commit,
     TransactionDecision,
     TransactionExecutionError,
-    execute_in_uow_scope,
-    require_committed,
+    run_committed,
 )
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging.durability import IInboxStore
@@ -97,7 +96,7 @@ class InboxDrainer:
             inbox = await scope.get(IInboxStore)
             return Commit(await inbox.fetch_pending_partitioned(self._batch_size, self._owner_id))
 
-        entries = require_committed(await execute_in_uow_scope(self._container, claim))
+        entries = await run_committed(self._container, claim)
         processed = 0
         for entry in entries:
             try:
@@ -193,7 +192,7 @@ class InboxDrainer:
             await inbox.increment_attempts(entry.id, entry.destination)
             return Commit(None)
 
-        require_committed(await execute_in_uow_scope(self._container, increment))
+        await run_committed(self._container, increment)
         logger.warning(
             'Poison inbox row id=%s destination=%r (attempt %d/%d): %s',
             entry.id,

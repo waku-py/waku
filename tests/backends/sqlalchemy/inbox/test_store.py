@@ -72,8 +72,8 @@ class TestMarkAsHandled:
         await pg_session.flush()
 
         # HANDLED row is retained until keep_until: cleanup at `now` is a no-op, cleanup past it removes it.
-        assert await store.cleanup_handled(datetime.now(tz=UTC)) == 0
-        assert await store.cleanup_handled(keep_until + timedelta(seconds=1)) == 1
+        assert await store.delete_expired_handled(datetime.now(tz=UTC)) == 0
+        assert await store.delete_expired_handled(keep_until + timedelta(seconds=1)) == 1
 
     @staticmethod
     async def test_mark_as_handled_targets_only_its_destination(pg_session: AsyncSession) -> None:
@@ -89,7 +89,7 @@ class TestMarkAsHandled:
         await pg_session.flush()
 
         # Only HandlerA's row is HANDLED -> only it is eligible for cleanup.
-        removed = await store.cleanup_handled(datetime.now(tz=UTC))
+        removed = await store.delete_expired_handled(datetime.now(tz=UTC))
         assert removed == 1
         # HandlerA's row was purged; HandlerB's row survives, still INCOMING and claimable.
         claimed = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
@@ -115,7 +115,7 @@ class TestIncrementAttempts:
 
 class TestCleanupHandled:
     @staticmethod
-    async def test_cleanup_handled_removes_expired_entries(pg_session: AsyncSession) -> None:
+    async def test_delete_expired_handled_removes_expired_entries(pg_session: AsyncSession) -> None:
         store = SqlAlchemyInboxStore(pg_session)
         entry = _make_entry()
         await store.store_incoming(entry)
@@ -124,13 +124,13 @@ class TestCleanupHandled:
         await store.mark_as_handled(entry.id, entry.destination, datetime.now(tz=UTC) - timedelta(seconds=1))
         await pg_session.flush()
 
-        removed = await store.cleanup_handled(datetime.now(tz=UTC))
+        removed = await store.delete_expired_handled(datetime.now(tz=UTC))
         assert removed == 1
         # row fully deleted: the same (id, destination) can be stored again without dedup
         assert await store.store_incoming(_make_entry(id=entry.id, destination=entry.destination)) is True
 
     @staticmethod
-    async def test_cleanup_handled_preserves_unexpired_entries(pg_session: AsyncSession) -> None:
+    async def test_delete_expired_handled_preserves_unexpired_entries(pg_session: AsyncSession) -> None:
         store = SqlAlchemyInboxStore(pg_session)
         entry = _make_entry()
         await store.store_incoming(entry)
@@ -139,10 +139,10 @@ class TestCleanupHandled:
         await store.mark_as_handled(entry.id, entry.destination, datetime.now(tz=UTC) + timedelta(hours=1))
         await pg_session.flush()
 
-        removed = await store.cleanup_handled(datetime.now(tz=UTC))
+        removed = await store.delete_expired_handled(datetime.now(tz=UTC))
         assert removed == 0
         # the unexpired HANDLED row is retained: cleanup past its keep_until then removes it
-        assert await store.cleanup_handled(datetime.now(tz=UTC) + timedelta(hours=2)) == 1
+        assert await store.delete_expired_handled(datetime.now(tz=UTC) + timedelta(hours=2)) == 1
 
 
 class TestFetchPendingPartitioned:
@@ -336,7 +336,7 @@ class TestFetchPendingPartitioned:
 
 class TestRecoverStale:
     @staticmethod
-    async def test_recover_stale_ignores_fresh_entries(pg_session: AsyncSession) -> None:
+    async def test_recover_abandoned_ignores_fresh_entries(pg_session: AsyncSession) -> None:
         store = SqlAlchemyInboxStore(pg_session)
         entry = _make_entry()
         await store.store_incoming(entry)
@@ -344,36 +344,36 @@ class TestRecoverStale:
         await store.fetch_pending_partitioned(batch_size=1, owner_id='worker-1')
         await pg_session.flush()
 
-        recovered = await store.recover_stale(threshold=timedelta(hours=1))
+        recovered = await store.recover_abandoned(threshold=timedelta(hours=1))
         assert recovered == 0
 
     @staticmethod
-    async def test_recover_stale_ignores_never_claimed_entries(pg_session: AsyncSession) -> None:
+    async def test_recover_abandoned_ignores_never_claimed_entries(pg_session: AsyncSession) -> None:
         # A never-claimed (owner_id IS NULL) INCOMING row is already fetchable -> recovery must not
         # touch it, even when past the stale threshold.
         store = SqlAlchemyInboxStore(pg_session)
         await store.store_incoming(_make_entry())
         await pg_session.flush()
 
-        recovered = await store.recover_stale(threshold=timedelta(seconds=-1))
+        recovered = await store.recover_abandoned(threshold=timedelta(seconds=-1))
         assert recovered == 0
 
     @staticmethod
-    async def test_recover_stale_releases_owned_row_past_threshold(pg_session: AsyncSession) -> None:
+    async def test_recover_abandoned_releases_owned_row_past_threshold(pg_session: AsyncSession) -> None:
         store = SqlAlchemyInboxStore(pg_session)
         await store.store_incoming(_make_entry(owner_id='dead-node:1'))
         await pg_session.flush()
         # negative threshold -> cutoff = now + 1h -> the owned row's updated_at (=now) is past it -> released
-        recovered = await store.recover_stale(timedelta(seconds=-3600))
+        recovered = await store.recover_abandoned(timedelta(seconds=-3600))
         assert recovered == 1
 
     @staticmethod
-    async def test_recover_stale_leaves_fresh_owned_row(pg_session: AsyncSession) -> None:
+    async def test_recover_abandoned_leaves_fresh_owned_row(pg_session: AsyncSession) -> None:
         store = SqlAlchemyInboxStore(pg_session)
         await store.store_incoming(_make_entry(owner_id='live-node:1'))
         await pg_session.flush()
         # 1h threshold -> cutoff = now - 1h -> a just-stored owned row is NOT stale -> not released
-        recovered = await store.recover_stale(timedelta(hours=1))
+        recovered = await store.recover_abandoned(timedelta(hours=1))
         assert recovered == 0
 
 

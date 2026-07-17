@@ -344,7 +344,7 @@ class DeadLetterStoreContract:
         for entry in (ownerless, expired, protected, fresh):
             await dlq_store.save(entry)
 
-        purged = await dlq_store.purge(older_than=now - timedelta(hours=1), now=now)
+        purged = await dlq_store.delete_expired_dead_letters(older_than=now - timedelta(hours=1), now=now)
 
         assert purged == 2
         assert [e.id for e in await dlq_store.fetch(batch_size=10)] == [protected.id, fresh.id]
@@ -354,7 +354,7 @@ class DeadLetterStoreContract:
         entry = _make_entry(created_at=now - timedelta(hours=2))
         await dlq_store.save(entry)
 
-        assert await dlq_store.purge(older_than=now, now=now) == 1
+        assert await dlq_store.delete_expired_dead_letters(older_than=now, now=now) == 1
         assert (
             await dlq_store.claim_replayable(
                 3,

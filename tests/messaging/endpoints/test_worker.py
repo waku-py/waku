@@ -10,7 +10,7 @@ import anyio
 import pytest
 from anyio.lowlevel import checkpoint
 
-from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
+from waku._internal.transaction import AfterCommitError, RollbackFailedError, TransactionExecutionError
 from waku.messages import IMessage
 from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
@@ -193,8 +193,7 @@ class TestMemoryStreamWorkerErrorIsolation:
     @staticmethod
     async def test_mixed_control_flow_group_remains_primary_during_stop() -> None:
         cancelled = asyncio.CancelledError()
-        fatal = TransactionExecutionError(
-            TransactionFailureKind.ROLLBACK_FAILED,
+        fatal = RollbackFailedError(
             RuntimeError('rollback failed'),
             RuntimeError('handler failed'),
         )
@@ -217,8 +216,7 @@ class TestMemoryStreamWorkerErrorIsolation:
 
     @staticmethod
     async def test_fatal_group_unwrapping_preserves_identity_without_causal_chain() -> None:
-        fatal = TransactionExecutionError(
-            TransactionFailureKind.ROLLBACK_FAILED,
+        fatal = RollbackFailedError(
             RuntimeError('rollback failed'),
             RuntimeError('handler failed'),
         )
@@ -245,15 +243,14 @@ class TestMemoryStreamWorkerErrorIsolation:
     async def test_failing_on_drain_does_not_mask_post_commit_failure() -> None:
         teardown_error = RuntimeError('request scope teardown failed')
         await _assert_fatal_signal_survives_failing_on_drain(
-            TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, teardown_error, None),
+            AfterCommitError(teardown_error),
         )
 
     @staticmethod
     async def test_failing_on_drain_does_not_mask_rollback_failure() -> None:
         rollback_error = RuntimeError('rollback failed')
         await _assert_fatal_signal_survives_failing_on_drain(
-            TransactionExecutionError(
-                TransactionFailureKind.ROLLBACK_FAILED,
+            RollbackFailedError(
                 rollback_error,
                 RuntimeError('handler failed'),
             ),

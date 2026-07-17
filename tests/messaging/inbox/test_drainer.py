@@ -11,7 +11,7 @@ import pytest
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
-from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
+from waku._internal.transaction import AfterCommitError, RollbackFailedError, TransactionExecutionError
 from waku.di import object_
 from waku.messages import IEvent
 from waku.messaging import EndpointDefaults, MessagingConfig, MessagingExtension, MessagingModule
@@ -197,8 +197,7 @@ class _FatalRollbackExecutor(IEndpointExecution):
         handler_type: HandlerType,
     ) -> TerminalIntent:
         self.calls += 1
-        raise TransactionExecutionError(
-            TransactionFailureKind.ROLLBACK_FAILED,
+        raise RollbackFailedError(
             self.rollback_error,
             self.primary_error,
         )
@@ -228,7 +227,7 @@ class _FatalAfterCommitExecutor(IEndpointExecution):
         handler_type: HandlerType,
     ) -> TerminalIntent:
         self.calls += 1
-        raise TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, self.teardown_error, None)
+        raise AfterCommitError(self.teardown_error)
 
     @override
     async def emit_terminal(
@@ -300,7 +299,7 @@ async def test_drain_stops_batch_when_handler_rollback_fails_fatally() -> None:
         with pytest.raises(TransactionExecutionError) as raised:
             await _drainer(container, executor).drain_once()
 
-    assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+    assert isinstance(raised.value, RollbackFailedError)
     assert raised.value.error is rollback_error
     assert raised.value.primary_error is primary_error
     assert executor.calls == 1  # the fatal signal stops the drain before the second entry
@@ -317,7 +316,7 @@ async def test_drain_stops_batch_after_committed_handler_scope_teardown_fails() 
         with pytest.raises(TransactionExecutionError) as raised:
             await _drainer(container, executor).drain_once()
 
-    assert raised.value.kind is TransactionFailureKind.AFTER_COMMIT
+    assert isinstance(raised.value, AfterCommitError)
     assert raised.value.error is teardown_error
     assert executor.calls == 1
 
@@ -455,7 +454,7 @@ async def test_drain_claim_scope_failed_rollback_is_fatal() -> None:
         with pytest.raises(TransactionExecutionError) as raised:
             await _drainer(container, executor).drain_once()
 
-    assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+    assert isinstance(raised.value, RollbackFailedError)
     assert raised.value.error is rollback_error
     assert executor.calls == []
 
@@ -473,7 +472,7 @@ async def test_drain_poison_increment_failed_rollback_is_fatal() -> None:
         with pytest.raises(TransactionExecutionError) as raised:
             await _drainer(container, executor, max_attempts=3).drain_once()
 
-    assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+    assert isinstance(raised.value, RollbackFailedError)
     assert raised.value.error is rollback_error
     assert isinstance(raised.value.primary_error, ConnectionError)
     assert executor.calls == []

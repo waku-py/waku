@@ -10,7 +10,7 @@ from waku._internal.transaction import (
     RolledBack,
     TransactionDecision,
     execute_in_uow_scope,
-    require_committed,
+    run_committed,
 )
 from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints._internal.execution import ExecutionResult, TerminalIntent, TerminalIntentKind
@@ -109,4 +109,4 @@ async def _apply_non_dead_letter_outcome(
                 assert_never(unreachable)
         return Commit(ExecutionResult(outcome))
 
-    return require_committed(await execute_in_uow_scope(container, apply))
+    return await run_committed(container, apply)

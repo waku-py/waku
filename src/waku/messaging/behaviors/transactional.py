@@ -6,12 +6,10 @@ from typing_extensions import override
 
 from waku._internal.transaction import (
     Abort,
-    Aborted,
     Commit,
-    Committed,
-    RolledBack,
     TransactionDecision,
     TransactionExecution,
+    require_committed,
 )
 
 # Runtime imports: dishka introspects __init__ type hints at container-build time
@@ -84,14 +82,7 @@ async def run_in_transaction(
             raise nested.error
         assert_never(nested.value)
 
-    outcome = await TransactionExecution(uow).execute(lambda: decide_transaction(depth, call_next))
-    if isinstance(outcome, Committed):
-        return outcome.value
-    if isinstance(outcome, Aborted):
-        raise outcome.error
-    if isinstance(outcome, RolledBack):
-        assert_never(outcome.value)
-    assert_never(outcome)
+    return require_committed(await TransactionExecution(uow).execute(lambda: decide_transaction(depth, call_next)))
 
 
 class TransactionalBehavior(IPipelineBehavior[Any, Any]):

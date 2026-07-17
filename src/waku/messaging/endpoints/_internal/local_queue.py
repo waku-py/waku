@@ -11,6 +11,7 @@ from waku.messaging.endpoints._internal.execution import (
     IEndpointExecution,
     TerminalIntent,
     TerminalIntentKind,
+    outcome_from_intent,
 )
 from waku.messaging.endpoints._internal.redelivery import (
     RedeliveryCoordinator,
@@ -167,12 +168,7 @@ class LocalQueueEndpoint(Endpoint):
         intent: TerminalIntent,
     ) -> ExecutionOutcome:
         if intent.kind is not TerminalIntentKind.DEAD_LETTER:
-            outcomes = {
-                TerminalIntentKind.SUCCESS: ExecutionOutcome.SUCCESS,
-                TerminalIntentKind.FAILED_NO_POLICY: ExecutionOutcome.FAILED_NO_POLICY,
-                TerminalIntentKind.DISCARD: ExecutionOutcome.DISCARDED,
-            }
-            return outcomes[intent.kind]
+            return outcome_from_intent(intent)
         if not self._dead_letter_capable:
             logger.warning(
                 'Discarding dead-letter intent without configured durability: message_id=%s was not persisted',

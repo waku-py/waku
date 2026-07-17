@@ -46,9 +46,9 @@ class RecordingOutboxStore(IOutboxStore):
         pass
 
     @override
-    async def recover_stuck(self, threshold: timedelta) -> int:  # pragma: no cover
+    async def recover_abandoned(self, threshold: timedelta) -> int:  # pragma: no cover
         return 0
 
     @override
-    async def cleanup_dispatched(self, older_than: timedelta) -> int:  # pragma: no cover
+    async def delete_expired_dispatched(self, older_than: timedelta) -> int:  # pragma: no cover
         return 0

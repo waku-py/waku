@@ -150,7 +150,7 @@ class _InMemoryDeadLetterStoreOperations(IDeadLetterStore):
         self.entries.pop(entry_id, None)
 
     @override
-    async def purge(self, older_than: datetime, *, now: datetime) -> int:
+    async def delete_expired_dead_letters(self, older_than: datetime, *, now: datetime) -> int:
         stale = [
             entry_id
             for entry_id, entry in self.entries.items()

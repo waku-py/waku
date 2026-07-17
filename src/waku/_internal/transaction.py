@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import TYPE_CHECKING, Generic, Never, TypeAlias, TypeVar, assert_never
 
 import anyio
@@ -16,19 +15,21 @@ if TYPE_CHECKING:
 __all__ = [
     'Abort',
     'Aborted',
+    'AfterCommitError',
     'Commit',
     'Committed',
     'Rollback',
+    'RollbackFailedError',
     'RolledBack',
     'TransactionDecision',
     'TransactionExecution',
     'TransactionExecutionError',
-    'TransactionFailureKind',
     'TransactionResult',
     'can_defer_transaction_fatal',
     'execute_in_uow_scope',
     'extract_transaction_execution_error',
     'require_committed',
+    'run_committed',
 ]
 
 _CommitT = TypeVar('_CommitT')
@@ -49,6 +50,14 @@ class Rollback(Generic[_RollbackT_co]):
 
 @dataclass(frozen=True, slots=True)
 class Abort:
+    """Owner-detected forced rollback with no exception in flight — the Spring-strict rollback-only seam.
+
+    Sole consumer: ``TransactionalBehavior``'s outer frame, where ``call_next`` returned normally but a
+    nested frame recorded a swallowed failure. Carrying the pre-built error as data (not ``raise``) keeps
+    it out of the ``except`` round-trip so the interpreter never grafts a ``__context__`` onto it — the
+    no-causal-mutation law — and completes the decision union's totality against ``Aborted``.
+    """
+
     error: Exception
 
 
@@ -71,24 +80,31 @@ TransactionDecision: TypeAlias = Commit[_CommitT] | Rollback[_RollbackT] | Abort
 TransactionResult: TypeAlias = Committed[_CommitT] | RolledBack[_RollbackT] | Aborted
 
 
-class TransactionFailureKind(Enum):
-    ROLLBACK_FAILED = 'ROLLBACK_FAILED'
-    AFTER_COMMIT = 'AFTER_COMMIT'
-
-
 class TransactionExecutionError(BaseException):
-    __slots__ = ('error', 'kind', 'primary_error')
+    """Base for the two fatal transaction signals.
 
-    def __init__(
-        self,
-        kind: TransactionFailureKind,
-        error: BaseException,
-        primary_error: BaseException | None,
-    ) -> None:
-        super().__init__(f'Transaction execution failed: {kind.value}')
-        self.kind = kind
+    Typed ``BaseException`` (not ``Exception``) so ordinary ``except Exception`` owner boundaries skip it
+    and propagate it unchanged, exactly like cancellation. Concrete role is carried by the subclass.
+    """
+
+    __slots__ = ('error', 'primary_error')
+
+    def __init__(self, error: BaseException, primary_error: BaseException | None = None) -> None:
+        super().__init__(f'Transaction execution failed: {type(self).__name__}')
         self.error = error
         self.primary_error = primary_error
+
+
+class RollbackFailedError(TransactionExecutionError):
+    """A required rollback itself failed — the one fatal with no normal owner result."""
+
+    __slots__ = ()
+
+
+class AfterCommitError(TransactionExecutionError):
+    """A failure surfaced after the transaction already committed — nothing can roll it back."""
+
+    __slots__ = ()
 
 
 class TransactionExecution:
@@ -129,22 +145,14 @@ class TransactionExecution:
         try:
             await self._run_rollback()
         except BaseException as rollback_error:
-            raise TransactionExecutionError(
-                TransactionFailureKind.ROLLBACK_FAILED,
-                rollback_error,
-                None,
-            ) from rollback_error
+            raise RollbackFailedError(rollback_error) from rollback_error
         return RolledBack(value)
 
     async def _rollback_after_failure(self, primary_error: BaseException) -> Aborted:
         try:
             await self._run_rollback()
         except BaseException as rollback_error:
-            fatal = TransactionExecutionError(
-                TransactionFailureKind.ROLLBACK_FAILED,
-                rollback_error,
-                primary_error,
-            )
+            fatal = RollbackFailedError(rollback_error, primary_error)
             if not _has_control_flow_leaf(primary_error):
                 raise fatal from rollback_error
             fatal.__cause__ = rollback_error
@@ -227,7 +235,7 @@ async def _execute_in_child_scope(
             result = await run_operation(child)
     except BaseException as error:
         if isinstance(result, Committed):
-            raise TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, error, None) from error
+            raise AfterCommitError(error) from error
         if isinstance(result, Aborted):
             # The body returned Aborted(handler_error) after a clean rollback; a teardown failure must not
             # discard that handler-error evidence, so chain it as the propagating error's cause.
@@ -262,5 +270,17 @@ async def execute_in_uow_scope(
         try:
             await after_commit(result.value)
         except BaseException as error:
-            raise TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, error, None) from error
+            raise AfterCommitError(error) from error
     return result
+
+
+async def run_committed(
+    container: AsyncContainer,
+    operation: Callable[[AsyncContainer], Awaitable[TransactionDecision[_CommitT, Never]]],
+) -> _CommitT:
+    """Run *operation* in a fresh child UoW scope and return its committed value, or raise the fatal/abort.
+
+    Commit-or-fail sugar for scope-owning agents: ``require_committed(await execute_in_uow_scope(...))``.
+    Owners that branch on ``Committed``/``Aborted``/``RolledBack`` keep the explicit two-step form.
+    """
+    return require_committed(await execute_in_uow_scope(container, operation))

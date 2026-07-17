@@ -218,7 +218,7 @@ class _DictDeadLetterStore(IDeadLetterStore):
         self.rows.pop(entry_id, None)
 
     @override
-    async def purge(self, older_than: datetime, *, now: datetime) -> int:  # pragma: no cover
+    async def delete_expired_dead_letters(self, older_than: datetime, *, now: datetime) -> int:  # pragma: no cover
         return 0
 
     @staticmethod

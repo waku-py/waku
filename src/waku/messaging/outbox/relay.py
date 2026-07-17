@@ -183,7 +183,7 @@ class OutboxRelay(PollingAgent):
             return await self._on_dispatch_failure(message, exc)
         # Record phase: the message IS delivered; a recording failure must never reach the
         # sending policy (it would record a delivered message DISCARDED/DEAD_LETTERED). Roll back
-        # and leave the row PROCESSING so recover_stuck re-dispatches it (at-least-once).
+        # and leave the row PROCESSING so recover_abandoned re-dispatches it (at-least-once).
 
         async def record_delivered(store: IOutboxStore) -> bool:
             await store.mark_dispatched(message.id)
@@ -209,7 +209,7 @@ class OutboxRelay(PollingAgent):
         ctx = SendingFailureContext(
             destination=message.destination,
             exc=exc,
-            attempt=message.retry_count + 1,
+            attempt=message.attempts + 1,
         )
         outcome: PolicyOutcome | None = self._sending_evaluator.evaluate(ctx)
         if outcome is None:
@@ -238,7 +238,7 @@ class OutboxRelay(PollingAgent):
                     return False
 
                 processed = require_committed(await _execute_store_operation(self._container, discard))
-                logger.info('Discarded outbox message %s after %d attempt(s)', message.id, message.retry_count + 1)
+                logger.info('Discarded outbox message %s after %d attempt(s)', message.id, message.attempts + 1)
                 return processed
             case RetryAction.DEAD_LETTER:
                 return await self._handle_exhausted(message, exc)
@@ -275,7 +275,7 @@ class OutboxRelay(PollingAgent):
             correlation_id=message.correlation_id,
             causation_id=message.causation_id,
             exc=exc,
-            attempt=message.retry_count + 1,
+            attempt=message.attempts + 1,
             message_id=message.message_id,
             metadata=message.metadata,
             group_id=message.group_id,
@@ -288,7 +288,7 @@ class OutboxRelay(PollingAgent):
 
         primary = await _execute_store_operation(self._container, move_to_dead_letter)
         if isinstance(primary, Committed):
-            logger.info('Message %s moved to dead letter after %d attempts', message.id, message.retry_count + 1)
+            logger.info('Message %s moved to dead letter after %d attempts', message.id, message.attempts + 1)
             return primary.value
         if isinstance(primary, RolledBack):
             assert_never(primary.value)
@@ -305,7 +305,7 @@ class OutboxRelay(PollingAgent):
 
         fallback = await _execute_store_operation(self._container, mark_failed)
         if isinstance(fallback, Committed):
-            logger.warning('Message %s exhausted after %d attempts', message.id, message.retry_count + 1)
+            logger.warning('Message %s exhausted after %d attempts', message.id, message.attempts + 1)
             return fallback.value
         if isinstance(fallback, Aborted):
             logger.error('Failed to mark message %s as failed', message.id, exc_info=fallback.error)

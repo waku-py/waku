@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 import pytest
 from dishka import Provider, Scope, make_async_container, provide
 
-from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
+from waku._internal.transaction import RollbackFailedError, TransactionExecutionError
 from waku.messaging.durability import IInboxStore
 from waku.messaging.endpoints._internal.execution import TerminalIntent, TerminalIntentKind
 from waku.messaging.endpoints.outcome import ExecutionOutcome
@@ -118,7 +118,7 @@ async def test_deferred_terminal_outcome_rolls_back() -> None:
 
 async def test_terminal_transition_failed_rollback_is_fatal() -> None:
     # The row transition commits, but commit fails and its rollback also fails: uniformly fatal. The
-    # failure surfaces as TransactionExecutionError(ROLLBACK_FAILED) with the primary preserved, never a
+    # failure surfaces as a RollbackFailedError fatal with the primary preserved, never a
     # silently-logged cleanup that lets a broken transaction pass as a normal terminal.
     inbox = FakeInboxStore()
     commit_error = RuntimeError('commit failed')
@@ -135,7 +135,7 @@ async def test_terminal_transition_failed_rollback_is_fatal() -> None:
                 keep_after_handled=timedelta(minutes=5),
             )
 
-    assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+    assert isinstance(raised.value, RollbackFailedError)
     assert raised.value.error is rollback_error
     assert raised.value.primary_error is commit_error
 

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
 __all__ = [
+    'HeartbeatLease',
     'ILease',
     'InMemoryLease',
     'LeaseConfig',
@@ -65,7 +66,56 @@ class LeaseConfig:
 _DEFAULT_CONFIG: Final = LeaseConfig()
 
 
-class InMemoryLease(ILease):
+class HeartbeatLease(ILease):
+    """Heartbeat-renewed single-owner lease: claim, renew on a timer until lost or released, then release.
+
+    The claim/heartbeat/renew/release choreography lives here once; a backend implements only the three
+    storage hooks. A renew that reports the lease is no longer held cancels the held body, so the owner
+    observes the loss as cancellation at the ``acquire`` context-manager boundary.
+    """
+
+    def __init__(self, config: LeaseConfig) -> None:
+        self._config = config
+        self._holder_id = str(uuid.uuid4())
+
+    @contextlib.asynccontextmanager
+    @override
+    async def acquire(self, name: str) -> AsyncGenerator[bool]:
+        if not await self._try_claim(name):
+            yield False
+            return
+
+        try:
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(self._heartbeat, name, tg.cancel_scope)
+                try:
+                    yield True
+                finally:
+                    tg.cancel_scope.cancel()
+        finally:
+            await self._release(name)
+
+    async def _heartbeat(self, name: str, cancel_scope: anyio.CancelScope) -> None:
+        while not cancel_scope.cancel_called:
+            await anyio.sleep(self._config.renew_interval_seconds)
+            if not await self._renew(name):
+                cancel_scope.cancel()
+                return
+
+    @abc.abstractmethod
+    async def _try_claim(self, name: str) -> bool:
+        """Claim the lease for ``name``; return True iff this holder now owns it (False if held elsewhere)."""
+
+    @abc.abstractmethod
+    async def _renew(self, name: str) -> bool:
+        """Refresh this holder's claim; return False if the lease is no longer held (expired or stolen)."""
+
+    @abc.abstractmethod
+    async def _release(self, name: str) -> None:
+        """Release this holder's claim for ``name`` if still held; must not raise if the claim was lost."""
+
+
+class InMemoryLease(HeartbeatLease):
     """In-process lease with injected-clock expiry, mirroring the PostgreSQL lease shape.
 
     Default construction gets a private store (single-node isolation). Passing a shared ``store``
@@ -79,43 +129,28 @@ class InMemoryLease(ILease):
         store: dict[str, _Entry] | None = None,
         now: Now = utc_now,
     ) -> None:
-        self._config = config
+        super().__init__(config)
         self._store = store if store is not None else {}
         self._now = now
-        self._holder_id = str(uuid.uuid4())
 
-    @contextlib.asynccontextmanager
     @override
-    async def acquire(self, name: str) -> AsyncGenerator[bool]:
+    async def _try_claim(self, name: str) -> bool:
         entry = self._store.get(name)
         if entry is not None and entry[1] > self._now():
-            yield False
-            return
-
+            return False
         self._store[name] = (self._holder_id, self._now() + timedelta(seconds=self._config.ttl_seconds))
+        return True
 
-        try:
-            async with anyio.create_task_group() as tg:
-                tg.start_soon(self._heartbeat, name, tg.cancel_scope)
-                try:
-                    yield True
-                finally:
-                    tg.cancel_scope.cancel()
-        finally:
-            self._release(name)
+    @override
+    async def _renew(self, name: str) -> bool:
+        entry = self._store.get(name)
+        if entry is None or entry[0] != self._holder_id:
+            return False
+        self._store[name] = (self._holder_id, self._now() + timedelta(seconds=self._config.ttl_seconds))
+        return True
 
-    async def _heartbeat(self, name: str, cancel_scope: anyio.CancelScope) -> None:
-        while not cancel_scope.cancel_called:
-            await anyio.sleep(self._config.renew_interval_seconds)
-
-            entry = self._store.get(name)
-            if entry is None or entry[0] != self._holder_id:
-                cancel_scope.cancel()
-                return
-
-            self._store[name] = (self._holder_id, self._now() + timedelta(seconds=self._config.ttl_seconds))
-
-    def _release(self, name: str) -> None:
+    @override
+    async def _release(self, name: str) -> None:
         entry = self._store.get(name)
         if entry is not None and entry[0] == self._holder_id:
             del self._store[name]

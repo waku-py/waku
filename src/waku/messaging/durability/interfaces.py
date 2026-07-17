@@ -53,7 +53,7 @@ class IOutboxStore(abc.ABC):
 
         Intentional policy drop — distinct from a dead-letter move (normal exhaustion; the row leaves
         the outbox) and from FAILED (the degradation when a DLQ write itself fails). Never bumps
-        retry_count. The relay owns the transaction; this method must not commit.
+        attempts. The relay owns the transaction; this method must not commit.
         """
         ...
 
@@ -68,10 +68,10 @@ class IOutboxStore(abc.ABC):
         ...
 
     @abc.abstractmethod
-    async def recover_stuck(self, threshold: timedelta) -> int: ...
+    async def recover_abandoned(self, threshold: timedelta) -> int: ...
 
     @abc.abstractmethod
-    async def cleanup_dispatched(self, older_than: timedelta) -> int: ...
+    async def delete_expired_dispatched(self, older_than: timedelta) -> int: ...
 
 
 class IInboxStore(abc.ABC):
@@ -117,13 +117,13 @@ class IInboxStore(abc.ABC):
         rows (``group_id IS NULL``) are not sequenced and carry NO ordering guarantee — they are
         claimed concurrently alongside partition heads. ``FOR UPDATE SKIP LOCKED`` excludes rows
         being claimed by concurrent workers; ``owner_id IS NULL`` excludes already-claimed rows.
-        Returned rows have ``owner_id`` assigned; ``mark_as_handled`` or ``recover_stale``
+        Returned rows have ``owner_id`` assigned; ``mark_as_handled`` or ``recover_abandoned``
         releases ownership afterward.
         """
         ...
 
     @abc.abstractmethod
-    async def recover_stale(self, threshold: timedelta) -> int:
+    async def recover_abandoned(self, threshold: timedelta) -> int:
         """Release OWNED INCOMING rows silent >threshold back to ``owner_id=NULL``; return count.
 
         MUST NOT touch never-claimed (``owner_id IS NULL``) rows — they are already fetchable, and
@@ -133,7 +133,7 @@ class IInboxStore(abc.ABC):
         ...
 
     @abc.abstractmethod
-    async def cleanup_handled(self, now: datetime) -> int:
+    async def delete_expired_handled(self, now: datetime) -> int:
         """Delete HANDLED entries whose ``keep_until < now``. Returns row count."""
         ...
 
@@ -157,7 +157,7 @@ class IDeadLetterStore(abc.ABC):
     re-injects it to ``entry.destination`` for reprocessing, then records the outcome
     (``mark_replayed`` / ``mark_replay_failed``). Replay re-enters the normal pipeline, so it is
     **at-least-once**; idempotency leans on the inbox ``(message_id, destination)`` dedup.
-    ``delete`` / ``purge`` remain the terminal-cleanup seam.
+    ``delete`` / ``delete_expired_dead_letters`` remain the terminal-cleanup seam.
     """
 
     @abc.abstractmethod
@@ -227,7 +227,7 @@ class IDeadLetterStore(abc.ABC):
     async def delete(self, entry_id: UUID) -> None: ...
 
     @abc.abstractmethod
-    async def purge(self, older_than: datetime, *, now: datetime) -> int: ...
+    async def delete_expired_dead_letters(self, older_than: datetime, *, now: datetime) -> int: ...
 
 
 class IDurabilityStore(abc.ABC):

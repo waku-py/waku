@@ -213,7 +213,7 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
         await self._session.execute(delete(_t).where(_t.c.id == entry_id))
 
     @override
-    async def purge(self, older_than: datetime, *, now: datetime) -> int:
+    async def delete_expired_dead_letters(self, older_than: datetime, *, now: datetime) -> int:
         candidate_stmt = (
             select(_t.c.id)
             .where(_t.c.created_at < older_than, _lease_is_claimable(now))

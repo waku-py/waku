@@ -7,7 +7,7 @@ import pytest
 from typing_extensions import override
 
 from waku import UnexpectedRollbackError
-from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
+from waku._internal.transaction import RollbackFailedError, TransactionExecutionError
 from waku.di import object_, provider
 from waku.messages import IEvent
 from waku.messaging import (
@@ -462,7 +462,7 @@ class TestInvokeObservability:
             with pytest.raises(TransactionExecutionError) as raised:
                 await dispatcher.invoke_event(container, make_envelope(_Evt(value='e')))
 
-        assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert isinstance(raised.value, RollbackFailedError)
         assert raised.value.error is rollback_error
         assert raised.value.primary_error is handler_error
         assert trace == ['handler', 'rollback']

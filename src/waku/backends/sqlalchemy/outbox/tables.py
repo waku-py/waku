@@ -47,7 +47,7 @@ outbox_messages_table = Table(
         nullable=False,
         server_default=OutboxStatus.PENDING.value,
     ),
-    Column('retry_count', Integer, nullable=False, server_default='0'),
+    Column('attempts', Integer, nullable=False, server_default='0'),
     Column('last_error', Text, nullable=True),
     Column('metadata', JSONB, nullable=True),
     Column('created_at', TIMESTAMP(timezone=True), server_default=func.now()),

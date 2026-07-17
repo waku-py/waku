@@ -10,8 +10,7 @@ import anyio
 from waku._internal.transaction import (
     Commit,
     TransactionDecision,
-    execute_in_uow_scope,
-    require_committed,
+    run_committed,
 )
 from waku.messaging._internal.circuit_breaker import CircuitBreaker, ICircuitBreaker, PassthroughCircuitBreaker
 from waku.messaging._internal.partition import resolve_and_allocate
@@ -165,7 +164,7 @@ class DurableInboxReceiver:
                     fresh.add(handler_type)
             return Commit(frozenset(fresh))
 
-        return require_committed(await execute_in_uow_scope(self._container, write))
+        return await run_committed(self._container, write)
 
     async def enqueue(self, envelope: MessageEnvelope[Any], fresh: frozenset[HandlerType]) -> None:
         await self._worker.send((envelope, fresh))
@@ -201,7 +200,7 @@ class DurableInboxReceiver:
             await inbox.increment_attempts(envelope.message_id, destination)
             return Commit(None)
 
-        require_committed(await execute_in_uow_scope(self._container, increment))
+        await run_committed(self._container, increment)
 
     async def _finalize(
         self,

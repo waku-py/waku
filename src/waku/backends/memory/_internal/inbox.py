@@ -8,6 +8,7 @@ from typing_extensions import override
 
 from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
+from waku.messaging.sequence import allocate_sequence_by_id
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -120,7 +121,7 @@ class _InMemoryInboxStoreOperations(IInboxStore):
         return claimed
 
     @override
-    async def recover_stale(self, threshold: timedelta) -> int:
+    async def recover_abandoned(self, threshold: timedelta) -> int:
         # Mirror the SQLAlchemy store: only reclaim owned INCOMING rows whose updated_at is older than
         # `now - threshold`. A just-written/claimed row (updated_at unset) is treated as fresh (now),
         # so a positive threshold leaves it alone — matching the production server-default behaviour.
@@ -137,7 +138,7 @@ class _InMemoryInboxStoreOperations(IInboxStore):
         return recovered
 
     @override
-    async def cleanup_handled(self, now: datetime) -> int:
+    async def delete_expired_handled(self, now: datetime) -> int:
         # Window predicate is status/keep_until-based — the composite key never appears here.
         # Retention purges whole `(id, destination)` rows.
         removed = 0
@@ -161,12 +162,7 @@ class _InMemoryInboxStoreOperations(IInboxStore):
             key=lambda item: item[1].execution_time or now,
         )[:batch_size]
         # Allocate ONCE per message (all fan-out rows share a position), mirroring immediate dispatch.
-        sequence_by_id: dict[UUID, int | None] = {}
-        for _key, entry in due:
-            if entry.id not in sequence_by_id:
-                sequence_by_id[entry.id] = (
-                    await allocator.allocate(entry.group_id) if entry.group_id is not None else None
-                )
+        sequence_by_id = await allocate_sequence_by_id([(entry.id, entry.group_id) for _key, entry in due], allocator)
         for key, entry in due:
             self.entries[key] = replace(entry, status=InboxStatus.INCOMING, sequence_number=sequence_by_id[entry.id])
         return len(due)

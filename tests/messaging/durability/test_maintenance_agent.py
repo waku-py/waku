@@ -11,7 +11,7 @@ from anyio.lowlevel import checkpoint
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
-from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
+from waku._internal.transaction import AfterCommitError, RollbackFailedError, TransactionExecutionError
 from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.messaging import PollingConfig
 from waku.messaging._internal.maintenance import (
@@ -57,7 +57,7 @@ class _MaintOutboxStore(RecordingOutboxStore):
         self._recover_error = recover_error
 
     @override
-    async def recover_stuck(self, threshold: timedelta) -> int:
+    async def recover_abandoned(self, threshold: timedelta) -> int:
         self.recover_calls += 1
         if self._recover_error is not None:
             err, self._recover_error = self._recover_error, None
@@ -65,7 +65,7 @@ class _MaintOutboxStore(RecordingOutboxStore):
         return self._recover_count
 
     @override
-    async def cleanup_dispatched(self, older_than: timedelta) -> int:
+    async def delete_expired_dispatched(self, older_than: timedelta) -> int:
         self.cleanup_calls += 1
         return self._cleanup_count
 
@@ -98,7 +98,7 @@ class _MaintDlqStore(InMemoryDeadLetterStore):
         )
 
     @override
-    async def purge(self, older_than: datetime, *, now: datetime) -> int:
+    async def delete_expired_dead_letters(self, older_than: datetime, *, now: datetime) -> int:
         self.purged.append((older_than, now))
         return self._purge_count
 
@@ -154,8 +154,7 @@ class _CleanupFailingReplayExecutor(IReplayExecution):
     @override
     async def dispatch(self, entry: DeadLetterEntry) -> None:
         self.calls += 1
-        raise TransactionExecutionError(
-            TransactionFailureKind.ROLLBACK_FAILED,
+        raise RollbackFailedError(
             self.rollback_error,
             RuntimeError('replay failed'),
         )
@@ -171,7 +170,7 @@ class _CompletedReplayExecutor(IReplayExecution):
     @override
     async def dispatch(self, entry: DeadLetterEntry) -> None:
         self.calls += 1
-        raise TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, self.teardown_error, None)
+        raise AfterCommitError(self.teardown_error)
 
 
 class _CancellationCompletedReplayExecutor(IReplayExecution):
@@ -185,7 +184,7 @@ class _CancellationCompletedReplayExecutor(IReplayExecution):
     @override
     async def dispatch(self, entry: DeadLetterEntry) -> None:
         self.calls += 1
-        raise TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, self.cancellation_error, None)
+        raise AfterCommitError(self.cancellation_error)
 
 
 class _PartialFailureReplayExecutor(IReplayExecution):
@@ -654,7 +653,7 @@ class TestDlqMaintenancePoller:
             with pytest.raises(TransactionExecutionError) as raised:
                 await agent.stop()
 
-        assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert isinstance(raised.value, RollbackFailedError)
         assert raised.value.error is rollback_error
         assert replayer.calls == 1
 
@@ -674,7 +673,7 @@ class TestDlqMaintenancePoller:
             with pytest.raises(TransactionExecutionError) as raised:
                 await agent.stop()
 
-        assert raised.value.kind is TransactionFailureKind.AFTER_COMMIT
+        assert isinstance(raised.value, AfterCommitError)
         assert raised.value.error is teardown_error
         assert replayer.calls == 1
         assert uow.commit_count == 2
@@ -765,7 +764,7 @@ class TestDlqMaintenancePoller:
     @staticmethod
     async def test_successful_batch_prefix_then_completed_execution_commits_and_stops() -> None:
         teardown_error = RuntimeError('second replay scope teardown failed')
-        failure = TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, teardown_error, None)
+        failure = AfterCommitError(teardown_error)
         await _assert_prefix_failure_stops(
             failure,
             expected_commits=4,
@@ -774,8 +773,7 @@ class TestDlqMaintenancePoller:
     @staticmethod
     async def test_successful_batch_prefix_then_cleanup_failure_rolls_back_and_stops() -> None:
         rollback_error = RuntimeError('second replay rollback failed')
-        failure = TransactionExecutionError(
-            TransactionFailureKind.ROLLBACK_FAILED,
+        failure = RollbackFailedError(
             rollback_error,
             RuntimeError('second replay failed'),
         )
@@ -789,8 +787,7 @@ class TestDlqMaintenancePoller:
         first = _dlq_entry()
         second = _dlq_entry()
         cancellation = anyio.get_cancelled_exc_class()()
-        fatal = TransactionExecutionError(
-            TransactionFailureKind.ROLLBACK_FAILED,
+        fatal = RollbackFailedError(
             RuntimeError('rollback failed'),
             RuntimeError('handler failed'),
         )
@@ -817,8 +814,7 @@ class TestDlqMaintenancePoller:
     @staticmethod
     async def test_fatal_only_group_unwraps_without_causal_mutation() -> None:
         entry = _dlq_entry()
-        fatal = TransactionExecutionError(
-            TransactionFailureKind.ROLLBACK_FAILED,
+        fatal = RollbackFailedError(
             RuntimeError('rollback failed'),
             RuntimeError('handler failed'),
         )
@@ -1012,6 +1008,6 @@ class TestPromotionPoller:
             with pytest.raises(TransactionExecutionError) as raised:
                 await poller.tick()
 
-        assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert isinstance(raised.value, RollbackFailedError)
         assert raised.value.error is rollback_error
         assert raised.value.primary_error is commit_error

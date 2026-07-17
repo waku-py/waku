@@ -13,14 +13,15 @@ from typing_extensions import override
 from waku._internal.transaction import (
     Abort,
     Aborted,
+    AfterCommitError,
     Commit,
     Committed,
     Rollback,
+    RollbackFailedError,
     RolledBack,
     TransactionDecision,
     TransactionExecution,
     TransactionExecutionError,
-    TransactionFailureKind,
     TransactionResult,
     execute_in_uow_scope,
     extract_transaction_execution_error,
@@ -246,7 +247,7 @@ async def test_abort_rollback_failure_retains_abort_as_primary_error() -> None:
     with pytest.raises(TransactionExecutionError) as raised:
         await TransactionExecution(uow).execute(operation)
 
-    assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+    assert isinstance(raised.value, RollbackFailedError)
     assert raised.value.error is rollback_error
     assert raised.value.primary_error is abort_error
 
@@ -265,7 +266,7 @@ async def test_required_rollback_failure_forbids_normal_result(
     with pytest.raises(TransactionExecutionError) as raised:
         await TransactionExecution(uow).execute(operation)
 
-    assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+    assert isinstance(raised.value, RollbackFailedError)
     assert raised.value.error is rollback_error
     assert raised.value.primary_error is commit_error
     assert raised.value.__cause__ is rollback_error
@@ -283,7 +284,7 @@ async def test_operation_and_rollback_failure_preserve_both_errors() -> None:
     with pytest.raises(TransactionExecutionError) as raised:
         await TransactionExecution(uow).execute(operation)
 
-    assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+    assert isinstance(raised.value, RollbackFailedError)
     assert raised.value.error is rollback_error
     assert raised.value.primary_error is operation_error
 
@@ -348,17 +349,13 @@ async def test_cancellation_remains_primary_when_rollback_fails() -> None:
     assert raised.value is cancellation[0]
     fatal = raised.value.__cause__
     assert isinstance(fatal, TransactionExecutionError)
-    assert fatal.kind is TransactionFailureKind.ROLLBACK_FAILED
+    assert isinstance(fatal, RollbackFailedError)
     assert fatal.error is rollback_error
     assert fatal.primary_error is raised.value
 
 
 async def test_inner_transaction_fatal_survives_successful_outer_rollback() -> None:
-    inner = TransactionExecutionError(
-        TransactionFailureKind.ROLLBACK_FAILED,
-        RuntimeError('inner rollback failed'),
-        ValueError('inner operation failed'),
-    )
+    inner = RollbackFailedError(RuntimeError('inner rollback failed'), ValueError('inner operation failed'))
     outer_uow = _RecordingUoW()
 
     async def operation() -> TransactionDecision[None, Never]:
@@ -372,11 +369,7 @@ async def test_inner_transaction_fatal_survives_successful_outer_rollback() -> N
 
 
 async def test_outer_rollback_failure_creates_new_fatal_with_inner_fatal_as_primary() -> None:
-    inner = TransactionExecutionError(
-        TransactionFailureKind.ROLLBACK_FAILED,
-        RuntimeError('inner rollback failed'),
-        None,
-    )
+    inner = RollbackFailedError(RuntimeError('inner rollback failed'))
     outer_rollback_error = RuntimeError('outer rollback failed')
     outer_uow = _RecordingUoW(rollback_error=outer_rollback_error)
 
@@ -387,17 +380,13 @@ async def test_outer_rollback_failure_creates_new_fatal_with_inner_fatal_as_prim
         await TransactionExecution(outer_uow).execute(operation)
 
     assert raised.value is not inner
-    assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+    assert isinstance(raised.value, RollbackFailedError)
     assert raised.value.error is outer_rollback_error
     assert raised.value.primary_error is inner
 
 
 async def test_grouped_inner_fatal_survives_successful_outer_rollback() -> None:
-    inner = TransactionExecutionError(
-        TransactionFailureKind.ROLLBACK_FAILED,
-        RuntimeError('inner rollback failed'),
-        None,
-    )
+    inner = RollbackFailedError(RuntimeError('inner rollback failed'))
     group = BaseExceptionGroup(
         'grouped operation failure',
         [ValueError('ordinary sibling'), BaseExceptionGroup('nested', [RuntimeError('nested sibling'), inner])],
@@ -416,11 +405,7 @@ async def test_grouped_inner_fatal_survives_successful_outer_rollback() -> None:
 
 
 async def test_grouped_inner_fatal_and_outer_rollback_failure_raise_new_outer_fatal() -> None:
-    inner = TransactionExecutionError(
-        TransactionFailureKind.ROLLBACK_FAILED,
-        RuntimeError('inner rollback failed'),
-        None,
-    )
+    inner = RollbackFailedError(RuntimeError('inner rollback failed'))
     group = BaseExceptionGroup(
         'grouped operation failure',
         [ValueError('ordinary sibling'), BaseExceptionGroup('nested', [RuntimeError('nested sibling'), inner])],
@@ -434,7 +419,7 @@ async def test_grouped_inner_fatal_and_outer_rollback_failure_raise_new_outer_fa
     with pytest.raises(TransactionExecutionError) as raised:
         await TransactionExecution(outer_uow).execute(operation)
 
-    assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+    assert isinstance(raised.value, RollbackFailedError)
     assert raised.value.error is outer_rollback_error
     assert raised.value.primary_error is group
     assert raised.value.__cause__ is outer_rollback_error
@@ -442,11 +427,7 @@ async def test_grouped_inner_fatal_and_outer_rollback_failure_raise_new_outer_fa
 
 
 async def test_grouped_cancellation_remains_primary_when_outer_rollback_fails() -> None:
-    inner = TransactionExecutionError(
-        TransactionFailureKind.ROLLBACK_FAILED,
-        RuntimeError('inner rollback failed'),
-        None,
-    )
+    inner = RollbackFailedError(RuntimeError('inner rollback failed'))
     cancellation = anyio.get_cancelled_exc_class()()
     group = BaseExceptionGroup(
         'grouped control flow',
@@ -464,7 +445,7 @@ async def test_grouped_cancellation_remains_primary_when_outer_rollback_fails() 
     assert raised.value is group
     fatal = raised.value.__cause__
     assert isinstance(fatal, TransactionExecutionError)
-    assert fatal.kind is TransactionFailureKind.ROLLBACK_FAILED
+    assert isinstance(fatal, RollbackFailedError)
     assert fatal.error is outer_rollback_error
     assert fatal.primary_error is group
     assert fatal.__cause__ is outer_rollback_error
@@ -611,7 +592,7 @@ async def test_committed_scope_teardown_failure_is_after_commit_without_rollback
         with pytest.raises(TransactionExecutionError) as raised:
             await execute_in_uow_scope(app.container, operation, after_commit=after_commit)
 
-    assert raised.value.kind is TransactionFailureKind.AFTER_COMMIT
+    assert isinstance(raised.value, AfterCommitError)
     assert extract_transaction_execution_error(raised.value.error) is None
     assert actions == ['commit', 'child-exit']
 
@@ -636,7 +617,7 @@ async def test_continuation_failure_is_after_commit_without_rollback() -> None:
         with pytest.raises(TransactionExecutionError) as raised:
             await execute_in_uow_scope(app.container, operation, after_commit=after_commit)
 
-    assert raised.value.kind is TransactionFailureKind.AFTER_COMMIT
+    assert isinstance(raised.value, AfterCommitError)
     assert raised.value.error is continuation_error
     assert raised.value.primary_error is None
     assert actions == ['commit', 'child-exit', 'after-commit:detached']
@@ -685,11 +666,7 @@ async def test_value_only_continuation_uses_a_fresh_scope_and_execution() -> Non
 
 
 async def test_rolled_back_teardown_failure_keeps_nested_fatal_extractable() -> None:
-    fatal = TransactionExecutionError(
-        TransactionFailureKind.ROLLBACK_FAILED,
-        RuntimeError('nested rollback failed'),
-        None,
-    )
+    fatal = RollbackFailedError(RuntimeError('nested rollback failed'))
     cleanup_group = BaseExceptionGroup(
         'cleanup failed',
         [ValueError('ordinary cleanup'), BaseExceptionGroup('nested', [RuntimeError('sibling'), fatal])],
@@ -734,18 +711,14 @@ async def test_rolled_back_body_fatal_survives_child_scope_teardown_failure() ->
 
     fatal = extract_transaction_execution_error(raised.value)
     assert fatal is not None
-    assert fatal.kind is TransactionFailureKind.ROLLBACK_FAILED
+    assert isinstance(fatal, RollbackFailedError)
     assert fatal.error is rollback_error
     assert fatal.primary_error is operation_error
     assert actions == ['rollback-start', 'child-exit']
 
 
 async def test_cancellation_bearing_body_fatal_survives_teardown_and_stays_cancellation_shaped() -> None:
-    inner_fatal = TransactionExecutionError(
-        TransactionFailureKind.ROLLBACK_FAILED,
-        RuntimeError('inner rollback failed'),
-        None,
-    )
+    inner_fatal = RollbackFailedError(RuntimeError('inner rollback failed'))
     cancellation = anyio.get_cancelled_exc_class()()
     body_group = BaseExceptionGroup(
         'grouped control flow',

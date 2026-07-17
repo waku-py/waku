@@ -25,7 +25,6 @@ from waku.eventsourcing.contracts.stream import StreamId, StreamPosition
 from waku.eventsourcing.exceptions import (
     ConcurrencyConflictError,
     DuplicateIdempotencyKeyError,
-    PartialDuplicateAppendError,
     StreamArchivedError,
     StreamNotFoundError,
 )
@@ -34,6 +33,7 @@ from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001 
 from waku.eventsourcing.serialization.interfaces import IEventSerializer  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.store.enrichment import enrich_metadata
+from waku.eventsourcing.store.idempotency import IdempotencyVerdict, classify_idempotency
 from waku.eventsourcing.store.interfaces import (  # Dishka needs runtime access
     ICheckpointStore,
     IEventStore,
@@ -339,10 +339,6 @@ class SqlAlchemyEventStore(IEventStore):
         events: Sequence[EventEnvelope],
     ) -> int | None:
         keys = [e.idempotency_key for e in events]
-        unique_keys = set(keys)
-        if len(unique_keys) != len(keys):
-            raise DuplicateIdempotencyKeyError(stream_id, reason='duplicate keys within batch')
-
         key = str(stream_id)
         query = select(self._events.c.idempotency_key).where(
             self._events.c.stream_id == key,
@@ -351,16 +347,14 @@ class SqlAlchemyEventStore(IEventStore):
         result = await self._session.execute(query)
         existing_keys = {row[0] for row in result.fetchall()}
 
-        if not existing_keys:
+        if classify_idempotency(stream_id, keys, existing_keys) is IdempotencyVerdict.PROCEED:
             return None
 
-        if existing_keys == unique_keys:
-            stream_row = await self._get_stream(stream_id)
-            if stream_row.deleted_at is not None:
-                raise StreamArchivedError(stream_id)
-            return int(stream_row.version)  # stream must exist if events with these keys exist
-
-        raise PartialDuplicateAppendError(stream_id, len(existing_keys), len(keys))
+        # IDEMPOTENT_REPLAY: layer the archived guard here, per the shared classify-then-archive order.
+        stream_row = await self._get_stream(stream_id)
+        if stream_row.deleted_at is not None:
+            raise StreamArchivedError(stream_id)
+        return int(stream_row.version)  # stream must exist if events with these keys exist
 
     async def _resolve_current_version(
         self,

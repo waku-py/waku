@@ -881,6 +881,31 @@ class EventStoreContract:
         with pytest.raises(StreamArchivedError):
             await store.append_to_stream(stream_id, envelopes, expected_version=Exact(version=1))
 
+    async def test_partial_duplicate_on_archived_stream_raises_partial_not_archived(
+        self,
+        store: IEventStore,
+        stream_id: StreamId,
+    ) -> None:
+        # Resolved order, uniform across backends: the idempotency classifier runs before the archived
+        # guard, so a partial-duplicate batch on an archived stream surfaces the overlap error, not
+        # archival. Fresh appends and full idempotent replays still report archival (tests above).
+        await store.append_to_stream(
+            stream_id,
+            [EventEnvelope(domain_event=OrderCreated(order_id='123'), idempotency_key='key-1')],
+            expected_version=NoStream(),
+        )
+        await store.archive_stream(stream_id)
+
+        with pytest.raises(PartialDuplicateAppendError):
+            await store.append_to_stream(
+                stream_id,
+                [
+                    EventEnvelope(domain_event=OrderCreated(order_id='123'), idempotency_key='key-1'),
+                    EventEnvelope(domain_event=ItemAdded(item_name='Widget'), idempotency_key='key-new'),
+                ],
+                expected_version=Exact(version=0),
+            )
+
     async def test_read_stream_end_works_on_archived_stream(
         self,
         store: IEventStore,

@@ -79,7 +79,7 @@ def _dead_letter_for(message: OutboxMessage) -> DeadLetterEntry:
         correlation_id=message.correlation_id,
         causation_id=message.causation_id,
         exc=RuntimeError('exhausted'),
-        attempt=message.retry_count + 1,
+        attempt=message.attempts + 1,
     )
 
 

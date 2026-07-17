@@ -268,7 +268,7 @@ The store itself comes from the imported [durability backend](../../fundamentals
 | `mark_replayed(entry_id, *, owner_id, now)` | `bool` | Finalize a live owned claim as replayed |
 | `mark_replay_failed(entry_id, error, *, owner_id, now)` | `bool` | Finalize a live owned claim as failed |
 | `delete(entry_id)` | `None` | Unconditionally remove an entry |
-| `purge(older_than, *, now)` | `int` | Remove old entries without an active replay lease |
+| `delete_expired_dead_letters(older_than, *, now)` | `int` | Remove old entries without an active replay lease |
 
 ### DeadLetterEntry Fields
 
@@ -389,7 +389,7 @@ class PostgresDeadLetterStore(IDeadLetterStore):
         )
 
     @override
-    async def purge(self, older_than: datetime, *, now: datetime) -> int:
+    async def delete_expired_dead_letters(self, older_than: datetime, *, now: datetime) -> int:
         result = await self._session.execute(
             delete_stmt(dead_letter_table).where(
                 dead_letter_table.c.created_at < older_than,

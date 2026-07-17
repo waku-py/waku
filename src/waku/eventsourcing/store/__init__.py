@@ -1,4 +1,5 @@
 from waku.eventsourcing.store.enrichment import enrich_metadata
+from waku.eventsourcing.store.idempotency import IdempotencyVerdict, classify_idempotency
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.eventsourcing.store.interfaces import (
     ICheckpointStore,
@@ -15,7 +16,9 @@ __all__ = [
     'IEventStore',
     'IEventWriter',
     'ISnapshotStore',
+    'IdempotencyVerdict',
     'InMemoryEventStore',
     'check_expected_version',
+    'classify_idempotency',
     'enrich_metadata',
 ]

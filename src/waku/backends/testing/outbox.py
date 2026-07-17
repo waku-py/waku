@@ -91,7 +91,7 @@ class OutboxStoreContract:
         await outbox_store.save_batch([first])
         fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
         await outbox_store.mark_dispatched(fetched[0].id)
-        await outbox_store.cleanup_dispatched(older_than=timedelta(seconds=-1))
+        await outbox_store.delete_expired_dispatched(older_than=timedelta(seconds=-1))
 
         reused = _make_message(idempotency_key=first.idempotency_key)
         await outbox_store.save_batch([reused])
@@ -123,7 +123,7 @@ class OutboxStoreContract:
 
         refetched = await outbox_store.fetch_head_of_queue(batch_size=10)
         assert len(refetched) == 1
-        assert refetched[0].retry_count == 1
+        assert refetched[0].attempts == 1
 
     async def test_mark_failed_without_retry_is_terminal(self, outbox_store: IOutboxStore) -> None:
         message = _make_message()
@@ -271,21 +271,21 @@ class OutboxStoreContract:
         fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
         assert [m.id for m in fetched] == [message.id]
 
-    async def test_cleanup_dispatched_removes_old_dispatched(self, outbox_store: IOutboxStore) -> None:
+    async def test_delete_expired_dispatched_removes_old_dispatched(self, outbox_store: IOutboxStore) -> None:
         message = _make_message()
         await outbox_store.save_batch([message])
         fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
         await outbox_store.mark_dispatched(fetched[0].id)
 
-        cleaned = await outbox_store.cleanup_dispatched(older_than=timedelta(seconds=-1))
+        cleaned = await outbox_store.delete_expired_dispatched(older_than=timedelta(seconds=-1))
         assert cleaned == 1
 
-    async def test_recover_stuck_resets_stale_processing(self, outbox_store: IOutboxStore) -> None:
+    async def test_recover_abandoned_resets_stale_processing(self, outbox_store: IOutboxStore) -> None:
         message = _make_message()
         await outbox_store.save_batch([message])
         await outbox_store.fetch_head_of_queue(batch_size=10)  # -> PROCESSING with processing_started_at
 
-        recovered = await outbox_store.recover_stuck(threshold=timedelta(seconds=-1))
+        recovered = await outbox_store.recover_abandoned(threshold=timedelta(seconds=-1))
         assert recovered == 1
         assert len(await outbox_store.fetch_head_of_queue(batch_size=10)) == 1
 

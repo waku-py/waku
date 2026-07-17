@@ -225,7 +225,7 @@ class TestDurableInboxIntegration:
             assert _RecordingHandler.observed == ['fan-1']
             assert _SecondRecordingHandler.observed == ['fan-1']
 
-            purged = await inbox.cleanup_handled(datetime.now(tz=UTC) + timedelta(minutes=10))
+            purged = await inbox.delete_expired_handled(datetime.now(tz=UTC) + timedelta(minutes=10))
             assert purged == 2
 
     @staticmethod

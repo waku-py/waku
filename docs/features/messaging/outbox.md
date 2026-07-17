@@ -148,8 +148,8 @@ The relay is enabled by default with sensible settings (see
 | `mark_dispatched(message_id)`             | Mark a message as successfully dispatched                |
 | `mark_failed(message_id, error, next_retry_at)` | Mark a message as failed, schedule next retry      |
 | `move_to_dead_letter(message_id, entry)`  | Move an exhausted message to the dead letter store       |
-| `recover_stuck(threshold: timedelta)`     | Reset messages stuck in `PROCESSING` beyond the threshold|
-| `cleanup_dispatched(older_than: timedelta)` | Remove old dispatched messages (returns count)         |
+| `recover_abandoned(threshold: timedelta)`     | Reset messages stuck in `PROCESSING` beyond the threshold|
+| `delete_expired_dispatched(older_than: timedelta)` | Remove old dispatched messages (returns count)         |
 
 ### OutboxMessage Lifecycle
 
@@ -161,7 +161,7 @@ stateDiagram-v2
     PROCESSING --> FAILED: mark_failed()
     FAILED --> PROCESSING: fetch_head_of_queue()
     PROCESSING --> DEAD_LETTERED: move_to_dead_letter()
-    PROCESSING --> PROCESSING: recover_stuck()
+    PROCESSING --> PROCESSING: recover_abandoned()
 ```
 
 ### SQLAlchemy Adapter

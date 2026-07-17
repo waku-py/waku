@@ -7,7 +7,7 @@ import pytest
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
-from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
+from waku._internal.transaction import RollbackFailedError, TransactionExecutionError
 from waku.messaging.durability import IInboxStore
 from waku.messaging.inbox._internal.drainer import InboxDrainer
 from waku.messaging.inbox._internal.recovery import InboxRecoveryWorker
@@ -28,9 +28,9 @@ class _RecordingTickStore(FakeInboxStore):
         self.recover_calls = 0
 
     @override
-    async def recover_stale(self, threshold: timedelta) -> int:
+    async def recover_abandoned(self, threshold: timedelta) -> int:
         self.recover_calls += 1
-        return await super().recover_stale(threshold)
+        return await super().recover_abandoned(threshold)
 
 
 class _RecoveryDepsProvider(Provider):
@@ -52,7 +52,7 @@ class _RecoveryDepsProvider(Provider):
 
 class TestInboxRecoveryWorker:
     @staticmethod
-    async def test_worker_invokes_recover_stale_and_cleanup_each_tick() -> None:
+    async def test_worker_invokes_recover_abandoned_and_cleanup_each_tick() -> None:
         store = _RecordingTickStore()
         config = InboxConfig(
             stuck_threshold=timedelta(seconds=0),
@@ -100,14 +100,14 @@ class _OrderStore(FakeInboxStore):
         self._log = log
 
     @override
-    async def recover_stale(self, threshold: timedelta) -> int:
+    async def recover_abandoned(self, threshold: timedelta) -> int:
         self._log.append('recover')
-        return await super().recover_stale(threshold)
+        return await super().recover_abandoned(threshold)
 
     @override
-    async def cleanup_handled(self, now: datetime) -> int:
+    async def delete_expired_handled(self, now: datetime) -> int:
         self._log.append('cleanup')
-        return await super().cleanup_handled(now)
+        return await super().delete_expired_handled(now)
 
 
 class _OrderDrainer(InboxDrainer):
@@ -125,12 +125,12 @@ class _OrderDrainer(InboxDrainer):
 
 class _CountingOrderStore(_OrderStore):
     @override
-    async def recover_stale(self, threshold: timedelta) -> int:
+    async def recover_abandoned(self, threshold: timedelta) -> int:
         self._log.append('recover')
         return 2
 
     @override
-    async def cleanup_handled(self, now: datetime) -> int:
+    async def delete_expired_handled(self, now: datetime) -> int:
         self._log.append('cleanup')
         return 3
 
@@ -207,7 +207,7 @@ async def test_recovery_rollback_failure_is_fatal_and_forbids_drain() -> None:
         with pytest.raises(TransactionExecutionError) as raised:
             await worker.tick()
 
-    assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+    assert isinstance(raised.value, RollbackFailedError)
     assert raised.value.error is rollback_error
     assert raised.value.primary_error is commit_error
     assert drainer.drain_calls == 0

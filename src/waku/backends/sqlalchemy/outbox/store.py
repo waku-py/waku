@@ -48,7 +48,7 @@ class SqlAlchemyOutboxStore(IOutboxStore):
                 'group_id': msg.group_id,
                 'sequence_number': msg.sequence_number,
                 'status': msg.status,
-                'retry_count': msg.retry_count,
+                'attempts': msg.attempts,
                 'last_error': msg.last_error,
                 'metadata': msg.metadata,
             }
@@ -90,7 +90,7 @@ class SqlAlchemyOutboxStore(IOutboxStore):
         # but excluded here by the `pending` filter, and its successor is never promoted because only the
         # head id is in the CTE. A head that is not-ready (future next_retry_at) OR already locked by
         # another worker simply isn't claimed this cycle. So at most one message per (group_id,
-        # destination) is in flight cluster-wide — bounded by `recover_stuck`: a genuinely-live send
+        # destination) is in flight cluster-wide — bounded by `recover_abandoned`: a genuinely-live send
         # slower than `stuck_threshold` is false-positive-swept PROCESSING->PENDING and can be re-claimed
         # by a second relay, briefly reopening the duplicate-head window (pre-existing at-least-once
         # behaviour, covered by handler idempotency). Keyless rows are claimed concurrently; their
@@ -146,7 +146,7 @@ class SqlAlchemyOutboxStore(IOutboxStore):
             .values(
                 status=status.value,
                 last_error=error,
-                retry_count=_t.c.retry_count + 1,
+                attempts=_t.c.attempts + 1,
                 next_retry_at=next_retry_at,
             )
         )
@@ -158,7 +158,7 @@ class SqlAlchemyOutboxStore(IOutboxStore):
         await self._session.execute(stmt)
 
     @override
-    async def recover_stuck(self, threshold: timedelta) -> int:
+    async def recover_abandoned(self, threshold: timedelta) -> int:
         cutoff = func.now() - threshold
         stmt = (
             update(_t)
@@ -170,7 +170,7 @@ class SqlAlchemyOutboxStore(IOutboxStore):
         return result.rowcount
 
     @override
-    async def cleanup_dispatched(self, older_than: timedelta) -> int:
+    async def delete_expired_dispatched(self, older_than: timedelta) -> int:
         cutoff = func.now() - older_than
         stmt = delete(_t).where(_t.c.status == OutboxStatus.DISPATCHED.value).where(_t.c.dispatched_at < cutoff)
         result = cast('CursorResult[Any]', await self._session.execute(stmt))
@@ -189,7 +189,7 @@ def _row_to_model(row: Any) -> OutboxMessage:
         group_id=row.group_id,
         sequence_number=row.sequence_number,
         status=OutboxStatus(row.status),
-        retry_count=row.retry_count,
+        attempts=row.attempts,
         last_error=row.last_error,
         metadata=row.metadata,
         created_at=row.created_at,

@@ -9,8 +9,7 @@ from waku._internal.clock import utc_now
 from waku._internal.transaction import (
     Commit,
     TransactionDecision,
-    execute_in_uow_scope,
-    require_committed,
+    run_committed,
 )
 from waku.messaging._internal.polling_agent import FixedPace, Placement, PollingAgent
 from waku.messaging.durability import IInboxStore
@@ -32,7 +31,7 @@ logger = logging.getLogger(__name__)
 class InboxRecoveryWorker(PollingAgent):
     """Reclaims stale inbox entries and purges expired HANDLED rows. Runs PER POD.
 
-    ``cleanup_handled`` is an idempotent set-DELETE — concurrent pods racing on the same rows is harmless
+    ``delete_expired_handled`` is an idempotent set-DELETE — concurrent pods racing on the same rows is harmless
     (unlike outbox relay, which claims-and-sends). Scheduled promotion runs on the
     ``DurabilityMaintenanceAgent``'s promotion poller so the two concerns have independent timers.
     """
@@ -65,11 +64,11 @@ class InboxRecoveryWorker(PollingAgent):
 
         async def recover(scope: AsyncContainer) -> TransactionDecision[tuple[int, int], Never]:
             store = await scope.get(IInboxStore)
-            recovered = await store.recover_stale(self._config.stuck_threshold)
-            cleaned = await store.cleanup_handled(sampled_now)
+            recovered = await store.recover_abandoned(self._config.stuck_threshold)
+            cleaned = await store.delete_expired_handled(sampled_now)
             return Commit((recovered, cleaned))
 
-        recovered, cleaned = require_committed(await execute_in_uow_scope(self._container, recover))
+        recovered, cleaned = await run_committed(self._container, recover)
         if recovered > 0:
             logger.info('Recovered %d stale inbox entries', recovered)
         if cleaned > 0:

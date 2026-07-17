@@ -13,7 +13,7 @@ from waku.backends.sqlalchemy.dead_letter.tables import dead_letter_insert_value
 from waku.backends.sqlalchemy.inbox.tables import inbox_entries_table
 from waku.messaging.durability import IInboxStore
 from waku.messaging.inbox import EndpointUri, HandlerDestination, InboxEntry, InboxStatus
-from waku.messaging.sequence import GroupId
+from waku.messaging.sequence import GroupId, allocate_sequence_by_id
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -104,7 +104,7 @@ class SqlAlchemyInboxStore(IInboxStore):
         # collapse fan-out sibling rows to one, starving all but one handler. Heads are computed over ALL
         # INCOMING rows (owner_id NOT filtered here): a claimed (owner_id set) in-flight head still
         # occupies its (group_id, destination) slot, so no successor is promoted while its predecessor is
-        # being processed by another pod — cluster-wide per-partition FIFO, bounded by `recover_stale`.
+        # being processed by another pod — cluster-wide per-partition FIFO, bounded by `recover_abandoned`.
         # DISTINCT ON carries no FOR UPDATE (PostgreSQL forbids it); locking happens on the base table
         # in to_claim.
         partitioned_heads = (
@@ -149,7 +149,7 @@ class SqlAlchemyInboxStore(IInboxStore):
         return [_row_to_entry(row) for row in result.fetchall()]
 
     @override
-    async def recover_stale(self, threshold: timedelta) -> int:
+    async def recover_abandoned(self, threshold: timedelta) -> int:
         # Refresh updated_at explicitly so a reclaimed row doesn't immediately re-match next tick.
         cutoff = func.now() - threshold
         stmt = (
@@ -164,7 +164,7 @@ class SqlAlchemyInboxStore(IInboxStore):
         return result.rowcount
 
     @override
-    async def cleanup_handled(self, now: datetime) -> int:
+    async def delete_expired_handled(self, now: datetime) -> int:
         stmt = (
             delete(_t)
             .where(_t.c.status == InboxStatus.HANDLED.value)
@@ -189,10 +189,7 @@ class SqlAlchemyInboxStore(IInboxStore):
         rows = (await self._session.execute(claim)).fetchall()
         if not rows:
             return 0
-        sequence_by_id: dict[UUID, int | None] = {}
-        for row in rows:
-            if row.id not in sequence_by_id:
-                sequence_by_id[row.id] = await allocator.allocate(row.group_id) if row.group_id is not None else None
+        sequence_by_id = await allocate_sequence_by_id([(row.id, row.group_id) for row in rows], allocator)
         for row in rows:
             await self._session.execute(
                 update(_t)

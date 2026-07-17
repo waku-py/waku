@@ -1,5 +1,5 @@
 from waku.di import AsyncContainer
-from waku.eventsourcing.projection.lock import InMemoryLease
+from waku.eventsourcing.projection import InMemoryLease
 from waku.eventsourcing.projection.runner import CatchUpProjectionRunner
 
 

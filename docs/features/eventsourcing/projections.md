@@ -174,7 +174,7 @@ Use the `create()` classmethod to build a runner from a DI container:
 
 ```python
 from waku.eventsourcing.projection.config import PollingConfig
-from waku.eventsourcing.projection.lock import InMemoryLease
+from waku.eventsourcing.projection import InMemoryLease
 
 runner = await CatchUpProjectionRunner.create(
     container,

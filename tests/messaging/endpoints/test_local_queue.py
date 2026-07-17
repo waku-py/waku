@@ -11,8 +11,9 @@ from anyio.lowlevel import checkpoint
 from typing_extensions import override
 
 from waku._internal.transaction import (
+    AfterCommitError,
+    RollbackFailedError,
     TransactionExecutionError,
-    TransactionFailureKind,
     extract_transaction_execution_error,
 )
 from waku.backends.memory import MemoryBackend
@@ -22,7 +23,12 @@ from waku.messaging import EventHandler, MessagingConfig, MessagingExtension, Me
 from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.durability import IDeadLetterStore, IDurabilityStore
-from waku.messaging.endpoints._internal.execution import EndpointExecution
+from waku.messaging.endpoints._internal.execution import (
+    EndpointExecution,
+    TerminalIntent,
+    TerminalIntentKind,
+    outcome_from_intent,
+)
 from waku.messaging.endpoints._internal.local_queue import LocalQueueEndpoint
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
@@ -444,7 +450,7 @@ class TestLocalQueueEndpoint:
 
         fatal = extract_transaction_execution_error(raised.value)
         assert fatal is not None
-        assert fatal.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert isinstance(fatal, RollbackFailedError)
         assert fatal.error is rollback_error
         assert isinstance(fatal.primary_error, RuntimeError)
         assert fatal.primary_error.__cause__ is None
@@ -480,7 +486,7 @@ class TestLocalQueueEndpoint:
 
         fatal = extract_transaction_execution_error(raised.value)
         assert fatal is not None
-        assert fatal.kind is TransactionFailureKind.AFTER_COMMIT
+        assert isinstance(fatal, AfterCommitError)
         assert isinstance(fatal.error, ExceptionGroup)
         assert fatal.error.exceptions == (teardown_error,)
         assert uow.commit_count == 1
@@ -860,3 +866,19 @@ class TestLocalQueuePause:
         assert _AlwaysFailingHandler.call_count == 2  # original + 1 redelivery, then dropped
         assert len(sleep.requested) == 1  # the budget-exhausted failure does NOT pause again (no livelock)
         assert spy.outcomes_at('local://test') == [ExecutionOutcome.DISCARDED]
+
+
+def test_outcome_from_intent_maps_terminal_and_guards_deferred_kinds() -> None:
+    # The buffered finalize path delegates here instead of an inline dict, so a deferred or dead-letter
+    # kind that reaches materialization raises explicitly instead of KeyError-ing; assert_never keeps the
+    # match exhaustive against any new TerminalIntentKind member.
+    mapped = {
+        TerminalIntentKind.SUCCESS: ExecutionOutcome.SUCCESS,
+        TerminalIntentKind.FAILED_NO_POLICY: ExecutionOutcome.FAILED_NO_POLICY,
+        TerminalIntentKind.DISCARD: ExecutionOutcome.DISCARDED,
+    }
+    for kind, outcome in mapped.items():
+        assert outcome_from_intent(TerminalIntent(kind=kind)) is outcome
+    for guarded in (TerminalIntentKind.REQUEUE, TerminalIntentKind.PAUSE, TerminalIntentKind.DEAD_LETTER):
+        with pytest.raises(RuntimeError):
+            outcome_from_intent(TerminalIntent(kind=guarded))

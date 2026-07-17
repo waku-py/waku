@@ -84,6 +84,33 @@ class TerminalIntent:
     requeue_limit: int | None = None
 
 
+def outcome_from_intent(intent: TerminalIntent) -> ExecutionOutcome:
+    """Map a materialized terminal intent to its execution outcome.
+
+    Shared by the buffered finalize path and the redelivery default sink. DEAD_LETTER needs an owner
+    transaction and REQUEUE/PAUSE must be redelivered before materialization, so both raise here rather
+    than map — the ``assert_never`` turns a new ``TerminalIntentKind`` into a type error, not a runtime gap.
+
+    Raises:
+        RuntimeError: The intent is DEAD_LETTER or a deferred REQUEUE/PAUSE kind — neither is materializable here.
+    """
+    match intent.kind:
+        case TerminalIntentKind.SUCCESS:
+            return ExecutionOutcome.SUCCESS
+        case TerminalIntentKind.FAILED_NO_POLICY:
+            return ExecutionOutcome.FAILED_NO_POLICY
+        case TerminalIntentKind.DISCARD:
+            return ExecutionOutcome.DISCARDED
+        case TerminalIntentKind.DEAD_LETTER:
+            msg = 'dead-letter intent requires an owner transaction'
+            raise RuntimeError(msg)
+        case TerminalIntentKind.REQUEUE | TerminalIntentKind.PAUSE:
+            msg = 'deferred terminal intent must be redelivered before materialization'
+            raise RuntimeError(msg)
+        case _ as unreachable:  # pragma: no cover
+            assert_never(unreachable)
+
+
 @dataclass(frozen=True, slots=True)
 class _DetachedInvocation(Generic[_ResultT_co]):
     value: _ResultT_co

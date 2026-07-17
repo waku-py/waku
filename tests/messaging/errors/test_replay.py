@@ -12,7 +12,7 @@ from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
 from waku._internal.lease import LeaseConfig
-from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
+from waku._internal.transaction import RollbackFailedError, TransactionExecutionError
 from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.di import object_, scoped
 from waku.messages import IEvent
@@ -640,11 +640,7 @@ async def test_manual_replay_preserves_mixed_cancellation_group_and_leaf_identit
     store = _ReplayStore(entry)
     uow = RecordingUoW()
     cancellation = anyio.get_cancelled_exc_class()()
-    fatal = TransactionExecutionError(
-        TransactionFailureKind.ROLLBACK_FAILED,
-        RuntimeError('rollback failed'),
-        RuntimeError('handler failed'),
-    )
+    fatal = RollbackFailedError(RuntimeError('rollback failed'), RuntimeError('handler failed'))
     failure = BaseExceptionGroup('mixed replay failure', [cancellation, fatal])
 
     async with make_async_container(_ReplayOwnerDeps(store, uow)) as container:
@@ -672,7 +668,7 @@ async def test_manual_replay_fatal_only_group_uses_public_translation_without_mu
     uow = RecordingUoW()
     rollback_error = RuntimeError('rollback failed')
     handler_error = RuntimeError('handler failed')
-    fatal = TransactionExecutionError(TransactionFailureKind.ROLLBACK_FAILED, rollback_error, handler_error)
+    fatal = RollbackFailedError(rollback_error, handler_error)
     failure = BaseExceptionGroup('fatal replay failure', [fatal])
 
     async with make_async_container(_ReplayOwnerDeps(store, uow)) as container:

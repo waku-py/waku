@@ -9,7 +9,7 @@ import anyio
 import pytest
 from typing_extensions import override
 
-from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
+from waku._internal.transaction import AfterCommitError, TransactionExecutionError
 from waku.di import object_, scoped
 from waku.messages import IEvent
 from waku.messaging import (
@@ -625,5 +625,5 @@ class TestCascadeEdgeCases:
             with pytest.raises(TransactionExecutionError) as raised:
                 await bus.invoke(_PlaceOrder(order_id='o-9'))
 
-        assert raised.value.kind is TransactionFailureKind.AFTER_COMMIT
+        assert isinstance(raised.value, AfterCommitError)
         assert str(raised.value.error) == 'queue unavailable'

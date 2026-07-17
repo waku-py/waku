@@ -78,7 +78,8 @@ Messaging store-port contracts and the durability store composite.
 Per-group durable sequence allocation contracts.
 
 `GroupId` ·
-`ISequenceAllocator`
+`ISequenceAllocator` ·
+`allocate_sequence_by_id`
 
 ## `waku.messaging.outbox`
 
@@ -136,8 +137,10 @@ Event store contracts (with snapshot/checkpoint facets); in-memory reference sto
 `IEventStore` ·
 `IEventWriter` ·
 `ISnapshotStore` ·
+`IdempotencyVerdict` ·
 `InMemoryEventStore` ·
 `check_expected_version` ·
+`classify_idempotency` ·
 `enrich_metadata`
 
 ## `waku.eventsourcing.snapshot`
@@ -155,19 +158,14 @@ Snapshot model, strategy, and migration contracts.
 
 ## `waku.eventsourcing.projection`
 
-Projection contracts and polling configuration.
+Projection contracts, polling configuration, and the lease contract with its in-memory lease.
 
 `Checkpoint` ·
+`ILease` ·
 `InMemoryCheckpointStore` ·
+`InMemoryLease` ·
 `LeaseConfig` ·
 `PollingConfig`
-
-## `waku.eventsourcing.projection.lock`
-
-Lease contract and the in-memory lease; Postgres lease adapters live in `waku.backends.sqlalchemy`.
-
-`ILease` ·
-`InMemoryLease`
 
 ## `waku.eventsourcing.serialization`
 

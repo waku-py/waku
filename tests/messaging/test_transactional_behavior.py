@@ -10,7 +10,7 @@ import pytest
 from typing_extensions import override
 
 from waku import UnexpectedRollbackError, module
-from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
+from waku._internal.transaction import RollbackFailedError, TransactionExecutionError
 from waku.di import object_
 from waku.exceptions import ImproperlyConfiguredError
 from waku.factory import ContainerConfig, WakuFactory
@@ -104,7 +104,7 @@ class TestTransactionalBehavior:
         with pytest.raises(TransactionExecutionError) as caught:
             await behavior.handle('msg', call_next=_fail)
 
-        assert caught.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert isinstance(caught.value, RollbackFailedError)
         assert str(caught.value.error) == 'rollback exploded'
         assert isinstance(caught.value.primary_error, ValueError)
 
@@ -116,7 +116,7 @@ class TestTransactionalBehavior:
         with pytest.raises(TransactionExecutionError) as caught:
             await behavior.handle('msg', call_next=_ok)
 
-        assert caught.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert isinstance(caught.value, RollbackFailedError)
         assert str(caught.value.error) == 'rollback boom'
         assert isinstance(caught.value.primary_error, RuntimeError)
 
@@ -216,7 +216,7 @@ class TestNestingAwareTransactional:
         with pytest.raises(TransactionExecutionError) as raised:
             await outer.handle('outer', call_next=swallow_both_failures)
 
-        assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert isinstance(raised.value, RollbackFailedError)
         assert raised.value.error is rollback_error
         assert isinstance(raised.value.primary_error, UnexpectedRollbackError)
         assert raised.value.primary_error.__cause__ is first_error

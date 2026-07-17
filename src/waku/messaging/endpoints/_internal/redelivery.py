@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, TypeAlias, assert_never
+from typing import TYPE_CHECKING, Any, TypeAlias
 
-from waku.messaging.endpoints._internal.execution import TerminalIntent, TerminalIntentKind
-from waku.messaging.endpoints.outcome import ExecutionOutcome
+from waku.messaging.endpoints._internal.execution import TerminalIntent, TerminalIntentKind, outcome_from_intent
 from waku.messaging.exceptions import RequeueBudgetExceededError
 
 if TYPE_CHECKING:
@@ -16,6 +15,7 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.endpoints._internal.execution import IEndpointExecution
     from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
+    from waku.messaging.endpoints.outcome import ExecutionOutcome
 
 __all__ = [
     'RedeliveryCoordinator',
@@ -47,7 +47,7 @@ async def _noop_finalize(
 ) -> ExecutionOutcome:
     """Default ``finalize`` sink: BUFFERED has no inbox row to transition."""
     await _noop_attempt(envelope, handler_type)
-    return _outcome_from_intent(intent)
+    return outcome_from_intent(intent)
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,21 +187,3 @@ async def _materialize_dead_letter(
     effective_intent = _budget_exhausted_intent(envelope, intent, count)
     outcome = await materialize(envelope, handler_type, effective_intent)
     return effective_intent, outcome
-
-
-def _outcome_from_intent(intent: TerminalIntent) -> ExecutionOutcome:
-    match intent.kind:
-        case TerminalIntentKind.SUCCESS:
-            return ExecutionOutcome.SUCCESS
-        case TerminalIntentKind.FAILED_NO_POLICY:
-            return ExecutionOutcome.FAILED_NO_POLICY
-        case TerminalIntentKind.DISCARD:
-            return ExecutionOutcome.DISCARDED
-        case TerminalIntentKind.DEAD_LETTER:
-            msg = 'dead-letter intent requires an owner transaction'
-            raise RuntimeError(msg)
-        case TerminalIntentKind.REQUEUE | TerminalIntentKind.PAUSE:
-            msg = 'deferred terminal intent must be redelivered before materialization'
-            raise RuntimeError(msg)
-        case _ as unreachable:  # pragma: no cover
-            assert_never(unreachable)

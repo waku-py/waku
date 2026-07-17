@@ -14,7 +14,7 @@ import pytest
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
-from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
+from waku._internal.transaction import AfterCommitError, RollbackFailedError, TransactionExecutionError
 from waku.backends.memory import MemoryBackend
 from waku.di import object_, provider
 from waku.messages import IEvent
@@ -440,7 +440,7 @@ class TestEndpointExecutorTransactionCleanup:
             with pytest.raises(TransactionExecutionError) as raised:
                 await executor.execute(envelope, handler)
 
-        assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert isinstance(raised.value, RollbackFailedError)
         assert raised.value.error is rollback_error
         assert len(calls) == 1
 
@@ -477,7 +477,7 @@ class TestEndpointExecutorTransactionCleanup:
             with pytest.raises(TransactionExecutionError) as raised:
                 await executor.execute(envelope, _BlockingHandler, on_result=observer)
 
-        assert raised.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert isinstance(raised.value, RollbackFailedError)
         assert raised.value.error is rollback_error
         assert calls == [1]
         assert actions == ['rollback']
@@ -516,7 +516,7 @@ class TestEndpointExecutorTransactionCleanup:
             with pytest.raises(TransactionExecutionError) as raised:
                 await executor.execute(envelope, _SuccessfulHandler, on_result=observer)
 
-        assert raised.value.kind is TransactionFailureKind.AFTER_COMMIT
+        assert isinstance(raised.value, AfterCommitError)
         assert isinstance(raised.value.error, ExceptionGroup)
         assert raised.value.error.exceptions == (teardown_error,)
         assert calls == [1]
@@ -625,7 +625,7 @@ class TestEndpointExecutorTransactionCleanup:
             with pytest.raises(TransactionExecutionError) as raised:
                 await executor.execute(make_envelope(_FailingCommand(value='cascade')), _OuterHandler)
 
-        assert raised.value.kind is TransactionFailureKind.AFTER_COMMIT
+        assert isinstance(raised.value, AfterCommitError)
         assert uow.rollback_count == 0
         assert calls == ['outer', 'cascade']
 
@@ -864,7 +864,7 @@ class TestEndpointExecutorDeadLetter:
                     intent=_dead_letter_intent(),
                 )
 
-        assert caught.value.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert isinstance(caught.value, RollbackFailedError)
         assert caught.value.error is rollback_error
         assert actions == ['save', 'commit', 'rollback']
 

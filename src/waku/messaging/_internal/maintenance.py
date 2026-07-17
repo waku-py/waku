@@ -12,14 +12,13 @@ from typing_extensions import override
 from waku._internal.clock import Now, utc_now
 from waku._internal.lease import ILease
 from waku._internal.transaction import (
+    AfterCommitError,
     Commit,
     TransactionDecision,
     TransactionExecutionError,
-    TransactionFailureKind,
     can_defer_transaction_fatal,
-    execute_in_uow_scope,
     extract_transaction_execution_error,
-    require_committed,
+    run_committed,
 )
 from waku.di import is_registered
 from waku.exceptions import ImproperlyConfiguredError
@@ -81,11 +80,11 @@ class _OutboxMaintenancePoller(PollingAgent):
 
     @override
     async def _tick(self) -> int:
-        recovered = await self._maybe_recover_stuck()
+        recovered = await self._maybe_recover_abandoned()
         purged = await self._maybe_cleanup()
         return recovered + purged
 
-    async def _maybe_recover_stuck(self) -> int:
+    async def _maybe_recover_abandoned(self) -> int:
         now = time.monotonic()
         if now - self._last_recovery < self._config.recovery_interval.total_seconds():
             return 0
@@ -93,9 +92,9 @@ class _OutboxMaintenancePoller(PollingAgent):
 
         async def recover(scope: AsyncContainer) -> TransactionDecision[int, Never]:
             store = await scope.get(IOutboxStore)
-            return Commit(await store.recover_stuck(self._config.stuck_threshold))
+            return Commit(await store.recover_abandoned(self._config.stuck_threshold))
 
-        recovered = require_committed(await execute_in_uow_scope(self._container, recover))
+        recovered = await run_committed(self._container, recover)
         if recovered > 0:
             logger.info('Recovered %d stuck messages', recovered)
         return recovered
@@ -111,9 +110,9 @@ class _OutboxMaintenancePoller(PollingAgent):
 
         async def cleanup(scope: AsyncContainer) -> TransactionDecision[int, Never]:
             store = await scope.get(IOutboxStore)
-            return Commit(await store.cleanup_dispatched(retention))
+            return Commit(await store.delete_expired_dispatched(retention))
 
-        purged = require_committed(await execute_in_uow_scope(self._container, cleanup))
+        purged = await run_committed(self._container, cleanup)
         if purged > 0:
             logger.info('Purged %d dispatched outbox messages older than retention', purged)
         return purged
@@ -180,11 +179,11 @@ class _DlqMaintenancePoller(PollingAgent):
         self._last_cleanup = now
         sampled_now = self._now()
 
-        async def purge(scope: AsyncContainer) -> TransactionDecision[int, Never]:
+        async def delete_expired(scope: AsyncContainer) -> TransactionDecision[int, Never]:
             store = await scope.get(IDeadLetterStore)
-            return Commit(await store.purge(sampled_now - retention, now=sampled_now))
+            return Commit(await store.delete_expired_dead_letters(sampled_now - retention, now=sampled_now))
 
-        purged = require_committed(await execute_in_uow_scope(self._container, purge))
+        purged = await run_committed(self._container, delete_expired)
         if purged > 0:
             logger.info('Purged %d dead letters older than retention', purged)
         return purged
@@ -222,7 +221,7 @@ class _PromotionPoller(PollingAgent):
             allocator: ISequenceAllocator = await scope.get(ISequenceAllocator)
             return Commit(await store.promote_due_scheduled(sampled_now, allocator, self._config.batch_size))
 
-        promoted = require_committed(await execute_in_uow_scope(self._container, promote))
+        promoted = await run_committed(self._container, promote)
         if promoted > 0:
             logger.info('Promoted %d due scheduled inbox entries to INCOMING', promoted)
         return promoted
@@ -246,7 +245,7 @@ class _ScopedReplayExecution(IReplayExecution):
                 dispatch_completed = True
         except BaseException as error:
             if dispatch_completed:
-                raise TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, error, None) from error
+                raise AfterCommitError(error) from error
             raise
 
 

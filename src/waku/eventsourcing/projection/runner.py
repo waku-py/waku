@@ -17,7 +17,7 @@ from waku._internal.transaction import (
     can_defer_transaction_fatal,
     execute_in_uow_scope,
     extract_transaction_execution_error,
-    require_committed,
+    run_committed,
 )
 from waku.eventsourcing.exceptions import ProjectionError, ProjectionLockedError
 from waku.eventsourcing.projection._internal.processor import CycleOutcome, ProjectionProcessor
@@ -99,7 +99,7 @@ class CatchUpProjectionRunner:
                 await projection.teardown()
                 return Commit(None)
 
-            require_committed(await execute_in_uow_scope(self._container, teardown))
+            await run_committed(self._container, teardown)
 
             # Rebuild replays historical events, where every global_position gap is permanent (a burned
             # Identity value from a long-ago rolled-back append). Gap detection guards the live tail
@@ -113,7 +113,7 @@ class CatchUpProjectionRunner:
                 await processor.reset_checkpoint(checkpoint_store)
                 return Commit(None)
 
-            require_committed(await execute_in_uow_scope(self._container, reset))
+            await run_committed(self._container, reset)
 
             while True:
                 try:
@@ -269,7 +269,7 @@ class CatchUpProjectionRunner:
             await checkpoint_store.save(skip.checkpoint)
             return Commit(None)
 
-        require_committed(await execute_in_uow_scope(self._container, save))
+        await run_committed(self._container, save)
 
     async def _signal_listener(self, cancel_scope: anyio.CancelScope) -> None:  # pragma: no cover
         await wait_for_shutdown(self._shutdown_event)

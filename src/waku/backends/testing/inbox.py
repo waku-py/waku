@@ -120,7 +120,7 @@ class InboxStoreContract:
         await inbox_store.store_incoming(entry)
 
         await inbox_store.mark_as_handled(entry.id, entry.destination, datetime.now(tz=UTC) - timedelta(seconds=1))
-        removed = await inbox_store.cleanup_handled(datetime.now(tz=UTC))
+        removed = await inbox_store.delete_expired_handled(datetime.now(tz=UTC))
         assert removed == 1
         # the row is fully purged: re-storing the same (id, destination) is no longer a duplicate
         assert await inbox_store.store_incoming(_make_entry(entry_id=entry.id, destination=entry.destination)) is True
@@ -190,12 +190,12 @@ class InboxStoreContract:
             (head.id, head.destination),
         }
 
-    async def test_recover_stale_reclaims_owned_past_threshold(self, inbox_store: IInboxStore) -> None:
+    async def test_recover_abandoned_reclaims_owned_past_threshold(self, inbox_store: IInboxStore) -> None:
         entry = _make_entry()
         await inbox_store.store_incoming(entry)
         await inbox_store.fetch_pending_partitioned(batch_size=1, owner_id='crashed-worker')
 
-        recovered = await inbox_store.recover_stale(threshold=timedelta(seconds=-1))
+        recovered = await inbox_store.recover_abandoned(threshold=timedelta(seconds=-1))
         assert recovered == 1
 
         reclaimed = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='new-worker')

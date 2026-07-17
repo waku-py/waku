@@ -6,7 +6,7 @@ import anyio
 import pytest
 from typing_extensions import override
 
-from waku._internal.transaction import TransactionExecutionError, TransactionFailureKind
+from waku._internal.transaction import RollbackFailedError, TransactionExecutionError
 from waku.messaging import PollingConfig
 from waku.messaging._internal.polling_agent import (
     AdaptivePace,
@@ -118,8 +118,7 @@ async def test_polling_agent_raw_cancellation_remains_cancellation() -> None:
 
 
 async def test_polling_agent_direct_transaction_execution_error_preserves_identity() -> None:
-    fatal = TransactionExecutionError(
-        TransactionFailureKind.ROLLBACK_FAILED,
+    fatal = RollbackFailedError(
         RuntimeError('rollback failed'),
         RuntimeError('handler failed'),
     )
@@ -137,8 +136,7 @@ async def test_polling_agent_direct_transaction_execution_error_preserves_identi
 async def test_polling_agent_logs_critical_when_poll_loop_dies_with_fatal(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    fatal = TransactionExecutionError(
-        TransactionFailureKind.ROLLBACK_FAILED,
+    fatal = RollbackFailedError(
         RuntimeError('rollback failed'),
         RuntimeError('handler failed'),
     )
@@ -169,8 +167,7 @@ async def test_polling_agent_cancellation_death_is_not_logged_as_fatal(
 
 async def test_polling_agent_mixed_control_flow_group_remains_primary_during_stop() -> None:
     cancelled = asyncio.CancelledError()
-    fatal = TransactionExecutionError(
-        TransactionFailureKind.ROLLBACK_FAILED,
+    fatal = RollbackFailedError(
         RuntimeError('rollback failed'),
         RuntimeError('handler failed'),
     )
@@ -186,8 +183,7 @@ async def test_polling_agent_mixed_control_flow_group_remains_primary_during_sto
 
 
 async def test_polling_agent_fatal_group_unwrapping_preserves_identity_without_causal_chain() -> None:
-    fatal = TransactionExecutionError(
-        TransactionFailureKind.ROLLBACK_FAILED,
+    fatal = RollbackFailedError(
         RuntimeError('rollback failed'),
         RuntimeError('handler failed'),
     )

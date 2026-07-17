@@ -116,7 +116,7 @@ class TestSqlAlchemyDeadLetterStore:
         await pg_session.flush()
 
         now = datetime.now(tz=UTC)
-        purged = await store.purge(older_than=now + timedelta(seconds=1), now=now)
+        purged = await store.delete_expired_dead_letters(older_than=now + timedelta(seconds=1), now=now)
         assert purged == 1
 
         remaining = await store.fetch(batch_size=10)
@@ -312,17 +312,19 @@ class TestSqlAlchemyDeadLetterStore:
 
                 async with purge_session.begin():
                     await purge_session.execute(text("SET LOCAL lock_timeout = '500ms'"))
-                    assert await SqlAlchemyDeadLetterStore(purge_session).purge(now, now=now) == 0
+                    assert await SqlAlchemyDeadLetterStore(purge_session).delete_expired_dead_letters(now, now=now) == 0
 
                 await claim_session.rollback()
                 async with purge_session.begin():
-                    assert await SqlAlchemyDeadLetterStore(purge_session).purge(now, now=now) == 1
+                    assert await SqlAlchemyDeadLetterStore(purge_session).delete_expired_dead_letters(now, now=now) == 1
         finally:
             async with pg_engine.begin() as conn:
                 await conn.run_sync(metadata.drop_all)
 
     @staticmethod
-    async def test_claim_skips_row_locked_and_deleted_by_uncommitted_purge(pg_engine: AsyncEngine) -> None:
+    async def test_claim_skips_row_locked_and_deleted_by_uncommitted_delete_expired_dead_letters(
+        pg_engine: AsyncEngine,
+    ) -> None:
         metadata = MetaData()
         bind_dead_letter_tables(metadata)
         async with pg_engine.begin() as conn:
@@ -338,7 +340,7 @@ class TestSqlAlchemyDeadLetterStore:
                 AsyncSession(pg_engine, expire_on_commit=False) as claim_session,
             ):
                 await purge_session.begin()
-                assert await SqlAlchemyDeadLetterStore(purge_session).purge(now, now=now) == 1
+                assert await SqlAlchemyDeadLetterStore(purge_session).delete_expired_dead_letters(now, now=now) == 1
 
                 async with claim_session.begin():
                     await claim_session.execute(text("SET LOCAL lock_timeout = '500ms'"))

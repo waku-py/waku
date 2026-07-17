@@ -12,8 +12,8 @@ from typing_extensions import override
 
 from waku._internal.clock import utc_now
 from waku._internal.transaction import (
+    RollbackFailedError,
     TransactionExecutionError,
-    TransactionFailureKind,
     extract_transaction_execution_error,
 )
 from waku.messages import IEvent
@@ -332,7 +332,7 @@ class TestDurableLocalQueueEndpoint:
                 assert executor.calls == 2
 
                 # Retention window elapses, purging HANDLED rows.
-                purged = await inbox.cleanup_handled(datetime.now(tz=UTC) + timedelta(minutes=10))
+                purged = await inbox.delete_expired_handled(datetime.now(tz=UTC) + timedelta(minutes=10))
                 assert purged == 2
 
                 # Same message_id, no conflict -> re-runs both.
@@ -542,8 +542,8 @@ class TestDurableLocalQueueScheduled:
     @staticmethod
     async def test_scheduled_persist_failed_rollback_is_fatal() -> None:
         # The SCHEDULED-row write commits; if that commit fails and its rollback also fails, the loss is
-        # uniformly fatal — TransactionExecutionError(ROLLBACK_FAILED) carrying the primary, not a
-        # silently-logged rollback that drops a scheduled message without a trace.
+        # uniformly fatal — a RollbackFailedError carrying the primary, not a silently-logged rollback that
+        # drops a scheduled message without a trace.
         inbox = FakeInboxStore()
         commit_error = RuntimeError('commit failed')
         rollback_error = RuntimeError('rollback failed')
@@ -569,7 +569,7 @@ class TestDurableLocalQueueScheduled:
 
         fatal = extract_transaction_execution_error(raised.value)
         assert fatal is not None
-        assert fatal.kind is TransactionFailureKind.ROLLBACK_FAILED
+        assert isinstance(fatal, RollbackFailedError)
         assert fatal.error is rollback_error
         assert fatal.primary_error is commit_error
 

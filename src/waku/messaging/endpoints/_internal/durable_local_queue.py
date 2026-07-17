@@ -11,8 +11,7 @@ from waku._internal.clock import utc_now
 from waku._internal.transaction import (
     Commit,
     TransactionDecision,
-    execute_in_uow_scope,
-    require_committed,
+    run_committed,
 )
 from waku.messaging._internal.partition import resolve_group_id
 from waku.messaging.durability import IInboxStore
@@ -165,7 +164,7 @@ class DurableLocalQueueEndpoint(Endpoint):
                 )
             return Commit(None)
 
-        require_committed(await execute_in_uow_scope(self._container, write))
+        await run_committed(self._container, write)
 
     @override
     async def start(self) -> None:

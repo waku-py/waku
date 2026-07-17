@@ -12,15 +12,15 @@ from typing_extensions import override
 
 from waku._internal.transaction import (
     Aborted,
+    AfterCommitError,
     Commit,
     Committed,
     RolledBack,
     TransactionDecision,
     TransactionExecutionError,
-    TransactionFailureKind,
     execute_in_uow_scope,
     extract_transaction_execution_error,
-    require_committed,
+    run_committed,
 )
 from waku.di import AsyncContainer  # noqa: TC001
 from waku.messaging._internal.dispatcher import MessageDispatcher  # noqa: TC001
@@ -51,6 +51,8 @@ logger = logging.getLogger(__name__)
 
 class _ReplayRenewalError(TransactionExecutionError):
     """Transaction-fatal renewal loss that cannot prove dispatch success."""
+
+    __slots__ = ()
 
 
 class IReplayExecution(ABC):
@@ -123,7 +125,7 @@ class ReplayExecution(IReplayExecution):
                     dispatch_completed = True
         except BaseException as error:
             if dispatch_completed:
-                raise TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, error, None) from error
+                raise AfterCommitError(error) from error
             raise
 
 
@@ -156,8 +158,7 @@ class ReplayClaimOwner:
             )
             return Commit(entry)
 
-        result = await execute_in_uow_scope(self._container, claim)
-        return require_committed(result)
+        return await run_committed(self._container, claim)
 
     async def claim_replay(self, entry_id: UUID) -> DeadLetterEntry | None:
         now = self._now()
@@ -173,8 +174,7 @@ class ReplayClaimOwner:
             )
             return Commit(entry)
 
-        result = await execute_in_uow_scope(self._container, claim)
-        return require_committed(result)
+        return await run_committed(self._container, claim)
 
     async def replay_claimed(self, entry: DeadLetterEntry, execution: IReplayExecution) -> bool:
         try:
@@ -184,7 +184,7 @@ class ReplayClaimOwner:
             if fatal is not None:
                 if isinstance(fatal, _ReplayRenewalError):
                     raise
-                if fatal.kind is TransactionFailureKind.AFTER_COMMIT:
+                if isinstance(fatal, AfterCommitError):
                     with anyio.CancelScope(shield=True):
                         await self._finalize_replayed(entry.id, primary_error=fatal)
                 raise
@@ -249,8 +249,7 @@ class ReplayClaimOwner:
             )
             return Commit(renewed)
 
-        result = await execute_in_uow_scope(self._container, renew)
-        if not require_committed(result):
+        if not await run_committed(self._container, renew):
             raise _lost_claim(entry_id)
 
     async def _finalize_replayed(
@@ -271,17 +270,13 @@ class ReplayClaimOwner:
         except TransactionExecutionError as error:
             if primary_error is None:
                 raise
-            raise TransactionExecutionError(error.kind, error.error, primary_error) from error
+            raise type(error)(error.error, primary_error) from error
         if isinstance(result, Committed):
             if result.value:
                 return
             raise _lost_claim(entry_id, primary_error=primary_error)
         if isinstance(result, Aborted):
-            raise TransactionExecutionError(
-                TransactionFailureKind.AFTER_COMMIT,
-                result.error,
-                primary_error,
-            ) from result.error
+            raise AfterCommitError(result.error, primary_error) from result.error
         if isinstance(result, RolledBack):
             assert_never(result.value)
         assert_never(result)
@@ -309,8 +304,7 @@ class ReplayClaimOwner:
             )
             return Commit(marked)
 
-        result = await execute_in_uow_scope(self._container, finalize)
-        if not require_committed(result):
+        if not await run_committed(self._container, finalize):
             raise _lost_claim(entry_id, primary_error=primary_error)
 
     async def _finalize_cancelled(self, entry_id: UUID, error: BaseException) -> None:
@@ -327,11 +321,11 @@ class ReplayClaimOwner:
 
 def _lost_claim(entry_id: UUID, *, primary_error: BaseException | None = None) -> TransactionExecutionError:
     error = RuntimeError(f'Replay claim ownership was lost for dead letter {entry_id}')
-    return TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, error, primary_error)
+    return AfterCommitError(error, primary_error)
 
 
 def _renewal_error(error: BaseException) -> BaseException:
     fatal = extract_transaction_execution_error(error)
     if fatal is None:
         return error
-    return _ReplayRenewalError(fatal.kind, fatal.error, fatal.primary_error)
+    return _ReplayRenewalError(fatal.error, fatal.primary_error)

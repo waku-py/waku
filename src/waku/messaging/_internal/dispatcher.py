@@ -4,8 +4,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from waku._internal.transaction import (
-    TransactionExecutionError,
-    TransactionFailureKind,
+    AfterCommitError,
     extract_transaction_execution_error,
 )
 from waku.messaging._internal.outbox_cascading import DeferredCascadeFlusher
@@ -261,7 +260,7 @@ class MessageDispatcher:
         try:
             await self._flush_in_fresh_scope(scope, batch)
         except BaseException as error:
-            raise TransactionExecutionError(TransactionFailureKind.AFTER_COMMIT, error, None) from error
+            raise AfterCommitError(error) from error
 
     @staticmethod
     async def _detach_cascades_if_owner(scope: 'AsyncContainer') -> 'DeferredCascadeBatch':

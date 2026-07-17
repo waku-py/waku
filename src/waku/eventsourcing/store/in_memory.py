@@ -13,14 +13,13 @@ from typing_extensions import override
 from waku.eventsourcing.contracts.event import EventEnvelope, IMetadataEnricher, StoredEvent
 from waku.eventsourcing.contracts.stream import StreamPosition
 from waku.eventsourcing.exceptions import (
-    DuplicateIdempotencyKeyError,
-    PartialDuplicateAppendError,
     StreamArchivedError,
     StreamNotFoundError,
 )
 from waku.eventsourcing.projection.interfaces import IProjection  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.store.enrichment import enrich_metadata
+from waku.eventsourcing.store.idempotency import IdempotencyVerdict, classify_idempotency
 from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventStore, ISnapshotStore
 from waku.eventsourcing.store.version_check import check_expected_version
 from waku.exceptions import ImproperlyConfiguredError
@@ -238,18 +237,24 @@ class _InMemoryEventStoreOperations(IEventStore):
         async with self._lock:
             state = self._get_state()
             key = str(stream_id)
-            if key in state.deleted_streams:
-                raise StreamArchivedError(stream_id)
+            archived = key in state.deleted_streams
             stream = state.streams.get(key)
             current_version = len(stream) - 1 if stream is not None else -1
 
             if not events:
+                if archived:
+                    raise StreamArchivedError(stream_id)
                 check_expected_version(stream_id, expected_version, current_version, exists=stream is not None)
                 return current_version
 
-            dedup_version = self._check_idempotency(stream_id, events, current_version)
-            if dedup_version is not None:
-                return dedup_version
+            # Classify first (a malformed/overlapping batch is reported before archival), then apply the
+            # archived guard around the proceed-able verdicts — the order the SQLAlchemy backend also uses.
+            existing_keys = state.idempotency_keys.get(key, set())
+            verdict = classify_idempotency(stream_id, [e.idempotency_key for e in events], existing_keys)
+            if archived:
+                raise StreamArchivedError(stream_id)
+            if verdict is IdempotencyVerdict.IDEMPOTENT_REPLAY:
+                return current_version
 
             check_expected_version(stream_id, expected_version, current_version, exists=stream is not None)
 
@@ -317,28 +322,6 @@ class _InMemoryEventStoreOperations(IEventStore):
                 stream_keys.discard(event.idempotency_key)
             if not stream_keys:
                 del state.idempotency_keys[key]
-
-    def _check_idempotency(
-        self,
-        stream_id: StreamId,
-        events: Sequence[EventEnvelope],
-        current_version: int,
-    ) -> int | None:
-        keys = [e.idempotency_key for e in events]
-        unique_keys = set(keys)
-        if len(unique_keys) != len(keys):
-            raise DuplicateIdempotencyKeyError(stream_id, reason='duplicate keys within batch')
-
-        existing = self._get_state().idempotency_keys.get(str(stream_id), set())
-        found = unique_keys & existing
-
-        if not found:
-            return None
-
-        if found == unique_keys:
-            return current_version
-
-        raise PartialDuplicateAppendError(stream_id, len(found), len(keys))
 
 
 class InMemoryEventStore(_InMemoryEventStoreOperations):
