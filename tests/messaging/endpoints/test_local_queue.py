@@ -868,17 +868,27 @@ class TestLocalQueuePause:
         assert spy.outcomes_at('local://test') == [ExecutionOutcome.DISCARDED]
 
 
-def test_outcome_from_intent_maps_terminal_and_guards_deferred_kinds() -> None:
-    # The buffered finalize path delegates here instead of an inline dict, so a deferred or dead-letter
-    # kind that reaches materialization raises explicitly instead of KeyError-ing; assert_never keeps the
-    # match exhaustive against any new TerminalIntentKind member.
-    mapped = {
-        TerminalIntentKind.SUCCESS: ExecutionOutcome.SUCCESS,
-        TerminalIntentKind.FAILED_NO_POLICY: ExecutionOutcome.FAILED_NO_POLICY,
-        TerminalIntentKind.DISCARD: ExecutionOutcome.DISCARDED,
-    }
-    for kind, outcome in mapped.items():
-        assert outcome_from_intent(TerminalIntent(kind=kind)) is outcome
-    for guarded in (TerminalIntentKind.REQUEUE, TerminalIntentKind.PAUSE, TerminalIntentKind.DEAD_LETTER):
-        with pytest.raises(RuntimeError):
-            outcome_from_intent(TerminalIntent(kind=guarded))
+@pytest.mark.parametrize(
+    ('kind', 'expected'),
+    [
+        (TerminalIntentKind.SUCCESS, ExecutionOutcome.SUCCESS),
+        (TerminalIntentKind.FAILED_NO_POLICY, ExecutionOutcome.FAILED_NO_POLICY),
+        (TerminalIntentKind.DISCARD, ExecutionOutcome.DISCARDED),
+    ],
+    ids=lambda value: value.name if isinstance(value, TerminalIntentKind) else None,
+)
+def test_outcome_from_intent_maps_terminal_kind(kind: TerminalIntentKind, expected: ExecutionOutcome) -> None:
+    # The buffered finalize path delegates here instead of an inline dict; assert_never keeps the match
+    # exhaustive against any new TerminalIntentKind member.
+    assert outcome_from_intent(TerminalIntent(kind=kind)) is expected
+
+
+@pytest.mark.parametrize(
+    'kind',
+    [TerminalIntentKind.REQUEUE, TerminalIntentKind.PAUSE, TerminalIntentKind.DEAD_LETTER],
+    ids=lambda kind: kind.name,
+)
+def test_outcome_from_intent_guards_deferred_kind(kind: TerminalIntentKind) -> None:
+    # A deferred or dead-letter kind that reaches materialization raises explicitly instead of KeyError-ing.
+    with pytest.raises(RuntimeError):
+        outcome_from_intent(TerminalIntent(kind=kind))
