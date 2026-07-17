@@ -30,6 +30,16 @@ from waku.exceptions import ImproperlyConfiguredError
 
 _DEFAULT_POLLING: Final = PollingConfig()
 
+# The backend hands ONE ILease singleton to both this runner and the leadership coordinator. Namespacing
+# the projection-daemon lease keys keeps the projection keyspace disjoint from every 'waku:'-prefixed
+# framework role, so a projection named exactly like the leadership role can never contend on one flat key.
+_LEASE_NAMESPACE: Final = 'projection:'
+
+
+def _lease_key(projection_name: str) -> str:
+    return f'{_LEASE_NAMESPACE}{projection_name}'
+
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Never
@@ -102,7 +112,7 @@ class CatchUpProjectionRunner:
     async def rebuild(self, projection_name: str) -> None:
         binding = self._registry.get(projection_name)
 
-        async with self._lock.acquire(projection_name) as acquired:
+        async with self._lock.acquire(_lease_key(projection_name)) as acquired:
             if not acquired:
                 raise ProjectionLockedError(projection_name)
 
@@ -165,7 +175,7 @@ class CatchUpProjectionRunner:
             logger.exception('Projection %r stopped due to unrecoverable error', projection_name)
 
     async def _acquire_and_poll(self, binding: CatchUpProjectionBinding, projection_name: str) -> None:
-        async with self._lock.acquire(projection_name) as acquired:
+        async with self._lock.acquire(_lease_key(projection_name)) as acquired:
             if not acquired:
                 logger.info('Projection %r is locked by another instance, skipping', projection_name)
                 return

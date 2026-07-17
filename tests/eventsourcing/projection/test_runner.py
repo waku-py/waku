@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import logging
 from collections.abc import AsyncIterator  # noqa: TC003 -- dishka introspects the provider signature at runtime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import anyio
@@ -17,7 +18,7 @@ from waku.eventsourcing.exceptions import ProjectionLockedError, ProjectionStopp
 from waku.eventsourcing.projection.config import PollingConfig
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ProjectionErrorPolicy
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
-from waku.eventsourcing.projection.runner import CatchUpProjectionRunner
+from waku.eventsourcing.projection.runner import CatchUpProjectionRunner, _lease_key
 from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventReader, IEventStore
 from waku.exceptions import ImproperlyConfiguredError
 from waku.factory import WakuFactory
@@ -117,6 +118,10 @@ class RenewFailingLock(ILease):
     async def _failing_renew() -> None:
         msg = 'lease renew failed'
         raise RuntimeError(msg)
+
+
+class _RoleNamedProjection(RecordingProjection):
+    projection_name = 'waku:leader'
 
 
 class IdleProjection(ICatchUpProjection):
@@ -388,6 +393,34 @@ async def test_runner_skips_locked_projection(
     assert len(projection.received) == 0
 
 
+async def test_namespaced_lease_key_avoids_leadership_role_collision(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
+    # The projection daemon and the leadership coordinator share ONE ILease singleton. A projection named
+    # exactly like the reserved leadership role must still run: the runner namespaces its lease keys, so a
+    # live 'waku:leader' role lease held by another node never masks the same-named projection.
+    await seed_events(event_store, count=5)
+
+    store: dict[str, tuple[str, datetime]] = {
+        'waku:leader': ('leader-node', datetime.now(tz=UTC) + timedelta(seconds=60)),
+    }
+    lock = InMemoryLease(store=store)
+    projection = _RoleNamedProjection()
+    binding = make_binding(_RoleNamedProjection)
+    app = _make_app(event_store, in_memory_checkpoint_store, lock, (projection,), (binding,))
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(
+            container=app.container,
+            polling=_FAST_POLLING,
+        )
+        await _run_until(runner, lambda: len(projection.received) >= 5)
+
+    assert len(projection.received) == 5
+    assert store['waku:leader'][0] == 'leader-node'  # the role lease was never touched by the projection daemon
+
+
 @pytest.mark.parametrize(
     'projection_types',
     [
@@ -443,7 +476,7 @@ async def test_one_projection_unrecoverable_error_does_not_cancel_others(
 ) -> None:
     await seed_events(event_store, count=5)
 
-    lock = lock_factory(proj_name)
+    lock = lock_factory(_lease_key(proj_name))
     good_projection = RecordingProjection()
     doomed_projection = doomed_projection_type()
     doomed_binding = make_binding(doomed_projection_type)
