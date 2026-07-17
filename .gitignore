@@ -74,5 +74,6 @@ plans/
 .archive
 .research/
 PRE_1_0_FIX_TRACKER.md
+ROADMAP.md
 
 .claude/settings.local.json
