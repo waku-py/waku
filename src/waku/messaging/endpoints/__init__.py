@@ -1,7 +1,6 @@
 from waku.messaging.endpoints.base import (
     DEFAULT_ENDPOINT_URI,
     BrokerEndpointEntry,
-    Endpoint,
     EndpointEntry,
     LocalQueueEntry,
 )
@@ -11,7 +10,6 @@ from waku.messaging.endpoints.outcome import ExecutionOutcome
 __all__ = [
     'DEFAULT_ENDPOINT_URI',
     'BrokerEndpointEntry',
-    'Endpoint',
     'EndpointEntry',
     'EndpointExecutor',
     'EndpointExecutorFactory',

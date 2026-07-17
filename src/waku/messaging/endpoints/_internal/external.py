@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 from uuid import uuid4
 
 from typing_extensions import override
@@ -36,10 +36,7 @@ class ExternalEndpoint(Endpoint):
         super().__init__(uri, observers)
         self._partition_by = partition_by
 
-    @property
-    @override
-    def is_outbox_backed(self) -> bool:
-        return True
+    is_outbox_backed: ClassVar[bool] = True
 
     @override
     async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None:

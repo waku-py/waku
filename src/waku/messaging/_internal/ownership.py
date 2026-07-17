@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.endpoints.base import Endpoint
 
-__all__ = ['AppScopeSource', 'own_and_emit_sent']
+__all__ = ['AppScopeSource', 'dispatch_owned']
 
 
 class AppScopeSource:
@@ -39,17 +39,35 @@ class AppScopeSource:
             yield scope
 
 
-async def own_and_emit_sent(
-    container: AsyncContainer,
+async def dispatch_owned(
+    app_scope: AppScopeSource,
+    ambient_container: AsyncContainer,
     envelope: MessageEnvelope[Any],
     endpoints: Sequence[Endpoint],
     /,
 ) -> None:
-    """Stage outbox-backed dispatch in ONE committed, isolated transaction, then fire ``sent`` post-commit.
+    """Dispatch a resolved endpoint set with per-endpoint durable ownership — the single authority.
 
-    The single authority for the CRIT direct-ownership law (D-CRIT-1..4).
+    Outbox-backed destinations stage inside ONE committed, isolated transaction on the APP-scope owner
+    (send-now: commits regardless of any ambient handler tx) and fire ``sent`` only post-commit;
+    non-outbox-backed destinations take no owner and dispatch on ``ambient_container`` AFTER that commit,
+    so a durable rollback (re-raised) yields no partial delivery. The APP-scope owner is materialized
+    only when there IS outbox work. Both the direct-send bus and the dead-letter replay route through
+    here (D-CRIT-1..4).
     """
+    outbox_backed = [endpoint for endpoint in endpoints if endpoint.is_outbox_backed]
+    passthrough = [endpoint for endpoint in endpoints if not endpoint.is_outbox_backed]
+    if outbox_backed:
+        await _own_and_emit_sent(app_scope.container, envelope, outbox_backed)
+    for endpoint in passthrough:
+        await endpoint.dispatch(envelope, ambient_container)
 
+
+async def _own_and_emit_sent(
+    container: AsyncContainer,
+    envelope: MessageEnvelope[Any],
+    endpoints: Sequence[Endpoint],
+) -> None:
     async def stage(scope: AsyncContainer) -> TransactionDecision[None, Never]:
         for endpoint in endpoints:
             await endpoint.dispatch(envelope, scope)

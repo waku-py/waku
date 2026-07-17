@@ -1,7 +1,7 @@
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Annotated, get_args, get_origin, get_type_hints
+from typing import Annotated, TypeAlias, get_args, get_origin, get_type_hints
 
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IMessage
@@ -10,7 +10,7 @@ __all__ = ['Audit']
 
 logger = logging.getLogger(__name__)
 
-_AuditedField = tuple[str, str]  # (attr_name, structured-field key)
+_AuditedField: TypeAlias = tuple[str, str]  # (attr_name, structured-field key)
 
 
 @dataclass(frozen=True, slots=True)

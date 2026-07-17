@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 from uuid import uuid4
 
 import pytest
@@ -71,15 +71,9 @@ class _TenantEchoHandler(RequestHandler[_TenantQuery, str | None]):
 
 
 class _CapturingEndpoint(Endpoint):
-    def __init__(self, uri: str = 'spy://q', *, supports_scheduling: bool = False) -> None:
+    def __init__(self, uri: str = 'spy://q') -> None:
         super().__init__(uri, MessageObservers([]))
         self.captured: list[MessageEnvelope[Any]] = []
-        self._supports_scheduling = supports_scheduling
-
-    @property
-    @override
-    def supports_scheduling(self) -> bool:
-        return self._supports_scheduling
 
     @override
     async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None:
@@ -94,6 +88,10 @@ class _CapturingEndpoint(Endpoint):
     @property
     def last(self) -> MessageEnvelope[Any] | None:
         return self.captured[-1] if self.captured else None
+
+
+class _SchedulingCapturingEndpoint(_CapturingEndpoint):
+    supports_scheduling: ClassVar[bool] = True
 
 
 @pytest.fixture
@@ -227,7 +225,7 @@ async def test_ambient_and_option_headers_union_with_option_winning(container: A
 
 
 async def test_send_resolves_scheduled_time_from_absolute(container: AsyncContainer) -> None:
-    bus, endpoint = await _spy_bus(container, endpoint=_CapturingEndpoint(supports_scheduling=True))
+    bus, endpoint = await _spy_bus(container, endpoint=_SchedulingCapturingEndpoint())
     when = _NOW + timedelta(hours=1)
 
     await bus.send(_Note(), DeliveryOptions(scheduled_time=when))
@@ -237,7 +235,7 @@ async def test_send_resolves_scheduled_time_from_absolute(container: AsyncContai
 
 
 async def test_send_resolves_scheduled_time_from_relative_delay(container: AsyncContainer) -> None:
-    bus, endpoint = await _spy_bus(container, endpoint=_CapturingEndpoint(supports_scheduling=True))
+    bus, endpoint = await _spy_bus(container, endpoint=_SchedulingCapturingEndpoint())
 
     await bus.send(_Note(), DeliveryOptions(schedule_delay=timedelta(seconds=30)))
 
@@ -305,7 +303,7 @@ async def test_invoke_accepts_tenant_id_and_exposes_it_in_context(container: Asy
 
 
 async def test_schedule_send_with_absolute_at_resolves_scheduled_time(container: AsyncContainer) -> None:
-    bus, endpoint = await _spy_bus(container, endpoint=_CapturingEndpoint(supports_scheduling=True))
+    bus, endpoint = await _spy_bus(container, endpoint=_SchedulingCapturingEndpoint())
     when = _NOW + timedelta(hours=2)
 
     await bus.schedule_send(_Note(), at=when)
@@ -315,7 +313,7 @@ async def test_schedule_send_with_absolute_at_resolves_scheduled_time(container:
 
 
 async def test_schedule_send_with_relative_delay_resolves_scheduled_time(container: AsyncContainer) -> None:
-    bus, endpoint = await _spy_bus(container, endpoint=_CapturingEndpoint(supports_scheduling=True))
+    bus, endpoint = await _spy_bus(container, endpoint=_SchedulingCapturingEndpoint())
 
     await bus.schedule_send(_Note(), delay=timedelta(seconds=90))
 
@@ -341,7 +339,7 @@ async def test_schedule_with_both_at_and_delay_raises(container: AsyncContainer,
 
 @pytest.mark.parametrize('verb', ['schedule_send', 'schedule_publish'])
 async def test_schedule_with_naive_at_raises(container: AsyncContainer, verb: str) -> None:
-    bus, _ = await _spy_bus(container, endpoint=_CapturingEndpoint(supports_scheduling=True))
+    bus, _ = await _spy_bus(container, endpoint=_SchedulingCapturingEndpoint())
     naive = datetime(2026, 6, 21, 12, 0)  # noqa: DTZ001 -- intentionally exercises naive input
 
     with pytest.raises(InvalidDeliveryOptionsError, match=r'scheduled_time.*timezone-aware'):
@@ -349,7 +347,7 @@ async def test_schedule_with_naive_at_raises(container: AsyncContainer, verb: st
 
 
 async def test_schedule_publish_with_absolute_at_resolves_scheduled_time(container: AsyncContainer) -> None:
-    bus, endpoint = await _spy_bus(container, endpoint=_CapturingEndpoint(supports_scheduling=True))
+    bus, endpoint = await _spy_bus(container, endpoint=_SchedulingCapturingEndpoint())
     when = _NOW + timedelta(hours=2)
 
     await bus.schedule_publish(_Note(), at=when)
@@ -359,7 +357,7 @@ async def test_schedule_publish_with_absolute_at_resolves_scheduled_time(contain
 
 
 async def test_schedule_publish_with_relative_delay_resolves_scheduled_time(container: AsyncContainer) -> None:
-    bus, endpoint = await _spy_bus(container, endpoint=_CapturingEndpoint(supports_scheduling=True))
+    bus, endpoint = await _spy_bus(container, endpoint=_SchedulingCapturingEndpoint())
 
     await bus.schedule_publish(_Note(), delay=timedelta(seconds=90))
 
@@ -376,8 +374,8 @@ async def test_schedule_publish_with_zero_subscribers_is_silent_noop(container: 
 
 
 async def test_schedule_publish_mixed_subscribers_raises_scheduling_not_supported(container: AsyncContainer) -> None:
-    capable = _CapturingEndpoint(uri='spy://durable', supports_scheduling=True)
-    incapable = _CapturingEndpoint(uri='spy://buffered', supports_scheduling=False)
+    capable = _SchedulingCapturingEndpoint(uri='spy://durable')
+    incapable = _CapturingEndpoint(uri='spy://buffered')
     bus = await _bus_with_endpoints(container, (capable, incapable))
 
     with pytest.raises(SchedulingNotSupportedError):
@@ -426,7 +424,7 @@ async def test_send_scheduled_to_non_scheduling_endpoint_raises(container: Async
 
 
 async def test_send_scheduled_to_scheduling_capable_endpoint_dispatches(container: AsyncContainer) -> None:
-    capable = _CapturingEndpoint(supports_scheduling=True)
+    capable = _SchedulingCapturingEndpoint()
     bus, endpoint = await _spy_bus(container, endpoint=capable)
 
     await bus.send(_Note(), DeliveryOptions(scheduled_time=_NOW + timedelta(hours=1)))
@@ -435,8 +433,8 @@ async def test_send_scheduled_to_scheduling_capable_endpoint_dispatches(containe
 
 
 async def test_publish_scheduled_raises_when_any_subscriber_is_non_scheduling(container: AsyncContainer) -> None:
-    capable = _CapturingEndpoint(uri='spy://durable', supports_scheduling=True)
-    incapable = _CapturingEndpoint(uri='spy://buffered', supports_scheduling=False)
+    capable = _SchedulingCapturingEndpoint(uri='spy://durable')
+    incapable = _CapturingEndpoint(uri='spy://buffered')
     bus = await _bus_with_endpoints(container, (capable, incapable))
 
     with pytest.raises(SchedulingNotSupportedError):

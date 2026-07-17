@@ -5,7 +5,7 @@ import enum
 import math
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Final, TypeAlias, final
+from typing import TYPE_CHECKING, Any, ClassVar, Final, TypeAlias, final
 
 from waku._internal.sentinel import MISSING
 
@@ -26,7 +26,6 @@ if TYPE_CHECKING:
 __all__ = [
     'DEFAULT_ENDPOINT_URI',
     'BrokerEndpointEntry',
-    'Endpoint',
     'EndpointEntry',
     'EndpointMode',
     'LocalQueueEntry',
@@ -70,6 +69,18 @@ EndpointEntry: TypeAlias = LocalQueueEntry | BrokerEndpointEntry
 class Endpoint(abc.ABC):
     __slots__ = ('_observers', '_uri')
 
+    # Per-type capability flags: fixed per class, so ClassVars (not properties) — the value is a
+    # property of the type, and a ClassVar makes that constancy structural (a `property` reading
+    # mutable state could diverge the cascade re-partition from the initial split). Each is overridden
+    # by exactly one concrete endpoint; a new type defaults to the safe False and is pinned by the
+    # capability-contract test.
+    supports_scheduling: ClassVar[bool] = False
+    """Whether this endpoint persists future-dated messages until due (only DurableLocalQueueEndpoint;
+    routing a scheduled message elsewhere raises, fail-loud)."""
+    is_outbox_backed: ClassVar[bool] = False
+    """Whether dispatching joins the caller's transactional outbox scope so a cascade write commits
+    atomically with the handler (only ExternalEndpoint)."""
+
     def __init__(self, uri: str, observers: MessageObservers) -> None:
         self._uri = uri
         self._observers = observers
@@ -86,22 +97,6 @@ class Endpoint(abc.ABC):
         decides HOW. ``@final`` locks the HOW so no subclass can diverge the evidence semantics.
         """
         await self._observers.sent(envelope, self._uri)
-
-    @property
-    def supports_scheduling(self) -> bool:
-        """Whether this endpoint persists future-dated messages until due.
-
-        Only the durable-local endpoint overrides to ``True``; routing elsewhere raises (fail-loud).
-        """
-        return False
-
-    @property
-    def is_outbox_backed(self) -> bool:
-        """Whether dispatching to this endpoint joins the caller's transactional outbox scope.
-
-        A cascade write then commits atomically with the handler. Only ``ExternalEndpoint`` overrides.
-        """
-        return False
 
     @abc.abstractmethod
     async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None:

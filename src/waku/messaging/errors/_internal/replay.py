@@ -25,7 +25,7 @@ from waku._internal.transaction import (
 from waku.di import AsyncContainer  # noqa: TC001
 from waku.messaging._internal.dispatcher import MessageDispatcher  # noqa: TC001
 from waku.messaging._internal.identity import MessageTypeRegistry  # noqa: TC001
-from waku.messaging._internal.ownership import AppScopeSource, own_and_emit_sent
+from waku.messaging._internal.ownership import AppScopeSource, dispatch_owned
 from waku.messaging.context import message_context_scope
 from waku.messaging.durability import IDeadLetterStore
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind
@@ -109,14 +109,10 @@ class ReplayExecution(IReplayExecution):
         if endpoint is None:
             msg = f'no endpoint registered for destination {entry.destination!r}'
             raise RuntimeError(msg)
-        if not endpoint.is_outbox_backed:
-            # Non-outbox-backed targets (durable local queues) open their own scope and fire their own
-            # ``sent`` on worker-accept — dispatch on the ambient scope, take no owner (mirrors MessageBus).
-            await endpoint.dispatch(envelope, self._container)
-            return
-        # Restage inside ONE committed, isolated transaction (a FRESH APP-scope child, never the ambient
-        # reprocess request scope) so the row survives teardown; ``sent`` fires only post-commit.
-        await own_and_emit_sent(self._app_scope.container, envelope, [endpoint])
+        # Same ownership law as the direct-send bus: an outbox-backed target restages inside ONE committed,
+        # isolated APP-scope transaction (so the row survives teardown, ``sent`` fires post-commit); a
+        # non-outbox-backed target dispatches on the ambient reprocess scope and takes no owner.
+        await dispatch_owned(self._app_scope, self._container, envelope, [endpoint])
 
     async def _dispatch_to_handler(self, entry: DeadLetterEntry, envelope: MessageEnvelope[Any]) -> None:
         handler_type = self._handler_by_fqn.get(entry.destination)

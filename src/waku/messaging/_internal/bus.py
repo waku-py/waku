@@ -11,7 +11,7 @@ from waku.messages import IEvent
 from waku.messaging._internal.dispatch import IEndpointDispatch
 from waku.messaging._internal.dispatcher import MessageDispatcher  # noqa: TC001
 from waku.messaging._internal.envelope_factory import EnvelopeFactory  # noqa: TC001
-from waku.messaging._internal.ownership import AppScopeSource, own_and_emit_sent
+from waku.messaging._internal.ownership import AppScopeSource, dispatch_owned
 from waku.messaging.context import message_context_scope, try_get_message_context
 from waku.messaging.delivery import DeliveryOptions
 from waku.messaging.exceptions import (
@@ -99,36 +99,32 @@ class MessageBus(IMessageBus, IEndpointDispatch):
 
     @override
     async def send(self, message: IMessage, /, options: DeliveryOptions | None = None) -> None:
+        # A routed message with no destination is a routing gap: fail loud.
+        await self._route_and_dispatch(message, options, raise_on_empty=True)
+
+    @override
+    async def publish(self, message: IMessage, /, options: DeliveryOptions | None = None) -> None:
+        # Fan-out to zero subscribers is a legitimate no-op (bus parity with a broker topic).
+        await self._route_and_dispatch(message, options, raise_on_empty=False)
+
+    async def _route_and_dispatch(
+        self,
+        message: IMessage,
+        options: DeliveryOptions | None,
+        *,
+        raise_on_empty: bool,
+    ) -> None:
         envelope = self._create_envelope(message, options)
         if self._is_expired(envelope):  # drop before route resolution: an expired message never raises NoRoute
             logger.info('Dropping expired message_id=%s before dispatch', envelope.message_id)
             return
         endpoints = self._router.resolve(type(message))
         if not endpoints:
-            raise NoRouteError(type(message))
-        _reject_unschedulable(envelope, endpoints)
-        await self._dispatch_with_ownership(envelope, endpoints)
-
-    @override
-    async def publish(self, message: IMessage, /, options: DeliveryOptions | None = None) -> None:
-        envelope = self._create_envelope(message, options)
-        if self._is_expired(envelope):
-            logger.info('Dropping expired message_id=%s before dispatch', envelope.message_id)
+            if raise_on_empty:
+                raise NoRouteError(type(message))
             return
-        endpoints = self._router.resolve(type(message))
-        _reject_unschedulable(envelope, endpoints)  # fan-out is fail-loud: ANY non-durable subscriber raises
-        await self._dispatch_with_ownership(envelope, endpoints)
-
-    async def _dispatch_with_ownership(self, envelope: MessageEnvelope[Any], endpoints: Sequence[Endpoint]) -> None:
-        # Outbox-backed destinations stage inside ONE committed, isolated APP-scope transaction (send-now:
-        # commits regardless of any ambient handler tx); ``sent`` evidence fires only after that commit.
-        # Non-outbox-backed siblings take no owner and dispatch on the ambient scope, post-commit.
-        outbox_backed = [endpoint for endpoint in endpoints if endpoint.is_outbox_backed]
-        if outbox_backed:
-            await own_and_emit_sent(self._app_scope.container, envelope, outbox_backed)
-        for endpoint in endpoints:
-            if not endpoint.is_outbox_backed:
-                await endpoint.dispatch(envelope, self._container)
+        _reject_unschedulable(envelope, endpoints)  # fail-loud: a scheduled message to a non-scheduling endpoint
+        await dispatch_owned(self._app_scope, self._container, envelope, endpoints)
 
     @override
     async def dispatch_to(self, message: IMessage, endpoints: Sequence[Endpoint]) -> MessageEnvelope[Any] | None:

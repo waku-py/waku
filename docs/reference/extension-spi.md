@@ -55,7 +55,6 @@ The endpoint model and executor animated by routing.
 
 `DEFAULT_ENDPOINT_URI` ·
 `BrokerEndpointEntry` ·
-`Endpoint` ·
 `EndpointEntry` ·
 `EndpointExecutor` ·
 `EndpointExecutorFactory` ·

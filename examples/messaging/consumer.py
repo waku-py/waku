@@ -4,11 +4,9 @@ Run it as its own pod/process. It owns the embedded FastStream broker, so it kee
 Waku resilience. ``app.run()`` blocks until SIGTERM/SIGINT, then shuts down gracefully.
 """
 
-from __future__ import annotations
-
 import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from typing_extensions import override
@@ -18,9 +16,6 @@ from waku.backends.sqlalchemy import SqlAlchemyBackend
 from waku.messages import IEvent
 from waku.messaging import EventHandler, InboxConfig, MessagingConfig, MessagingExtension, MessagingModule, listen
 from waku.messaging.transport.faststream.rabbitmq import rabbit_transport
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
 
 
 @dataclass(frozen=True, slots=True)

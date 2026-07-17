@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Never
+from typing import TYPE_CHECKING, Any, ClassVar, Never
 
 import anyio
 from typing_extensions import override
@@ -93,10 +93,8 @@ class DurableLocalQueueEndpoint(Endpoint):
             stop_timeout=stop_timeout,
         )
 
-    @property
-    @override
-    def supports_scheduling(self) -> bool:
-        return True  # durable inbox survives restarts; promotion runs the message when due
+    # durable inbox survives restarts; promotion runs the message when due
+    supports_scheduling: ClassVar[bool] = True
 
     @override
     async def dispatch(self, envelope: MessageEnvelope[Any], scope: AsyncContainer) -> None:
