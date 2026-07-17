@@ -645,6 +645,11 @@ to `_internal/polling.py`) — removed the `waku.di → waku.uow` layering inver
   0 diagnostics, docs gate green.
 - [ ] Duplicated `PollingConfig` default-tuning literal across `OutboxRelayConfig` (`relay.py:45-50`) and
   `DeadLetterConfig` (`config.py:53-58`) — extract one shared default.
+- [ ] Loop-substrate reconciliation: `CatchUpProjectionRunner._poll_loop` re-implements `PollingAgent`'s adaptive
+  tick/pace/wait core with a richer per-projection lease/fan-out/error taxonomy on top (same-process discovery
+  finding #6, 2026-07-17; adjudicated NOT a Wolverine parity gap — the reference splits the same way). Scheduled
+  as the design prelude to verdict-program Slice C2: BLK-12 standby takeover/reacquisition rewrites exactly this
+  lifecycle, and building it on the unreconciled split would build it twice.
 - [ ] **Coverage gap:** `waku/di/` was NOT a holistic-review cluster (audited only via its consumers). Audit the
   package internally — carry-over surfaced by the now-resolved `unit_of_work_scope` placement defect.
 
