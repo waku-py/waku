@@ -4,7 +4,7 @@ from asyncio import Lock
 from collections.abc import Callable, Iterable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any, Final, TypeAlias
 
 from dishka import STRICT_VALIDATION, make_async_container
 
@@ -40,6 +40,9 @@ class ContainerConfig:
     skip_validation: bool = False
 
 
+DEFAULT_CONTAINER_CONFIG: Final = ContainerConfig()
+
+
 class WakuFactory:
     """Builds a ``WakuApplication`` from a root module: module registry, DI container, extensions."""
 
@@ -50,14 +53,14 @@ class WakuFactory:
         context: dict[Any, Any] | None = None,
         lifespan: Sequence[LifespanFunc] = (),
         extensions: Sequence[ApplicationExtension] = DEFAULT_EXTENSIONS,
-        container_config: ContainerConfig | None = None,
+        container_config: ContainerConfig = DEFAULT_CONTAINER_CONFIG,
     ) -> None:
         self._root_module_type = root_module_type
 
         self._context = context
         self._lifespan = lifespan
         self._extensions = extensions
-        self._container_config = container_config or ContainerConfig()
+        self._container_config = container_config
 
     def create(self) -> WakuApplication:
         registry = ModuleRegistryBuilder(

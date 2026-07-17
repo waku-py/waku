@@ -78,6 +78,9 @@ class EndpointDefaults:
     """Fallback requeue/pause budget for `local_queue` entries that leave `max_requeue_attempts` unset."""
 
 
+DEFAULT_ENDPOINT_DEFAULTS: Final = EndpointDefaults()
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class LeadershipConfig:
     """Opt-in cluster leader election, gating the ``DurabilityMaintenanceAgent`` to one node at a time.
@@ -103,7 +106,7 @@ class MessagingConfig:
 
     endpoints: Sequence[EndpointEntry] = ()
     routing: Sequence[RouteDescriptor | ModuleRouteDescriptor] = ()
-    endpoint_defaults: EndpointDefaults = EndpointDefaults()
+    endpoint_defaults: EndpointDefaults = DEFAULT_ENDPOINT_DEFAULTS
     """Per-endpoint fallback knobs (mode, error/sending policies, circuit breaker, backpressure,
     execution timeout, requeue budget); each is shadowed by an explicit per-endpoint/handler value."""
 
@@ -113,6 +116,11 @@ class MessagingConfig:
     leadership: LeadershipConfig | None = None
     """Opt-in cluster leader election gating the durability maintenance agent (see :class:`LeadershipConfig`).
     Default ``None`` = every node runs maintenance unconditionally."""
+    # The three Mapping fields default to MappingProxyType({}) for deep immutability (no stdlib mapping is
+    # both deeply-immutable and picklable). Tradeoff: a default-constructed MessagingConfig is not
+    # copy.deepcopy/pickle-able (mappingproxy cannot pickle); dataclasses.replace passes it through fine.
+    # No in-tree path serializes a config (consumers read the mappings read-only, consumer nodes build in
+    # process); if an out-of-tree flow must pickle one, pass a plain dict for the field to restore it.
     message_identities: Mapping[type[IMessage], str | MessageIdentity] = field(
         default_factory=lambda: MappingProxyType({})
     )

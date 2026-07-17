@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import pytest
+
 from waku.messaging import DeadLetterConfig, LeadershipConfig, MessagingConfig
 
 
@@ -28,3 +30,23 @@ class TestLeadershipConfig:
         config = LeadershipConfig()
         assert config.role == 'waku:leader'
         assert config.stop_timeout == timedelta(seconds=10)
+
+
+class TestMessagingConfigMappingImmutability:
+    @staticmethod
+    def test_default_transports_reject_item_assignment() -> None:
+        config = MessagingConfig()
+        with pytest.raises(TypeError):
+            config.transports['x'] = None  # type: ignore[index]
+
+    @staticmethod
+    def test_default_message_identities_reject_item_assignment() -> None:
+        config = MessagingConfig()
+        with pytest.raises(TypeError):
+            config.message_identities['x'] = None  # type: ignore[index]
+
+    @staticmethod
+    def test_default_audited_members_reject_item_assignment() -> None:
+        config = MessagingConfig()
+        with pytest.raises(TypeError):
+            config.audited_members['x'] = None  # type: ignore[index]

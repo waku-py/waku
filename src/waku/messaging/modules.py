@@ -131,8 +131,7 @@ class MessagingModule:
     """Messaging module: ``register(config)`` wires the message bus, routing, and durability providers."""
 
     @classmethod
-    def register(cls, config: MessagingConfig = DEFAULT_MESSAGING_CONFIG, /) -> DynamicModule:
-        config_ = config
+    def register(cls, config_: MessagingConfig = DEFAULT_MESSAGING_CONFIG, /) -> DynamicModule:
         cls._validate_config(config_)
         providers: list[DishkaProvider] = [
             scoped(WithParents[IMessageBus], MessageBus),  # ty:ignore[not-subscriptable]
