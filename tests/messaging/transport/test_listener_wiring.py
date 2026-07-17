@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from typing_extensions import override
 
@@ -10,7 +10,6 @@ from waku.backends.memory._internal.outbox import InMemoryOutboxStore
 from waku.di import object_, scoped, singleton
 from waku.messages import IEvent
 from waku.messaging import (
-    IMessageObserver,
     InboxConfig,
     MessagingConfig,
     MessagingExtension,
@@ -36,46 +35,20 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import RecordingAllocator, RecordingTransport, RecordingUoW, make_envelope
+from tests.messaging.helpers import (
+    EndpointOnlyObserver,
+    EndpointSink,
+    RecordingAllocator,
+    RecordingTransport,
+    RecordingUoW,
+    make_envelope,
+)
 from tests.messaging.inbox.fake_store import FakeInboxStore
-
-if TYPE_CHECKING:
-    from datetime import timedelta
-
-    from waku.messaging.contracts.envelope import MessageEnvelope
-    from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.endpoints.outcome import ExecutionOutcome
 
 
 @dataclass(frozen=True, slots=True)
 class _OrderPlaced(IEvent):
     order_id: str
-
-
-class _EndpointSink:
-    def __init__(self) -> None:
-        self.events: list[tuple[str, str]] = []
-
-
-class _EndpointOnlyObserver(IMessageObserver):
-    def __init__(self, sink: _EndpointSink) -> None:
-        self._sink = sink
-
-    @override
-    async def on_executing(self, envelope: MessageEnvelope[Any], destination: str, handler_type: HandlerType) -> None:
-        self._sink.events.append(('executing', destination))
-
-    @override
-    async def on_executed(
-        self,
-        envelope: MessageEnvelope[Any],
-        destination: str,
-        handler_type: HandlerType,
-        outcome: ExecutionOutcome,
-        exc: Exception | None,
-        duration: timedelta,
-    ) -> None:
-        self._sink.events.append(('executed', destination))
 
 
 # Observable identity mapper — only referenced for identity comparison; never invoked.
@@ -205,7 +178,7 @@ class TestListenerObserverWiring:
 
         transport = RecordingTransport()
         inbox = FakeInboxStore()
-        config = _config(transport, entry=listen('test://orders', observers=(_EndpointOnlyObserver,)))
+        config = _config(transport, entry=listen('test://orders', observers=(EndpointOnlyObserver,)))
 
         async with create_test_app(
             imports=[MessagingModule.register(config)],
@@ -217,10 +190,10 @@ class TestListenerObserverWiring:
                 scoped(IDeadLetterStore, InMemoryDeadLetterStore),
                 scoped(IOutboxStore, InMemoryOutboxStore),
                 scoped(IDurabilityStore, DefaultDurabilityStore),
-                singleton(_EndpointSink),
+                singleton(EndpointSink),
             ],
         ) as app:
-            sink = await app.container.get(_EndpointSink)
+            sink = await app.container.get(EndpointSink)
             codec = await app.container.get(PayloadCodec)
             envelope = make_envelope(_OrderPlaced(order_id='wired-1'))
             _queue, on_message, _mapper = transport.subscribed[0]

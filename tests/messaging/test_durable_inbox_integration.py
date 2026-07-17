@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 
 import anyio
 import pytest
@@ -15,7 +15,6 @@ from waku.messages import IEvent
 from waku.messaging import (
     EndpointDefaults,
     IMessageBus,
-    IMessageObserver,
     InboxConfig,
     MessagingConfig,
     MessagingExtension,
@@ -27,33 +26,26 @@ from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInbox
 from waku.messaging.endpoints.base import EndpointMode
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.handler import EventHandler
-from waku.messaging.inbox import EndpointUri, InboxStatus
-from waku.messaging.inbox.destination import handler_destination
-from waku.messaging.inbox.models import InboxEntry
+from waku.messaging.inbox import InboxStatus
 from waku.messaging.router import local_queue, route
 from waku.messaging.sequence import ISequenceAllocator
-from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
 from tests.messaging.helpers import (
+    EndpointOnlyObserver,
+    EndpointSink,
     RecordingAllocator,
     RecordingDeadLetterStore,
     RecordingUoW,
     durability_for_inbox,
     durability_for_inbox_and_dead_letters,
     make_envelope,
+    make_inbox_entry,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
-
-if TYPE_CHECKING:
-    from typing import Any
-
-    from waku.messaging.contracts.envelope import MessageEnvelope
-    from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.endpoints.outcome import ExecutionOutcome
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,32 +67,6 @@ class _SecondRecordingHandler(EventHandler[_OrderPlaced]):
     @override
     async def handle(self, message: _OrderPlaced, /) -> None:
         self.observed.append(message.order_id)
-
-
-class _EndpointSink:
-    def __init__(self) -> None:
-        self.events: list[tuple[str, str]] = []
-
-
-class _EndpointOnlyObserver(IMessageObserver):
-    def __init__(self, sink: _EndpointSink) -> None:
-        self._sink = sink
-
-    @override
-    async def on_executing(self, envelope: MessageEnvelope[Any], destination: str, handler_type: HandlerType) -> None:
-        self._sink.events.append(('executing', destination))
-
-    @override
-    async def on_executed(
-        self,
-        envelope: MessageEnvelope[Any],
-        destination: str,
-        handler_type: HandlerType,
-        outcome: ExecutionOutcome,
-        exc: Exception | None,
-        duration: timedelta,
-    ) -> None:
-        self._sink.events.append(('executed', destination))
 
 
 # Inbox-only config (no outbox, no dead_letter_store): also exercises that PayloadCodec is
@@ -416,19 +382,7 @@ class TestDurableInboxIntegration:
         ) as app:
             codec = await app.container.get(PayloadCodec)
             envelope = make_envelope(_OrderPlaced(order_id='rec-1'))
-            entry = InboxEntry(
-                id=envelope.message_id,
-                payload=encode_payload(envelope, codec),
-                message_type=envelope.message_type,
-                source_uri=EndpointUri('orders'),
-                destination=handler_destination(_BlockingHandler),
-                owner_id=None,
-                status=InboxStatus.INCOMING,
-                attempts=0,
-                correlation_id=envelope.correlation_id,
-                causation_id=envelope.causation_id,
-                metadata=encode_metadata(envelope),
-            )
+            entry = make_inbox_entry(envelope, _BlockingHandler, codec=codec)
             inbox.entries[entry.id, entry.destination] = entry
             await wait_until(lambda: len(inbox.dead_letters.entries) == 1)
 
@@ -465,19 +419,7 @@ class TestDurableInboxIntegration:
                 _OrderPlaced(order_id='exp-1'),
                 expires_at=datetime.now(tz=UTC) - timedelta(hours=1),
             )
-            entry = InboxEntry(
-                id=envelope.message_id,
-                payload=encode_payload(envelope, codec),
-                message_type=envelope.message_type,
-                source_uri=EndpointUri('orders'),
-                destination=handler_destination(_RecordingHandler),
-                owner_id=None,
-                status=InboxStatus.INCOMING,
-                attempts=0,
-                correlation_id=envelope.correlation_id,
-                causation_id=envelope.causation_id,
-                metadata=encode_metadata(envelope),
-            )
+            entry = make_inbox_entry(envelope, _RecordingHandler, codec=codec)
             inbox.entries[entry.id, entry.destination] = entry
             await wait_until(lambda: (entry.id, entry.destination) not in inbox.entries)
 
@@ -497,7 +439,7 @@ class TestDurableInboxIntegration:
                     'orders',
                     mode=EndpointMode.DURABLE,
                     stop_timeout=timedelta(seconds=1.0),
-                    observers=(_EndpointOnlyObserver,),
+                    observers=(EndpointOnlyObserver,),
                 )
             ],
             routing=[route(_OrderPlaced).to('orders')],
@@ -512,24 +454,13 @@ class TestDurableInboxIntegration:
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IDurabilityStore, durability_for_inbox),
-                singleton(_EndpointSink),
+                singleton(EndpointSink),
             ],
         ) as app:
-            sink = await app.container.get(_EndpointSink)
+            sink = await app.container.get(EndpointSink)
             codec = await app.container.get(PayloadCodec)
             envelope = make_envelope(_OrderPlaced(order_id='recovered-obs'))
-            entry = InboxEntry(
-                id=envelope.message_id,
-                payload=encode_payload(envelope, codec),
-                message_type=envelope.message_type,
-                source_uri=EndpointUri('orders'),
-                destination=handler_destination(_RecordingHandler),
-                owner_id=None,
-                status=InboxStatus.INCOMING,
-                correlation_id=envelope.correlation_id,
-                causation_id=envelope.causation_id,
-                metadata=encode_metadata(envelope),
-            )
+            entry = make_inbox_entry(envelope, _RecordingHandler, codec=codec)
             inbox.entries[entry.id, entry.destination] = entry
             await wait_until(lambda: sink.events == [('executing', 'orders'), ('executed', 'orders')])
 
@@ -564,18 +495,12 @@ class TestDurableInboxIntegration:
         ) as app:
             codec = await app.container.get(PayloadCodec)
             envelope = make_envelope(_OrderPlaced(order_id='sched-1'))
-            entry = InboxEntry(
-                id=envelope.message_id,
-                payload=encode_payload(envelope, codec),
-                message_type=envelope.message_type,
-                source_uri=EndpointUri('orders'),
-                destination=handler_destination(_RecordingHandler),
-                owner_id=None,
+            entry = make_inbox_entry(
+                envelope,
+                _RecordingHandler,
+                codec=codec,
                 status=InboxStatus.SCHEDULED,
                 execution_time=datetime.now(tz=UTC) - timedelta(hours=1),  # already due
-                correlation_id=envelope.correlation_id,
-                causation_id=envelope.causation_id,
-                metadata=encode_metadata(envelope),
             )
             inbox.entries[entry.id, entry.destination] = entry
             await wait_until(lambda: _RecordingHandler.observed == ['sched-1'])
@@ -611,18 +536,12 @@ class TestDurableInboxIntegration:
         ) as app:
             codec = await app.container.get(PayloadCodec)
             envelope = make_envelope(_OrderPlaced(order_id='keyless-sched'))
-            entry = InboxEntry(
-                id=envelope.message_id,
-                payload=encode_payload(envelope, codec),
-                message_type=envelope.message_type,
-                source_uri=EndpointUri('orders'),
-                destination=handler_destination(_RecordingHandler),
-                owner_id=None,
+            entry = make_inbox_entry(
+                envelope,
+                _RecordingHandler,
+                codec=codec,
                 status=InboxStatus.SCHEDULED,
                 execution_time=datetime.now(tz=UTC) - timedelta(hours=1),  # already due, keyless (group_id=None)
-                correlation_id=envelope.correlation_id,
-                causation_id=envelope.causation_id,
-                metadata=encode_metadata(envelope),
             )
             inbox.entries[entry.id, entry.destination] = entry
             await wait_until(lambda: _RecordingHandler.observed == ['keyless-sched'])

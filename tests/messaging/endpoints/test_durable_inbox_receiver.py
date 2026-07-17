@@ -49,6 +49,7 @@ from tests.messaging.helpers import (
     RecordingAllocator,
     RecordingDeadLetterStore,
     RecordingUoW,
+    StubEndpointExecution,
     make_codec,
     make_envelope,
 )
@@ -132,7 +133,7 @@ class _DepsProvider(Provider):
         return self._allocator
 
 
-class _StubExecutor(IEndpointExecution):
+class _StubExecutor(StubEndpointExecution):
     def __init__(self, *, return_value: ExecutionOutcome, requeue_limit: int | None = None) -> None:
         self.return_value = return_value
         self.requeue_limit = requeue_limit
@@ -146,18 +147,6 @@ class _StubExecutor(IEndpointExecution):
     ) -> TerminalIntent:
         self.calls += 1
         return _intent(self.return_value, requeue_limit=self.requeue_limit)
-
-    @override
-    async def emit_terminal(
-        self,
-        envelope: MessageEnvelope[Any],
-        handler_type: HandlerType,
-        intent: TerminalIntent,
-        result: ExecutionResult,
-        *,
-        on_result: ResultObserver = noop_result_observer,
-    ) -> None:
-        await on_result(result.outcome, intent.error)
 
 
 class _CapturingTerminalExecutor(_StubExecutor):

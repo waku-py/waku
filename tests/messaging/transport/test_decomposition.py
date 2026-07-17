@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pytest
@@ -25,6 +26,9 @@ from waku.messaging.transport._internal.wire import (
 from waku.messaging.transport.interfaces import EnvelopeMetadata, MalformedMetadataError
 from waku.serialization import UpcasterChain, upcast
 from waku.serialization.codec import PayloadCodec
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @dataclass(frozen=True, slots=True)
@@ -515,14 +519,25 @@ class TestWireMetadataFromEntry:
         assert result.message_id == str(entry_id)
 
     @staticmethod
-    def test_typed_columns_mapped_for_outbox() -> None:
+    @pytest.mark.parametrize(
+        ('make_entry', 'group_id', 'message_type'),
+        [
+            pytest.param(_make_outbox_message, 'grp-1', 'orders.OrderPlaced', id='outbox'),
+            pytest.param(_make_inbox_entry, 'grp-2', 'orders.OrderShipped', id='inbox'),
+        ],
+    )
+    def test_typed_columns_mapped_from_entry(
+        make_entry: Callable[..., OutboxMessage | InboxEntry],
+        group_id: str,
+        message_type: str,
+    ) -> None:
         corr = str(uuid4())
         caus = str(uuid4())
-        entry = _make_outbox_message(
+        entry = make_entry(
             correlation_id=corr,
             causation_id=caus,
-            group_id='grp-1',
-            message_type='orders.OrderPlaced',
+            group_id=group_id,
+            message_type=message_type,
             metadata=_make_meta_json(),
         )
 
@@ -530,27 +545,8 @@ class TestWireMetadataFromEntry:
 
         assert result.correlation_id == corr
         assert result.causation_id == caus
-        assert result.group_id == 'grp-1'
-        assert result.message_type == 'orders.OrderPlaced'
-
-    @staticmethod
-    def test_typed_columns_mapped_for_inbox() -> None:
-        corr = str(uuid4())
-        caus = str(uuid4())
-        entry = _make_inbox_entry(
-            correlation_id=corr,
-            causation_id=caus,
-            group_id='grp-2',
-            message_type='orders.OrderShipped',
-            metadata=_make_meta_json(),
-        )
-
-        result = wire_metadata_from_entry(entry)
-
-        assert result.correlation_id == corr
-        assert result.causation_id == caus
-        assert result.group_id == 'grp-2'
-        assert result.message_type == 'orders.OrderShipped'
+        assert result.group_id == group_id
+        assert result.message_type == message_type
 
     @staticmethod
     def test_metadata_json_parsed_for_version_timestamp_headers() -> None:

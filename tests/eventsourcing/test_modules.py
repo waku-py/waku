@@ -744,13 +744,31 @@ async def test_snapshot_migration_target_rejects_schema_version_without_migratio
             pass  # pragma: no cover
 
 
-async def test_snapshot_migration_target_rejects_chain_not_reaching_schema_version() -> None:
+@pytest.mark.parametrize(
+    ('migrations', 'match'),
+    [
+        pytest.param(
+            [_NoOpSnapshotMigration()],
+            'migration chain reaches version 2 but schema_version is 3',
+            id='chain_not_reaching_schema_version',
+        ),
+        pytest.param(
+            [_V2ToV3SnapshotMigration()],
+            'starts at version 2 but must start at version 1',
+            id='chain_not_starting_at_version_1',
+        ),
+    ],
+)
+async def test_snapshot_migration_target_rejects_invalid_chain(
+    migrations: list[ISnapshotMigration],
+    match: str,
+) -> None:
     es_ext = EventSourcingExtension().bind_aggregate(
         repository=ItemRepository,
         snapshot=SnapshotOptions(
             strategy=EventCountStrategy(threshold=50),
             schema_version=3,
-            migrations=[_NoOpSnapshotMigration()],
+            migrations=migrations,
         ),
     )
 
@@ -761,29 +779,7 @@ async def test_snapshot_migration_target_rejects_chain_not_reaching_schema_versi
     class ItemModule:
         pass
 
-    with pytest.raises(SnapshotMigrationChainError, match='migration chain reaches version 2 but schema_version is 3'):
-        async with create_test_app(imports=[ItemModule]):
-            pass  # pragma: no cover
-
-
-async def test_snapshot_migration_target_rejects_chain_not_starting_at_version_1() -> None:
-    es_ext = EventSourcingExtension().bind_aggregate(
-        repository=ItemRepository,
-        snapshot=SnapshotOptions(
-            strategy=EventCountStrategy(threshold=50),
-            schema_version=3,
-            migrations=[_V2ToV3SnapshotMigration()],
-        ),
-    )
-
-    @module(
-        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()],
-        extensions=[es_ext],
-    )
-    class ItemModule:
-        pass
-
-    with pytest.raises(SnapshotMigrationChainError, match='starts at version 2 but must start at version 1'):
+    with pytest.raises(SnapshotMigrationChainError, match=match):
         async with create_test_app(imports=[ItemModule]):
             pass  # pragma: no cover
 

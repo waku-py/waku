@@ -236,7 +236,15 @@ class AddDefaultValueMigration(ISnapshotMigration):
         return {**state, 'value': state.get('value', 0)}
 
 
-async def test_load_with_old_schema_version_applies_migration(
+@pytest.mark.parametrize(
+    'schema_version',
+    [
+        pytest.param(2, id='reachable_chain_applies_migration'),
+        pytest.param(3, id='unreachable_chain_replays_from_events'),
+    ],
+)
+async def test_old_schema_version_snapshot_migrates_or_replays(
+    schema_version: int,
     mocker: MockerFixture,
     decider: CounterDecider,
     event_store: InMemoryEventStore,
@@ -248,47 +256,7 @@ async def test_load_with_old_schema_version_applies_migration(
     registry = SnapshotConfigRegistry({
         'Counter': SnapshotConfig(
             strategy=strategy,
-            schema_version=2,
-            migration_chain=SnapshotMigrationChain([AddDefaultValueMigration()]),
-        ),
-    })
-    repo = CounterSnapshotRepository(
-        decider=decider,
-        event_store=event_store,
-        snapshot_store=snapshot_store,
-        snapshot_config_registry=registry,
-        state_serializer=state_serializer,
-    )
-
-    await repo.save('c-1', [Incremented(amount=5), Incremented(amount=3)], expected_version=-1)
-
-    snapshot_store.load.return_value = Snapshot(
-        stream_id=StreamId.for_aggregate('Counter', 'c-1'),
-        state={'value': 5},
-        version=0,
-        state_type='CounterState',
-        schema_version=1,
-    )
-
-    state, version = await repo.load('c-1')
-
-    assert state == CounterState(value=8)
-    assert version == 1
-
-
-async def test_load_with_old_schema_version_no_migration_replays_from_events(
-    mocker: MockerFixture,
-    decider: CounterDecider,
-    event_store: InMemoryEventStore,
-    state_serializer: JsonSnapshotStateSerializer,
-) -> None:
-    snapshot_store = mocker.AsyncMock(spec=ISnapshotStore)
-    snapshot_store.load.return_value = None
-    strategy = EventCountStrategy(threshold=100)
-    registry = SnapshotConfigRegistry({
-        'Counter': SnapshotConfig(
-            strategy=strategy,
-            schema_version=3,
+            schema_version=schema_version,
             migration_chain=SnapshotMigrationChain([AddDefaultValueMigration()]),
         ),
     })

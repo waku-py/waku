@@ -312,7 +312,17 @@ async def test_load_with_matching_schema_version_uses_snapshot(
     assert loaded.balance == 100
 
 
-async def test_load_with_old_schema_version_applies_migration(
+@pytest.mark.parametrize(
+    ('schema_version', 'deposit', 'expected_balance'),
+    [
+        pytest.param(2, 50, 0, id='reachable_chain_applies_migration'),
+        pytest.param(3, 200, 200, id='unreachable_chain_replays_from_events'),
+    ],
+)
+async def test_old_schema_version_snapshot_migrates_or_replays(
+    schema_version: int,
+    deposit: int,
+    expected_balance: int,
     mocker: MockerFixture,
     event_store: InMemoryEventStore,
     state_serializer: JsonSnapshotStateSerializer,
@@ -321,7 +331,7 @@ async def test_load_with_old_schema_version_applies_migration(
     config_registry = SnapshotConfigRegistry({
         'BankAccount': SnapshotConfig(
             strategy=EventCountStrategy(threshold=100),
-            schema_version=2,
+            schema_version=schema_version,
             migration_chain=SnapshotMigrationChain([AddBalanceFieldMigration()]),
         ),
     })
@@ -329,7 +339,7 @@ async def test_load_with_old_schema_version_applies_migration(
 
     account = BankAccount()
     account.open('Alice')
-    account.deposit(50)
+    account.deposit(deposit)
     await repo.save('acc-1', account)
 
     snapshot_store.load.return_value = Snapshot(
@@ -343,41 +353,7 @@ async def test_load_with_old_schema_version_applies_migration(
     loaded = await repo.load('acc-1')
 
     assert loaded.name == 'Alice'
-    assert loaded.balance == 0
-
-
-async def test_load_with_old_schema_version_no_migration_replays_from_events(
-    mocker: MockerFixture,
-    event_store: InMemoryEventStore,
-    state_serializer: JsonSnapshotStateSerializer,
-) -> None:
-    snapshot_store = mocker.AsyncMock(spec=ISnapshotStore)
-    config_registry = SnapshotConfigRegistry({
-        'BankAccount': SnapshotConfig(
-            strategy=EventCountStrategy(threshold=100),
-            schema_version=3,
-            migration_chain=SnapshotMigrationChain([AddBalanceFieldMigration()]),
-        ),
-    })
-    repo = BankAccountRepository(event_store, snapshot_store, config_registry, state_serializer)
-
-    account = BankAccount()
-    account.open('Alice')
-    account.deposit(200)
-    await repo.save('acc-1', account)
-
-    snapshot_store.load.return_value = Snapshot(
-        stream_id=StreamId.for_aggregate('BankAccount', 'acc-1'),
-        state={'name': 'Alice'},
-        version=1,
-        state_type='BankAccount',
-        schema_version=1,
-    )
-
-    loaded = await repo.load('acc-1')
-
-    assert loaded.name == 'Alice'
-    assert loaded.balance == 200
+    assert loaded.balance == expected_balance
 
 
 async def test_save_writes_current_schema_version(

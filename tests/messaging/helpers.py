@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
@@ -11,14 +11,19 @@ from typing_extensions import override
 from waku._internal.retort import default_retort
 from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore, IOutboxStore
+from waku.messaging.endpoints._internal.execution import IEndpointExecution, noop_result_observer
 from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.registry import ErrorPolicyRegistry
-from waku.messaging.observability.observer import MessageObservers
+from waku.messaging.inbox import EndpointUri, InboxStatus
+from waku.messaging.inbox.destination import handler_destination
+from waku.messaging.inbox.models import InboxEntry
+from waku.messaging.observability.observer import IMessageObserver, MessageObservers
 from waku.messaging.outbox.relay import OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicyRegistry
 from waku.messaging.sequence import GroupId, ISequenceAllocator
 from waku.messaging.transport._internal.registry import TransportRegistry
+from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper, ITransport, Subscription
 from waku.serialization import UpcasterChain
 from waku.serialization.codec import PayloadCodec
@@ -33,6 +38,9 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from waku.messages import IMessage
+    from waku.messaging.contracts.handler import HandlerType
+    from waku.messaging.endpoints._internal.execution import ExecutionResult, ResultObserver, TerminalIntent
+    from waku.messaging.endpoints.outcome import ExecutionOutcome
     from waku.messaging.sending import SendingFailurePolicy
     from waku.messaging.transport.inbound import ConsumeCallback
 
@@ -82,8 +90,71 @@ def make_relay_evaluator(
     return SendingFailureEvaluator(registry=registry)
 
 
+def make_inbox_entry(
+    envelope: MessageEnvelope[Any],
+    handler_type: HandlerType,
+    *,
+    codec: PayloadCodec,
+    status: InboxStatus = InboxStatus.INCOMING,
+    execution_time: datetime | None = None,
+) -> InboxEntry:
+    return InboxEntry(
+        id=envelope.message_id,
+        payload=encode_payload(envelope, codec),
+        message_type=envelope.message_type,
+        source_uri=EndpointUri('orders'),
+        destination=handler_destination(handler_type),
+        owner_id=None,
+        status=status,
+        execution_time=execution_time,
+        correlation_id=envelope.correlation_id,
+        causation_id=envelope.causation_id,
+        metadata=encode_metadata(envelope),
+    )
+
+
 NOOP_EVALUATOR = ErrorPolicyEvaluator(registry=ErrorPolicyRegistry(handler_policies={}, default_policies=()))
 NOOP_OBSERVERS = MessageObservers([])
+
+
+class StubEndpointExecution(IEndpointExecution):
+    @override
+    async def emit_terminal(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+        intent: TerminalIntent,
+        result: ExecutionResult,
+        *,
+        on_result: ResultObserver = noop_result_observer,
+    ) -> None:
+        await on_result(result.outcome, intent.error)
+
+
+class EndpointSink:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str]] = []
+
+
+class EndpointOnlyObserver(IMessageObserver):
+    def __init__(self, sink: EndpointSink) -> None:
+        self._sink = sink
+
+    @override
+    async def on_executing(self, envelope: MessageEnvelope[Any], destination: str, handler_type: HandlerType) -> None:
+        self._sink.events.append(('executing', destination))
+
+    @override
+    async def on_executed(
+        self,
+        envelope: MessageEnvelope[Any],
+        destination: str,
+        handler_type: HandlerType,
+        outcome: ExecutionOutcome,
+        exc: Exception | None,
+        duration: timedelta,
+    ) -> None:
+        self._sink.events.append(('executed', destination))
 
 
 class RecordingUoW(IUnitOfWork):

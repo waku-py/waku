@@ -18,12 +18,9 @@ from waku.messaging import EndpointDefaults, MessagingConfig, MessagingExtension
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging.durability import IDurabilityStore, IInboxStore
 from waku.messaging.endpoints._internal.execution import (
-    ExecutionResult,
     IEndpointExecution,
-    ResultObserver,
     TerminalIntent,
     TerminalIntentKind,
-    noop_result_observer,
 )
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.handler import EventHandler
@@ -43,6 +40,7 @@ from tests.messaging.helpers import (
     RecordingDeadLetterStore,
     RecordingDurabilityStore,
     RecordingUoW,
+    StubEndpointExecution,
     make_codec,
     make_envelope,
 )
@@ -82,7 +80,7 @@ def _intent(outcome: ExecutionOutcome) -> TerminalIntent:
     return TerminalIntent(kinds[outcome], error=error, attempt=1)
 
 
-class _StubExecutor(IEndpointExecution):
+class _StubExecutor(StubEndpointExecution):
     def __init__(self, *, return_value: ExecutionOutcome) -> None:
         self.return_value = return_value
         self.calls: list[tuple[str, HandlerType]] = []
@@ -95,18 +93,6 @@ class _StubExecutor(IEndpointExecution):
     ) -> TerminalIntent:
         self.calls.append((envelope.message_type, handler_type))
         return _intent(self.return_value)
-
-    @override
-    async def emit_terminal(
-        self,
-        envelope: MessageEnvelope[Any],
-        handler_type: HandlerType,
-        intent: TerminalIntent,
-        result: ExecutionResult,
-        *,
-        on_result: ResultObserver = noop_result_observer,
-    ) -> None:
-        await on_result(result.outcome, intent.error)
 
 
 class _Deps(Provider):
@@ -184,7 +170,7 @@ class _CapturingExecutor(_StubExecutor):
         return _intent(ExecutionOutcome.SUCCESS)
 
 
-class _FatalRollbackExecutor(IEndpointExecution):
+class _FatalRollbackExecutor(StubEndpointExecution):
     def __init__(self, rollback_error: Exception, primary_error: Exception) -> None:
         self.calls = 0
         self.rollback_error = rollback_error
@@ -202,20 +188,8 @@ class _FatalRollbackExecutor(IEndpointExecution):
             self.primary_error,
         )
 
-    @override
-    async def emit_terminal(
-        self,
-        envelope: MessageEnvelope[Any],
-        handler_type: HandlerType,
-        intent: TerminalIntent,
-        result: ExecutionResult,
-        *,
-        on_result: ResultObserver = noop_result_observer,
-    ) -> None:
-        await on_result(result.outcome, intent.error)
 
-
-class _FatalAfterCommitExecutor(IEndpointExecution):
+class _FatalAfterCommitExecutor(StubEndpointExecution):
     def __init__(self, teardown_error: Exception) -> None:
         self.calls = 0
         self.teardown_error = teardown_error
@@ -228,18 +202,6 @@ class _FatalAfterCommitExecutor(IEndpointExecution):
     ) -> TerminalIntent:
         self.calls += 1
         raise AfterCommitError(self.teardown_error)
-
-    @override
-    async def emit_terminal(
-        self,
-        envelope: MessageEnvelope[Any],
-        handler_type: HandlerType,
-        intent: TerminalIntent,
-        result: ExecutionResult,
-        *,
-        on_result: ResultObserver = noop_result_observer,
-    ) -> None:
-        await on_result(result.outcome, intent.error)
 
 
 async def test_drain_crash_recovery_rebuilds_envelope_from_decomposed_row() -> None:

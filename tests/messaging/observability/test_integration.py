@@ -32,23 +32,23 @@ from waku.messaging import (
 from waku.messaging.durability import IDurabilityStore, IInboxStore, IOutboxStore
 from waku.messaging.endpoints import ExecutionOutcome
 from waku.messaging.endpoints.base import EndpointMode
-from waku.messaging.inbox import EndpointUri, InboxEntry, InboxStatus
-from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.router import local_queue, route
 from waku.messaging.sequence import ISequenceAllocator
-from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
 from tests.messaging.helpers import (
+    EndpointOnlyObserver,
+    EndpointSink,
     RecordingAllocator,
     RecordingTransport,
     RecordingUoW,
     durability_for_inbox,
     durability_for_outbox,
     make_envelope,
+    make_inbox_entry,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
@@ -136,34 +136,10 @@ class _GlobalRawObserver(IMessageObserver):
         self._sink.events.append('executed')
 
 
-class _EndpointSink:
-    def __init__(self) -> None:
-        self.events: list[tuple[str, str]] = []
-
-
-class _EndpointOnlyObserver(IMessageObserver):
-    def __init__(self, sink: _EndpointSink) -> None:
-        self._sink = sink
-
+class _EndpointOnlyObserver(EndpointOnlyObserver):
     @override
     async def on_sent(self, envelope: MessageEnvelope[Any], destination: str) -> None:
         self._sink.events.append(('sent', destination))
-
-    @override
-    async def on_executing(self, envelope: MessageEnvelope[Any], destination: str, handler_type: HandlerType) -> None:
-        self._sink.events.append(('executing', destination))
-
-    @override
-    async def on_executed(
-        self,
-        envelope: MessageEnvelope[Any],
-        destination: str,
-        handler_type: HandlerType,
-        outcome: ExecutionOutcome,
-        exc: Exception | None,
-        duration: timedelta,
-    ) -> None:
-        self._sink.events.append(('executed', destination))
 
 
 @pytest.fixture
@@ -338,18 +314,7 @@ async def test_durable_and_drainer_paths_fire_executing_and_executed(caplog: pyt
             # Recovery path: seed an unclaimed INCOMING row; InboxRecoveryWorker -> InboxDrainer executes it.
             codec = await app.container.get(PayloadCodec)
             envelope = make_envelope(_Ordered(order_id='recovered-1'))
-            entry = InboxEntry(
-                id=envelope.message_id,
-                payload=encode_payload(envelope, codec),
-                message_type=envelope.message_type,
-                source_uri=EndpointUri('orders'),
-                destination=handler_destination(_DurableHandler),
-                owner_id=None,
-                status=InboxStatus.INCOMING,
-                correlation_id=envelope.correlation_id,
-                causation_id=envelope.causation_id,
-                metadata=encode_metadata(envelope),
-            )
+            entry = make_inbox_entry(envelope, _DurableHandler, codec=codec)
             inbox.entries[entry.id, entry.destination] = entry
             await wait_until(lambda: sorted(calls) == ['live-1', 'recovered-1'])
 
@@ -515,12 +480,12 @@ async def test_endpoint_declared_observer_fires_only_for_its_uri_global_fires_fo
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_DecoratedHandler, _PlainHandler)],
-            providers=[singleton(_EventSink), singleton(_EndpointSink)],
+            providers=[singleton(_EventSink), singleton(EndpointSink)],
         ) as app,
         app.container() as container,
     ):
         bus = await container.get(IMessageBus)
-        endpoint_sink = await container.get(_EndpointSink)
+        endpoint_sink = await container.get(EndpointSink)
         global_sink = await container.get(_EventSink)
 
         await bus.send(_DecoratedPing())
@@ -557,13 +522,13 @@ async def test_external_endpoint_declared_observer_fires_on_sent() -> None:
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
                 scoped(IOutboxStore, RecordingOutboxStore),
                 scoped(IDurabilityStore, durability_for_outbox),
-                singleton(_EndpointSink),
+                singleton(EndpointSink),
             ],
         ) as app,
         app.container() as container,
     ):
         bus = await container.get(IMessageBus)
-        endpoint_sink = await container.get(_EndpointSink)
+        endpoint_sink = await container.get(EndpointSink)
         await bus.publish(_Ordered(order_id='ext-1'))
 
     assert endpoint_sink.events == [('sent', 'test://events')]  # sender-side attach on the outbox endpoint
@@ -610,12 +575,12 @@ async def test_invoke_does_not_fire_endpoint_declared_observer_but_fires_global(
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_InvokeHandler)],
-            providers=[singleton(_EventSink), singleton(_EndpointSink)],
+            providers=[singleton(_EventSink), singleton(EndpointSink)],
         ) as app,
         app.container() as container,
     ):
         bus = await container.get(IMessageBus)
-        endpoint_sink = await container.get(_EndpointSink)
+        endpoint_sink = await container.get(EndpointSink)
         global_sink = await container.get(_EventSink)
         await bus.invoke(_Ping(ref='invoke-1'))
 

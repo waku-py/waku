@@ -15,12 +15,9 @@ from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
 from waku.messaging.endpoints._internal.execution import (
-    ExecutionResult,
     IEndpointExecution,
-    ResultObserver,
     TerminalIntent,
     TerminalIntentKind,
-    noop_result_observer,
 )
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.handler import EventHandler
@@ -39,6 +36,7 @@ from tests.messaging.helpers import (
     RecordingAllocator,
     RecordingDeadLetterStore,
     RecordingUoW,
+    StubEndpointExecution,
     make_envelope,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
@@ -113,7 +111,7 @@ class _DepsProvider(Provider):
         return self._allocator
 
 
-class _StubExecutor(IEndpointExecution):
+class _StubExecutor(StubEndpointExecution):
     def __init__(self, *, return_value: ExecutionOutcome) -> None:
         self.return_value = return_value
         self.calls = 0
@@ -126,18 +124,6 @@ class _StubExecutor(IEndpointExecution):
     ) -> TerminalIntent:
         self.calls += 1
         return _intent(self.return_value)
-
-    @override
-    async def emit_terminal(
-        self,
-        envelope: MessageEnvelope[Any],
-        handler_type: HandlerType,
-        intent: TerminalIntent,
-        result: ExecutionResult,
-        *,
-        on_result: ResultObserver = noop_result_observer,
-    ) -> None:
-        await on_result(result.outcome, intent.error)
 
 
 def _receiver(container: AsyncContainer, executor: IEndpointExecution) -> DurableInboxReceiver:

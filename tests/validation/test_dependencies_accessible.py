@@ -128,8 +128,8 @@ def application_factory(rule: ValidationRule) -> ApplicationFactoryFunc:
 def assert_single_inaccessible_error(
     exc_info: pytest.ExceptionInfo[BaseException],
     required_type: type,
-    required_by: object,
     from_module: Module,
+    required_by: object | None = None,
 ) -> None:
     assert isinstance(exc_info.value, ExceptionGroup)
     errors = exc_info.value.exceptions
@@ -137,7 +137,8 @@ def assert_single_inaccessible_error(
     error = errors[0]
     assert isinstance(error, DependencyInaccessibleError)
     assert error.required_type is required_type
-    assert error.required_by is required_by
+    if required_by is not None:
+        assert error.required_by is required_by
     assert error.from_module is from_module
 
 
@@ -504,12 +505,7 @@ async def test_alias_source_must_be_accessible(application_factory: ApplicationF
         await application.initialize()
 
     alias_module = application.registry.get(AliasModule)
-    assert isinstance(exc_info.value, ExceptionGroup)
-    assert len(exc_info.value.exceptions) == 1
-    error = exc_info.value.exceptions[0]
-    assert isinstance(error, DependencyInaccessibleError)
-    assert error.required_type is _Secret
-    assert error.from_module is alias_module
+    assert_single_inaccessible_error(exc_info, required_type=_Secret, from_module=alias_module)
 
 
 async def test_alias_source_can_be_exported(application_factory: ApplicationFactoryFunc) -> None:
@@ -561,12 +557,7 @@ async def test_inactive_alias_does_not_hide_active_alias_dependency(
         await application.initialize()
 
     alias_module = application.registry.get(AliasModule)
-    assert isinstance(exc_info.value, ExceptionGroup)
-    assert len(exc_info.value.exceptions) == 1
-    error = exc_info.value.exceptions[0]
-    assert isinstance(error, DependencyInaccessibleError)
-    assert error.required_type is _ActiveSecret
-    assert error.from_module is alias_module
+    assert_single_inaccessible_error(exc_info, required_type=_ActiveSecret, from_module=alias_module)
 
 
 async def test_inactive_local_factory_does_not_authorize_active_alias_source(
@@ -589,11 +580,7 @@ async def test_inactive_local_factory_does_not_authorize_active_alias_source(
         await application.initialize()
 
     alias_module = application.registry.get(AliasModule)
-    assert len(exc_info.value.exceptions) == 1
-    error = exc_info.value.exceptions[0]
-    assert isinstance(error, DependencyInaccessibleError)
-    assert error.required_type is _Secret
-    assert error.from_module is alias_module
+    assert_single_inaccessible_error(exc_info, required_type=_Secret, from_module=alias_module)
 
 
 async def test_same_type_alias_source_component_must_be_accessible(
@@ -622,12 +609,7 @@ async def test_same_type_alias_source_component_must_be_accessible(
         await application.initialize()
 
     alias_module = application.registry.get(AliasModule)
-    assert isinstance(exc_info.value, ExceptionGroup)
-    assert len(exc_info.value.exceptions) == 1
-    error = exc_info.value.exceptions[0]
-    assert isinstance(error, DependencyInaccessibleError)
-    assert error.required_type is _DecoratedService
-    assert error.from_module is alias_module
+    assert_single_inaccessible_error(exc_info, required_type=_DecoratedService, from_module=alias_module)
 
 
 async def test_decorator_dependencies_must_be_accessible(application_factory: ApplicationFactoryFunc) -> None:

@@ -21,12 +21,9 @@ from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
 from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.endpoints._internal.durable_local_queue import DurableLocalQueueEndpoint
 from waku.messaging.endpoints._internal.execution import (
-    ExecutionResult,
     IEndpointExecution,
-    ResultObserver,
     TerminalIntent,
     TerminalIntentKind,
-    noop_result_observer,
 )
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.handler import EventHandler
@@ -43,6 +40,7 @@ from tests.messaging.helpers import (
     RecordingAllocator,
     RecordingDeadLetterStore,
     RecordingUoW,
+    StubEndpointExecution,
     make_codec,
     make_envelope,
 )
@@ -103,7 +101,7 @@ def _intent(
     return TerminalIntent(kinds[outcome], error=exc, pause_duration=pause_duration)
 
 
-class _StubExecutor(IEndpointExecution):
+class _StubExecutor(StubEndpointExecution):
     def __init__(
         self,
         *,
@@ -126,18 +124,6 @@ class _StubExecutor(IEndpointExecution):
         self.calls += 1
         self.handled.append(handler_type)
         return _intent(self.return_value, exc=self.exc, pause_duration=self._pause_duration)
-
-    @override
-    async def emit_terminal(
-        self,
-        envelope: MessageEnvelope[Any],
-        handler_type: HandlerType,
-        intent: TerminalIntent,
-        result: ExecutionResult,
-        *,
-        on_result: ResultObserver = noop_result_observer,
-    ) -> None:
-        await on_result(result.outcome, intent.error)
 
 
 class _PauseOnceExecutor(_StubExecutor):

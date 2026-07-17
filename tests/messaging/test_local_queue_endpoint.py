@@ -29,12 +29,8 @@ from waku.messaging import (
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
 from waku.messaging.endpoints._internal.execution import (
     EndpointExecution,
-    ExecutionResult,
-    IEndpointExecution,
-    ResultObserver,
     TerminalIntent,
     TerminalIntentKind,
-    noop_result_observer,
 )
 from waku.messaging.endpoints._internal.local_queue import LocalQueueEndpoint
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers
@@ -43,7 +39,7 @@ from waku.messaging.router import local_queue, route
 from waku.testing import create_test_app
 
 from tests._wait import wait_until
-from tests.messaging.helpers import NOOP_EVALUATOR, NOOP_OBSERVERS, make_envelope
+from tests.messaging.helpers import NOOP_EVALUATOR, NOOP_OBSERVERS, StubEndpointExecution, make_envelope
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -273,7 +269,7 @@ class _CbHandler(EventHandler[_CbEvent]):
     async def handle(self, event: _CbEvent, /) -> None: ...
 
 
-class _AlwaysFailStubExecutor(IEndpointExecution):
+class _AlwaysFailStubExecutor(StubEndpointExecution):
     def __init__(self) -> None:
         self.calls = 0
 
@@ -285,18 +281,6 @@ class _AlwaysFailStubExecutor(IEndpointExecution):
     ) -> TerminalIntent:
         self.calls += 1
         return TerminalIntent(TerminalIntentKind.FAILED_NO_POLICY, error=RuntimeError())
-
-    @override
-    async def emit_terminal(
-        self,
-        envelope: MessageEnvelope[Any],
-        handler_type: HandlerType,
-        intent: TerminalIntent,
-        result: ExecutionResult,
-        *,
-        on_result: ResultObserver = noop_result_observer,
-    ) -> None:
-        await on_result(result.outcome, intent.error)
 
 
 class TestLocalQueueCircuitBreaker:

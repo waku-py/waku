@@ -416,17 +416,27 @@ async def test_runner_isolates_projection_errors(
     assert len(good_projection.received) == 5
 
 
-async def test_one_projection_lock_failure_does_not_cancel_others(
+@pytest.mark.parametrize(
+    ('lock_factory', 'doomed_projection_type', 'proj_name'),
+    [
+        pytest.param(FailingAcquireLock, StopProjection, 'stop_proj', id='lock_acquire_failure'),
+        pytest.param(RenewFailingLock, IdleProjection, 'idle_proj', id='renew_failure_while_polling'),
+    ],
+)
+async def test_one_projection_unrecoverable_error_does_not_cancel_others(
+    lock_factory: Callable[[str], ILease],
+    doomed_projection_type: type[ICatchUpProjection],
+    proj_name: str,
     event_store: InMemoryEventStore,
     in_memory_checkpoint_store: InMemoryCheckpointStore,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     await seed_events(event_store, count=5)
 
-    lock = FailingAcquireLock('stop_proj')
+    lock = lock_factory(proj_name)
     good_projection = RecordingProjection()
-    doomed_projection = StopProjection()
-    doomed_binding = make_binding(StopProjection)
+    doomed_projection = doomed_projection_type()
+    doomed_binding = make_binding(doomed_projection_type)
     good_binding = make_binding(RecordingProjection)
     app = _make_app(
         event_store,
@@ -446,40 +456,7 @@ async def test_one_projection_lock_failure_does_not_cancel_others(
             await _run_until(runner, lambda: len(good_projection.received) >= 5)
 
     assert len(good_projection.received) == 5
-    assert "Projection 'stop_proj' stopped due to unrecoverable error" in caplog.text
-
-
-async def test_renew_failure_while_polling_does_not_cancel_others(
-    event_store: InMemoryEventStore,
-    in_memory_checkpoint_store: InMemoryCheckpointStore,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    await seed_events(event_store, count=5)
-
-    lock = RenewFailingLock('idle_proj')
-    good_projection = RecordingProjection()
-    doomed_projection = IdleProjection()
-    doomed_binding = make_binding(IdleProjection)
-    good_binding = make_binding(RecordingProjection)
-    app = _make_app(
-        event_store,
-        in_memory_checkpoint_store,
-        lock,
-        (good_projection, doomed_projection),
-        (doomed_binding, good_binding),
-    )
-
-    with caplog.at_level(logging.ERROR, logger='waku.eventsourcing.projection.runner'):
-        async with app:
-            runner = await CatchUpProjectionRunner.create(
-                container=app.container,
-                lock=lock,
-                polling=_FAST_POLLING,
-            )
-            await _run_until(runner, lambda: len(good_projection.received) >= 5)
-
-    assert len(good_projection.received) == 5
-    assert "Projection 'idle_proj' stopped due to unrecoverable error" in caplog.text
+    assert f"Projection '{proj_name}' stopped due to unrecoverable error" in caplog.text
 
 
 async def test_poll_loop_logs_and_continues_on_scope_error(

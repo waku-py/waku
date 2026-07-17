@@ -67,6 +67,7 @@ if TYPE_CHECKING:
     from typing import Any
 
     from waku.application import WakuApplication
+    from waku.di import Provider
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.errors.dead_letter import DeadLetterEntry
@@ -215,6 +216,14 @@ def _durability(dead_letters: IDeadLetterStore, unit_of_work: IUnitOfWork) -> Re
         inbox=FakeInboxStore(),
         dead_letters=dead_letters,
     )
+
+
+def _durability_providers(uow: IUnitOfWork, dead_letters: IDeadLetterStore) -> list[Provider]:
+    return [
+        object_(uow, provided_type=IUnitOfWork),
+        object_(dead_letters, provided_type=IDeadLetterStore),
+        object_(_durability(dead_letters, uow), provided_type=IDurabilityStore),
+    ]
 
 
 async def _make_executor(
@@ -683,11 +692,7 @@ class TestEndpointExecutorDeadLetter:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(handler)],
-            providers=[
-                object_(uow, provided_type=IUnitOfWork),
-                object_(dl_store, provided_type=IDeadLetterStore),
-                object_(_durability(dl_store, uow), provided_type=IDurabilityStore),
-            ],
+            providers=_durability_providers(uow, dl_store),
         ) as app:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
             executor = await _make_executor(app, evaluator)
@@ -714,11 +719,7 @@ class TestEndpointExecutorDeadLetter:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(handler)],
-            providers=[
-                object_(uow, provided_type=IUnitOfWork),
-                object_(dl_store, provided_type=IDeadLetterStore),
-                object_(_durability(dl_store, uow), provided_type=IDurabilityStore),
-            ],
+            providers=_durability_providers(uow, dl_store),
         ) as app:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
             executor = await _make_executor(app, evaluator)
@@ -745,11 +746,7 @@ class TestEndpointExecutorDeadLetter:
             async with create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(handler)],
-                providers=[
-                    object_(uow, provided_type=IUnitOfWork),
-                    object_(dead_letters, provided_type=IDeadLetterStore),
-                    object_(_durability(dead_letters, uow), provided_type=IDurabilityStore),
-                ],
+                providers=_durability_providers(uow, dead_letters),
             ) as app:
                 envelope = make_envelope(_FailingCommand(value='dlq-fail'))
                 outcome = (
@@ -778,11 +775,7 @@ class TestEndpointExecutorDeadLetter:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(handler)],
-            providers=[
-                object_(uow, provided_type=IUnitOfWork),
-                object_(dead_letters, provided_type=IDeadLetterStore),
-                object_(_durability(dead_letters, uow), provided_type=IDurabilityStore),
-            ],
+            providers=_durability_providers(uow, dead_letters),
         ) as app:
             envelope = make_envelope(_FailingCommand(value='dlq-fail'))
             outcome = (
@@ -811,11 +804,7 @@ class TestEndpointExecutorDeadLetter:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(handler)],
-            providers=[
-                object_(uow, provided_type=IUnitOfWork),
-                object_(dl_store, provided_type=IDeadLetterStore),
-                object_(_durability(dl_store, uow), provided_type=IDurabilityStore),
-            ],
+            providers=_durability_providers(uow, dl_store),
         ) as app:
             envelope = make_envelope(_FailingCommand(value='dlq-commit-fail'))
             outcome = (
@@ -849,11 +838,7 @@ class TestEndpointExecutorDeadLetter:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(handler)],
-            providers=[
-                object_(uow, provided_type=IUnitOfWork),
-                object_(dl_store, provided_type=IDeadLetterStore),
-                object_(_durability(dl_store, uow), provided_type=IDurabilityStore),
-            ],
+            providers=_durability_providers(uow, dl_store),
         ) as app:
             envelope = make_envelope(_FailingCommand(value='dlq-rollback-fail'))
             with pytest.raises(TransactionExecutionError) as caught:
@@ -883,11 +868,7 @@ class TestEndpointExecutorDeadLetter:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(handler)],
-            providers=[
-                object_(uow, provided_type=IUnitOfWork),
-                object_(dl_store, provided_type=IDeadLetterStore),
-                object_(_durability(dl_store, uow), provided_type=IDurabilityStore),
-            ],
+            providers=_durability_providers(uow, dl_store),
         ) as app:
             envelope = make_envelope(_FailingCommand(value='dlq-commit-cancelled'))
             with cancel_scope:
@@ -992,11 +973,7 @@ class TestHandlerExecutionTimeout:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_BlockingHandler)],
-            providers=[
-                object_(uow, provided_type=IUnitOfWork),
-                object_(dl_store, provided_type=IDeadLetterStore),
-                object_(_durability(dl_store, uow), provided_type=IDurabilityStore),
-            ],
+            providers=_durability_providers(uow, dl_store),
         ) as app:
             evaluator = await app.container.get(ErrorPolicyEvaluator)
             executor = await _make_executor(app, evaluator)
