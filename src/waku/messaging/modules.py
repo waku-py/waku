@@ -38,6 +38,7 @@ from waku.messaging._internal.envelope_factory import EnvelopeFactory
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging._internal.maintenance import DurabilityMaintenanceLifecycleExtension, LeadershipCoordinator
 from waku.messaging._internal.outbox_cascading import DeferredCascadeFlusher
+from waku.messaging._internal.ownership import AppScopeSource
 from waku.messaging._internal.routing_builder import RoutingTableBuilder
 from waku.messaging._internal.transaction import TransactionDepth
 from waku.messaging.behaviors.transactional import TransactionalBehavior
@@ -62,7 +63,6 @@ from waku.messaging.endpoints.base import (
 )
 from waku.messaging.endpoints.executor import EndpointExecutorFactory
 from waku.messaging.errors._internal.replay import IReplayExecution, ReplayExecution
-from waku.messaging.errors._internal.reprocess import ReprocessScopeOpener
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.policy import policies_have_deferred_terminal, policies_need_dead_letter
 from waku.messaging.errors.registry import ErrorPolicyRegistry
@@ -135,6 +135,7 @@ class MessagingModule:
         cls._validate_config(config_)
         providers: list[DishkaProvider] = [
             scoped(WithParents[IMessageBus], MessageBus),  # ty:ignore[not-subscriptable]
+            singleton(AppScopeSource, _build_app_scope_source),
             _endpoint_dispatch_alias(),
             scoped(AnyOf[IOutgoingMessages, IOutgoingMessagesFrames], OutgoingMessages),  # type: ignore[arg-type]  # ty:ignore[invalid-argument-type]
             scoped(TransactionDepth),  # always registered: gating on config misses per-handler TransactionalBehavior
@@ -206,10 +207,7 @@ class MessagingModule:
         if config.transports:
             providers.append(singleton(TransportRegistry, _build_transport_registry))
         if config.dead_letter is not None:
-            # The opener is the PIN-F seam: the scoped executor reprocesses HANDLER-kind entries in
-            # fresh request scopes opened from the app container the singleton captures.
             providers.extend((
-                singleton(ReprocessScopeOpener),
                 object_(config.dead_letter, provided_type=DeadLetterConfig),
                 scoped(IReplayExecution, ReplayExecution),
                 scoped(ReplayExecutor, _build_replay_executor),
@@ -222,10 +220,10 @@ class MessagingModule:
 def _build_replay_executor(
     execution: IReplayExecution,
     config: DeadLetterConfig,
-    scopes: ReprocessScopeOpener,
+    app_scope: AppScopeSource,
     now: Now,
 ) -> ReplayExecutor:
-    return ReplayExecutor(execution=execution, config=config, scopes=scopes, now=now)
+    return ReplayExecutor(execution=execution, config=config, app_scope=app_scope, now=now)
 
 
 class MessagingExtension(OnModuleConfigure):
@@ -543,6 +541,13 @@ def _build_observer_plan(
 
 def _build_message_observers(plan: ObserverPlan) -> MessageObservers:
     return plan.global_observers
+
+
+def _build_app_scope_source(container: AsyncContainer) -> AppScopeSource:
+    # APP-scoped: dishka hands the APP container, whose container() opens a fresh sibling REQUEST scope.
+    # Captured by the REQUEST-scoped MessageBus (direct send/publish ownership) and the replay executor
+    # (isolated restage + fresh reprocess scopes) — the ONE app-scope seam for both.
+    return AppScopeSource(container)
 
 
 def _build_envelope_codec() -> PayloadCodec:

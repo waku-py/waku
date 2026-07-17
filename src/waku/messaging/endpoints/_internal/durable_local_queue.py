@@ -54,7 +54,7 @@ class DurableLocalQueueEndpoint(Endpoint):
     Delegates lifecycle to ``DurableInboxReceiver``.
     """
 
-    __slots__ = ('_container', '_handler_subscriptions', '_now', '_observers', '_partition_by', '_receiver')
+    __slots__ = ('_container', '_handler_subscriptions', '_now', '_partition_by', '_receiver')
 
     def __init__(  # noqa: PLR0913 -- DI/config values, all required; bundling is a construction-site refactor
         self,
@@ -74,9 +74,8 @@ class DurableLocalQueueEndpoint(Endpoint):
         circuit_breaker_config: CircuitBreakerConfig | None = None,
         now: Now = utc_now,
     ) -> None:
-        super().__init__(uri=uri)
+        super().__init__(uri=uri, observers=observers)
         self._handler_subscriptions = handler_subscriptions
-        self._observers = observers
         self._container = container
         self._partition_by = partition_by
         self._now = now
@@ -118,7 +117,7 @@ class DurableLocalQueueEndpoint(Endpoint):
             # SCHEDULED rows: no sequence allocated, no enqueue — memory stream can't survive a restart.
             # Promotion allocates the sequence at due-time so delayed messages sort after already-queued siblings (BLOCKER 1).
             await self._store_scheduled(envelope, handler_types, scheduled)
-            await self._observers.sent(envelope, self._uri)
+            await self.emit_sent(envelope)
             return
 
         fresh = await self._receiver.persist(envelope, handler_types)
@@ -128,7 +127,7 @@ class DurableLocalQueueEndpoint(Endpoint):
             return
 
         await self._receiver.enqueue(envelope, fresh)
-        await self._observers.sent(envelope, self._uri)
+        await self.emit_sent(envelope)
 
     async def _store_scheduled(
         self,

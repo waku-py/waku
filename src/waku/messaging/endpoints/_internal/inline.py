@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 from typing_extensions import override
 
 from waku.messaging.endpoints.base import Endpoint
+from waku.messaging.observability.observer import MessageObservers
 
 if TYPE_CHECKING:
     from waku.di import AsyncContainer
@@ -34,7 +35,7 @@ class InlineEndpoint(Endpoint):
         handler_subscriptions: HandlerSubscriptions,
         executor: EndpointExecutor,
     ) -> None:
-        super().__init__(uri=uri)
+        super().__init__(uri=uri, observers=MessageObservers([]))
         self._handler_subscriptions = handler_subscriptions
         self._executor = executor
 

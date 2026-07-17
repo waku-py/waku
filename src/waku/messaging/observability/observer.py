@@ -39,9 +39,9 @@ class IMessageObserver(abc.ABC):  # noqa: B024 -- intentionally no abstract meth
     async def on_sent(self, envelope: MessageEnvelope[Any], destination: str) -> None:  # noqa: B027
         """Default no-op; override to observe a message being sent/routed to ``destination``.
 
-        ``sent`` means ACCEPTED FOR DELIVERY, not delivered: durable endpoints fire after their enqueue
-        commit, but the external (outbox) endpoint fires inside the caller's still-open transaction — a
-        later rollback means no delivery despite this event — and the relay's wire-send is unobserved.
+        ``sent`` means ACCEPTED FOR DELIVERY with its durability evidence in place, not delivered: an
+        outbox-backed endpoint fires only after its durable stage commits, a local queue after the worker
+        accepts — and the relay's wire-send is unobserved.
         """
 
     async def on_executing(  # noqa: B027

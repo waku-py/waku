@@ -108,7 +108,7 @@ class _SentSpy(IMessageObserver):
 
 class TestExternalEndpointOnSent:
     @staticmethod
-    async def test_dispatch_fires_on_sent_after_outbox_write() -> None:
+    async def test_dispatch_stages_without_firing_sent() -> None:
         outbox = RecordingOutboxStore()
         codec = _make_codec()
         spy = _SentSpy()
@@ -118,7 +118,17 @@ class TestExternalEndpointOnSent:
 
             await endpoint.dispatch(envelope, container)
 
-        assert len(outbox.saved) == 1  # the write happened before on_sent fired
+        assert len(outbox.saved) == 1  # staging only; the owner fires sent after the durable commit
+        assert spy.sent == []
+
+    @staticmethod
+    async def test_emit_sent_fires_per_uri() -> None:
+        spy = _SentSpy()
+        endpoint = ExternalEndpoint(uri='notifications', observers=MessageObservers([spy]))
+        envelope = make_envelope(_OrderPlaced(order_id='123'))
+
+        await endpoint.emit_sent(envelope)
+
         assert spy.sent == ['notifications']
 
 

@@ -14,7 +14,7 @@ from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.exceptions import HandlerNotFoundError
 from waku.messaging.handler_map import HandlerMap
 from waku.messaging.observability.observer import INVOKE_DESTINATION, MessageObservers
-from waku.messaging.outgoing import IOutgoingMessagesFrames
+from waku.messaging.outgoing import DeferredCascadeEffects, IOutgoingMessagesFrames
 from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
 from waku.uow import IUnitOfWork
 
@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.handler import HandlerType
     from waku.messaging.contracts.message import ResponseT
     from waku.messaging.contracts.request import IRequest
-    from waku.messaging.outgoing import DeferredCascadeBatch
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,17 +262,17 @@ class MessageDispatcher:
             raise AfterCommitError(error) from error
 
     @staticmethod
-    async def _detach_cascades_if_owner(scope: 'AsyncContainer') -> 'DeferredCascadeBatch':
+    async def _detach_cascades_if_owner(scope: 'AsyncContainer') -> 'DeferredCascadeEffects':
         depth = await scope.get(TransactionDepth)
         if depth.depth != 0:
-            return ()
+            return DeferredCascadeEffects((), ())
         outgoing: IOutgoingMessagesFrames = await scope.get(IOutgoingMessagesFrames)
         return outgoing.detach_deferred()
 
     @staticmethod
-    async def _flush_in_fresh_scope(scope: 'AsyncContainer', batch: 'DeferredCascadeBatch') -> None:
+    async def _flush_in_fresh_scope(scope: 'AsyncContainer', effects: 'DeferredCascadeEffects') -> None:
         parent = scope.parent_container
         container = parent if parent is not None else scope
         async with container() as child:
             flusher = await child.get(DeferredCascadeFlusher)
-            await flusher.flush(batch)
+            await flusher.flush(effects)

@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING
 
 from waku._internal.clock import Now, utc_now
 from waku._internal.transaction import can_defer_transaction_fatal, extract_transaction_execution_error
+from waku.messaging._internal.ownership import AppScopeSource  # noqa: TC001
 from waku.messaging.errors._internal.replay import IReplayExecution, ReplayClaimOwner
-from waku.messaging.errors._internal.reprocess import ReprocessScopeOpener  # noqa: TC001
 
 if TYPE_CHECKING:
     from waku.messaging.config import DeadLetterConfig
@@ -26,11 +26,11 @@ class ReplayExecutor:
         *,
         execution: IReplayExecution,
         config: DeadLetterConfig,
-        scopes: ReprocessScopeOpener,
+        app_scope: AppScopeSource,
         now: Now = utc_now,
     ) -> None:
         self._execution = execution
-        self._owner = ReplayClaimOwner(container=scopes.app_container, config=config, now=now)
+        self._owner = ReplayClaimOwner(container=app_scope.container, config=config, now=now)
 
     async def replay(self, entry: DeadLetterEntry) -> bool:
         claimed = await self._owner.claim_replay(entry.id)

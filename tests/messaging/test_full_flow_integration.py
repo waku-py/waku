@@ -114,14 +114,9 @@ class TestEndToEndOutboxFlow:
     @staticmethod
     async def test_publish_to_outbox_then_relay_delivers_to_transport() -> None:
         transport = RecordingTransport()
+        outbox = InMemoryOutboxStore(InMemoryDeadLetterStore())
 
-        config = MessagingConfig(
-            endpoints=[external_endpoint('test://notifications')],
-            routing=[route(_OrderPlaced).to('test://notifications')],
-            outbox=OutboxConfig(),
-            transports={'test': RecordingTransport},
-            global_pipeline_behaviors=[TransactionalBehavior],
-        )
+        config = _notifications_relay_config(transport)
 
         @module(extensions=[MessagingExtension().bind(_OrderPlacedHandler)])
         class TestModule:
@@ -132,8 +127,7 @@ class TestEndToEndOutboxFlow:
                 imports=[MessagingModule.register(config), TestModule],
                 providers=[
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
-                    scoped(IDeadLetterStore, InMemoryDeadLetterStore),
-                    scoped(IOutboxStore, InMemoryOutboxStore),
+                    object_(outbox, provided_type=IOutboxStore),
                     scoped(IDurabilityStore, durability_for_outbox),
                 ],
             ) as app,
@@ -141,27 +135,10 @@ class TestEndToEndOutboxFlow:
         ):
             bus = await c.get(IMessageBus)
             await bus.publish(_OrderPlaced(order_id='order-1'))
-            outbox = await c.get(IOutboxStore)
+            await wait_until(lambda: len(transport.sent) == 1)
 
-        assert isinstance(outbox, InMemoryOutboxStore)
         assert len(outbox.messages) == 1
         assert outbox.messages[0].destination == 'test://notifications'
-
-        relay_config = OutboxRelayConfig(
-            polling=PollingConfig(poll_interval_min_seconds=0.01), recovery_interval=timedelta(hours=1)
-        )
-        async with make_async_container(
-            RelayDepsProvider(outbox, transport),
-        ) as relay_container:
-            relay = OutboxRelay(
-                container=relay_container,
-                config=relay_config,
-                sending_failure_evaluator=make_relay_evaluator(relay_config),
-            )
-            await relay.start()
-            await wait_until(lambda: outbox.messages[0].status == OutboxStatus.DISPATCHED)
-            await relay.stop()
-
         assert len(transport.sent) == 1
         body, destination, _metadata, _mapper = transport.sent[0]
         assert destination == 'notifications'

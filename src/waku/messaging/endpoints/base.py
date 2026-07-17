@@ -5,7 +5,7 @@ import enum
 import math
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Final, TypeAlias
+from typing import TYPE_CHECKING, Any, Final, TypeAlias, final
 
 from waku._internal.sentinel import MISSING
 
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.endpoints._internal.aspects import ListenAspect, SendAspect
-    from waku.messaging.observability.observer import IMessageObserver
+    from waku.messaging.observability.observer import IMessageObserver, MessageObservers
     from waku.messaging.partition import PartitionKeyExtractor
     from waku.messaging.transport.interfaces import IEnvelopeMapper
 
@@ -68,14 +68,24 @@ EndpointEntry: TypeAlias = LocalQueueEntry | BrokerEndpointEntry
 
 
 class Endpoint(abc.ABC):
-    __slots__ = ('_uri',)
+    __slots__ = ('_observers', '_uri')
 
-    def __init__(self, uri: str) -> None:
+    def __init__(self, uri: str, observers: MessageObservers) -> None:
         self._uri = uri
+        self._observers = observers
 
     @property
     def uri(self) -> str:
         return self._uri
+
+    @final
+    async def emit_sent(self, envelope: MessageEnvelope[Any]) -> None:
+        """Fire the ``sent`` evidence for this endpoint's URI.
+
+        The single mechanism for ``sent`` emission across all endpoints: owners decide WHEN, the base
+        decides HOW. ``@final`` locks the HOW so no subclass can diverge the evidence semantics.
+        """
+        await self._observers.sent(envelope, self._uri)
 
     @property
     def supports_scheduling(self) -> bool:

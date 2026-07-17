@@ -6,6 +6,7 @@ from typing_extensions import override
 
 from waku.messages import IMessage
 from waku.messaging.endpoints.base import Endpoint
+from waku.messaging.observability.observer import MessageObservers
 from waku.messaging.router import (
     MessageRouter,
     ModuleRouteDescriptor,
@@ -17,7 +18,7 @@ from waku.messaging.router import (
 
 class _StubEndpoint(Endpoint):
     def __init__(self, uri: str = 'stub://default') -> None:
-        super().__init__(uri=uri)
+        super().__init__(uri, MessageObservers([]))
 
     @override
     async def dispatch(self, envelope: Any, scope: Any) -> None:  # pragma: no cover

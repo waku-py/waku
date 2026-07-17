@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from waku.messaging.contracts.pipeline import CallNext
     from waku.messaging.errors.executor import ErrorPolicyEvaluator, PolicyOutcome
     from waku.messaging.observability.observer import MessageObservers, ObserverPlan
-    from waku.messaging.outgoing import DeferredCascadeBatch
+    from waku.messaging.outgoing import DeferredCascadeEffects
     from waku.messaging.pipeline._internal.invoker import HandlerPipelineInvoker
 
 logger = logging.getLogger(__name__)
@@ -114,7 +114,7 @@ def outcome_from_intent(intent: TerminalIntent) -> ExecutionOutcome:
 @dataclass(frozen=True, slots=True)
 class _DetachedInvocation(Generic[_ResultT_co]):
     value: _ResultT_co
-    cascades: DeferredCascadeBatch
+    cascades: DeferredCascadeEffects
 
 
 @dataclass(frozen=True, slots=True)
@@ -339,12 +339,12 @@ class EndpointExecution(IEndpointExecution):
         await self._flush_batch(batch)
         return None
 
-    async def _flush_batch(self, batch: DeferredCascadeBatch, /) -> None:
-        if not batch:
+    async def _flush_batch(self, effects: DeferredCascadeEffects, /) -> None:
+        if not effects:
             return
         async with self._container() as fresh_scope:
             flusher = await fresh_scope.get(DeferredCascadeFlusher)
-            await flusher.flush(batch)
+            await flusher.flush(effects)
 
     def _evaluate(
         self,

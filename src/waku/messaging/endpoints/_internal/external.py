@@ -24,7 +24,7 @@ __all__ = [
 
 
 class ExternalEndpoint(Endpoint):
-    __slots__ = ('_observers', '_partition_by')
+    __slots__ = ('_partition_by',)
 
     def __init__(
         self,
@@ -33,9 +33,8 @@ class ExternalEndpoint(Endpoint):
         partition_by: PartitionKeyExtractor | None = None,
         observers: MessageObservers,
     ) -> None:
-        super().__init__(uri)
+        super().__init__(uri, observers)
         self._partition_by = partition_by
-        self._observers = observers
 
     @property
     @override
@@ -60,4 +59,3 @@ class ExternalEndpoint(Endpoint):
             sequence_number=sequence_number,
         )
         await outbox_store.save_batch([message])
-        await self._observers.sent(envelope, self._uri)

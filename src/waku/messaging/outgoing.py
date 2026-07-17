@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol, TypeAlias
+from typing import TYPE_CHECKING, Any, Protocol
 
 from typing_extensions import override
 
@@ -10,7 +10,9 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from waku.messages import IEvent, IMessage
+    from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.contracts.request import IRequest
+    from waku.messaging.endpoints.base import Endpoint
 
 __all__ = [
     'IOutgoingMessages',
@@ -28,7 +30,31 @@ class PendingMessage:
     action: Action
 
 
-DeferredCascadeBatch: TypeAlias = tuple[PendingMessage, ...]
+@dataclass(frozen=True, slots=True)
+class SentEvidence:
+    """A staged durable cascade leg awaiting post-commit ``sent`` emission by the transaction owner.
+
+    Carries the EXACT envelope staged into the outbox (its ``message_id`` equals the row's idempotency
+    key) and the outbox-backed endpoints it was staged to.
+    """
+
+    envelope: MessageEnvelope[Any]
+    endpoints: tuple[Endpoint, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DeferredCascadeEffects:
+    """Effects detached from the scoped collector for the transaction owner to flush post-commit.
+
+    ``messages`` are non-durable cascade legs to re-partition and deliver; ``sent_evidence`` are durable
+    legs already staged in-transaction, whose ``sent`` fires only after the owner's commit (D-CRIT-4a).
+    """
+
+    messages: tuple[PendingMessage, ...]
+    sent_evidence: tuple[SentEvidence, ...]
+
+    def __bool__(self) -> bool:
+        return bool(self.messages) or bool(self.sent_evidence)
 
 
 class IOutgoingMessages(Protocol):
@@ -63,7 +89,8 @@ class IOutgoingMessagesFrames(Protocol):
     def discard_frame(self) -> None: ...
     def drain_current_frame(self) -> list[PendingMessage]: ...
     def defer(self, messages: Sequence[PendingMessage], /) -> None: ...
-    def detach_deferred(self) -> DeferredCascadeBatch: ...
+    def record_sent(self, envelope: MessageEnvelope[Any], endpoints: Sequence[Endpoint], /) -> None: ...
+    def detach_deferred(self) -> DeferredCascadeEffects: ...
 
     @property
     def pending(self) -> Sequence[PendingMessage]: ...
@@ -78,11 +105,12 @@ class OutgoingMessages(IOutgoingMessages, IOutgoingMessagesFrames):
     framework-internal (not directly injectable).
     """
 
-    __slots__ = ('_deferred', '_frames')
+    __slots__ = ('_deferred', '_frames', '_sent_evidence')
 
     def __init__(self) -> None:
         self._frames: list[list[PendingMessage]] = []
         self._deferred: list[PendingMessage] = []
+        self._sent_evidence: list[SentEvidence] = []
 
     @override
     def send(self, request: IRequest[Any], /) -> None:
@@ -142,11 +170,22 @@ class OutgoingMessages(IOutgoingMessages, IOutgoingMessagesFrames):
         self._deferred.extend(messages)
 
     @override
-    def detach_deferred(self) -> DeferredCascadeBatch:
-        """Detach an immutable FIFO batch and clear the scoped deferred bucket."""
-        detached = tuple(self._deferred)
+    def record_sent(self, envelope: MessageEnvelope[Any], endpoints: Sequence[Endpoint], /) -> None:
+        """Record a staged durable cascade leg for the owner to emit ``sent`` for after commit.
+
+        Called by ``OutboxCascadingBehavior`` right after a durable leg's in-transaction stage succeeds.
+        The evidence bucket is flat (peer of ``_deferred``): the single owner-frame detach fires every
+        nested leg's ``sent`` once, at the outer commit.
+        """
+        self._sent_evidence.append(SentEvidence(envelope, tuple(endpoints)))
+
+    @override
+    def detach_deferred(self) -> DeferredCascadeEffects:
+        """Detach the deferred non-durable batch plus durable-leg sent evidence; clear both buckets."""
+        effects = DeferredCascadeEffects(tuple(self._deferred), tuple(self._sent_evidence))
         self._deferred.clear()
-        return detached
+        self._sent_evidence.clear()
+        return effects
 
     @property
     @override

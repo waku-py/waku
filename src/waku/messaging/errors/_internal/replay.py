@@ -25,9 +25,9 @@ from waku._internal.transaction import (
 from waku.di import AsyncContainer  # noqa: TC001
 from waku.messaging._internal.dispatcher import MessageDispatcher  # noqa: TC001
 from waku.messaging._internal.identity import MessageTypeRegistry  # noqa: TC001
+from waku.messaging._internal.ownership import AppScopeSource, own_and_emit_sent
 from waku.messaging.context import message_context_scope
 from waku.messaging.durability import IDeadLetterStore
-from waku.messaging.errors._internal.reprocess import ReprocessScopeOpener  # noqa: TC001
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind
 from waku.messaging.handler_map import HandlerMap  # noqa: TC001
 from waku.messaging.inbox.destination import handler_destination
@@ -64,12 +64,12 @@ class ReplayExecution(IReplayExecution):
     """Dispatch-only dead-letter reconstruction and destination selection."""
 
     __slots__ = (
+        '_app_scope',
         '_codec',
         '_container',
         '_dispatcher',
         '_handler_by_fqn',
         '_router',
-        '_scopes',
         '_type_registry',
     )
 
@@ -82,14 +82,14 @@ class ReplayExecution(IReplayExecution):
         router: MessageRouter,
         dispatcher: MessageDispatcher,
         handler_map: HandlerMap,
-        scopes: ReprocessScopeOpener,
+        app_scope: AppScopeSource,
     ) -> None:
         self._container = container
         self._codec = codec
         self._type_registry = type_registry
         self._router = router
         self._dispatcher = dispatcher
-        self._scopes = scopes
+        self._app_scope = app_scope
         self._handler_by_fqn: dict[str, HandlerType] = {
             handler_destination(handler_type): handler_type for handler_type in handler_map.handler_types()
         }
@@ -109,7 +109,14 @@ class ReplayExecution(IReplayExecution):
         if endpoint is None:
             msg = f'no endpoint registered for destination {entry.destination!r}'
             raise RuntimeError(msg)
-        await endpoint.dispatch(envelope, self._container)
+        if not endpoint.is_outbox_backed:
+            # Non-outbox-backed targets (durable local queues) open their own scope and fire their own
+            # ``sent`` on worker-accept — dispatch on the ambient scope, take no owner (mirrors MessageBus).
+            await endpoint.dispatch(envelope, self._container)
+            return
+        # Restage inside ONE committed, isolated transaction (a FRESH APP-scope child, never the ambient
+        # reprocess request scope) so the row survives teardown; ``sent`` fires only post-commit.
+        await own_and_emit_sent(self._app_scope.container, envelope, [endpoint])
 
     async def _dispatch_to_handler(self, entry: DeadLetterEntry, envelope: MessageEnvelope[Any]) -> None:
         handler_type = self._handler_by_fqn.get(entry.destination)
@@ -119,7 +126,7 @@ class ReplayExecution(IReplayExecution):
 
         dispatch_completed = False
         try:
-            async with self._scopes.fresh_scope() as scope:
+            async with self._app_scope.fresh_scope() as scope:
                 with message_context_scope(envelope):
                     await self._dispatcher.dispatch_to_handler(scope, envelope, handler_type)
                     dispatch_completed = True

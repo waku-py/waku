@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from waku.messages import IMessage
     from waku.messaging.contracts.pipeline import CallNext
     from waku.messaging.endpoints.base import Endpoint
-    from waku.messaging.outgoing import DeferredCascadeBatch, PendingMessage
+    from waku.messaging.outgoing import DeferredCascadeEffects, PendingMessage
 
 __all__ = ['DeferredCascadeFlusher', 'DeferredCascadingBehavior', 'OutboxCascadingBehavior']
 
@@ -104,7 +104,7 @@ class OutboxCascadingBehavior(IPipelineBehavior[Any, Any]):
 
     async def _dispatch_in_tx(self, pending: PendingMessage, endpoints: Sequence[Endpoint], /) -> None:
         try:
-            await self._dispatch.dispatch_to(pending.message, endpoints)
+            envelope = await self._dispatch.dispatch_to(pending.message, endpoints)
         except Exception:
             logger.exception(
                 'OutboxCascadingBehavior: durable cascade write failed for %s; '
@@ -112,15 +112,19 @@ class OutboxCascadingBehavior(IPipelineBehavior[Any, Any]):
                 type(pending.message).__name__,
             )
             raise
+        # Record the staged leg so the ambient owner fires ``sent`` after its commit (D-CRIT-4a), never here.
+        if envelope is not None:
+            self._outgoing.record_sent(envelope, endpoints)
 
 
 class DeferredCascadeFlusher:
-    """Dispatch an explicitly detached cascade batch's non-durable legs.
+    """Flush an explicitly detached cascade's post-commit effects: non-durable deliveries + durable ``sent``.
 
-    The transaction owner detaches the immutable batch before commit, exits the origin scope, and
-    resolves this flusher from a fresh child. The flusher re-partitions each cascade with the same
-    immutable-router split the inner behavior used and dispatches only the non-durable subset. A
-    failure propagates to the owner, which classifies it as post-commit when appropriate.
+    The transaction owner detaches the effects before commit, exits the origin scope, and resolves this
+    flusher from a fresh child. The flusher re-partitions each non-durable cascade with the same
+    immutable-router split the inner behavior used and dispatches only the non-durable subset, then emits
+    each durable leg's post-commit ``sent``. A failure propagates to the owner, which classifies it as
+    post-commit when appropriate.
     """
 
     __slots__ = ('_dispatch', '_router')
@@ -133,10 +137,13 @@ class DeferredCascadeFlusher:
         self._dispatch = dispatch
         self._router = router
 
-    async def flush(self, batch: DeferredCascadeBatch, /) -> None:
-        for pending_message in batch:
+    async def flush(self, effects: DeferredCascadeEffects, /) -> None:
+        for pending_message in effects.messages:
             _, non_durable = _split_by_durability(self._router, type(pending_message.message))
             await self._dispatch.dispatch_to(pending_message.message, non_durable)
+        for evidence in effects.sent_evidence:
+            for endpoint in evidence.endpoints:
+                await endpoint.emit_sent(evidence.envelope)
 
 
 class DeferredCascadingBehavior(IPipelineBehavior[Any, Any]):

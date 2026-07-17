@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID, uuid4
 
 import anyio
@@ -13,6 +13,7 @@ from typing_extensions import override
 
 from waku._internal.lease import LeaseConfig
 from waku._internal.transaction import RollbackFailedError, TransactionExecutionError
+from waku.backends.memory import MemoryBackend
 from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.di import object_, scoped
 from waku.messages import IEvent
@@ -25,15 +26,16 @@ from waku.messaging import (
     TransactionalBehavior,
 )
 from waku.messaging._internal.identity import MessageTypeRegistry
+from waku.messaging._internal.ownership import AppScopeSource
 from waku.messaging.config import DeadLetterConfig, OutboxConfig
 from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore, IOutboxStore
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.errors._internal.replay import IReplayExecution, ReplayClaimOwner, ReplayExecution
-from waku.messaging.errors._internal.reprocess import ReprocessScopeOpener
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.destination import handler_destination
+from waku.messaging.observability.observer import IMessageObserver, MessageObservers
 from waku.messaging.router import MessageRouter, external_endpoint, listen
 from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.transport import MalformedMetadataError
@@ -53,8 +55,12 @@ from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from waku.backends.memory._internal.outbox import WorkspaceOutboxStore
     from waku.di import AsyncContainer
     from waku.messaging.contracts.envelope import MessageEnvelope
+    from waku.messaging.outbox.models import OutboxMessage
 
 
 def test_dead_letter_replay_lease_pair_and_default_config() -> None:
@@ -97,7 +103,7 @@ class _DlqEventHandler(EventHandler[_DlqEvent]):
 
 class _RecordingEndpoint(Endpoint):
     def __init__(self, uri: str, *, boom: bool = False) -> None:
-        super().__init__(uri)
+        super().__init__(uri, MessageObservers([]))
         self.dispatched: list[MessageEnvelope[Any]] = []
         self._boom = boom
 
@@ -156,6 +162,34 @@ def _durability(
         inbox=inbox,
         dead_letters=dead_letters,
     )
+
+
+def _fresh_uow() -> RecordingUoW:
+    return RecordingUoW()
+
+
+class _SentSink:
+    def __init__(self) -> None:
+        self.destinations: list[str] = []
+
+
+class _SentObserver(IMessageObserver):
+    def __init__(self, sink: _SentSink) -> None:
+        self._sink = sink
+
+    @override
+    async def on_sent(self, envelope: MessageEnvelope[Any], destination: str) -> None:
+        self._sink.destinations.append(destination)
+
+
+class _OutboxUnavailableError(Exception):
+    pass
+
+
+class _FailingOutboxStore(RecordingOutboxStore):
+    @override
+    async def save_batch(self, messages: Sequence[OutboxMessage]) -> None:
+        raise _OutboxUnavailableError
 
 
 class _FailingReplayMarkStore(_ReplayStore):
@@ -343,7 +377,7 @@ def _make_executor(endpoint: Endpoint | None) -> ReplayExecution:
         router=MessageRouter(routes={}, endpoints=endpoints),
         dispatcher=_DUMMY_DISPATCHER,
         handler_map=HandlerMap(),
-        scopes=_DUMMY_SCOPES,
+        app_scope=_DUMMY_SCOPES,
     )
 
 
@@ -351,7 +385,7 @@ def _replay_executor(container: AsyncContainer, execution: IReplayExecution) -> 
     return ReplayExecutor(
         execution=execution,
         config=DeadLetterConfig(),
-        scopes=ReprocessScopeOpener(container),
+        app_scope=AppScopeSource(container),
         now=_AdvancingClock(),
     )
 
@@ -855,7 +889,7 @@ async def test_replay_reconstruct_and_compare_all_metadata_fields() -> None:
         router=MessageRouter(routes={}, endpoints=[endpoint]),
         dispatcher=_DUMMY_DISPATCHER,
         handler_map=HandlerMap(),
-        scopes=_DUMMY_SCOPES,
+        app_scope=_DUMMY_SCOPES,
     )
 
     await executor.dispatch(entry)
@@ -879,3 +913,123 @@ async def test_replay_reconstruct_and_compare_all_metadata_fields() -> None:
     assert abs((rebuilt.scheduled_time - scheduled).total_seconds()) < 1
     assert rebuilt.expires_at is not None
     assert abs((rebuilt.expires_at - expires).total_seconds()) < 1
+
+
+async def test_endpoint_replay_commits_restaged_outbox_row_and_fires_sent() -> None:
+    # CRIT2.1, replay leg: replaying an ENDPOINT-kind dead letter to an outbox-backed endpoint stages the
+    # row inside a committed, isolated APP-scope transaction (so it survives request-scope teardown) and
+    # fires `sent` only after that commit. Pre-fix the stage ran on the ambient request scope with no
+    # commit, so the row was discarded on teardown and no `sent` was emitted. Wired over the REAL memory
+    # durability backend so an uncommitted stage is genuinely discarded.
+    envelope = make_envelope(_DlqEvent('replay'))
+    entry = _entry_for(envelope, 'mem://orders')
+    sink = _SentSink()
+    config = MessagingConfig(
+        endpoints=[external_endpoint('mem://orders')],
+        outbox=OutboxConfig(),
+        dead_letter=DeadLetterConfig(),
+        transports={'mem': RecordingTransport},
+        observers=[_SentObserver],
+    )
+
+    async with create_test_app(
+        imports=[MemoryBackend.register(), MessagingModule.register(config)],
+        extensions=[MessagingExtension().bind(_DlqEventHandler)],
+        providers=[object_(sink, provided_type=_SentSink)],
+    ) as app:
+        async with app.container() as scope:
+            execution = await scope.get(IReplayExecution)
+            await execution.dispatch(entry)
+
+        assert sink.destinations == ['mem://orders']  # fired once, only after the durable commit
+
+        async with app.container() as verify_scope:
+            outbox = cast('WorkspaceOutboxStore', await verify_scope.get(IOutboxStore))
+            committed = list(outbox.messages)
+
+    assert len(committed) == 1  # the restaged row survived request-scope teardown (committed durably)
+    assert committed[0].destination == 'mem://orders'
+
+
+async def test_endpoint_replay_rolls_back_and_fires_no_sent_on_stage_failure() -> None:
+    # A failing outbox stage during replay rolls the isolated owner transaction back, re-raises to the
+    # caller, and never fires `sent` — no partial delivery, no evidence without a durable commit.
+    envelope = make_envelope(_DlqEvent('boom'))
+    entry = _entry_for(envelope, 'mem://orders')
+    uow = RecordingUoW()
+    sink = _SentSink()
+    dlq_store = _ReplayStore()
+    inbox_store = FakeInboxStore()
+    config = MessagingConfig(
+        endpoints=[external_endpoint('mem://orders')],
+        outbox=OutboxConfig(),
+        dead_letter=DeadLetterConfig(),
+        transports={'mem': RecordingTransport},
+        observers=[_SentObserver],
+    )
+
+    async with (
+        create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_DlqEventHandler)],
+            providers=[
+                object_(uow, provided_type=IUnitOfWork),
+                object_(_FailingOutboxStore(), provided_type=IOutboxStore),
+                object_(inbox_store, provided_type=IInboxStore),
+                object_(dlq_store, provided_type=IDeadLetterStore),
+                object_(sink, provided_type=_SentSink),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                scoped(IDurabilityStore, _durability),
+            ],
+        ) as app,
+        app.container() as scope,
+    ):
+        execution = await scope.get(IReplayExecution)
+        with pytest.raises(_OutboxUnavailableError):
+            await execution.dispatch(entry)
+
+    assert uow.rollback_count == 1  # the isolated owner transaction rolled back (pollers never roll back)
+    assert sink.destinations == []  # no evidence without a commit
+
+
+async def test_endpoint_replay_owner_scope_is_isolated_from_ambient_reprocess_scope() -> None:
+    # The outbox restage runs in a FRESH APP-scope child transaction (via AppScopeSource.container),
+    # never the ambient reprocess request scope. If the owner regressed to `self._container`, run_committed
+    # would re-enter the ambient request container — an ACTION child that SHARES the request-scoped UoW — and
+    # eagerly commit the ambient reprocess scope's UoW (commit_count would be 1). A fresh sibling scope leaves
+    # the ambient UoW untouched while the owner's own UoW commits the restaged row and fires `sent`. Distinct
+    # `scoped(IUnitOfWork, _fresh_uow)` instances per scope make the enlistment observable through DI.
+    envelope = make_envelope(_DlqEvent('isolated-replay'))
+    entry = _entry_for(envelope, 'mem://orders')
+    sink = _SentSink()
+    config = MessagingConfig(
+        endpoints=[external_endpoint('mem://orders')],
+        outbox=OutboxConfig(),
+        dead_letter=DeadLetterConfig(),
+        transports={'mem': RecordingTransport},
+        observers=[_SentObserver],
+    )
+
+    async with (
+        create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_DlqEventHandler)],
+            providers=[
+                scoped(IUnitOfWork, _fresh_uow),
+                scoped(IOutboxStore, RecordingOutboxStore),
+                scoped(IInboxStore, FakeInboxStore),
+                object_(_ReplayStore(), provided_type=IDeadLetterStore),
+                object_(sink, provided_type=_SentSink),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                scoped(IDurabilityStore, _durability),
+            ],
+        ) as app,
+        app.container() as scope,
+    ):
+        ambient_uow = cast('RecordingUoW', await scope.get(IUnitOfWork))
+        execution = await scope.get(IReplayExecution)
+        await execution.dispatch(entry)
+
+        assert ambient_uow.commit_count == 0  # owner minted a fresh sibling, never enlisted the ambient scope
+        assert ambient_uow.rollback_count == 0
+        assert sink.destinations == ['mem://orders']  # owner committed the restage and fired sent post-commit

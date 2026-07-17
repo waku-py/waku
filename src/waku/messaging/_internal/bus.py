@@ -11,6 +11,7 @@ from waku.messages import IEvent
 from waku.messaging._internal.dispatch import IEndpointDispatch
 from waku.messaging._internal.dispatcher import MessageDispatcher  # noqa: TC001
 from waku.messaging._internal.envelope_factory import EnvelopeFactory  # noqa: TC001
+from waku.messaging._internal.ownership import AppScopeSource, own_and_emit_sent
 from waku.messaging.context import message_context_scope, try_get_message_context
 from waku.messaging.delivery import DeliveryOptions
 from waku.messaging.exceptions import (
@@ -59,7 +60,7 @@ def _reject_unschedulable(envelope: MessageEnvelope[Any], endpoints: Sequence[En
 
 
 class MessageBus(IMessageBus, IEndpointDispatch):
-    __slots__ = ('_container', '_dispatcher', '_envelope_factory', '_now', '_router')
+    __slots__ = ('_app_scope', '_container', '_dispatcher', '_envelope_factory', '_now', '_router')
 
     def __init__(
         self,
@@ -67,12 +68,14 @@ class MessageBus(IMessageBus, IEndpointDispatch):
         dispatcher: MessageDispatcher,
         envelope_factory: EnvelopeFactory,
         router: MessageRouter,
+        app_scope: AppScopeSource,
         now: Now = utc_now,
     ) -> None:
         self._container = container
         self._dispatcher = dispatcher
         self._envelope_factory = envelope_factory
         self._router = router
+        self._app_scope = app_scope
         self._now = now
 
     @overload
@@ -104,8 +107,7 @@ class MessageBus(IMessageBus, IEndpointDispatch):
         if not endpoints:
             raise NoRouteError(type(message))
         _reject_unschedulable(envelope, endpoints)
-        for endpoint in endpoints:
-            await endpoint.dispatch(envelope, self._container)
+        await self._dispatch_with_ownership(envelope, endpoints)
 
     @override
     async def publish(self, message: IMessage, /, options: DeliveryOptions | None = None) -> None:
@@ -115,18 +117,30 @@ class MessageBus(IMessageBus, IEndpointDispatch):
             return
         endpoints = self._router.resolve(type(message))
         _reject_unschedulable(envelope, endpoints)  # fan-out is fail-loud: ANY non-durable subscriber raises
+        await self._dispatch_with_ownership(envelope, endpoints)
+
+    async def _dispatch_with_ownership(self, envelope: MessageEnvelope[Any], endpoints: Sequence[Endpoint]) -> None:
+        # Outbox-backed destinations stage inside ONE committed, isolated APP-scope transaction (send-now:
+        # commits regardless of any ambient handler tx); ``sent`` evidence fires only after that commit.
+        # Non-outbox-backed siblings take no owner and dispatch on the ambient scope, post-commit.
+        outbox_backed = [endpoint for endpoint in endpoints if endpoint.is_outbox_backed]
+        if outbox_backed:
+            await own_and_emit_sent(self._app_scope.container, envelope, outbox_backed)
         for endpoint in endpoints:
-            await endpoint.dispatch(envelope, self._container)
+            if not endpoint.is_outbox_backed:
+                await endpoint.dispatch(envelope, self._container)
 
     @override
-    async def dispatch_to(self, message: IMessage, endpoints: Sequence[Endpoint]) -> None:
+    async def dispatch_to(self, message: IMessage, endpoints: Sequence[Endpoint]) -> MessageEnvelope[Any] | None:
         # Destination-dispatch seam for the cascading behaviors: NO route resolution — the caller
         # already partitioned the endpoint set — but the same context-propagated envelope as send/publish.
+        # Returns the created envelope so a durable-leg caller can record post-commit sent evidence.
         if not endpoints:
-            return
+            return None
         envelope = self._create_envelope(message)
         for endpoint in endpoints:
             await endpoint.dispatch(envelope, self._container)
+        return envelope
 
     def _is_expired(self, envelope: MessageEnvelope[Any]) -> bool:
         return envelope.expires_at is not None and envelope.expires_at <= self._now()

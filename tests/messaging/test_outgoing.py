@@ -133,16 +133,20 @@ class TestOutgoingMessagesDeferredBucket:
         assert outgoing.drain_current_frame() == []
 
     @staticmethod
-    def test_detach_deferred_returns_immutable_fifo_batch_and_clears() -> None:
+    def test_detach_deferred_returns_immutable_fifo_effects_and_clears() -> None:
         outgoing = OutgoingMessages()
         first = PendingMessage(message=_SampleEvent(), action=Action.PUBLISH)
         second = PendingMessage(message=_SampleRequest(), action=Action.SEND)
         outgoing.defer([first])
         outgoing.defer([second])
 
-        detached = outgoing.detach_deferred()
+        effects = outgoing.detach_deferred()
 
-        assert detached == (first, second)
-        assert isinstance(detached, tuple)
-        assert all(isinstance(pending, PendingMessage) for pending in detached)
-        assert outgoing.detach_deferred() == ()
+        assert effects.messages == (first, second)
+        assert effects.sent_evidence == ()
+        assert isinstance(effects.messages, tuple)
+        assert all(isinstance(pending, PendingMessage) for pending in effects.messages)
+        # A second detach yields empty, falsy effects (both buckets cleared).
+        drained = outgoing.detach_deferred()
+        assert not drained
+        assert drained.messages == ()

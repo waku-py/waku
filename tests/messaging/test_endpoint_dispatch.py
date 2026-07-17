@@ -11,6 +11,7 @@ from waku.messaging._internal.dispatch import IEndpointDispatch
 from waku.messaging._internal.envelope_factory import EnvelopeFactory
 from waku.messaging.context import message_context_scope
 from waku.messaging.endpoints.base import Endpoint
+from waku.messaging.observability.observer import MessageObservers
 from waku.testing import create_test_app
 
 from tests.messaging.helpers import make_envelope
@@ -34,7 +35,7 @@ class _CascadedEffect(IEvent):
 
 class _RecordingEndpoint(Endpoint):
     def __init__(self, uri: str) -> None:
-        super().__init__(uri=uri)
+        super().__init__(uri, MessageObservers([]))
         self.dispatched: list[MessageEnvelope[Any]] = []
 
     @override

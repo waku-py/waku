@@ -61,7 +61,6 @@ class LocalQueueEndpoint(Endpoint):
         '_dead_letter_capable',
         '_executor',
         '_handler_subscriptions',
-        '_observers',
         '_redelivery',
         '_timed_pauser',
         '_worker',
@@ -83,10 +82,9 @@ class LocalQueueEndpoint(Endpoint):
         circuit_breaker_config: CircuitBreakerConfig | None = None,
         dead_letter_capable: bool = False,
     ) -> None:
-        super().__init__(uri=uri)
+        super().__init__(uri=uri, observers=observers)
         self._handler_subscriptions = handler_subscriptions
         self._executor = executor
-        self._observers = observers
         self._container = container
         self._dead_letter_capable = dead_letter_capable
         self._worker: MemoryStreamWorker[_WorkItem] = MemoryStreamWorker(
@@ -132,7 +130,7 @@ class LocalQueueEndpoint(Endpoint):
                     ExecutionOutcome.DISCARDED,
                 )
             return
-        await self._observers.sent(envelope, self._uri)
+        await self.emit_sent(envelope)
 
     @override
     async def start(self) -> None:

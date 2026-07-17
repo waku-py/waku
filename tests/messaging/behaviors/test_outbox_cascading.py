@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
+from uuid import UUID
 
 import anyio
 import pytest
@@ -31,6 +32,7 @@ from waku.messaging import (
 from waku.messaging.durability import IDurabilityStore, IOutboxStore
 from waku.messaging.endpoints import EndpointEntry
 from waku.messaging.endpoints._internal.local_queue import LocalQueueEndpoint
+from waku.messaging.observability.observer import IMessageObserver
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
@@ -43,6 +45,7 @@ if TYPE_CHECKING:
 
     from pytest_mock import MockerFixture
 
+    from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.outbox.models import OutboxMessage
 
 _CASCADE_LOGGER = 'waku.messaging._internal.outbox_cascading'
@@ -73,6 +76,16 @@ class _UnroutedPing(IRequest[None]):  # no route, no handler -> cascaded send dr
     pass
 
 
+@dataclass(frozen=True, kw_only=True)
+class _OuterCommand(IRequest[None]):  # transactional handler that nests an invoke publishing a durable cascade
+    order_id: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class _InnerTrigger(IEvent):  # inner handler publishes _OrderShipped inside the outer transaction
+    order_id: str
+
+
 class _NoopShippedHandler(EventHandler[_OrderShipped]):
     # Bound only to satisfy the router's "route() needs handlers" check; an ExternalEndpoint
     # writes to the outbox and never invokes this handler.
@@ -93,6 +106,32 @@ class _FailingOutboxStore(RecordingOutboxStore):
         raise ConnectionError(msg)
 
 
+class _CascadeSentSink:
+    """Shared record of durable-cascade ``sent`` evidence fired by the post-commit flush.
+
+    ``committed_when_sent`` captures whether the handler's UoW was already committed at the moment
+    ``sent`` fired — the machine-immune ordering proof (D-CRIT-4a: evidence strictly post-commit).
+    """
+
+    def __init__(self) -> None:
+        self.destinations: list[str] = []
+        self.envelopes: list[MessageEnvelope[Any]] = []
+        self.handler_uow: RecordingUoW | None = None
+        self.committed_when_sent: list[bool] = []
+
+
+class _CascadeSentSpy(IMessageObserver):
+    def __init__(self, sink: _CascadeSentSink) -> None:
+        self._sink = sink
+
+    @override
+    async def on_sent(self, envelope: MessageEnvelope[Any], destination: str) -> None:
+        uow = self._sink.handler_uow
+        self._sink.destinations.append(destination)
+        self._sink.envelopes.append(envelope)
+        self._sink.committed_when_sent.append(uow is not None and uow.committed)
+
+
 def _fresh_uow() -> RecordingUoW:
     return RecordingUoW()
 
@@ -106,7 +145,7 @@ def _durability(unit_of_work: IUnitOfWork, outbox: IOutboxStore) -> IDurabilityS
     )
 
 
-def _config(*, mixed: bool = False) -> MessagingConfig:
+def _config(*, mixed: bool = False, observers: Sequence[type[IMessageObserver]] = ()) -> MessagingConfig:
     endpoints: list[EndpointEntry] = [external_endpoint('ext://shipped'), local_queue('local://logged')]
     routing = [route(_OrderShipped).to('ext://shipped'), route(_OrderLogged).to('local://logged')]
     if mixed:
@@ -121,6 +160,7 @@ def _config(*, mixed: bool = False) -> MessagingConfig:
         outbox=OutboxConfig(),
         transports={'ext': RecordingTransport},
         global_pipeline_behaviors=[TransactionalBehavior],
+        observers=observers,
     )
 
 
@@ -627,3 +667,234 @@ class TestCascadeEdgeCases:
 
         assert isinstance(raised.value, AfterCommitError)
         assert str(raised.value.error) == 'queue unavailable'
+
+
+class TestDurableCascadeSentEvidence:
+    @staticmethod
+    async def test_durable_cascade_fires_sent_once_after_commit() -> None:
+        outbox, sink = RecordingOutboxStore(), _CascadeSentSink()
+
+        class PlaceOrderHandler(RequestHandler[_PlaceOrder, None]):
+            def __init__(self, outgoing: IOutgoingMessages, uow: IUnitOfWork, sink: _CascadeSentSink) -> None:
+                self._outgoing = outgoing
+                sink.handler_uow = cast('RecordingUoW', uow)
+
+            @override
+            async def handle(self, cmd: _PlaceOrder, /) -> None:
+                self._outgoing.publish(_OrderShipped(order_id=cmd.order_id))
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(_config(observers=[_CascadeSentSpy]))],
+                extensions=[
+                    MessagingExtension().bind(PlaceOrderHandler).bind(_NoopShippedHandler).bind(_NoopLoggedHandler),
+                ],
+                providers=[
+                    scoped(IUnitOfWork, _fresh_uow),
+                    object_(outbox, provided_type=IOutboxStore),
+                    object_(sink, provided_type=_CascadeSentSink),
+                    scoped(IDurabilityStore, _durability),
+                ],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            await bus.invoke(_PlaceOrder(order_id='o-sent-1'))
+
+        assert len(outbox.saved) == 1
+        assert sink.destinations == ['ext://shipped']  # durable-leg sent fired exactly once
+        assert sink.committed_when_sent == [True]  # ...strictly after the handler tx committed
+
+    @staticmethod
+    async def test_cascade_sent_carries_the_staged_envelope_id() -> None:
+        outbox, sink = RecordingOutboxStore(), _CascadeSentSink()
+
+        class PlaceOrderHandler(RequestHandler[_PlaceOrder, None]):
+            def __init__(self, outgoing: IOutgoingMessages) -> None:
+                self._outgoing = outgoing
+
+            @override
+            async def handle(self, cmd: _PlaceOrder, /) -> None:
+                self._outgoing.publish(_OrderShipped(order_id=cmd.order_id))
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(_config(observers=[_CascadeSentSpy]))],
+                extensions=[
+                    MessagingExtension().bind(PlaceOrderHandler).bind(_NoopShippedHandler).bind(_NoopLoggedHandler),
+                ],
+                providers=[
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
+                    object_(outbox, provided_type=IOutboxStore),
+                    object_(sink, provided_type=_CascadeSentSink),
+                    scoped(IDurabilityStore, _durability),
+                ],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            await bus.invoke(_PlaceOrder(order_id='o-sent-2'))
+
+        assert len(outbox.saved) == 1
+        # The exact staged envelope carries the evidence: its id equals the outbox row's idempotency key.
+        assert sink.envelopes[0].message_id == UUID(outbox.saved[0].idempotency_key)
+
+    @staticmethod
+    async def test_no_cascade_sent_on_handler_rollback() -> None:
+        outbox, sink, uow = RecordingOutboxStore(), _CascadeSentSink(), RecordingUoW()
+
+        class FailingHandler(RequestHandler[_PlaceOrder, None]):
+            def __init__(self, outgoing: IOutgoingMessages) -> None:
+                self._outgoing = outgoing
+
+            @override
+            async def handle(self, cmd: _PlaceOrder, /) -> None:
+                self._outgoing.publish(_OrderShipped(order_id=cmd.order_id))
+                msg = 'boom'
+                raise RuntimeError(msg)
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(_config(observers=[_CascadeSentSpy]))],
+                extensions=[
+                    MessagingExtension().bind(FailingHandler).bind(_NoopShippedHandler).bind(_NoopLoggedHandler),
+                ],
+                providers=[
+                    object_(uow, provided_type=IUnitOfWork),
+                    object_(outbox, provided_type=IOutboxStore),
+                    object_(sink, provided_type=_CascadeSentSink),
+                    scoped(IDurabilityStore, _durability),
+                ],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            with pytest.raises(RuntimeError, match='boom'):
+                await bus.invoke(_PlaceOrder(order_id='o-sent-3'))
+
+        assert sink.destinations == []  # no evidence: the frame drains only on handler success
+        assert outbox.saved == []
+        assert uow.rolled_back is True
+
+    @staticmethod
+    async def test_no_cascade_sent_on_durable_write_failure() -> None:
+        outbox, sink, uow = _FailingOutboxStore(), _CascadeSentSink(), RecordingUoW()
+
+        class PlaceOrderHandler(RequestHandler[_PlaceOrder, None]):
+            def __init__(self, outgoing: IOutgoingMessages) -> None:
+                self._outgoing = outgoing
+
+            @override
+            async def handle(self, cmd: _PlaceOrder, /) -> None:
+                self._outgoing.publish(_OrderShipped(order_id=cmd.order_id))  # durable write fails
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(_config(observers=[_CascadeSentSpy]))],
+                extensions=[
+                    MessagingExtension().bind(PlaceOrderHandler).bind(_NoopShippedHandler).bind(_NoopLoggedHandler),
+                ],
+                providers=[
+                    object_(uow, provided_type=IUnitOfWork),
+                    object_(outbox, provided_type=IOutboxStore),
+                    object_(sink, provided_type=_CascadeSentSink),
+                    scoped(IDurabilityStore, _durability),
+                ],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            with pytest.raises(ConnectionError, match='outbox down'):
+                await bus.invoke(_PlaceOrder(order_id='o-sent-4'))
+
+        assert sink.destinations == []  # record_sent never runs when the staging dispatch raises
+        assert uow.rolled_back is True
+
+    @staticmethod
+    async def test_nested_invoke_cascade_fires_once_at_outer_commit() -> None:
+        outbox, sink = RecordingOutboxStore(), _CascadeSentSink()
+
+        class OuterHandler(RequestHandler[_OuterCommand, None]):
+            def __init__(self, bus: IMessageBus) -> None:
+                self._bus = bus
+
+            @override
+            async def handle(self, cmd: _OuterCommand, /) -> None:
+                await self._bus.invoke(_InnerTrigger(order_id=cmd.order_id))  # nested, joins the outer tx
+
+        class InnerHandler(EventHandler[_InnerTrigger]):
+            def __init__(self, outgoing: IOutgoingMessages) -> None:
+                self._outgoing = outgoing
+
+            @override
+            async def handle(self, event: _InnerTrigger, /) -> None:
+                self._outgoing.publish(_OrderShipped(order_id=event.order_id))  # durable
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(_config(observers=[_CascadeSentSpy]))],
+                extensions=[
+                    MessagingExtension()
+                    .bind(OuterHandler)
+                    .bind(InnerHandler)
+                    .bind(_NoopShippedHandler)
+                    .bind(_NoopLoggedHandler),
+                ],
+                providers=[
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
+                    object_(outbox, provided_type=IOutboxStore),
+                    object_(sink, provided_type=_CascadeSentSink),
+                    scoped(IDurabilityStore, _durability),
+                ],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            await bus.invoke(_OuterCommand(order_id='o-sent-5'))
+
+        assert len(outbox.saved) == 1
+        # The flat evidence bucket flushes ONCE at the outermost owner's commit — not per nesting level.
+        assert sink.destinations.count('ext://shipped') == 1
+
+    @staticmethod
+    async def test_non_durable_cascade_leg_still_fires_sent_at_accept_post_commit() -> None:
+        outbox, sink = RecordingOutboxStore(), _CascadeSentSink()
+        logged_done = asyncio.Event()
+
+        class PlaceOrderHandler(RequestHandler[_PlaceOrder, None]):
+            def __init__(self, outgoing: IOutgoingMessages, uow: IUnitOfWork, sink: _CascadeSentSink) -> None:
+                self._outgoing = outgoing
+                sink.handler_uow = cast('RecordingUoW', uow)
+
+            @override
+            async def handle(self, cmd: _PlaceOrder, /) -> None:
+                self._outgoing.publish(_OrderLogged(order_id=cmd.order_id))  # non-durable
+
+        class LoggedHandler(EventHandler[_OrderLogged]):
+            @override
+            async def handle(self, _event: _OrderLogged, /) -> None:
+                logged_done.set()
+
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(_config(observers=[_CascadeSentSpy]))],
+                extensions=[
+                    MessagingExtension().bind(PlaceOrderHandler).bind(_NoopShippedHandler).bind(LoggedHandler),
+                ],
+                providers=[
+                    scoped(IUnitOfWork, _fresh_uow),
+                    object_(outbox, provided_type=IOutboxStore),
+                    object_(sink, provided_type=_CascadeSentSink),
+                    scoped(IDurabilityStore, _durability),
+                ],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            await bus.invoke(_PlaceOrder(order_id='o-sent-6'))
+            with anyio.fail_after(5):
+                await logged_done.wait()
+
+        assert outbox.saved == []  # non-durable route: nothing staged
+        assert sink.destinations == ['local://logged']  # local queue fired sent at worker-accept
+        assert sink.committed_when_sent == [True]  # ...post-commit, in the deferred flush

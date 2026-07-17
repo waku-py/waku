@@ -22,12 +22,14 @@ from waku.messaging import (
 from waku.messaging._internal.bus import MessageBus
 from waku.messaging._internal.dispatcher import MessageDispatcher
 from waku.messaging._internal.envelope_factory import EnvelopeFactory
+from waku.messaging._internal.ownership import AppScopeSource
 from waku.messaging.context import get_message_context, message_context_scope
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.exceptions import (
     DeliveryOptionNotApplicableError,
     SchedulingNotSupportedError,
 )
+from waku.messaging.observability.observer import MessageObservers
 from waku.messaging.router import MessageRouter
 from waku.testing import create_test_app
 
@@ -70,7 +72,7 @@ class _TenantEchoHandler(RequestHandler[_TenantQuery, str | None]):
 
 class _CapturingEndpoint(Endpoint):
     def __init__(self, uri: str = 'spy://q', *, supports_scheduling: bool = False) -> None:
-        super().__init__(uri)
+        super().__init__(uri, MessageObservers([]))
         self.captured: list[MessageEnvelope[Any]] = []
         self._supports_scheduling = supports_scheduling
 
@@ -117,7 +119,7 @@ async def _spy_bus(
     dispatcher = await scope.get(MessageDispatcher)
     factory = await scope.get(EnvelopeFactory)
     router = MessageRouter(routes=dict.fromkeys(routes, (endpoint,)), endpoints=(endpoint,))
-    return MessageBus(scope, dispatcher, factory, router, now=now), endpoint
+    return MessageBus(scope, dispatcher, factory, router, AppScopeSource(scope), now=now), endpoint
 
 
 async def _bus_with_endpoints(
@@ -129,7 +131,7 @@ async def _bus_with_endpoints(
     dispatcher = await scope.get(MessageDispatcher)
     factory = await scope.get(EnvelopeFactory)
     router = MessageRouter(routes={_Note: endpoints}, endpoints=endpoints)
-    return MessageBus(scope, dispatcher, factory, router, now=now)
+    return MessageBus(scope, dispatcher, factory, router, AppScopeSource(scope), now=now)
 
 
 async def test_send_applies_correlation_and_group_overrides(container: AsyncContainer) -> None:
