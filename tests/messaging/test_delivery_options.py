@@ -87,3 +87,59 @@ def test_aware_absolute_times_preserve_the_supplied_offset() -> None:
 
     assert options.scheduled_time is value
     assert options.deliver_by is value
+
+
+def test_scheduling_fields_set_is_empty_when_unset() -> None:
+    assert DeliveryOptions().scheduling_fields_set() == ()
+
+
+def test_scheduling_fields_set_names_absolute_scheduled_time() -> None:
+    assert DeliveryOptions(scheduled_time=_DT).scheduling_fields_set() == ('scheduled_time',)
+
+
+def test_scheduling_fields_set_names_relative_schedule_delay() -> None:
+    assert DeliveryOptions(schedule_delay=timedelta(seconds=5)).scheduling_fields_set() == ('schedule_delay',)
+
+
+def test_expiry_fields_set_is_empty_when_unset() -> None:
+    assert DeliveryOptions().expiry_fields_set() == ()
+
+
+def test_expiry_fields_set_names_absolute_deliver_by() -> None:
+    assert DeliveryOptions(deliver_by=_DT).expiry_fields_set() == ('deliver_by',)
+
+
+def test_expiry_fields_set_names_relative_deliver_within() -> None:
+    assert DeliveryOptions(deliver_within=timedelta(seconds=5)).expiry_fields_set() == ('deliver_within',)
+
+
+def test_resolve_scheduled_time_returns_absolute_when_set() -> None:
+    now = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
+    assert DeliveryOptions(scheduled_time=_DT).resolve_scheduled_time(now) == _DT
+
+
+def test_resolve_scheduled_time_folds_delay_onto_now() -> None:
+    now = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
+    assert DeliveryOptions(schedule_delay=timedelta(seconds=30)).resolve_scheduled_time(now) == now + timedelta(
+        seconds=30,
+    )
+
+
+def test_resolve_scheduled_time_is_none_when_unset() -> None:
+    now = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
+    assert DeliveryOptions().resolve_scheduled_time(now) is None
+
+
+def test_resolve_expiry_returns_absolute_when_set() -> None:
+    now = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
+    assert DeliveryOptions(deliver_by=_DT).resolve_expiry(now) == _DT
+
+
+def test_resolve_expiry_folds_within_onto_now() -> None:
+    now = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
+    assert DeliveryOptions(deliver_within=timedelta(seconds=45)).resolve_expiry(now) == now + timedelta(seconds=45)
+
+
+def test_resolve_expiry_is_none_when_unset() -> None:
+    now = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
+    assert DeliveryOptions().resolve_expiry(now) is None

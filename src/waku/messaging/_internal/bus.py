@@ -44,15 +44,9 @@ def _override(option_value: _ValueT | None, ctx_value: _ValueT | None) -> _Value
 
 
 def _reject_non_invoke_options(options: DeliveryOptions) -> None:
-    # invoke is always inline; scheduling/expiration are category errors here.
-    for name, value in (
-        ('scheduled_time', options.scheduled_time),
-        ('schedule_delay', options.schedule_delay),
-        ('deliver_by', options.deliver_by),
-        ('deliver_within', options.deliver_within),
-    ):
-        if value is not None:
-            raise DeliveryOptionNotApplicableError(name, 'invoke')
+    # invoke is always inline; the VO owns which fields are scheduling/expiration, the bus owns the verb policy.
+    for name in (*options.scheduling_fields_set(), *options.expiry_fields_set()):
+        raise DeliveryOptionNotApplicableError(name, 'invoke')
 
 
 def _reject_unschedulable(envelope: MessageEnvelope[Any], endpoints: Sequence[Endpoint]) -> None:
@@ -171,6 +165,7 @@ class MessageBus(IMessageBus, IEndpointDispatch):
         ctx = try_get_message_context()
         opt = options or _EMPTY_OPTIONS
         ctx_headers = ctx.headers if ctx is not None else {}
+        now = self._now()  # one logical envelope-creation instant: scheduled_time and expires_at share it
         return self._envelope_factory.create(
             message,
             correlation_id=_override(opt.correlation_id, ctx.correlation_id if ctx else None),
@@ -178,20 +173,6 @@ class MessageBus(IMessageBus, IEndpointDispatch):
             group_id=_override(opt.group_id, ctx.group_id if ctx else None),
             tenant_id=_override(opt.tenant_id, ctx.tenant_id if ctx else None),
             headers={**ctx_headers, **(opt.headers or {})},  # fresh dict; never alias the caller's mapping
-            scheduled_time=self._resolve_scheduled(opt),
-            expires_at=self._resolve_expires(opt),
+            scheduled_time=opt.resolve_scheduled_time(now),
+            expires_at=opt.resolve_expiry(now),
         )
-
-    def _resolve_scheduled(self, options: DeliveryOptions) -> datetime | None:
-        if options.scheduled_time is not None:
-            return options.scheduled_time
-        if options.schedule_delay is not None:
-            return self._now() + options.schedule_delay
-        return None
-
-    def _resolve_expires(self, options: DeliveryOptions) -> datetime | None:
-        if options.deliver_by is not None:
-            return options.deliver_by
-        if options.deliver_within is not None:
-            return self._now() + options.deliver_within
-        return None

@@ -49,3 +49,37 @@ class DeliveryOptions:
             if value is not None and value.utcoffset() is None:
                 msg = f'{name} must be timezone-aware, got {value!r}'
                 raise InvalidDeliveryOptionsError(msg)
+
+    def scheduling_fields_set(self) -> tuple[str, ...]:
+        return tuple(
+            name
+            for name, value in (
+                ('scheduled_time', self.scheduled_time),
+                ('schedule_delay', self.schedule_delay),
+            )
+            if value is not None
+        )
+
+    def expiry_fields_set(self) -> tuple[str, ...]:
+        return tuple(
+            name
+            for name, value in (
+                ('deliver_by', self.deliver_by),
+                ('deliver_within', self.deliver_within),
+            )
+            if value is not None
+        )
+
+    def resolve_scheduled_time(self, now: datetime) -> datetime | None:
+        if self.scheduled_time is not None:
+            return self.scheduled_time
+        if self.schedule_delay is not None:
+            return now + self.schedule_delay
+        return None
+
+    def resolve_expiry(self, now: datetime) -> datetime | None:
+        if self.deliver_by is not None:
+            return self.deliver_by
+        if self.deliver_within is not None:
+            return now + self.deliver_within
+        return None

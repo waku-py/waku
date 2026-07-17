@@ -263,22 +263,26 @@ async def test_publish_applies_overrides(container: AsyncContainer) -> None:
 
 
 @pytest.mark.parametrize(
-    'options',
+    ('options', 'expected_field'),
     [
-        DeliveryOptions(scheduled_time=_NOW),
-        DeliveryOptions(schedule_delay=timedelta(seconds=5)),
-        DeliveryOptions(deliver_by=_NOW),
-        DeliveryOptions(deliver_within=timedelta(seconds=5)),
+        (DeliveryOptions(scheduled_time=_NOW), 'scheduled_time'),
+        (DeliveryOptions(schedule_delay=timedelta(seconds=5)), 'schedule_delay'),
+        (DeliveryOptions(deliver_by=_NOW), 'deliver_by'),
+        (DeliveryOptions(deliver_within=timedelta(seconds=5)), 'deliver_within'),
     ],
 )
 async def test_invoke_rejects_scheduling_and_expiration_options(
     container: AsyncContainer,
     options: DeliveryOptions,
+    expected_field: str,
 ) -> None:
     bus = await container.get(IMessageBus)
 
-    with pytest.raises(DeliveryOptionNotApplicableError):
+    with pytest.raises(DeliveryOptionNotApplicableError) as excinfo:
         await bus.invoke(_Cmd(name='x'), options)
+
+    assert excinfo.value.option == expected_field
+    assert excinfo.value.verb == 'invoke'
 
 
 async def test_invoke_applies_envelope_native_override(container: AsyncContainer) -> None:
