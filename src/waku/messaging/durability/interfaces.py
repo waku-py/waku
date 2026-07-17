@@ -75,7 +75,10 @@ class IOutboxStore(abc.ABC):
         """Delete DISPATCHED rows older than ``now - older_than``. Returns row count.
 
         The cutoff derives from the caller-sampled ``now`` (single-clock discipline), never a
-        store-local wall/DB clock.
+        store-local wall/DB clock. Only the cutoff is app-sampled; the compared ``dispatched_at``
+        column stays store/DB-stamped, so the comparison spans clocks (negligible under NTP over a
+        retention window). Do NOT thread ``now`` into the sibling recovery ports (``recover_abandoned``):
+        those compare a DB-stamped column against the DB clock and are deliberately same-clock.
         """
         ...
 
@@ -237,7 +240,9 @@ class IDeadLetterStore(abc.ABC):
         """Delete dead letters created before ``now - older_than`` that hold no live replay lease.
 
         The cutoff derives from the caller-sampled ``now`` (single-clock discipline); a strictly
-        live lease is protected from purge.
+        live lease is protected from purge. Only the cutoff is app-sampled; the compared
+        ``created_at`` column stays store/DB-stamped, so the comparison spans clocks (negligible
+        under NTP over a retention window).
         """
         ...
 
