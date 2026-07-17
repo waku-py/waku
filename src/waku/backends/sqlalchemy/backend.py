@@ -8,7 +8,7 @@ from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from typing_extensions import override
 
-from waku._internal.lease import ILease
+from waku._internal.lease import ILease, LeaseConfig
 from waku._internal.provider_scan import provided_type_hints
 from waku.backends.sqlalchemy.checkpoint.store import SqlAlchemyCheckpointStore
 from waku.backends.sqlalchemy.checkpoint.tables import CheckpointTables, bind_checkpoint_tables
@@ -35,7 +35,6 @@ from waku.eventsourcing.projection.interfaces import IProjection
 from waku.eventsourcing.serialization.interfaces import IEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventStore, ISnapshotStore
-from waku.exceptions import ImproperlyConfiguredError
 from waku.extensions import OnModuleRegistration
 from waku.messaging.config import MessagingConfig
 from waku.messaging.durability import (
@@ -53,10 +52,10 @@ from waku.uow import IUnitOfWork
 
 __all__ = ['SqlAlchemyBackend']
 
-# Value-aware gate for the ILease provider: the activator injects the already-registered MessagingConfig
-# and reads .leadership (a VALUE that provided_type_hints/Has cannot see), activating this marker only
-# when leadership is configured. Registered only when engine= is passed (the graph-completeness gate) AND
-# MessagingConfig is present (the activator's own dependency) — so a leadership-off app is graph-identical.
+# Value-aware gate for the messaging-only ILease provider: the activator injects the already-registered
+# MessagingConfig and reads .leadership (a VALUE that provided_type_hints/Has cannot see), activating this
+# marker only when leadership is configured. Used only in the messaging-without-ES branch — the
+# projection-daemon lease (ES present) is backend-owned and registered ungated.
 LeadershipActive = Marker('waku.leadership_active')
 
 
@@ -65,13 +64,17 @@ def _leadership_active(config: MessagingConfig) -> bool:
 
 
 def _build_postgres_lease(engine: AsyncEngine, config: MessagingConfig) -> ILease:
-    # Factory function so dishka introspects THIS signature, not PostgresLease.__init__ (whose
-    # non-optional AsyncEngine is fine here, but the factory keeps the pattern uniform with the rest).
+    # Factory function so dishka introspects THIS signature, not PostgresLease.__init__. One lease serves
+    # both consumers: the leadership config governs it when set, a default LeaseConfig otherwise (the
+    # projection daemon in a leadership-off app).
     leadership = config.leadership
-    if leadership is None:  # pragma: no cover -- the activator gates this factory off when leadership is None
-        msg = 'leadership lease built without LeadershipConfig'
-        raise ImproperlyConfiguredError(msg)
-    return PostgresLease(engine, leadership.lease)
+    lease_config = leadership.lease if leadership is not None else LeaseConfig()
+    return PostgresLease(engine, lease_config)
+
+
+def _build_postgres_lease_default(engine: AsyncEngine) -> ILease:
+    # ES-only app: no MessagingConfig in the graph — the projection lease uses the default LeaseConfig.
+    return PostgresLease(engine, LeaseConfig())
 
 
 class _SqlAlchemyBackendWiring(OnModuleRegistration):
@@ -103,25 +106,32 @@ class _SqlAlchemyBackendWiring(OnModuleRegistration):
         context: Mapping[Any, Any] | None,
     ) -> None:
         provided = provided_type_hints(registry)
-        if MessagingConfig in provided:
+        has_messaging = MessagingConfig in provided
+        has_es = EventSourcingConfig in provided
+        if has_messaging:
             bind_outbox_tables(self._metadata)
             bind_inbox_tables(self._metadata)
             bind_dead_letter_tables(self._metadata)
             bind_sequence_tables(self._metadata)
-            if self._engine is not None:
-                # Leadership lease wiring, gated on engine= (D5: nothing enters the graph without it,
-                # so a leadership-off app that passes no engine= is graph-identical to today). The
-                # activator (secondary gate) keeps the provider INERT when leadership is None even here.
-                bind_lease_tables(self._metadata)
-                registry.add_provider(owning_module, object_(self._engine, provided_type=AsyncEngine))
-                registry.add_provider(owning_module, activator(_leadership_active, LeadershipActive))
-                registry.add_provider(owning_module, singleton(ILease, _build_postgres_lease, when=LeadershipActive))
-        if EventSourcingConfig in provided:
+        if has_es:
             self._event_tables = bind_event_store_tables(self._metadata)
             self._snapshots_table = bind_snapshot_tables(self._metadata)
             self._checkpoints_table = bind_checkpoint_tables(self._metadata)
             registry.add_provider(owning_module, scoped(ISnapshotStore, self.build_snapshot_store))
             registry.add_provider(owning_module, scoped(ICheckpointStore, self.build_checkpoint_store))
+        # The Postgres lease runs an AUTOCOMMIT heartbeat over the engine, so it needs engine= (D5: an
+        # app that passes no engine= registers no lease and is graph-identical to today). When event
+        # sourcing is present the projection daemon acquires the lease regardless of messaging leadership,
+        # so the provider is ungated; a messaging-only app keeps the leadership-gated (inert) provider.
+        if self._engine is not None and (has_messaging or has_es):
+            bind_lease_tables(self._metadata)
+            registry.add_provider(owning_module, object_(self._engine, provided_type=AsyncEngine))
+            if has_es:
+                factory = _build_postgres_lease if has_messaging else _build_postgres_lease_default
+                registry.add_provider(owning_module, singleton(ILease, factory))
+            else:
+                registry.add_provider(owning_module, activator(_leadership_active, LeadershipActive))
+                registry.add_provider(owning_module, singleton(ILease, _build_postgres_lease, when=LeadershipActive))
 
     def build_snapshot_store(self, session: AsyncSession) -> ISnapshotStore:
         return SqlAlchemySnapshotStore(session, self._snapshots_table.snapshots)
@@ -185,10 +195,11 @@ class SqlAlchemyBackend:
             metadata: Optional ``MetaData`` the active subsystems' tables are bound into (for your
                 DDL, e.g. ``metadata.create_all``). When omitted, bind the tables you provision
                 yourself via the exported ``bind_*_tables`` helpers — table names are what matter.
-            engine: The ``AsyncEngine`` the leadership lease runs its AUTOCOMMIT heartbeat over (it
-                outlives any request transaction, so it must not share the scoped ``AsyncSession``).
-                Required only when ``MessagingConfig.leadership`` is set; omitting it when leadership
-                is off is byte-identical to not passing it — nothing lease-related enters the graph.
+            engine: The ``AsyncEngine`` the lease runs its AUTOCOMMIT heartbeat over (it outlives any
+                request transaction, so it must not share the scoped ``AsyncSession``). Required for the
+                backend-owned lease — the messaging leadership lease (when ``MessagingConfig.leadership``
+                is set) and the catch-up projection daemon lease. Omitting it registers no lease and is
+                byte-identical to not passing it — nothing lease-related enters the graph.
         """
         wiring = _SqlAlchemyBackendWiring(metadata if metadata is not None else MetaData(), engine)
         return DynamicModule(

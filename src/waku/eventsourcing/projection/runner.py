@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Final, assert_never
 import anyio
 
 from waku._internal.adaptive_interval import AdaptiveInterval
+from waku._internal.lease import ILease
 from waku._internal.shutdown import wait_for_shutdown
 from waku._internal.transaction import (
     Aborted,
@@ -19,11 +20,13 @@ from waku._internal.transaction import (
     extract_transaction_execution_error,
     run_committed,
 )
+from waku.di import is_registered
 from waku.eventsourcing.exceptions import ProjectionError, ProjectionLockedError
 from waku.eventsourcing.projection._internal.processor import CycleOutcome, ProjectionProcessor
 from waku.eventsourcing.projection.config import PollingConfig
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventReader
+from waku.exceptions import ImproperlyConfiguredError
 
 _DEFAULT_POLLING: Final = PollingConfig()
 
@@ -31,7 +34,6 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Never
 
-    from waku._internal.lease import ILease
     from waku._internal.transaction import TransactionDecision
     from waku.di import AsyncContainer
     from waku.eventsourcing.projection._internal.processor import SkipRequest
@@ -63,10 +65,20 @@ class CatchUpProjectionRunner:
     async def create(
         cls,
         container: AsyncContainer,
-        lock: ILease,
         projections: Sequence[type[ICatchUpProjection]] | None = None,
         polling: PollingConfig = _DEFAULT_POLLING,
     ) -> CatchUpProjectionRunner:
+        # The projection-daemon lease is backend-owned: the durability backend registers an ``ILease``
+        # (memory -> in-process, sqlalchemy -> Postgres table). Fail loud and name the fix when none is
+        # present rather than silently running without single-instance coordination.
+        if not await is_registered(container, ILease):
+            msg = (
+                'CatchUpProjectionRunner requires a durability backend that provides a projection lease — '
+                'register one, e.g. MemoryBackend.register() or '
+                'SqlAlchemyBackend.register(..., engine=<AsyncEngine>).'
+            )
+            raise ImproperlyConfiguredError(msg)
+        lock = await container.get(ILease)
         async with container() as scope:
             registry = await scope.get(CatchUpProjectionRegistry)
         if projections is not None:

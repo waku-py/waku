@@ -7,7 +7,7 @@ from typing import Any
 from typing_extensions import override
 
 from waku._internal.clock import Now
-from waku._internal.lease import ILease, InMemoryLease
+from waku._internal.lease import ILease, InMemoryLease, LeaseConfig
 from waku._internal.provider_scan import provided_type_hints
 from waku.backends.memory._internal.dead_letter import WorkspaceDeadLetterStore
 from waku.backends.memory._internal.eventsourcing import (
@@ -30,7 +30,6 @@ from waku.eventsourcing.modules import EventSourcingConfig
 from waku.eventsourcing.projection.interfaces import IProjection
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventStore, ISnapshotStore
-from waku.exceptions import ImproperlyConfiguredError
 from waku.extensions import OnModuleRegistration
 from waku.messaging.config import MessagingConfig
 from waku.messaging.durability import (
@@ -47,10 +46,9 @@ from waku.uow import IUnitOfWork
 
 __all__ = ['MemoryBackend']
 
-# Same value-aware gate as the SQLAlchemy backend: the activator injects MessagingConfig and reads
-# .leadership. No engine gate here — InMemoryLease's only dependency (Now) is always present in a
-# messaging app, so the provider is registered whenever MessagingConfig is (behind the same
-# type-presence seam) and left INERT by the activator when leadership is None.
+# Value-aware gate shared with the SQLAlchemy backend: the activator injects MessagingConfig and reads
+# .leadership (a value the type-presence seam cannot see), keeping the messaging-only lease INERT until
+# leadership is configured. The projection-daemon lease (ES present) is backend-owned and needs no gate.
 LeadershipActive = Marker('waku.leadership_active')
 
 
@@ -59,19 +57,25 @@ def _leadership_active(config: MessagingConfig) -> bool:
 
 
 def _build_in_memory_lease(config: MessagingConfig, now: Now) -> ILease:
+    # One lease serves both consumers: the leadership config governs it when set (messaging leadership),
+    # a default LeaseConfig otherwise (projection daemon in a leadership-off or messaging-free app).
     leadership = config.leadership
-    if leadership is None:  # pragma: no cover -- the activator gates this factory off when leadership is None
-        msg = 'leadership lease built without LeadershipConfig'
-        raise ImproperlyConfiguredError(msg)
-    return InMemoryLease(leadership.lease, now=now)
+    lease_config = leadership.lease if leadership is not None else LeaseConfig()
+    return InMemoryLease(lease_config, now=now)
+
+
+def _build_in_memory_lease_default() -> ILease:
+    # ES-only app: no MessagingConfig (hence no Now provider) — the projection lease uses the default clock.
+    return InMemoryLease()
 
 
 class _MemoryBackendWiring(OnModuleRegistration):
-    """Registration-time wiring for the in-memory leadership lease (mirrors the SQLAlchemy backend's seam).
+    """Registration-time wiring for the in-memory projection/leadership lease (mirrors the SQLAlchemy seam).
 
-    The memory backend otherwise registers its stores statically; only the lease needs the value-aware
-    activator, which must not be registered in an ES-only app (its MessagingConfig dependency would
-    break that build), so it hangs off the same ``MessagingConfig in provided`` type-presence check.
+    The memory backend registers its stores statically; only the lease needs a value-aware activator.
+    When event sourcing is present the projection daemon acquires the lease regardless of messaging
+    leadership, so the provider is registered ungated; a messaging-only app keeps the leadership-gated
+    provider, inert until ``MessagingConfig.leadership`` is set.
     """
 
     __slots__ = ()
@@ -84,7 +88,12 @@ class _MemoryBackendWiring(OnModuleRegistration):
         context: Mapping[Any, Any] | None,
     ) -> None:
         provided = provided_type_hints(registry)
-        if MessagingConfig in provided:
+        has_messaging = MessagingConfig in provided
+        has_es = EventSourcingConfig in provided
+        if has_es:
+            factory = _build_in_memory_lease if has_messaging else _build_in_memory_lease_default
+            registry.add_provider(owning_module, singleton(ILease, factory))
+        elif has_messaging:
             registry.add_provider(owning_module, activator(_leadership_active, LeadershipActive))
             registry.add_provider(owning_module, singleton(ILease, _build_in_memory_lease, when=LeadershipActive))
 

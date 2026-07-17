@@ -33,7 +33,7 @@ SPI_FACADES: tuple[tuple[str, str], ...] = (
     ('waku.eventsourcing.snapshot', 'Snapshot model, strategy, and migration contracts.'),
     (
         'waku.eventsourcing.projection',
-        'Projection contracts, polling configuration, and the lease contract with its in-memory lease.',
+        'Projection contracts, polling configuration, and lease configuration.',
     ),
     ('waku.eventsourcing.serialization', 'Event and snapshot-state serializer contracts.'),
     ('waku.serialization', 'Payload codec and the upcasting toolkit.'),

@@ -174,19 +174,18 @@ Use the `create()` classmethod to build a runner from a DI container:
 
 ```python
 from waku.eventsourcing.projection.config import PollingConfig
-from waku.eventsourcing.projection import InMemoryLease
 
 runner = await CatchUpProjectionRunner.create(
     container,
-    lock=InMemoryLease(),
     projections=[AccountSummaryProjection],  # optional filter; None = all registered
     polling=PollingConfig(),                 # optional; defaults to sensible values
 )
 await runner.run()
 ```
 
-`create()` resolves the `CatchUpProjectionRegistry` from the container to discover bindings.
-When `projections` is provided, only those projection classes are included.
+`create()` resolves the `CatchUpProjectionRegistry` from the container to discover bindings, and the
+per-projection lease from the registered [durability backend](#distributed-locking). When
+`projections` is provided, only those projection classes are included.
 
 ```python linenums="1"
 --8<-- "docs/code/eventsourcing/projections/runner.py"
@@ -266,95 +265,40 @@ transaction) and skipped.
 
 ## Distributed Locking
 
-`ILease` ensures only one instance of each catch-up projection runs at a time
-across multiple processes. This prevents duplicate processing and checkpoint conflicts.
+Each catch-up projection runs under a lease, so only one instance processes it at a time across a
+multi-process deployment — preventing duplicate processing and checkpoint conflicts. The lease is
+owned by the [durability backend](../../fundamentals/backends.md) registered in the container:
+`create()` resolves it automatically, there is nothing to construct or pass.
 
-```python
-class ILease(abc.ABC):
-    @contextlib.asynccontextmanager
-    async def acquire(self, name: str) -> AsyncIterator[bool]:
-        """Yields True if the lease was acquired, False if held by another instance."""
-```
+| Backend | Lease | Coordination |
+|---------|-------|-------------|
+| `MemoryBackend` | in-process | Single process — examples, quickstarts, tests; no PostgreSQL required |
+| `SqlAlchemyBackend` | `waku_leases` table with TTL heartbeats | Multi-process; requires `engine=` |
 
-### Choosing a Lock
+If no backend provides a lease, `CatchUpProjectionRunner.create()` fails loud and names the fix.
 
-```mermaid
-graph TD
-    Q1{Single process?}
-    Q1 -->|Yes| IM[InMemoryLease]
-    Q1 -->|No| Q2{Using PgBouncer<br/>in transaction mode?}
-    Q2 -->|Yes| LB[PostgresLease]
-    Q2 -->|No| Q3{Long-running projections<br/>with many connections?}
-    Q3 -->|Yes| LB
-    Q3 -->|No| ADV[PostgresAdvisoryLease]
-```
+### PostgreSQL lease
 
-| | `InMemoryLease` | `PostgresLease` | `PostgresAdvisoryLease` |
-|---|---|---|---|
-| **Extra** | — | `waku[sqla]` | `waku[sqla]` |
-| **Use case** | Single process, testing | Multi-process production | Multi-process, simple setups |
-| **Connection held** | None | Only during heartbeats | Entire lock duration |
-| **PgBouncer compatible** | N/A | Yes | No (session-bound) |
-| **Extra table required** | No | Yes (`waku_leases`) | No |
-| **Lock granularity** | Per process | Per lease TTL | Per DB session |
-| **Failure detection** | Instant | Heartbeat interval | Connection drop |
-
-### InMemoryLease
-
-Always acquires the lease immediately. Default construction is single-node-isolated (a private
-in-process store), so it suits single-process deployments and tests. Passing a shared `store` with
-distinct holders models contending nodes.
-
-### PostgresLease
-
-Uses a database table with TTL-based leases for multi-process coordination. A background
-heartbeat task renews the lease periodically. If the heartbeat detects the lease was stolen
-(e.g., by another instance after TTL expiry), it cancels the projection task.
-
-```python
-from waku.backends.sqlalchemy import PostgresLease
-from waku.eventsourcing.projection.config import LeaseConfig
-
-lock = PostgresLease(engine=engine, config=LeaseConfig())
-```
-
-Configured via `LeaseConfig`:
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| `ttl_seconds` | `30.0` | How long the lease is valid before expiring |
-| `renew_interval_factor` | `1/3` | Fraction of TTL at which the lease is renewed |
-| `renew_interval_seconds` | *(derived)* | `ttl_seconds * renew_interval_factor` — read-only property |
-
-With the defaults, the lease renews every 10 seconds and expires after 30 seconds of silence.
+The SQLAlchemy backend leases each projection through the `waku_leases` table. A background
+heartbeat renews the lease; if it detects the lease was stolen (e.g., by another instance after TTL
+expiry), it cancels that projection's task. The lease is valid for 30 seconds and renews every 10
+(the `LeaseConfig` defaults).
 
 !!! note "Consistency guarantees"
-    There is no fencing token mechanism — a stalled holder (e.g., GC pause) can briefly overlap
+    There is no fencing token mechanism — a stalled holder (e.g., a GC pause) can briefly overlap
     with a new holder until its next heartbeat fires.
 
     In practice this is safe because the runner resolves the projection, event reader, and
-    checkpoint store from a single DI scope. When using `SqlAlchemyCheckpointStore` with a
-    scoped `AsyncSession`, the projection writes and checkpoint save share the same transaction
-    (the checkpoint store calls `flush()`, not `commit()`). This means either both succeed
-    atomically or both roll back — duplicate processing from a brief overlap will not corrupt
-    the read model.
+    checkpoint store from a single DI scope. With `SqlAlchemyCheckpointStore` over a scoped
+    `AsyncSession`, the projection writes and checkpoint save share the same transaction (the
+    checkpoint store calls `flush()`, not `commit()`). Either both succeed atomically or both roll
+    back — duplicate processing from a brief overlap will not corrupt the read model.
 
-### PostgresAdvisoryLease
+### Custom coordination
 
-Uses PostgreSQL [advisory locks](https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS)
-via `pg_try_advisory_lock(hashtext(name))`. The lock is session-bound — it holds a database
-connection for the entire duration.
-
-```python
-from waku.backends.sqlalchemy import PostgresAdvisoryLease
-
-lock = PostgresAdvisoryLease(engine=engine)
-```
-
-!!! warning
-    Advisory locks are **not compatible** with PgBouncer in transaction-pooling mode because
-    the lock is tied to the database session, not the transaction. Releasing the connection
-    back to the pool releases the lock. Use `PostgresLease` instead.
+The lease is part of the backend boundary, not a user-facing knob. To coordinate differently — for
+example a session-bound advisory lock for a PgBouncer transaction-mode deployment — compose your own
+durability backend. See [durability backends](../../fundamentals/backends.md).
 
 ## Checkpoint Store
 

@@ -19,6 +19,7 @@ from waku.eventsourcing.projection.interfaces import ICatchUpProjection, Project
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.projection.runner import CatchUpProjectionRunner
 from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventReader, IEventStore
+from waku.exceptions import ImproperlyConfiguredError
 from waku.factory import WakuFactory
 from waku.uow import IUnitOfWork
 
@@ -245,6 +246,21 @@ def _durable_position_is(session: FakeSession, projection_name: str, position: i
     return predicate
 
 
+async def test_create_without_registered_lease_fails_loud() -> None:
+    # The projection-daemon lease is backend-owned; with no ILease provider in the container, create()
+    # must fail loud and name the backend fix rather than run without single-instance coordination.
+    @module(providers=[object_(CatchUpProjectionRegistry(()))])
+    class NoLeaseModule:
+        pass
+
+    app = WakuFactory(NoLeaseModule).create()
+    async with app:
+        with pytest.raises(ImproperlyConfiguredError, match='lease') as exc_info:
+            await CatchUpProjectionRunner.create(container=app.container)
+
+    assert 'MemoryBackend.register(' in str(exc_info.value)
+
+
 async def test_runner_processes_all_events(
     event_store: InMemoryEventStore,
     in_memory_checkpoint_store: InMemoryCheckpointStore,
@@ -259,7 +275,6 @@ async def test_runner_processes_all_events(
     async with app:
         runner = await CatchUpProjectionRunner.create(
             container=app.container,
-            lock=lock,
             polling=_FAST_POLLING,
         )
         await _run_until(runner, lambda: len(projection.received) >= 5)
@@ -278,7 +293,6 @@ async def test_runner_exits_when_no_projections(
     async with app:
         runner = await CatchUpProjectionRunner.create(
             container=app.container,
-            lock=lock,
             polling=_FAST_POLLING,
         )
 
@@ -300,7 +314,6 @@ async def test_rebuild_resets_and_reprocesses(
     async with app:
         runner = await CatchUpProjectionRunner.create(
             container=app.container,
-            lock=lock,
             polling=_FAST_POLLING,
         )
 
@@ -345,7 +358,6 @@ async def test_rebuild_error_cases(
     async with app:
         runner = await CatchUpProjectionRunner.create(
             container=app.container,
-            lock=lock,
             polling=_FAST_POLLING,
         )
 
@@ -367,7 +379,6 @@ async def test_runner_skips_locked_projection(
     async with app:
         runner = await CatchUpProjectionRunner.create(
             container=app.container,
-            lock=lock,
             polling=_FAST_POLLING,
         )
         # A fully locked projection skips immediately, so run() returns on its own (no shutdown needed).
@@ -407,7 +418,6 @@ async def test_runner_isolates_projection_errors(
     async with app:
         runner = await CatchUpProjectionRunner.create(
             container=app.container,
-            lock=lock,
             projections=projection_types,
             polling=_FAST_POLLING,
         )
@@ -450,7 +460,6 @@ async def test_one_projection_unrecoverable_error_does_not_cancel_others(
         async with app:
             runner = await CatchUpProjectionRunner.create(
                 container=app.container,
-                lock=lock,
                 polling=_FAST_POLLING,
             )
             await _run_until(runner, lambda: len(good_projection.received) >= 5)
@@ -507,7 +516,6 @@ async def test_skip_policy_advances_past_poison_batch(
     async with app:
         runner = await CatchUpProjectionRunner.create(
             container=app.container,
-            lock=lock,
             polling=_FAST_POLLING,
         )
         if drive_via_rebuild:
@@ -544,7 +552,6 @@ async def test_skip_persists_in_clean_transaction_when_project_aborts_session(
     async with app:
         runner = await CatchUpProjectionRunner.create(
             container=app.container,
-            lock=lock,
             polling=_FAST_POLLING,
         )
         await _run_until(runner, _durable_position_is(session, 'poison', 4))
@@ -577,7 +584,6 @@ async def test_skip_swallows_on_skip_failure_and_still_advances(
     async with app:
         runner = await CatchUpProjectionRunner.create(
             container=app.container,
-            lock=lock,
             polling=_FAST_POLLING,
         )
         await _run_until(runner, _durable_position_is(session, 'poison', 4))
@@ -605,7 +611,6 @@ async def test_request_shutdown_interrupts_retry_backoff(
     async with app:
         runner = await CatchUpProjectionRunner.create(
             container=app.container,
-            lock=lock,
             polling=_FAST_POLLING,
         )
         with anyio.fail_after(2):
@@ -634,7 +639,6 @@ async def test_rebuild_ignores_gap_detection_and_completes_past_permanent_gap(
     async with app:
         runner = await CatchUpProjectionRunner.create(
             container=app.container,
-            lock=lock,
             polling=_FAST_POLLING,
         )
         with anyio.fail_after(5):
@@ -668,7 +672,6 @@ async def test_rebuild_retries_transient_failure_then_completes(
     async with app:
         runner = await CatchUpProjectionRunner.create(
             container=app.container,
-            lock=lock,
             polling=_FAST_POLLING,
         )
         with anyio.fail_after(5):
@@ -700,7 +703,7 @@ async def test_rebuild_retry_rolls_back_partial_writes_before_next_attempt(
     )
 
     async with app:
-        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        runner = await CatchUpProjectionRunner.create(container=app.container, polling=_FAST_POLLING)
         await runner.rebuild('writing')
 
     assert trace.index('rollback') < trace.index('project-attempt-2')
@@ -728,7 +731,7 @@ async def test_rebuild_retry_does_not_continue_when_rollback_fails(
     )
 
     async with app:
-        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        runner = await CatchUpProjectionRunner.create(container=app.container, polling=_FAST_POLLING)
         with pytest.raises(RuntimeError) as raised:
             await runner.rebuild('writing')
 
@@ -757,7 +760,7 @@ async def test_poll_loop_does_not_retry_when_retry_rollback_fails(
     )
 
     async with app:
-        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        runner = await CatchUpProjectionRunner.create(container=app.container, polling=_FAST_POLLING)
         with anyio.fail_after(2):
             await runner.run()
 
@@ -786,7 +789,7 @@ async def test_rebuild_processing_failure_rolls_back_and_preserves_error(
     )
 
     async with app:
-        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        runner = await CatchUpProjectionRunner.create(container=app.container, polling=_FAST_POLLING)
         with pytest.raises(ProjectionStoppedError) as raised:
             await runner.rebuild('writing')
 
@@ -817,7 +820,7 @@ async def test_rebuild_processing_failure_with_failed_rollback_surfaces_fatal(
     )
 
     async with app:
-        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        runner = await CatchUpProjectionRunner.create(container=app.container, polling=_FAST_POLLING)
         with pytest.raises(RuntimeError) as raised:
             await runner.rebuild('writing')
 
@@ -851,7 +854,7 @@ async def test_rebuild_retry_masked_rollback_failure_surfaces_fatal(
     )
 
     async with app:
-        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        runner = await CatchUpProjectionRunner.create(container=app.container, polling=_FAST_POLLING)
         with pytest.raises(RuntimeError) as raised:
             await runner.rebuild('flaky')
 
@@ -884,7 +887,7 @@ async def test_poll_loop_masked_rollback_failure_stops_only_that_projection(
 
     with caplog.at_level(logging.ERROR, logger='waku.eventsourcing.projection.runner'):
         async with app:
-            runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+            runner = await CatchUpProjectionRunner.create(container=app.container, polling=_FAST_POLLING)
             await _run_until(runner, lambda: len(good_projection.received) >= 5)
 
     assert len(good_projection.received) == 5
@@ -914,7 +917,7 @@ async def test_rebuild_cycle_commit_failure_rolls_back_and_preserves_error(
     )
 
     async with app:
-        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        runner = await CatchUpProjectionRunner.create(container=app.container, polling=_FAST_POLLING)
         with pytest.raises(RuntimeError) as raised:
             await runner.rebuild('writing')
 
@@ -948,7 +951,7 @@ async def test_rebuild_cancellation_completes_shielded_rollback(
     )
 
     async with app:
-        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        runner = await CatchUpProjectionRunner.create(container=app.container, polling=_FAST_POLLING)
         with cancel_scope:
             await runner.rebuild('writing')
 
@@ -978,7 +981,7 @@ async def test_rebuild_cancellation_during_processing_completes_shielded_rollbac
     )
 
     async with app:
-        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        runner = await CatchUpProjectionRunner.create(container=app.container, polling=_FAST_POLLING)
         with cancel_scope:
             await runner.rebuild('cancelling')
 
@@ -1009,7 +1012,7 @@ async def test_rebuild_teardown_commit_failure_rolls_back(
     )
 
     async with app:
-        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        runner = await CatchUpProjectionRunner.create(container=app.container, polling=_FAST_POLLING)
         with pytest.raises(RuntimeError) as raised:
             await runner.rebuild('writing')
 
@@ -1037,7 +1040,7 @@ async def test_rebuild_checkpoint_reset_commit_failure_rolls_back(
     )
 
     async with app:
-        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        runner = await CatchUpProjectionRunner.create(container=app.container, polling=_FAST_POLLING)
         with pytest.raises(RuntimeError) as raised:
             await runner.rebuild('writing')
 
@@ -1070,7 +1073,7 @@ async def test_skip_checkpoint_failure_rolls_back(
     app = _make_app(event_store, checkpoint_store, lock, (projection,), (binding,), uow=uow)
 
     async with app:
-        runner = await CatchUpProjectionRunner.create(container=app.container, lock=lock, polling=_FAST_POLLING)
+        runner = await CatchUpProjectionRunner.create(container=app.container, polling=_FAST_POLLING)
         with pytest.raises(RuntimeError) as raised:
             await runner.rebuild('poison')
 
@@ -1100,7 +1103,6 @@ async def test_poll_loop_retries_transient_failure_and_commits_recovery(
     async with app:
         runner = await CatchUpProjectionRunner.create(
             container=app.container,
-            lock=lock,
             polling=_FAST_POLLING,
         )
         await _run_until(runner, _durable_position_is(session, 'flaky', 4))

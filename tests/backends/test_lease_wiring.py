@@ -115,14 +115,55 @@ class TestActivatorGatesSelection:
             with pytest.raises(NoActiveFactoryError):
                 await app.container.get(ILease)
 
+
+class TestProjectionLeaseIsBackendOwned:
+    # Option 2: when event sourcing is present the backend registers the projection-daemon lease
+    # UNGATED — resolvable regardless of messaging leadership, and even with no messaging at all.
+
     @staticmethod
-    async def test_es_only_memory_app_has_no_lease_wiring() -> None:
-        # No MessagingConfig in the graph ⇒ the activator (whose own dependency is MessagingConfig) is
-        # never registered, so an ES-only app builds cleanly and has no lease wiring.
+    async def test_es_only_memory_app_resolves_in_memory_lease() -> None:
         async with create_test_app(
             imports=[
                 EventSourcingModule.register(EventSourcingConfig()),
                 MemoryBackend.register(),
             ],
         ) as app:
-            assert await is_registered(app.container, ILease) is False
+            lease = await app.container.get(ILease)
+            assert isinstance(lease, InMemoryLease)
+
+    @staticmethod
+    async def test_es_only_sqla_app_resolves_postgres_lease(lease_engine: AsyncEngine) -> None:
+        async with create_test_app(
+            imports=[
+                EventSourcingModule.register(EventSourcingConfig()),
+                _sqla_backend(lease_engine, with_engine=True),
+            ],
+        ) as app:
+            lease = await app.container.get(ILease)
+            assert isinstance(lease, PostgresLease)
+
+    @staticmethod
+    async def test_memory_es_with_leadership_off_still_resolves() -> None:
+        # Messaging present but leadership OFF, ES present ⇒ the projection lease is resolvable even
+        # though the messaging leadership path never uses it (the leadership-off default-config branch).
+        async with create_test_app(
+            imports=[
+                MessagingModule.register(MessagingConfig()),
+                EventSourcingModule.register(EventSourcingConfig()),
+                MemoryBackend.register(),
+            ],
+        ) as app:
+            lease = await app.container.get(ILease)
+            assert isinstance(lease, InMemoryLease)
+
+    @staticmethod
+    async def test_sqla_es_with_leadership_off_still_resolves(lease_engine: AsyncEngine) -> None:
+        async with create_test_app(
+            imports=[
+                MessagingModule.register(MessagingConfig()),
+                EventSourcingModule.register(EventSourcingConfig()),
+                _sqla_backend(lease_engine, with_engine=True),
+            ],
+        ) as app:
+            lease = await app.container.get(ILease)
+            assert isinstance(lease, PostgresLease)
