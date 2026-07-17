@@ -9,9 +9,6 @@ import pytest
 from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
-from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
-from waku.backends.memory._internal.outbox import InMemoryOutboxStore
-from waku.di import object_, scoped
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IEvent
 from waku.messaging import (
@@ -25,11 +22,7 @@ from waku.messaging import (
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
 from waku.messaging.durability import (
-    DefaultDurabilityStore,
-    IDeadLetterStore,
-    IDurabilityStore,
     IInboxStore,
-    IOutboxStore,
 )
 from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
 from waku.messaging.endpoints._internal.execution import (
@@ -53,7 +46,6 @@ from waku.messaging.inbox._internal.listener import InboundListener
 from waku.messaging.inbox.backpressure import BufferingLimits
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.router import external_endpoint, listen
-from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.transport._internal.registry import TransportRegistry
 from waku.messaging.transport._internal.wire import encode_payload, envelope_metadata_of
 from waku.messaging.transport.inbound import ConsumeDisposition
@@ -63,7 +55,7 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import RecordingAllocator, RecordingUoW, make_codec, make_envelope
+from tests.messaging.helpers import RecordingUoW, durability_providers, make_codec, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
@@ -496,14 +488,7 @@ class TestCreateListeningAgent:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_FlowHandler)],
-            providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
-                object_(inbox, provided_type=IInboxStore),
-                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
-                scoped(IDeadLetterStore, InMemoryDeadLetterStore),
-                scoped(IOutboxStore, InMemoryOutboxStore),
-                scoped(IDurabilityStore, DefaultDurabilityStore),
-            ],
+            providers=durability_providers(inbox),
         ) as app:
             merged = merge_broker_endpoints([listen(_URI, max_requeue_attempts=3)], inbox_configured=True)[0]
             agent = await _factory_agent(app, config, transport, merged)
@@ -532,14 +517,7 @@ class TestCreateListeningAgent:
         )
         async with create_test_app(
             imports=[MessagingModule.register(config)],
-            providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
-                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
-                scoped(IInboxStore, FakeInboxStore),
-                scoped(IDeadLetterStore, InMemoryDeadLetterStore),
-                scoped(IOutboxStore, InMemoryOutboxStore),
-                scoped(IDurabilityStore, DefaultDurabilityStore),
-            ],
+            providers=durability_providers(),
         ) as app:
             merged = merge_broker_endpoints([external_endpoint(_URI)], inbox_configured=True)[0]
             with pytest.raises(ImproperlyConfiguredError, match='declares no listen aspect'):
@@ -565,14 +543,7 @@ class TestCreateListeningAgent:
         async with create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_FlowHandler)],
-            providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
-                object_(inbox, provided_type=IInboxStore),
-                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
-                scoped(IDeadLetterStore, InMemoryDeadLetterStore),
-                scoped(IOutboxStore, InMemoryOutboxStore),
-                scoped(IDurabilityStore, DefaultDurabilityStore),
-            ],
+            providers=durability_providers(inbox),
         ) as app:
             codec = await app.container.get(PayloadCodec)
             envelope = make_envelope(_OrderPlaced(order_id='ext-1'))

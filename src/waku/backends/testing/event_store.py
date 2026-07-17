@@ -87,6 +87,23 @@ async def _seed_mixed_events(store: IEventStore) -> None:
     )
 
 
+async def _seed_cross_stream_events(store: IEventStore) -> tuple[StreamId, StreamId]:
+    # Order/A (2 events) then Order/B (1 event) -> global positions 0,1 (A) and 2 (B).
+    stream_a = StreamId.for_aggregate('Order', 'A')
+    stream_b = StreamId.for_aggregate('Order', 'B')
+    await store.append_to_stream(
+        stream_a,
+        [make_envelope(OrderCreated(order_id='A')), make_envelope(ItemAdded(item_name='X'))],
+        expected_version=NoStream(),
+    )
+    await store.append_to_stream(
+        stream_b,
+        [make_envelope(OrderCreated(order_id='B'))],
+        expected_version=NoStream(),
+    )
+    return stream_a, stream_b
+
+
 # --- global_head_position / read_positions ---
 # --- archive_stream ---
 class EventStoreContract:
@@ -312,19 +329,7 @@ class EventStoreContract:
         self,
         store: IEventStore,
     ) -> None:
-        stream_a = StreamId.for_aggregate('Order', 'A')
-        stream_b = StreamId.for_aggregate('Order', 'B')
-
-        await store.append_to_stream(
-            stream_a,
-            [make_envelope(OrderCreated(order_id='A')), make_envelope(ItemAdded(item_name='X'))],
-            expected_version=NoStream(),
-        )
-        await store.append_to_stream(
-            stream_b,
-            [make_envelope(OrderCreated(order_id='B'))],
-            expected_version=NoStream(),
-        )
+        stream_a, stream_b = await _seed_cross_stream_events(store)
 
         events_a = await store.read_stream(stream_a)
         events_b = await store.read_stream(stream_b)
@@ -384,19 +389,7 @@ class EventStoreContract:
         assert events == []
 
     async def test_read_all_returns_events_across_streams(self, store: IEventStore) -> None:
-        stream_a = StreamId.for_aggregate('Order', 'A')
-        stream_b = StreamId.for_aggregate('Order', 'B')
-
-        await store.append_to_stream(
-            stream_a,
-            [make_envelope(OrderCreated(order_id='A')), make_envelope(ItemAdded(item_name='X'))],
-            expected_version=NoStream(),
-        )
-        await store.append_to_stream(
-            stream_b,
-            [make_envelope(OrderCreated(order_id='B'))],
-            expected_version=NoStream(),
-        )
+        await _seed_cross_stream_events(store)
 
         all_events = await store.read_all()
         assert len(all_events) == 3

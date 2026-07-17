@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import pytest
 from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import override
@@ -31,7 +32,11 @@ from waku.testing import create_test_app
 from tests.eventsourcing.domain import Note, NoteCreated, NoteEdited, NoteRepository
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from sqlalchemy.ext.asyncio import AsyncEngine
+
+    from waku.backends.sqlalchemy.event_store.tables import EventStoreTables
 
 
 @dataclass(frozen=True)
@@ -64,13 +69,21 @@ class NoteV2Repository(EventSourcedRepository[NoteV2]):
     aggregate_name = 'Note'
 
 
-async def test_postgres_module_wiring_end_to_end(pg_engine: AsyncEngine) -> None:
+@pytest.fixture
+async def event_store_tables(pg_engine: AsyncEngine) -> AsyncIterator[EventStoreTables]:
     metadata = MetaData()
     tables = bind_event_store_tables(metadata)
-
     async with pg_engine.begin() as conn:
         await conn.run_sync(metadata.create_all)
+    yield tables
+    async with pg_engine.begin() as conn:
+        await conn.run_sync(metadata.drop_all)
 
+
+async def test_postgres_module_wiring_end_to_end(
+    pg_engine: AsyncEngine,
+    event_store_tables: EventStoreTables,
+) -> None:
     es_ext = EventSourcingExtension().bind_aggregate(
         repository=NoteRepository,
         event_types=[NoteCreated],
@@ -96,7 +109,7 @@ async def test_postgres_module_wiring_end_to_end(pg_engine: AsyncEngine) -> None
                 contextual(AsyncSession, scope=Scope.APP),
                 scoped(ISnapshotStore, InMemorySnapshotStore),
                 scoped(ICheckpointStore, InMemoryCheckpointStore),
-                scoped(IEventStore, make_sqlalchemy_event_store(tables)),
+                scoped(IEventStore, make_sqlalchemy_event_store(event_store_tables)),
             ],
             context={AsyncSession: session},
         ) as app,
@@ -116,17 +129,11 @@ async def test_postgres_module_wiring_end_to_end(pg_engine: AsyncEngine) -> None
         assert loaded.title == 'Hello'
         assert loaded.version == 0
 
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(metadata.drop_all)
 
-
-async def test_upcasting_end_to_end_through_di(pg_engine: AsyncEngine) -> None:
-    metadata = MetaData()
-    tables = bind_event_store_tables(metadata)
-
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(metadata.create_all)
-
+async def test_upcasting_end_to_end_through_di(
+    pg_engine: AsyncEngine,
+    event_store_tables: EventStoreTables,
+) -> None:
     # Phase 1: Write a v1 event using the original schema
     es_ext_v1 = EventSourcingExtension().bind_aggregate(
         repository=NoteRepository,
@@ -152,7 +159,7 @@ async def test_upcasting_end_to_end_through_di(pg_engine: AsyncEngine) -> None:
                 contextual(AsyncSession, scope=Scope.APP),
                 scoped(ISnapshotStore, InMemorySnapshotStore),
                 scoped(ICheckpointStore, InMemoryCheckpointStore),
-                scoped(IEventStore, make_sqlalchemy_event_store(tables)),
+                scoped(IEventStore, make_sqlalchemy_event_store(event_store_tables)),
             ],
             context={AsyncSession: session},
         ) as app,
@@ -196,7 +203,7 @@ async def test_upcasting_end_to_end_through_di(pg_engine: AsyncEngine) -> None:
                 contextual(AsyncSession, scope=Scope.APP),
                 scoped(ISnapshotStore, InMemorySnapshotStore),
                 scoped(ICheckpointStore, InMemoryCheckpointStore),
-                scoped(IEventStore, make_sqlalchemy_event_store(tables)),
+                scoped(IEventStore, make_sqlalchemy_event_store(event_store_tables)),
             ],
             context={AsyncSession: session},
         ) as app,
@@ -206,6 +213,3 @@ async def test_upcasting_end_to_end_through_di(pg_engine: AsyncEngine) -> None:
         loaded = await repo.load('note-1')
         assert loaded.heading == 'My Title'
         assert loaded.version == 0
-
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(metadata.drop_all)

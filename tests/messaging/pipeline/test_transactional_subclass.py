@@ -1,32 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 import pytest
 from typing_extensions import override
 
 from waku.exceptions import ImproperlyConfiguredError
-from waku.messaging import CallNext, IPipelineBehavior, IRequest, MessageT, RequestHandler, ResponseT
+from waku.messaging import RequestHandler
 from waku.messaging._internal.outbox_cascading import DeferredCascadingBehavior, OutboxCascadingBehavior
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import MessagingConfig, OutboxConfig
 from waku.messaging.modules import _FRAMEWORK_POLICIES
 from waku.messaging.pipeline._internal.plan import build_behavior_plan
 
-
-@dataclass(frozen=True, slots=True)
-class _Cmd(IRequest[None]):
-    value: str
-
-
-class _PassthroughBehavior(IPipelineBehavior[MessageT, ResponseT]):
-    @override
-    async def handle(self, message: MessageT, /, call_next: CallNext[ResponseT]) -> ResponseT:
-        return await call_next()  # pragma: no cover -- plan tests never execute the chain
-
-
-class _SomeBehavior(_PassthroughBehavior[Any, Any]): ...
+from tests.messaging.pipeline.conftest import Cmd, SomeBehavior
 
 
 class _AuditTxn(TransactionalBehavior): ...
@@ -38,47 +25,47 @@ class _MetricsTxn(TransactionalBehavior): ...
 class _DeepTxn(_AuditTxn): ...
 
 
-class _PlainHandler(RequestHandler[_Cmd, None]):
+class _PlainHandler(RequestHandler[Cmd, None]):
     @override
-    async def handle(self, request: _Cmd, /) -> None: ...
+    async def handle(self, request: Cmd, /) -> None: ...
 
 
-class _HandlerDeclaresSubclass(RequestHandler[_Cmd, None]):
-    behaviors = (_AuditTxn, _SomeBehavior)
+class _HandlerDeclaresSubclass(RequestHandler[Cmd, None]):
+    behaviors = (_AuditTxn, SomeBehavior)
 
     @override
-    async def handle(self, request: _Cmd, /) -> None: ...
+    async def handle(self, request: Cmd, /) -> None: ...
 
 
-class _HandlerDeclaresSubclassOnly(RequestHandler[_Cmd, None]):
+class _HandlerDeclaresSubclassOnly(RequestHandler[Cmd, None]):
     behaviors = (_AuditTxn,)
 
     @override
-    async def handle(self, request: _Cmd, /) -> None: ...
+    async def handle(self, request: Cmd, /) -> None: ...
 
 
-class _HandlerDeclaresBase(RequestHandler[_Cmd, None]):
-    behaviors = (TransactionalBehavior, _SomeBehavior)
+class _HandlerDeclaresBase(RequestHandler[Cmd, None]):
+    behaviors = (TransactionalBehavior, SomeBehavior)
 
     @override
-    async def handle(self, request: _Cmd, /) -> None: ...
+    async def handle(self, request: Cmd, /) -> None: ...
 
 
-class _HandlerDeclaresParentAndGrandchild(RequestHandler[_Cmd, None]):
+class _HandlerDeclaresParentAndGrandchild(RequestHandler[Cmd, None]):
     behaviors = (_AuditTxn, _DeepTxn)
 
     @override
-    async def handle(self, request: _Cmd, /) -> None: ...
+    async def handle(self, request: Cmd, /) -> None: ...
 
 
-class _HandlerDeclaresSiblings(RequestHandler[_Cmd, None]):
+class _HandlerDeclaresSiblings(RequestHandler[Cmd, None]):
     behaviors = (_AuditTxn, _MetricsTxn)
 
     @override
-    async def handle(self, request: _Cmd, /) -> None: ...
+    async def handle(self, request: Cmd, /) -> None: ...
 
 
-def _plan_for(handler: type[RequestHandler[_Cmd, None]], config: MessagingConfig) -> tuple[type[Any], ...]:
+def _plan_for(handler: type[RequestHandler[Cmd, None]], config: MessagingConfig) -> tuple[type[Any], ...]:
     plan = build_behavior_plan([handler], _FRAMEWORK_POLICIES, config)
     return plan.for_handler(handler)
 
@@ -90,7 +77,7 @@ def test_handler_declared_subclass_installed_once_at_framework_position() -> Non
     chain = _plan_for(_HandlerDeclaresSubclass, MessagingConfig())
     assert chain.count(_AuditTxn) == 1
     assert TransactionalBehavior not in chain
-    assert chain.index(_AuditTxn) < chain.index(_SomeBehavior)
+    assert chain.index(_AuditTxn) < chain.index(SomeBehavior)
 
 
 def test_global_declared_subclass_installed_once() -> None:
@@ -104,7 +91,7 @@ def test_plain_base_declared_stays_base() -> None:
     chain = _plan_for(_HandlerDeclaresBase, MessagingConfig())
     assert chain.count(TransactionalBehavior) == 1
     assert _AuditTxn not in chain
-    assert chain.index(TransactionalBehavior) < chain.index(_SomeBehavior)
+    assert chain.index(TransactionalBehavior) < chain.index(SomeBehavior)
 
 
 def test_grandchild_wins_over_parent_and_base() -> None:

@@ -23,6 +23,8 @@ from waku.messaging.transport.interfaces import EnvelopeMetadata, Subscription
 from waku.messaging.transport.mapping import WIRE_CONTENT_TYPE
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from faststream.rabbit.annotations import RabbitMessage
     from pytest_mock import MockerFixture
 
@@ -277,29 +279,19 @@ class TestDispatchInbound:
         assert (msg.acked, msg.nack_requeues, msg.rejected) == (0, [True], 0)
 
     @staticmethod
-    async def test_undecodable_payload_is_rejected_without_requeue() -> None:
-        # Poison (foreign/corrupt wire format): reject without requeue (-> DLX/drop), never requeue (poison loop)
-        # and never leave unacked (redelivery on reconnect).
+    @pytest.mark.parametrize(
+        'make_poison',
+        [
+            lambda: _FakeInboundMessage(decode_error=ValueError('bad payload')),
+            lambda: _FakeInboundMessage(headers={**_WIRE_HEADERS, 'content-type': 'application/octet-stream'}),
+        ],
+        ids=['undecodable-payload', 'foreign-content-type'],
+    )
+    async def test_poison_inbound_is_rejected_without_requeue(make_poison: Callable[[], _FakeInboundMessage]) -> None:
+        # Poison (undecodable payload or foreign content-type): reject without requeue (-> DLX/drop), never
+        # requeue (poison loop) and never leave unacked (redelivery on reconnect).
         transport = FastStreamRabbitTransport(url='amqp://x')
-        msg = _FakeInboundMessage(decode_error=ValueError('bad payload'))
-        seen: list[object] = []
-        mapper = DefaultRabbitEnvelopeMapper()
-
-        async def on_message(payload: dict[str, object], metadata: object) -> ConsumeDisposition:  # noqa: ARG001, RUF029
-            seen.append(payload)
-            return ConsumeDisposition.ACK
-
-        await transport._dispatch_inbound(cast('RabbitMessage', msg), on_message, mapper)
-
-        assert (msg.acked, msg.nack_requeues, msg.rejected) == (0, [], 1)
-        assert seen == []
-
-    @staticmethod
-    async def test_foreign_content_type_is_rejected_via_mapper() -> None:
-        # A foreign content-type causes map_incoming → UnsupportedContentTypeError → poison reject.
-        transport = FastStreamRabbitTransport(url='amqp://x')
-        foreign_headers = {**_WIRE_HEADERS, 'content-type': 'application/octet-stream'}
-        msg = _FakeInboundMessage(headers=foreign_headers)
+        msg = make_poison()
         seen: list[object] = []
         mapper = DefaultRabbitEnvelopeMapper()
 

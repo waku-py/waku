@@ -32,7 +32,6 @@ from waku.messaging import (
 from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore, IOutboxStore
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.handler import EventHandler
-from waku.messaging.inbox import EndpointUri, HandlerDestination
 from waku.messaging.inbox.models import InboxEntry
 from waku.messaging.outbox import OutboxRelayConfig
 from waku.messaging.outbox.models import OutboxMessage
@@ -42,6 +41,7 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
+from tests.backends.memory.conftest import make_sample_inbox_entry
 from tests.eventsourcing.domain import NoteCreated, NoteRepository
 from tests.messaging.helpers import RecordingTransport
 
@@ -87,18 +87,6 @@ def _outbox_message(payload: dict[str, str] | None = None) -> OutboxMessage:
         message_type='test.NoteCreated',
         payload=payload or {'title': 'assembled'},
         destination='test://notes',
-        correlation_id=str(uuid4()),
-        causation_id=str(uuid4()),
-    )
-
-
-def _inbox_entry() -> InboxEntry:
-    return InboxEntry(
-        id=uuid4(),
-        payload={'test': True},
-        message_type='test.Event',
-        source_uri=EndpointUri('local://orders'),
-        destination=HandlerDestination('tests.messaging.HandlerA'),
         correlation_id=str(uuid4()),
         causation_id=str(uuid4()),
     )
@@ -156,7 +144,10 @@ async def test_publish_flows_through_the_committed_outbox_to_the_relay_without_a
     assert body == {'note_id': 'n-1'}
 
 
-async def test_append_then_read_round_trips_and_composites_expose_the_scope_facets() -> None:
+async def test_append_then_read_round_trips_through_the_assembled_backend() -> None:
+    # Facet-identity of the scope composites is proved for the memory backend by the kit's
+    # BackendAssemblyContract (TestMemoryBackendAssembly); this test keeps only the unique law —
+    # an event appended through the assembled app round-trips its data back via the wired serializer.
     stream_id = StreamId.for_aggregate('Note', 'memory-1')
     es_ext = EventSourcingExtension().bind_aggregate(repository=NoteRepository, event_types=[NoteCreated])
 
@@ -175,15 +166,7 @@ async def test_append_then_read_round_trips_and_composites_expose_the_scope_face
         ) as app,
         app.container() as scope,
     ):
-        durability = await scope.get(IDurabilityStore)
         event_store = await scope.get(IEventStore)
-
-        assert durability.outbox is await scope.get(IOutboxStore)
-        assert durability.inbox is await scope.get(IInboxStore)
-        assert durability.dead_letters is await scope.get(IDeadLetterStore)
-        assert durability.unit_of_work is await scope.get(IUnitOfWork)
-        assert event_store.snapshots is await scope.get(ISnapshotStore)
-        assert event_store.checkpoints is await scope.get(ICheckpointStore)
 
         await event_store.append_to_stream(
             stream_id,
@@ -358,7 +341,7 @@ async def _assert_terminal_workspace_views_fail(
 ) -> tuple[InboxEntry, StreamId, str, GroupId]:
     stream_id = StreamId.for_aggregate('Note', str(uuid4()))
     projection_name = f'projection-{uuid4()}'
-    inbox_entry = _inbox_entry()
+    inbox_entry = make_sample_inbox_entry()
     snapshot = Snapshot(stream_id=stream_id, state={'title': 'failed-write'}, version=0, state_type='Note')
     checkpoint = Checkpoint(projection_name=projection_name, position=1, updated_at=datetime.now(tz=UTC))
     group_id = GroupId(f'group-{uuid4()}')

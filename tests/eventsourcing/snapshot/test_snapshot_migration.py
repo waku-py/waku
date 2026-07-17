@@ -87,64 +87,46 @@ def test_migrate_returns_unchanged_when_already_past_chain() -> None:
     assert result_version == 3
 
 
-def test_chain_rejects_duplicate_from_version() -> None:
-    class AnotherV1Migration(ISnapshotMigration):
-        from_version = 1
-        to_version = 2
+def _passthrough_migration(*, from_v: int, to_v: int) -> ISnapshotMigration:
+    class _Passthrough(ISnapshotMigration):
+        from_version = from_v
+        to_version = to_v
 
         @override
         def migrate(self, state: dict[str, Any], /) -> dict[str, Any]:
             return state
 
-    with pytest.raises(SnapshotMigrationChainError, match='Duplicate snapshot migration at from_version 1'):
-        SnapshotMigrationChain([AddBalanceFieldMigration(), AnotherV1Migration()])
+    return _Passthrough()
 
 
-def test_chain_rejects_invalid_from_version() -> None:
-    class ZeroVersionMigration(ISnapshotMigration):
-        from_version = 0
-        to_version = 1
-
-        @override
-        def migrate(self, state: dict[str, Any], /) -> dict[str, Any]:
-            return state
-
-    with pytest.raises(SnapshotMigrationChainError, match='Invalid from_version 0'):
-        SnapshotMigrationChain([ZeroVersionMigration()])
-
-
-def test_chain_rejects_to_version_not_greater_than_from() -> None:
-    class BadMigration(ISnapshotMigration):
-        from_version = 2
-        to_version = 2
-
-        @override
-        def migrate(self, state: dict[str, Any], /) -> dict[str, Any]:
-            return state
-
-    with pytest.raises(SnapshotMigrationChainError, match='to_version 2 must be > from_version 2'):
-        SnapshotMigrationChain([BadMigration()])
-
-
-def test_chain_rejects_gap_in_migration_sequence() -> None:
-    class V1ToV2(ISnapshotMigration):
-        from_version = 1
-        to_version = 2
-
-        @override
-        def migrate(self, state: dict[str, Any], /) -> dict[str, Any]:
-            return state
-
-    class V3ToV4(ISnapshotMigration):
-        from_version = 3
-        to_version = 4
-
-        @override
-        def migrate(self, state: dict[str, Any], /) -> dict[str, Any]:
-            return state
-
-    with pytest.raises(SnapshotMigrationChainError, match='Gap in snapshot migration chain'):
-        SnapshotMigrationChain([V1ToV2(), V3ToV4()])
+@pytest.mark.parametrize(
+    ('migrations', 'match'),
+    [
+        pytest.param(
+            [_passthrough_migration(from_v=1, to_v=2), _passthrough_migration(from_v=1, to_v=2)],
+            'Duplicate snapshot migration at from_version 1',
+            id='duplicate_from_version',
+        ),
+        pytest.param(
+            [_passthrough_migration(from_v=0, to_v=1)],
+            'Invalid from_version 0',
+            id='invalid_from_version',
+        ),
+        pytest.param(
+            [_passthrough_migration(from_v=2, to_v=2)],
+            'to_version 2 must be > from_version 2',
+            id='to_version_not_greater_than_from',
+        ),
+        pytest.param(
+            [_passthrough_migration(from_v=1, to_v=2), _passthrough_migration(from_v=3, to_v=4)],
+            'Gap in snapshot migration chain',
+            id='gap_in_migration_sequence',
+        ),
+    ],
+)
+def test_chain_rejects_invalid_migration_set(migrations: list[ISnapshotMigration], match: str) -> None:
+    with pytest.raises(SnapshotMigrationChainError, match=match):
+        SnapshotMigrationChain(migrations)
 
 
 def test_migrations_property_returns_empty_tuple_for_empty_chain() -> None:

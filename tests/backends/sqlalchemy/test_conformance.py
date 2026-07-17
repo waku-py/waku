@@ -69,20 +69,24 @@ async def conformance_pg_session(pg_engine: AsyncEngine) -> AsyncIterator[AsyncS
         yield session
 
 
+def _register_pg_backend(request: pytest.FixtureRequest) -> DynamicModule:
+    pg_engine: AsyncEngine = request.getfixturevalue('pg_engine')
+
+    async def _session_factory() -> AsyncIterator[AsyncSession]:
+        session = AsyncSession(pg_engine, expire_on_commit=False)
+        try:
+            yield session
+        finally:
+            await session.close()
+
+    return SqlAlchemyBackend.register(session_factory=_session_factory)
+
+
 class TestSqlAlchemyBackendAssembly(BackendAssemblyContract):
     @pytest.fixture
     @override
     def backend_module(self, request: pytest.FixtureRequest) -> DynamicModule:
-        pg_engine: AsyncEngine = request.getfixturevalue('pg_engine')
-
-        async def _session_factory() -> AsyncIterator[AsyncSession]:
-            session = AsyncSession(pg_engine, expire_on_commit=False)
-            try:
-                yield session
-            finally:
-                await session.close()
-
-        return SqlAlchemyBackend.register(session_factory=_session_factory)
+        return _register_pg_backend(request)
 
     @pytest.fixture(autouse=True)
     @staticmethod
@@ -105,16 +109,7 @@ class TestSqlAlchemySequenceConformance(SequenceAllocatorContract):
     @pytest.fixture
     @override
     def backend_module(self, request: pytest.FixtureRequest) -> DynamicModule:
-        pg_engine: AsyncEngine = request.getfixturevalue('pg_engine')
-
-        async def _session_factory() -> AsyncIterator[AsyncSession]:
-            session = AsyncSession(pg_engine, expire_on_commit=False)
-            try:
-                yield session
-            finally:
-                await session.close()
-
-        return SqlAlchemyBackend.register(session_factory=_session_factory)
+        return _register_pg_backend(request)
 
     @pytest.fixture(autouse=True)
     @staticmethod

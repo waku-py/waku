@@ -20,7 +20,7 @@ from waku.messaging.errors.dead_letter import (
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from datetime import datetime
+    from datetime import datetime, timedelta
     from uuid import UUID
 
     from sqlalchemy import Select
@@ -213,11 +213,10 @@ class SqlAlchemyDeadLetterStore(IDeadLetterStore):
         await self._session.execute(delete(_t).where(_t.c.id == entry_id))
 
     @override
-    async def delete_expired_dead_letters(self, older_than: datetime, *, now: datetime) -> int:
+    async def delete_expired_dead_letters(self, older_than: timedelta, *, now: datetime) -> int:
+        cutoff = now - older_than
         candidate_stmt = (
-            select(_t.c.id)
-            .where(_t.c.created_at < older_than, _lease_is_claimable(now))
-            .with_for_update(skip_locked=True)
+            select(_t.c.id).where(_t.c.created_at < cutoff, _lease_is_claimable(now)).with_for_update(skip_locked=True)
         )
         candidate_result = await self._session.execute(candidate_stmt)
         entry_ids = list(candidate_result.scalars())

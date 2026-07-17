@@ -96,6 +96,20 @@ class _SignalingDeadLetterStore(RecordingDeadLetterStore):
         self.written_event.set()
 
 
+def _notifications_relay_config(transport: RecordingTransport) -> MessagingConfig:
+    return MessagingConfig(
+        endpoints=[external_endpoint('test://notifications')],
+        routing=[route(_OrderPlaced).to('test://notifications')],
+        outbox=OutboxConfig(
+            relay=OutboxRelayConfig(
+                polling=PollingConfig(poll_interval_min_seconds=0.01), recovery_interval=timedelta(hours=1)
+            ),
+        ),
+        transports={'test': lambda: transport},
+        global_pipeline_behaviors=[TransactionalBehavior],
+    )
+
+
 class TestEndToEndOutboxFlow:
     @staticmethod
     async def test_publish_to_outbox_then_relay_delivers_to_transport() -> None:
@@ -193,17 +207,7 @@ class TestOutboxRelayLifecycleIntegration:
         transport = RecordingTransport()
         outbox = InMemoryOutboxStore(InMemoryDeadLetterStore())
 
-        config = MessagingConfig(
-            endpoints=[external_endpoint('test://notifications')],
-            routing=[route(_OrderPlaced).to('test://notifications')],
-            outbox=OutboxConfig(
-                relay=OutboxRelayConfig(
-                    polling=PollingConfig(poll_interval_min_seconds=0.01), recovery_interval=timedelta(hours=1)
-                ),
-            ),
-            transports={'test': lambda: transport},
-            global_pipeline_behaviors=[TransactionalBehavior],
-        )
+        config = _notifications_relay_config(transport)
 
         @module(extensions=[MessagingExtension().bind(_OrderPlacedHandler)])
         class TestModule:
@@ -278,17 +282,7 @@ class TestTransportStartupOrdering:
             ),
         )
 
-        config = MessagingConfig(
-            endpoints=[external_endpoint('test://notifications')],
-            routing=[route(_OrderPlaced).to('test://notifications')],
-            outbox=OutboxConfig(
-                relay=OutboxRelayConfig(
-                    polling=PollingConfig(poll_interval_min_seconds=0.01), recovery_interval=timedelta(hours=1)
-                ),
-            ),
-            transports={'test': lambda: transport},
-            global_pipeline_behaviors=[TransactionalBehavior],
-        )
+        config = _notifications_relay_config(transport)
 
         @module(extensions=[MessagingExtension().bind(_OrderPlacedHandler)])
         class TestModule:

@@ -26,11 +26,11 @@ class _Policy:
     predicate: Callable[[Exception], bool] | None
 
 
+_RETRY_3 = RetryStage(action=RetryAction.RETRY, max_attempts=3)
+
+
 def test_walk_retries_within_stage_then_hands_off_to_terminal() -> None:
-    stages = (
-        RetryStage(action=RetryAction.RETRY, max_attempts=3),
-        RetryStage(action=RetryAction.DEAD_LETTER),
-    )
+    stages = (_RETRY_3, RetryStage(action=RetryAction.DEAD_LETTER))
     assert walk_stages(stages, attempt=1).action is RetryAction.RETRY
     assert walk_stages(stages, attempt=2).action is RetryAction.RETRY
     # attempt 3 exhausts the 3-attempt retry stage and hands off to the terminal
@@ -149,10 +149,7 @@ def test_walk_requeue_stage_is_deferred_terminal_not_exhausted() -> None:
 
 
 def test_walk_retry_then_requeue_hands_off_to_requeue() -> None:
-    stages = (
-        RetryStage(action=RetryAction.RETRY, max_attempts=3),
-        RetryStage(action=RetryAction.REQUEUE),
-    )
+    stages = (_RETRY_3, RetryStage(action=RetryAction.REQUEUE))
     assert walk_stages(stages, attempt=1).action is RetryAction.RETRY
     assert walk_stages(stages, attempt=2).action is RetryAction.RETRY
     assert walk_stages(stages, attempt=3).action is RetryAction.REQUEUE

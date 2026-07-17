@@ -142,6 +142,26 @@ def assert_single_inaccessible_error(
     assert error.from_module is from_module
 
 
+async def assert_dependency_inaccessible(
+    application_factory: ApplicationFactoryFunc,
+    subject_module: ModuleType,
+    *,
+    required_type: type,
+    required_by: object | None = None,
+) -> None:
+    application = application_factory(create_basic_module(imports=[subject_module], name='AppModule'))
+    with pytest.raises(ExceptionGroup) as exc_info:
+        await application.initialize()
+
+    resolved_module = application.registry.get(subject_module)
+    assert_single_inaccessible_error(
+        exc_info,
+        required_type=required_type,
+        required_by=required_by,
+        from_module=resolved_module,
+    )
+
+
 @pytest.mark.parametrize(
     ('imports', 'exports', 'should_fail'),
     [
@@ -358,17 +378,12 @@ async def test_module_cannot_reexport_imported_types(application_factory: Applic
         imports=[ReexportModule],
         name='ConsumerModule',
     )
-    AppModule = create_basic_module(
-        imports=[ConsumerModule],
-        name='AppModule',
+    await assert_dependency_inaccessible(
+        application_factory,
+        ConsumerModule,
+        required_type=A,
+        required_by=B,
     )
-
-    application = application_factory(AppModule)
-    with pytest.raises(ExceptionGroup) as exc_info:
-        await application.initialize()
-
-    consumer_module = application.registry.get(ConsumerModule)
-    assert_single_inaccessible_error(exc_info, required_type=A, required_by=B, from_module=consumer_module)
 
 
 async def test_reexported_module_dependencies(application_factory: ApplicationFactoryFunc) -> None:
@@ -472,17 +487,12 @@ async def test_transitive_dependencies_not_accessible(application_factory: Appli
         imports=[ModuleB],
         name='ModuleC',
     )
-    AppModule = create_basic_module(
-        imports=[ModuleC],
-        name='AppModule',
+    await assert_dependency_inaccessible(
+        application_factory,
+        ModuleC,
+        required_type=ServiceA,
+        required_by=ServiceC,
     )
-
-    application = application_factory(AppModule)
-    with pytest.raises(ExceptionGroup) as exc_info:
-        await application.initialize()
-
-    module_c = application.registry.get(ModuleC)
-    assert_single_inaccessible_error(exc_info, required_type=ServiceA, required_by=ServiceC, from_module=module_c)
 
 
 async def test_alias_source_must_be_accessible(application_factory: ApplicationFactoryFunc) -> None:
@@ -498,14 +508,8 @@ async def test_alias_source_must_be_accessible(application_factory: ApplicationF
         exports=[_SecretAlias],
         name='AliasModule',
     )
-    AppModule = create_basic_module(imports=[AliasModule], name='AppModule')
 
-    application = application_factory(AppModule)
-    with pytest.raises(ExceptionGroup) as exc_info:
-        await application.initialize()
-
-    alias_module = application.registry.get(AliasModule)
-    assert_single_inaccessible_error(exc_info, required_type=_Secret, from_module=alias_module)
+    await assert_dependency_inaccessible(application_factory, AliasModule, required_type=_Secret)
 
 
 async def test_alias_source_can_be_exported(application_factory: ApplicationFactoryFunc) -> None:
@@ -550,14 +554,7 @@ async def test_inactive_alias_does_not_hide_active_alias_dependency(
         imports=[PrivateModule],
         name='AliasModule',
     )
-    AppModule = create_basic_module(imports=[AliasModule], name='AppModule')
-
-    application = application_factory(AppModule)
-    with pytest.raises(ExceptionGroup) as exc_info:
-        await application.initialize()
-
-    alias_module = application.registry.get(AliasModule)
-    assert_single_inaccessible_error(exc_info, required_type=_ActiveSecret, from_module=alias_module)
+    await assert_dependency_inaccessible(application_factory, AliasModule, required_type=_ActiveSecret)
 
 
 async def test_inactive_local_factory_does_not_authorize_active_alias_source(
@@ -573,14 +570,8 @@ async def test_inactive_local_factory_does_not_authorize_active_alias_source(
         imports=[PrivateModule],
         name='AliasModule',
     )
-    AppModule = create_basic_module(imports=[AliasModule], name='AppModule')
 
-    application = application_factory(AppModule)
-    with pytest.raises(ExceptionGroup) as exc_info:
-        await application.initialize()
-
-    alias_module = application.registry.get(AliasModule)
-    assert_single_inaccessible_error(exc_info, required_type=_Secret, from_module=alias_module)
+    await assert_dependency_inaccessible(application_factory, AliasModule, required_type=_Secret)
 
 
 async def test_same_type_alias_source_component_must_be_accessible(
@@ -602,14 +593,7 @@ async def test_same_type_alias_source_component_must_be_accessible(
         imports=[PrivateModule],
         name='AliasModule',
     )
-    AppModule = create_basic_module(imports=[AliasModule], name='AppModule')
-
-    application = application_factory(AppModule)
-    with pytest.raises(ExceptionGroup) as exc_info:
-        await application.initialize()
-
-    alias_module = application.registry.get(AliasModule)
-    assert_single_inaccessible_error(exc_info, required_type=_DecoratedService, from_module=alias_module)
+    await assert_dependency_inaccessible(application_factory, AliasModule, required_type=_DecoratedService)
 
 
 async def test_decorator_dependencies_must_be_accessible(application_factory: ApplicationFactoryFunc) -> None:
@@ -625,18 +609,12 @@ async def test_decorator_dependencies_must_be_accessible(application_factory: Ap
         imports=[PrivateModule],
         name='DecoratorModule',
     )
-    AppModule = create_basic_module(imports=[DecoratorModule], name='AppModule')
 
-    application = application_factory(AppModule)
-    with pytest.raises(ExceptionGroup) as exc_info:
-        await application.initialize()
-
-    decorator_module = application.registry.get(DecoratorModule)
-    assert_single_inaccessible_error(
-        exc_info,
+    await assert_dependency_inaccessible(
+        application_factory,
+        DecoratorModule,
         required_type=_Secret,
         required_by=_decorate_service,
-        from_module=decorator_module,
     )
 
 
@@ -698,18 +676,12 @@ async def test_inactive_local_factory_does_not_authorize_active_decorator_target
         imports=[PrivateModule],
         name='DecoratorModule',
     )
-    AppModule = create_basic_module(imports=[DecoratorModule], name='AppModule')
 
-    application = application_factory(AppModule)
-    with pytest.raises(ExceptionGroup) as exc_info:
-        await application.initialize()
-
-    decorator_module = application.registry.get(DecoratorModule)
-    assert_single_inaccessible_error(
-        exc_info,
+    await assert_dependency_inaccessible(
+        application_factory,
+        DecoratorModule,
         required_type=_DecoratedService,
         required_by=_decorate_target_only,
-        from_module=decorator_module,
     )
 
 
@@ -722,18 +694,12 @@ async def test_decorator_target_must_be_accessible(application_factory: Applicat
         imports=[PrivateModule],
         name='DecoratorModule',
     )
-    AppModule = create_basic_module(imports=[DecoratorModule], name='AppModule')
 
-    application = application_factory(AppModule)
-    with pytest.raises(ExceptionGroup) as exc_info:
-        await application.initialize()
-
-    decorator_module = application.registry.get(DecoratorModule)
-    assert_single_inaccessible_error(
-        exc_info,
+    await assert_dependency_inaccessible(
+        application_factory,
+        DecoratorModule,
         required_type=_DecoratedService,
         required_by=_decorate_target_only,
-        from_module=decorator_module,
     )
 
 
@@ -749,18 +715,12 @@ async def test_global_decorator_output_does_not_make_its_private_target_accessib
         is_global=True,
         name='DecoratorModule',
     )
-    AppModule = create_basic_module(imports=[DecoratorModule], name='AppModule')
 
-    application = application_factory(AppModule)
-    with pytest.raises(ExceptionGroup) as exc_info:
-        await application.initialize()
-
-    decorator_module = application.registry.get(DecoratorModule)
-    assert_single_inaccessible_error(
-        exc_info,
+    await assert_dependency_inaccessible(
+        application_factory,
+        DecoratorModule,
         required_type=_DecoratedService,
         required_by=_decorate_target_only,
-        from_module=decorator_module,
     )
 
 
@@ -861,18 +821,12 @@ async def test_dynamic_decorator_activation_validates_inaccessible_dependencies(
         imports=[PrivateModule],
         name='DecoratorModule',
     )
-    AppModule = create_basic_module(imports=[DecoratorModule], name='AppModule')
 
-    application = application_factory(AppModule)
-    with pytest.raises(ExceptionGroup) as exc_info:
-        await application.initialize()
-
-    decorator_module = application.registry.get(DecoratorModule)
-    assert_single_inaccessible_error(
-        exc_info,
+    await assert_dependency_inaccessible(
+        application_factory,
+        DecoratorModule,
         required_type=_Secret,
         required_by=_decorate_service,
-        from_module=decorator_module,
     )
 
 
@@ -888,18 +842,11 @@ async def test_generic_decorator_dependencies_must_be_accessible(
         imports=[PrivateModule],
         name='DecoratorModule',
     )
-    AppModule = create_basic_module(imports=[DecoratorModule], name='AppModule')
-
-    application = application_factory(AppModule)
-    with pytest.raises(ExceptionGroup) as exc_info:
-        await application.initialize()
-
-    decorator_module = application.registry.get(DecoratorModule)
-    assert_single_inaccessible_error(
-        exc_info,
+    await assert_dependency_inaccessible(
+        application_factory,
+        DecoratorModule,
         required_type=_Secret,
         required_by=_decorate_box,
-        from_module=decorator_module,
     )
 
 
@@ -922,18 +869,11 @@ async def test_dependencies_from_indirect_imports_are_not_accessible(
         name='ConsumerModule',
     )
 
-    AppModule = create_basic_module(
-        imports=[ConsumerModule],
-        name='AppModule',
-    )
-
-    application = application_factory(AppModule)
-    with pytest.raises(ExceptionGroup) as exc_info:
-        await application.initialize()
-
-    consumer_module = application.registry.get(ConsumerModule)
-    assert_single_inaccessible_error(
-        exc_info, required_type=Service, required_by=DependentService, from_module=consumer_module
+    await assert_dependency_inaccessible(
+        application_factory,
+        ConsumerModule,
+        required_type=Service,
+        required_by=DependentService,
     )
 
 

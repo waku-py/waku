@@ -24,7 +24,6 @@ from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
     IMessageBus,
-    IRequest,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
@@ -38,6 +37,7 @@ from waku.messaging.outbox.models import OutboxMessage
 from waku.testing import create_test_app
 
 from tests.eventsourcing.domain import Note, NoteCreated, NoteEdited, NoteRepository
+from tests.integrations.eventsourcing_messaging.domain import CreateNote, CreateNoteHandler
 from tests.messaging.helpers import RecordingTransport
 
 if TYPE_CHECKING:
@@ -52,26 +52,6 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class NoteCreatedIntegration(IEvent):
     title: str
-
-
-@dataclass(frozen=True, kw_only=True)
-class CreateNote(IRequest):
-    note_id: str
-    title: str
-
-
-class CreateNoteHandler(EventSourcedVoidCommandHandler[CreateNote, Note]):
-    @override
-    def _aggregate_id(self, request: CreateNote) -> str:
-        return request.note_id
-
-    @override
-    def _is_creation_command(self, request: CreateNote) -> bool:
-        return True
-
-    @override
-    async def _execute(self, request: CreateNote, aggregate: Note) -> None:
-        aggregate.create(request.title)
 
 
 class CreateAndEditNoteHandler(EventSourcedVoidCommandHandler[CreateNote, Note]):

@@ -47,6 +47,21 @@ def _assert_state(breaker: CircuitBreaker, expected: CircuitState) -> None:
     assert breaker.state is expected
 
 
+async def _tripped_breaker() -> tuple[CircuitBreaker, list[str], ControllableSleep]:
+    clock, sleep = _Clock(), ControllableSleep()
+    breaker, calls = _make_breaker(
+        CircuitBreakerConfig(failure_rate_threshold=0.5, minimum_throughput=2, pause_time=timedelta(seconds=30)),
+        clock=clock,
+        sleep=sleep,
+    )
+    await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
+    await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
+    _assert_state(breaker, CircuitState.OPEN)
+    # create_task runs on the next loop turn — wait_until() observes the parked resume sleep.
+    await wait_until(lambda: sleep.requested == [30.0])
+    return breaker, calls, sleep
+
+
 async def test_does_not_trip_below_minimum_throughput() -> None:
     clock, sleep = _Clock(), ControllableSleep()
     breaker, calls = _make_breaker(
@@ -85,17 +100,7 @@ async def test_trips_and_pauses_when_rate_exceeds_threshold() -> None:
 
 
 async def test_resumes_and_resets_after_pause_time() -> None:
-    clock, sleep = _Clock(), ControllableSleep()
-    breaker, calls = _make_breaker(
-        CircuitBreakerConfig(failure_rate_threshold=0.5, minimum_throughput=2, pause_time=timedelta(seconds=30)),
-        clock=clock,
-        sleep=sleep,
-    )
-    await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
-    await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
-    _assert_state(breaker, CircuitState.OPEN)
-    # create_task runs on the next loop turn — wait_until() needed to observe the sleep.
-    await wait_until(lambda: sleep.requested == [30.0])
+    breaker, calls, sleep = await _tripped_breaker()
     sleep.released.set()  # release the resume task
     await breaker.wait_for_resume()
     _assert_state(breaker, CircuitState.CLOSED)
@@ -186,16 +191,7 @@ async def test_old_entries_evicted_from_window() -> None:
 
 
 async def test_retrips_after_resume() -> None:
-    clock, sleep = _Clock(), ControllableSleep()
-    breaker, calls = _make_breaker(
-        CircuitBreakerConfig(failure_rate_threshold=0.5, minimum_throughput=2, pause_time=timedelta(seconds=30)),
-        clock=clock,
-        sleep=sleep,
-    )
-    await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
-    await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
-    _assert_state(breaker, CircuitState.OPEN)
-    await wait_until(lambda: sleep.requested == [30.0])
+    breaker, calls, sleep = await _tripped_breaker()
     sleep.released.set()
     await breaker.wait_for_resume()
     _assert_state(breaker, CircuitState.CLOSED)
@@ -210,16 +206,7 @@ async def test_retrips_after_resume() -> None:
 
 
 async def test_aclose_cancels_pending_resume_so_resume_never_fires() -> None:
-    clock, sleep = _Clock(), ControllableSleep()
-    breaker, calls = _make_breaker(
-        CircuitBreakerConfig(failure_rate_threshold=0.5, minimum_throughput=2, pause_time=timedelta(seconds=30)),
-        clock=clock,
-        sleep=sleep,
-    )
-    await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
-    await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
-    _assert_state(breaker, CircuitState.OPEN)
-    await wait_until(lambda: sleep.requested == [30.0])  # resume task parked in the sleep
+    breaker, calls, sleep = await _tripped_breaker()
     await breaker.aclose()  # cancels the parked task
     sleep.released.set()  # even if released now, the cancelled task must not run
     await anyio.lowlevel.checkpoint()

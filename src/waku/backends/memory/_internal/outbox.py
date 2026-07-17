@@ -153,8 +153,8 @@ class _InMemoryOutboxStoreOperations(IOutboxStore):
         return recovered
 
     @override
-    async def delete_expired_dispatched(self, older_than: timedelta) -> int:
-        cutoff = datetime.now(tz=UTC) - older_than
+    async def delete_expired_dispatched(self, older_than: timedelta, *, now: datetime) -> int:
+        cutoff = now - older_than
         before = len(self.messages)
         self.messages[:] = [
             msg

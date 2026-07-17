@@ -24,6 +24,8 @@ from waku.messaging.transport.interfaces import EnvelopeMetadata, Subscription
 from waku.messaging.transport.mapping import WIRE_CONTENT_TYPE
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from faststream.kafka.annotations import KafkaMessage
     from pytest_mock import MockerFixture
 
@@ -259,67 +261,21 @@ class TestDispatchInbound:
         assert (msg.acked, msg.nacked, msg.rejected) == (0, 1, 0)
 
     @staticmethod
-    async def test_undecodable_payload_is_rejected_not_seek_backed() -> None:
-        # Poison (foreign/corrupt wire format): commit/skip via reject(), never nack (seek-back = poison loop)
-        # and never leave unhandled (no commit = redelivery).
+    @pytest.mark.parametrize(
+        'make_poison',
+        [
+            lambda: _FakeInboundMessage(decode_error=ValueError('bad payload')),
+            lambda: _FakeInboundMessage(headers={**_WIRE_HEADERS, 'content-type': 'application/octet-stream'}),
+            lambda: _FakeInboundMessage(headers={**_WIRE_HEADERS, 'message_version': 'not-a-number'}),
+            lambda: _FakeInboundMessage(headers={k: v for k, v in _WIRE_HEADERS.items() if k != 'message_id'}),
+        ],
+        ids=['undecodable-payload', 'foreign-content-type', 'malformed-message-version', 'absent-required-header'],
+    )
+    async def test_poison_inbound_is_rejected_via_mapper(make_poison: Callable[[], _FakeInboundMessage]) -> None:
+        # Poison (undecodable payload, foreign content-type, or malformed/absent reserved header): commit-skip
+        # via reject(), never nack (seek-back = poison loop) and never leave unhandled (no commit = redelivery).
         _, transport = _make_transport()
-        msg = _FakeInboundMessage(decode_error=ValueError('bad payload'))
-        seen: list[object] = []
-        mapper = DefaultKafkaEnvelopeMapper()
-
-        async def on_message(payload: dict[str, Any], metadata: object) -> ConsumeDisposition:  # noqa: ARG001, RUF029
-            seen.append(payload)
-            return ConsumeDisposition.ACK
-
-        await transport._dispatch_inbound(cast('KafkaMessage', msg), on_message, mapper)
-
-        assert (msg.acked, msg.nacked, msg.rejected) == (0, 0, 1)
-        assert seen == []
-
-    @staticmethod
-    async def test_foreign_content_type_is_rejected_via_mapper() -> None:
-        # A foreign content-type causes map_incoming → UnsupportedContentTypeError → poison reject (commit/skip).
-        _, transport = _make_transport()
-        foreign_headers = {**_WIRE_HEADERS, 'content-type': 'application/octet-stream'}
-        msg = _FakeInboundMessage(headers=foreign_headers)
-        seen: list[object] = []
-        mapper = DefaultKafkaEnvelopeMapper()
-
-        async def on_message(payload: dict[str, Any], metadata: object) -> ConsumeDisposition:  # noqa: ARG001, RUF029
-            seen.append(payload)
-            return ConsumeDisposition.ACK
-
-        await transport._dispatch_inbound(cast('KafkaMessage', msg), on_message, mapper)
-
-        assert (msg.acked, msg.nacked, msg.rejected) == (0, 0, 1)
-        assert seen == []
-
-    @staticmethod
-    async def test_malformed_message_version_header_is_rejected_via_mapper() -> None:
-        # A present-but-non-numeric message_version → metadata_from_headers raises MalformedMetadataError
-        # → poison reject (commit/skip), never seek-back and never a silent version->1 coercion.
-        _, transport = _make_transport()
-        headers = {**_WIRE_HEADERS, 'message_version': 'not-a-number'}
-        msg = _FakeInboundMessage(headers=headers)
-        seen: list[object] = []
-        mapper = DefaultKafkaEnvelopeMapper()
-
-        async def on_message(payload: dict[str, Any], metadata: object) -> ConsumeDisposition:  # noqa: ARG001, RUF029
-            seen.append(payload)
-            return ConsumeDisposition.ACK
-
-        await transport._dispatch_inbound(cast('KafkaMessage', msg), on_message, mapper)
-
-        assert (msg.acked, msg.nacked, msg.rejected) == (0, 0, 1)
-        assert seen == []
-
-    @staticmethod
-    async def test_absent_required_header_is_rejected_via_mapper() -> None:
-        # An absent required reserved header (message_id) → metadata_from_headers raises
-        # MalformedMetadataError → poison reject, never a silent '' flowing to UUID('').
-        _, transport = _make_transport()
-        headers = {key: value for key, value in _WIRE_HEADERS.items() if key != 'message_id'}
-        msg = _FakeInboundMessage(headers=headers)
+        msg = make_poison()
         seen: list[object] = []
         mapper = DefaultKafkaEnvelopeMapper()
 

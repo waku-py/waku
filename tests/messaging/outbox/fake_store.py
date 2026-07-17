@@ -50,5 +50,5 @@ class RecordingOutboxStore(IOutboxStore):
         return 0
 
     @override
-    async def delete_expired_dispatched(self, older_than: timedelta) -> int:  # pragma: no cover
+    async def delete_expired_dispatched(self, older_than: timedelta, *, now: datetime) -> int:  # pragma: no cover
         return 0

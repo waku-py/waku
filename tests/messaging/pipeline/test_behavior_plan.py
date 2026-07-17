@@ -1,48 +1,35 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 from typing_extensions import override
 
-from waku.messaging import CallNext, IPipelineBehavior, IRequest, MessageT, RequestHandler, ResponseT
+from waku.messaging import RequestHandler
 from waku.messaging._internal.outbox_cascading import DeferredCascadingBehavior, OutboxCascadingBehavior
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import MessagingConfig, OutboxConfig
 from waku.messaging.modules import _FRAMEWORK_POLICIES
 from waku.messaging.pipeline._internal.plan import build_behavior_plan
 
-
-@dataclass(frozen=True, slots=True)
-class _Cmd(IRequest[None]):
-    value: str
+from tests.messaging.pipeline.conftest import Cmd, PassthroughBehavior, SomeBehavior
 
 
-class _PassthroughBehavior(IPipelineBehavior[MessageT, ResponseT]):
-    @override
-    async def handle(self, message: MessageT, /, call_next: CallNext[ResponseT]) -> ResponseT:
-        return await call_next()  # pragma: no cover -- plan tests never execute the chain
+class _BehaviorA(PassthroughBehavior[Any, Any]): ...
 
 
-class _SomeBehavior(_PassthroughBehavior[Any, Any]): ...
+class _BehaviorB(PassthroughBehavior[Any, Any]): ...
 
 
-class _BehaviorA(_PassthroughBehavior[Any, Any]): ...
-
-
-class _BehaviorB(_PassthroughBehavior[Any, Any]): ...
-
-
-class _Handler(RequestHandler[_Cmd, None]):
-    behaviors = (_SomeBehavior,)
+class _Handler(RequestHandler[Cmd, None]):
+    behaviors = (SomeBehavior,)
 
     @override
-    async def handle(self, request: _Cmd, /) -> None: ...
+    async def handle(self, request: Cmd, /) -> None: ...
 
 
-class _Other(RequestHandler[_Cmd, None]):
+class _Other(RequestHandler[Cmd, None]):
     @override
-    async def handle(self, request: _Cmd, /) -> None: ...
+    async def handle(self, request: Cmd, /) -> None: ...
 
 
 def test_plan_for_no_outbox_handler_matches_unified_cascade_chain() -> None:
@@ -55,7 +42,7 @@ def test_plan_for_no_outbox_handler_matches_unified_cascade_chain() -> None:
         DeferredCascadingBehavior,
         TransactionalBehavior,
         OutboxCascadingBehavior,
-        _SomeBehavior,
+        SomeBehavior,
     )
 
 
@@ -69,7 +56,7 @@ def test_plan_for_outbox_handler_matches_unified_cascade_chain() -> None:
         DeferredCascadingBehavior,
         TransactionalBehavior,
         OutboxCascadingBehavior,
-        _SomeBehavior,
+        SomeBehavior,
     )
 
 

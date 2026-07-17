@@ -15,7 +15,8 @@ from waku.eventsourcing.serialization.registry import EventTypeRegistry
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Coroutine, Sequence
+    from typing import Any
 
     from waku.messages import IEvent
 
@@ -131,6 +132,20 @@ class _ParkThenFailOnOrder(IProjection):
         raise RuntimeError
 
 
+async def _park_first_then_race(
+    projection: _ParkThenFailOnOrder,
+    append_first: Callable[[], Coroutine[Any, Any, None]],
+    append_second: Callable[[], Coroutine[Any, Any, None]],
+) -> None:
+    with anyio.fail_after(2):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(append_first)
+            await projection.entered.wait()
+            tg.start_soon(append_second)
+            await anyio.wait_all_tasks_blocked()
+            projection.release.set()
+
+
 async def test_concurrent_same_stream_append_never_observes_rolled_back_events(
     registry: EventTypeRegistry,
 ) -> None:
@@ -155,13 +170,7 @@ async def test_concurrent_same_stream_append_never_observes_rolled_back_events(
             )
         )
 
-    with anyio.fail_after(2):
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(append_a)
-            await projection.entered.wait()
-            tg.start_soon(append_b)
-            await anyio.wait_all_tasks_blocked()
-            projection.release.set()
+    await _park_first_then_race(projection, append_a, append_b)
 
     assert len(a_errors) == 1
 
@@ -203,13 +212,7 @@ async def test_concurrent_other_stream_append_survives_rollback_with_burned_posi
             surviving_stream, [make_envelope(OrderCreated(order_id='B'))], expected_version=NoStream()
         )
 
-    with anyio.fail_after(2):
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(append_a)
-            await projection.entered.wait()
-            tg.start_soon(append_b)
-            await anyio.wait_all_tasks_blocked()
-            projection.release.set()
+    await _park_first_then_race(projection, append_a, append_b)
 
     assert len(a_errors) == 1
     assert not await store.stream_exists(failing_stream)

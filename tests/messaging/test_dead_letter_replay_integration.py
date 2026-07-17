@@ -83,6 +83,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from waku.application import WakuApplication
+    from waku.di import Provider
     from waku.messaging.transport.inbound import ConsumeCallback
 
 
@@ -218,7 +219,7 @@ class _DictDeadLetterStore(IDeadLetterStore):
         self.rows.pop(entry_id, None)
 
     @override
-    async def delete_expired_dead_letters(self, older_than: datetime, *, now: datetime) -> int:  # pragma: no cover
+    async def delete_expired_dead_letters(self, older_than: timedelta, *, now: datetime) -> int:  # pragma: no cover
         return 0
 
     @staticmethod
@@ -255,6 +256,29 @@ def _durability(
     )
 
 
+def _durability_providers(
+    dlq: IDeadLetterStore,
+    *,
+    outbox: IOutboxStore | None = None,
+    inbox: IInboxStore | None = None,
+    with_allocator: bool = False,
+) -> list[Provider]:
+    """Memory-backend durability providers over a shared ``dlq`` store (outbox/inbox default to fresh ones).
+
+    ``with_allocator`` adds the sequence allocator that durable local-queue endpoints require.
+    """
+    providers = [
+        object_(RecordingUoW(), provided_type=IUnitOfWork),
+        object_(outbox if outbox is not None else InMemoryOutboxStore(dlq), provided_type=IOutboxStore),
+        object_(inbox if inbox is not None else InMemoryInboxStore(dlq), provided_type=IInboxStore),
+        object_(dlq, provided_type=IDeadLetterStore),
+        scoped(IDurabilityStore, _durability),
+    ]
+    if with_allocator:
+        providers.append(object_(RecordingAllocator(), provided_type=ISequenceAllocator))
+    return providers
+
+
 async def test_dead_letter_then_replay_reprocesses_message() -> None:
     _attempts.clear()
     dl_store = _DictDeadLetterStore()
@@ -267,13 +291,7 @@ async def test_dead_letter_then_replay_reprocesses_message() -> None:
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_ChargeHandler)],
-            providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
-                object_(InMemoryOutboxStore(dl_store), provided_type=IOutboxStore),
-                object_(InMemoryInboxStore(dl_store), provided_type=IInboxStore),
-                object_(dl_store, provided_type=IDeadLetterStore),
-                scoped(IDurabilityStore, _durability),
-            ],
+            providers=_durability_providers(dl_store),
         ) as app,
         app.container() as scope,
     ):
@@ -302,13 +320,7 @@ async def test_manual_replay_does_not_dispatch_while_auto_owner_lease_is_live() 
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_ChargeHandler)],
-            providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
-                object_(InMemoryOutboxStore(dl_store), provided_type=IOutboxStore),
-                object_(InMemoryInboxStore(dl_store), provided_type=IInboxStore),
-                object_(dl_store, provided_type=IDeadLetterStore),
-                scoped(IDurabilityStore, _durability),
-            ],
+            providers=_durability_providers(dl_store),
         ) as app,
         app.container() as scope,
     ):
@@ -874,13 +886,7 @@ async def test_tenant_id_survives_outbox_dead_letter_replay_via_metadata_blob() 
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_OrderAuditHandler)],
-            providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
-                object_(outbox, provided_type=IOutboxStore),
-                object_(InMemoryInboxStore(dlq), provided_type=IInboxStore),
-                object_(dlq, provided_type=IDeadLetterStore),
-                scoped(IDurabilityStore, _durability),
-            ],
+            providers=_durability_providers(dlq, outbox=outbox),
         ) as app,
         app.container() as scope,
     ):
@@ -922,14 +928,7 @@ async def test_tenant_id_survives_inbox_dead_letter_replay_to_handler_context() 
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_TenantRecordingHandler)],
-            providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
-                object_(InMemoryOutboxStore(dlq), provided_type=IOutboxStore),
-                object_(inbox, provided_type=IInboxStore),
-                object_(dlq, provided_type=IDeadLetterStore),
-                scoped(IDurabilityStore, _durability),
-                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
-            ],
+            providers=_durability_providers(dlq, inbox=inbox, with_allocator=True),
         ) as app,
         app.container() as scope,
     ):
@@ -991,13 +990,7 @@ async def test_outbox_exhaustion_dead_letter_replays() -> None:
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_OrderAuditHandler)],
-            providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
-                object_(outbox, provided_type=IOutboxStore),
-                object_(InMemoryInboxStore(dlq), provided_type=IInboxStore),
-                object_(dlq, provided_type=IDeadLetterStore),
-                scoped(IDurabilityStore, _durability),
-            ],
+            providers=_durability_providers(dlq, outbox=outbox),
         ) as app,
         app.container() as scope,
     ):
@@ -1043,14 +1036,7 @@ async def test_inbox_poison_dead_letter_replays() -> None:
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_FlakyOrderHandler)],
-            providers=[
-                object_(RecordingUoW(), provided_type=IUnitOfWork),
-                object_(InMemoryOutboxStore(dlq), provided_type=IOutboxStore),
-                object_(inbox, provided_type=IInboxStore),
-                object_(dlq, provided_type=IDeadLetterStore),
-                scoped(IDurabilityStore, _durability),
-                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
-            ],
+            providers=_durability_providers(dlq, inbox=inbox, with_allocator=True),
         ) as app,
         app.container() as scope,
     ):

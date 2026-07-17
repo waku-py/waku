@@ -484,8 +484,10 @@ async def test_poll_loop_logs_and_continues_on_scope_error(
     assert 'cycle failed' in caplog.text
 
 
-async def test_skip_policy_commits_checkpoint_and_advances_past_poison(
+@pytest.mark.parametrize('drive_via_rebuild', [False, True], ids=['poll_loop', 'rebuild'])
+async def test_skip_policy_advances_past_poison_batch(
     event_store: InMemoryEventStore,
+    drive_via_rebuild: bool,
 ) -> None:
     await seed_events(event_store, count=5)
 
@@ -508,41 +510,11 @@ async def test_skip_policy_commits_checkpoint_and_advances_past_poison(
             lock=lock,
             polling=_FAST_POLLING,
         )
-        await _run_until(runner, _durable_position_is(session, 'poison', 4))
-
-    assert [value for batch in projection.batches for value in sample_event_values(batch)] == [0, 1, 2, 3, 4]
-    assert [sample_event_values(batch) for batch in projection.skipped] == [[2]]
-    checkpoint = session.durable_checkpoint('poison')
-    assert checkpoint is not None
-    assert checkpoint.position == 4
-
-
-async def test_rebuild_completes_past_poison_batch_under_skip_policy(
-    event_store: InMemoryEventStore,
-) -> None:
-    await seed_events(event_store, count=5)
-
-    lock = InMemoryLease()
-    session = FakeSession()
-    projection = PoisonProjection(poison_value=2)
-    binding = make_binding(PoisonProjection, error_policy=ProjectionErrorPolicy.SKIP, batch_size=1)
-    app = _make_app(
-        event_store,
-        CommitGatedCheckpointStore(session),
-        lock,
-        (projection,),
-        (binding,),
-        uow=CommitGatedUnitOfWork(session),
-    )
-
-    async with app:
-        runner = await CatchUpProjectionRunner.create(
-            container=app.container,
-            lock=lock,
-            polling=_FAST_POLLING,
-        )
-        with anyio.fail_after(5):
-            await runner.rebuild('poison')
+        if drive_via_rebuild:
+            with anyio.fail_after(5):
+                await runner.rebuild('poison')
+        else:
+            await _run_until(runner, _durable_position_is(session, 'poison', 4))
 
     assert [value for batch in projection.batches for value in sample_event_values(batch)] == [0, 1, 2, 3, 4]
     assert [sample_event_values(batch) for batch in projection.skipped] == [[2]]

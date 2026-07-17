@@ -10,6 +10,7 @@ from typing_extensions import override
 from waku._internal.sentinel import MISSING
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging._internal.circuit_breaker import CircuitBreaker
+from waku.messaging.endpoints._internal.aspects import resolve_max_requeue_attempts
 from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
 from waku.messaging.inbox._internal.listener import InboundListener
 from waku.messaging.inbox._internal.noop_backpressure import NoOpBackpressure
@@ -210,14 +211,6 @@ def _resolve_inbound_circuit_breaker(listen: ListenAspect, config: MessagingConf
     return listen.circuit_breaker if listen.circuit_breaker is not MISSING else config.endpoint_defaults.circuit_breaker  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows  # MISSING inherits default; None opts out
 
 
-def _resolve_listen_max_requeue(listen: ListenAspect, config: MessagingConfig) -> int:
-    return (
-        config.endpoint_defaults.max_requeue_attempts
-        if listen.max_requeue_attempts is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
-        else listen.max_requeue_attempts
-    )
-
-
 def create_listening_agent(  # noqa: PLR0913
     merged: MergedBrokerEndpoint,
     *,
@@ -246,7 +239,7 @@ def create_listening_agent(  # noqa: PLR0913
         inbox_owner_id=inbox.resolve_owner_id(),
         keep_after_handled=inbox.keep_after_handled,
         partition_by=merged.partition_by,
-        max_requeue_attempts=_resolve_listen_max_requeue(listen, config),
+        max_requeue_attempts=resolve_max_requeue_attempts(listen.max_requeue_attempts, config),
         circuit_breaker_config=None,  # the inbound CB is the agent's (built in start()); not the processing CB
     )
     listener = InboundListener(

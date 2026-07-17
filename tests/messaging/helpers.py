@@ -9,8 +9,17 @@ from dishka import Provider, Scope, provide
 from typing_extensions import override
 
 from waku._internal.retort import default_retort
+from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
+from waku.backends.memory._internal.outbox import InMemoryOutboxStore
+from waku.di import object_, scoped
 from waku.messaging.contracts.envelope import MessageEnvelope
-from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore, IOutboxStore
+from waku.messaging.durability import (
+    DefaultDurabilityStore,
+    IDeadLetterStore,
+    IDurabilityStore,
+    IInboxStore,
+    IOutboxStore,
+)
 from waku.messaging.endpoints._internal.execution import IEndpointExecution, noop_result_observer
 from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
@@ -292,6 +301,30 @@ def durability_for_dead_letters(
     )
 
 
+def durability_providers(
+    inbox: IInboxStore | None = None,
+    *,
+    extra: Sequence[Provider] = (),
+) -> list[Provider]:
+    """In-memory durability provider set for messaging integration apps.
+
+    A shared ``inbox`` instance is supplied via ``object_`` when given; otherwise a fresh
+    ``FakeInboxStore`` is request-scoped. ``extra`` appends call-site-specific providers.
+    """
+    inbox_provider = (
+        object_(inbox, provided_type=IInboxStore) if inbox is not None else scoped(IInboxStore, FakeInboxStore)
+    )
+    return [
+        object_(RecordingUoW(), provided_type=IUnitOfWork),
+        inbox_provider,
+        object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+        scoped(IDeadLetterStore, InMemoryDeadLetterStore),
+        scoped(IOutboxStore, InMemoryOutboxStore),
+        scoped(IDurabilityStore, DefaultDurabilityStore),
+        *extra,
+    ]
+
+
 class RecordingDeadLetterStore(IDeadLetterStore):
     def __init__(self) -> None:
         self.entries: list[DeadLetterEntry] = []
@@ -360,7 +393,7 @@ class RecordingDeadLetterStore(IDeadLetterStore):
         pass
 
     @override
-    async def delete_expired_dead_letters(self, older_than: datetime, *, now: datetime) -> int:  # pragma: no cover
+    async def delete_expired_dead_letters(self, older_than: timedelta, *, now: datetime) -> int:  # pragma: no cover
         return 0
 
 
@@ -430,7 +463,7 @@ class FailingDeadLetterStore(IDeadLetterStore):
         pass
 
     @override
-    async def delete_expired_dead_letters(self, older_than: datetime, *, now: datetime) -> int:  # pragma: no cover
+    async def delete_expired_dead_letters(self, older_than: timedelta, *, now: datetime) -> int:  # pragma: no cover
         return 0
 
 
@@ -496,6 +529,50 @@ class RecordingAllocator(ISequenceAllocator):
 def order_id_partition(msg: IMessage) -> str | None:
     """partition_by extractor for test messages carrying an ``order_id`` attribute."""
     return cast('_OrderMessage', msg).order_id
+
+
+class EndpointDepsProvider(Provider):
+    """REQUEST-scope dependency set for durable inbox/queue endpoint tests.
+
+    Provides the inbox and dead-letter stores plus a UoW, sequence allocator, and codec.
+    """
+
+    scope = Scope.REQUEST
+
+    def __init__(
+        self,
+        inbox: IInboxStore,
+        dlq: IDeadLetterStore,
+        *,
+        allocator: ISequenceAllocator | None = None,
+        uow: IUnitOfWork | None = None,
+    ) -> None:
+        super().__init__()
+        self._inbox = inbox
+        self._dlq = dlq
+        self._codec = make_codec()
+        self._uow: IUnitOfWork = uow or RecordingUoW()
+        self._allocator: ISequenceAllocator = allocator or RecordingAllocator()
+
+    @provide
+    def inbox(self) -> IInboxStore:
+        return self._inbox
+
+    @provide
+    def dlq(self) -> IDeadLetterStore:
+        return self._dlq
+
+    @provide(scope=Scope.APP)
+    def codec(self) -> PayloadCodec:
+        return self._codec
+
+    @provide
+    def uow(self) -> IUnitOfWork:
+        return self._uow
+
+    @provide
+    def allocator(self) -> ISequenceAllocator:
+        return self._allocator
 
 
 class RelayDepsProvider(Provider):

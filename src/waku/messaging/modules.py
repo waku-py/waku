@@ -46,6 +46,7 @@ from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore, IOutboxStore
+from waku.messaging.endpoints._internal.aspects import resolve_max_requeue_attempts
 from waku.messaging.endpoints._internal.durable_local_queue import DurableLocalQueueEndpoint
 from waku.messaging.endpoints._internal.execution import EndpointExecutionFactory
 from waku.messaging.endpoints._internal.external import ExternalEndpoint
@@ -300,14 +301,6 @@ def _resolve_mode(entry: LocalQueueEntry, config: MessagingConfig) -> EndpointMo
 
 def _resolve_circuit_breaker(entry: LocalQueueEntry, config: MessagingConfig) -> 'CircuitBreakerConfig | None':
     return entry.circuit_breaker if entry.circuit_breaker is not MISSING else config.endpoint_defaults.circuit_breaker  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows  # MISSING inherits default; None opts out
-
-
-def _resolve_max_requeue_attempts(entry: LocalQueueEntry, config: MessagingConfig) -> int:
-    return (
-        config.endpoint_defaults.max_requeue_attempts
-        if entry.max_requeue_attempts is MISSING  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
-        else entry.max_requeue_attempts
-    )
 
 
 def _reject_inline_deferred_terminal(config: MessagingConfig) -> None:
@@ -637,7 +630,7 @@ def _build_endpoint(
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,
                 max_parallel=entry.max_parallel,
-                max_requeue_attempts=_resolve_max_requeue_attempts(entry, context.config),
+                max_requeue_attempts=resolve_max_requeue_attempts(entry.max_requeue_attempts, context.config),
                 circuit_breaker_config=_resolve_circuit_breaker(entry, context.config),
                 dead_letter_capable=context.dead_letter_capable,
             )
@@ -657,7 +650,7 @@ def _build_endpoint(
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,
                 partition_by=entry.partition_by,
-                max_requeue_attempts=_resolve_max_requeue_attempts(entry, context.config),
+                max_requeue_attempts=resolve_max_requeue_attempts(entry.max_requeue_attempts, context.config),
                 circuit_breaker_config=_resolve_circuit_breaker(entry, context.config),
                 now=context.now,
             )

@@ -12,9 +12,7 @@ faststream_rabbit = pytest.importorskip('faststream.rabbit')
 from faststream.rabbit import TestRabbitBroker
 
 from waku._internal.retort import default_retort
-from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
-from waku.backends.memory._internal.outbox import InMemoryOutboxStore
-from waku.di import object_, scoped, singleton
+from waku.di import singleton
 from waku.messages import IEvent
 from waku.messaging import (
     InboxConfig,
@@ -23,26 +21,17 @@ from waku.messaging import (
     MessagingModule,
     TransactionalBehavior,
 )
-from waku.messaging.durability import (
-    DefaultDurabilityStore,
-    IDeadLetterStore,
-    IDurabilityStore,
-    IInboxStore,
-    IOutboxStore,
-)
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.router import listen
-from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.testing import MessageTracker, TrackingMessageObserver
 from waku.messaging.transport._internal.wire import encode_payload, envelope_metadata_of
 from waku.messaging.transport.faststream.rabbitmq import DefaultRabbitEnvelopeMapper, FastStreamRabbitTransport
 from waku.serialization import UpcasterChain
 from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app
-from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import RecordingAllocator, RecordingUoW, make_envelope
+from tests.messaging.helpers import durability_providers, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -82,15 +71,7 @@ class TestInboundIntegration:
             create_test_app(
                 imports=[MessagingModule.register(config)],
                 extensions=[MessagingExtension().bind(_RecordingHandler)],
-                providers=[
-                    object_(RecordingUoW(), provided_type=IUnitOfWork),
-                    object_(inbox, provided_type=IInboxStore),
-                    object_(RecordingAllocator(), provided_type=ISequenceAllocator),
-                    scoped(IDeadLetterStore, InMemoryDeadLetterStore),
-                    scoped(IOutboxStore, InMemoryOutboxStore),
-                    scoped(IDurabilityStore, DefaultDurabilityStore),
-                    singleton(MessageTracker),
-                ],
+                providers=durability_providers(inbox, extra=[singleton(MessageTracker)]),
             ) as app,
             app.container() as container,
         ):

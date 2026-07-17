@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from typing_extensions import override
 
@@ -10,6 +11,7 @@ from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
     IRequest,
+    MessageHandler,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
@@ -42,11 +44,11 @@ class EventHandlerWithDep(EventHandler[SomeEvent]):
         pass  # pragma: no cover
 
 
-async def test_event_handler_deps_validated_against_originating_module() -> None:
+async def assert_handler_dependencies_accessible(handler: type[MessageHandler[Any, Any]]) -> None:
     @module(
         providers=[scoped(IRepository, ConcreteRepository)],
         exports=[IRepository],
-        extensions=[MessagingExtension().bind(EventHandlerWithDep)],
+        extensions=[MessagingExtension().bind(handler)],
     )
     class DomainModule:
         pass
@@ -67,6 +69,10 @@ async def test_event_handler_deps_validated_against_originating_module() -> None
 
     async with app:
         pass
+
+
+async def test_event_handler_deps_validated_against_originating_module() -> None:
+    await assert_handler_dependencies_accessible(EventHandlerWithDep)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -106,27 +112,4 @@ async def test_pipeline_behavior_deps_validated_against_originating_module() -> 
     class ValidatingHandler(ProcessCommandHandler):
         behaviors = (ValidationBehavior,)
 
-    @module(
-        providers=[scoped(IRepository, ConcreteRepository)],
-        exports=[IRepository],
-        extensions=[MessagingExtension().bind(ValidatingHandler)],
-    )
-    class DomainModule:
-        pass
-
-    @module(
-        imports=[
-            MessagingModule.register(MessagingConfig()),
-            DomainModule,
-        ],
-    )
-    class AppModule:
-        pass
-
-    app = WakuFactory(
-        AppModule,
-        extensions=[ValidationExtension([DependenciesAccessibleRule()], strict=True)],
-    ).create()
-
-    async with app:
-        pass
+    await assert_handler_dependencies_accessible(ValidatingHandler)

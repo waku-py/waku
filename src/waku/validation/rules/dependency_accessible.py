@@ -22,7 +22,7 @@ from waku.validation import ValidationError, ValidationRule
 from waku.validation.rules._internal.cache import LRUCache
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Iterable, Sequence
     from uuid import UUID
 
     from dishka import AsyncContainer
@@ -116,7 +116,7 @@ class _ModuleKeysExtractor:
         self._validation_factories = validation_factories
 
     def get_provided_keys(self, module: Module) -> set[DependencyKey]:
-        return self._cached(
+        return self._cache.get_or_compute(
             f'provided_keys_{module.id}',
             lambda: self._extract_keys(
                 chain(
@@ -127,7 +127,7 @@ class _ModuleKeysExtractor:
         )
 
     def get_origin_keys(self, module: Module) -> set[DependencyKey]:
-        return self._cached(
+        return self._cache.get_or_compute(
             f'origin_keys_{module.id}',
             lambda: self._extract_keys(
                 chain(
@@ -142,13 +142,13 @@ class _ModuleKeysExtractor:
         )
 
     def get_context_keys(self, module: Module) -> set[DependencyKey]:
-        return self._cached(
+        return self._cache.get_or_compute(
             f'context_keys_{module.id}',
             lambda: self._extract_keys(module.provider.context_vars),
         )
 
     def get_reexported_keys(self, module: Module, registry: ModuleRegistry) -> set[DependencyKey]:
-        return self._cached(
+        return self._cache.get_or_compute(
             f'reexported_keys_{module.id}',
             lambda: self._collect_reexported_keys(module, registry),
         )
@@ -173,14 +173,6 @@ class _ModuleKeysExtractor:
                 )
                 queue.append(exported_module)
 
-        return result
-
-    def _cached(self, key: str, compute: Callable[[], set[DependencyKey]]) -> set[DependencyKey]:
-        cached = self._cache.get(key)
-        if cached is not None:
-            return cached
-        result = compute()
-        self._cache.put(key, result)
         return result
 
     @staticmethod

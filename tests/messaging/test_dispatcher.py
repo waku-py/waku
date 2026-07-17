@@ -35,6 +35,8 @@ from tests.messaging.helpers import make_envelope
 if TYPE_CHECKING:
     from datetime import timedelta
 
+    from dishka import AsyncContainer
+
     from waku.messaging.contracts.handler import HandlerType
 
 
@@ -255,6 +257,14 @@ class _TracingHookSpy(_HookSpy):
         await super().on_executed(envelope, destination, handler_type, outcome, exc, duration)
 
 
+async def _observing_dispatcher(app_container: AsyncContainer, spy: IMessageObserver) -> MessageDispatcher:
+    return MessageDispatcher(
+        handler_map=await app_container.get(HandlerMap),
+        invoker=await app_container.get(HandlerPipelineInvoker),
+        observers=MessageObservers([spy]),
+    )
+
+
 class TestInvokeObservability:
     @staticmethod
     async def test_invoke_request_fires_executing_then_executed_success() -> None:
@@ -270,11 +280,7 @@ class TestInvokeObservability:
             app.container() as container,
         ):
             spy = _HookSpy()
-            dispatcher = MessageDispatcher(
-                handler_map=await app.container.get(HandlerMap),
-                invoker=await app.container.get(HandlerPipelineInvoker),
-                observers=MessageObservers([spy]),
-            )
+            dispatcher = await _observing_dispatcher(app.container, spy)
             await dispatcher.invoke_request(container, make_envelope(_Cmd(value='x')))
         assert spy.events == [
             ('executing', INVOKE_DESTINATION, 'CmdHandler'),
@@ -300,11 +306,7 @@ class TestInvokeObservability:
             app.container() as container,
         ):
             spy = _HookSpy()
-            dispatcher = MessageDispatcher(
-                handler_map=await app.container.get(HandlerMap),
-                invoker=await app.container.get(HandlerPipelineInvoker),
-                observers=MessageObservers([spy]),
-            )
+            dispatcher = await _observing_dispatcher(app.container, spy)
             await dispatcher.invoke_event(container, make_envelope(_Evt(value='e')))
 
         assert [e[0] for e in spy.events] == ['executing', 'executing', 'executed', 'executed']
@@ -334,11 +336,7 @@ class TestInvokeObservability:
             app.container() as container,
         ):
             spy = _TracingHookSpy(trace)
-            dispatcher = MessageDispatcher(
-                handler_map=await app.container.get(HandlerMap),
-                invoker=await app.container.get(HandlerPipelineInvoker),
-                observers=MessageObservers([spy]),
-            )
+            dispatcher = await _observing_dispatcher(app.container, spy)
             await dispatcher.invoke_event(container, make_envelope(_Evt(value='e')))
 
         assert trace == [
@@ -374,11 +372,7 @@ class TestInvokeObservability:
             app.container() as container,
         ):
             spy = _TracingHookSpy(trace)
-            dispatcher = MessageDispatcher(
-                handler_map=await app.container.get(HandlerMap),
-                invoker=await app.container.get(HandlerPipelineInvoker),
-                observers=MessageObservers([spy]),
-            )
+            dispatcher = await _observing_dispatcher(app.container, spy)
             with pytest.raises(RuntimeError, match='commit failed'):
                 await dispatcher.invoke_event(container, make_envelope(_Evt(value='e')))
 
@@ -417,11 +411,7 @@ class TestInvokeObservability:
             app.container() as container,
         ):
             spy = _TracingHookSpy(trace)
-            dispatcher = MessageDispatcher(
-                handler_map=await app.container.get(HandlerMap),
-                invoker=await app.container.get(HandlerPipelineInvoker),
-                observers=MessageObservers([spy]),
-            )
+            dispatcher = await _observing_dispatcher(app.container, spy)
             with pytest.raises(UnexpectedRollbackError) as raised:
                 await dispatcher.invoke_event(container, make_envelope(_Evt(value='e')))
 
@@ -454,11 +444,7 @@ class TestInvokeObservability:
             app.container() as container,
         ):
             spy = _TracingHookSpy(trace)
-            dispatcher = MessageDispatcher(
-                handler_map=await app.container.get(HandlerMap),
-                invoker=await app.container.get(HandlerPipelineInvoker),
-                observers=MessageObservers([spy]),
-            )
+            dispatcher = await _observing_dispatcher(app.container, spy)
             with pytest.raises(TransactionExecutionError) as raised:
                 await dispatcher.invoke_event(container, make_envelope(_Evt(value='e')))
 
@@ -489,11 +475,7 @@ class TestInvokeObservability:
             app.container() as container,
         ):
             spy = _HookSpy()
-            dispatcher = MessageDispatcher(
-                handler_map=await app.container.get(HandlerMap),
-                invoker=await app.container.get(HandlerPipelineInvoker),
-                observers=MessageObservers([spy]),
-            )
+            dispatcher = await _observing_dispatcher(app.container, spy)
             with pytest.raises(RuntimeError, match='boom'):
                 await dispatcher.invoke_event(container, make_envelope(_Evt(value='e')))
 
@@ -512,11 +494,7 @@ class TestInvokeObservability:
             app.container() as container,
         ):
             spy = _HookSpy()
-            dispatcher = MessageDispatcher(
-                handler_map=await app.container.get(HandlerMap),
-                invoker=await app.container.get(HandlerPipelineInvoker),
-                observers=MessageObservers([spy]),
-            )
+            dispatcher = await _observing_dispatcher(app.container, spy)
             with pytest.raises(HandlerNotFoundError, match='_Cmd'):
                 await dispatcher.invoke_request(container, make_envelope(_Cmd(value='x')))
         assert spy.events == []

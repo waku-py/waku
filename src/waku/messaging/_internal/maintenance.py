@@ -65,11 +65,12 @@ class _OutboxMaintenancePoller(PollingAgent):
 
     placement = Placement.SINGLETON_PER_DC
 
-    __slots__ = ('_config', '_container', '_last_cleanup', '_last_recovery')
+    __slots__ = ('_config', '_container', '_last_cleanup', '_last_recovery', '_now')
 
-    def __init__(self, *, container: AsyncContainer, config: OutboxRelayConfig) -> None:
+    def __init__(self, *, container: AsyncContainer, config: OutboxRelayConfig, now: Now = utc_now) -> None:
         self._container = container
         self._config = config
+        self._now = now
         self._last_recovery = 0.0
         self._last_cleanup = 0.0
         super().__init__(stop_timeout=config.stop_timeout)
@@ -107,10 +108,11 @@ class _OutboxMaintenancePoller(PollingAgent):
         if now - self._last_cleanup < self._config.cleanup_interval.total_seconds():
             return 0
         self._last_cleanup = now
+        sampled_now = self._now()
 
         async def cleanup(scope: AsyncContainer) -> TransactionDecision[int, Never]:
             store = await scope.get(IOutboxStore)
-            return Commit(await store.delete_expired_dispatched(retention))
+            return Commit(await store.delete_expired_dispatched(retention, now=sampled_now))
 
         purged = await run_committed(self._container, cleanup)
         if purged > 0:
@@ -181,7 +183,7 @@ class _DlqMaintenancePoller(PollingAgent):
 
         async def delete_expired(scope: AsyncContainer) -> TransactionDecision[int, Never]:
             store = await scope.get(IDeadLetterStore)
-            return Commit(await store.delete_expired_dead_letters(sampled_now - retention, now=sampled_now))
+            return Commit(await store.delete_expired_dead_letters(retention, now=sampled_now))
 
         purged = await run_committed(self._container, delete_expired)
         if purged > 0:
@@ -264,7 +266,7 @@ class DurabilityMaintenanceAgent:
     def __init__(self, *, container: AsyncContainer, config: MessagingConfig, now: Now = utc_now) -> None:
         pollers: list[PollingAgent] = []
         if config.outbox is not None:
-            pollers.append(_OutboxMaintenancePoller(container=container, config=config.outbox.relay))
+            pollers.append(_OutboxMaintenancePoller(container=container, config=config.outbox.relay, now=now))
         if config.dead_letter is not None and (
             config.dead_letter.auto_replay_enabled or config.dead_letter.retention is not None
         ):

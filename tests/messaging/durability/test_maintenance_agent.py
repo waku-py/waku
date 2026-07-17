@@ -65,7 +65,7 @@ class _MaintOutboxStore(RecordingOutboxStore):
         return self._recover_count
 
     @override
-    async def delete_expired_dispatched(self, older_than: timedelta) -> int:
+    async def delete_expired_dispatched(self, older_than: timedelta, *, now: datetime) -> int:
         self.cleanup_calls += 1
         return self._cleanup_count
 
@@ -74,7 +74,7 @@ class _MaintDlqStore(InMemoryDeadLetterStore):
     def __init__(self, *, claimable: Sequence[DeadLetterEntry] = (), purge_count: int = 0) -> None:
         super().__init__()
         self.claim_calls = 0
-        self.purged: list[tuple[datetime, datetime]] = []
+        self.purged: list[tuple[timedelta, datetime]] = []
         self._to_claim = list(claimable)
         self._purge_count = purge_count
         for entry in claimable:
@@ -98,7 +98,7 @@ class _MaintDlqStore(InMemoryDeadLetterStore):
         )
 
     @override
-    async def delete_expired_dead_letters(self, older_than: datetime, *, now: datetime) -> int:
+    async def delete_expired_dead_letters(self, older_than: timedelta, *, now: datetime) -> int:
         self.purged.append((older_than, now))
         return self._purge_count
 
@@ -326,8 +326,23 @@ def _all_three_config() -> MessagingConfig:
         outbox=OutboxConfig(
             relay=OutboxRelayConfig(polling=_FAST, recovery_interval=timedelta(seconds=0)),
         ),
-        dead_letter=DeadLetterConfig(auto_replay_enabled=True, polling=_FAST),
+        dead_letter=_auto_replay_config(),
         inbox=InboxConfig(scheduled_poll_interval=timedelta(seconds=0.01)),
+    )
+
+
+def _auto_replay_config() -> DeadLetterConfig:
+    return DeadLetterConfig(auto_replay_enabled=True, polling=_FAST)
+
+
+def _cleanup_only_config() -> MessagingConfig:
+    return MessagingConfig(
+        dead_letter=DeadLetterConfig(
+            auto_replay_enabled=False,
+            retention=timedelta(days=30),
+            cleanup_interval=timedelta(seconds=0),
+            polling=_FAST,
+        ),
     )
 
 
@@ -606,7 +621,7 @@ async def _assert_prefix_failure_stops(
     replayer = _PartialFailureReplayExecutor(first.id, failure)
     uow = RecordingUoW()
     dlq = _RepeatingMaintDlqStore(first, second)
-    config = DeadLetterConfig(auto_replay_enabled=True, polling=_FAST)
+    config = _auto_replay_config()
 
     async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
         poller = _TestableDlqMaintenancePoller(container=container, config=config)
@@ -627,7 +642,7 @@ class TestDlqMaintenancePoller:
     async def test_replays_claimed_entries() -> None:
         entry = _dlq_entry()
         replayer = _RecordingReplayExecutor()
-        config = MessagingConfig(dead_letter=DeadLetterConfig(auto_replay_enabled=True, polling=_FAST))
+        config = MessagingConfig(dead_letter=_auto_replay_config())
         async with make_async_container(_deps(dlq=_MaintDlqStore(claimable=[entry]), replayer=replayer)) as container:
             agent = DurabilityMaintenanceAgent(container=container, config=config)
             await agent.start()
@@ -642,7 +657,7 @@ class TestDlqMaintenancePoller:
     async def test_cleanup_failure_stops_replay_poller_and_escapes_by_identity() -> None:
         rollback_error = RuntimeError('rollback failed')
         replayer = _CleanupFailingReplayExecutor(rollback_error)
-        config = MessagingConfig(dead_letter=DeadLetterConfig(auto_replay_enabled=True, polling=_FAST))
+        config = MessagingConfig(dead_letter=_auto_replay_config())
 
         async with make_async_container(
             _deps(dlq=_MaintDlqStore(claimable=[_dlq_entry()]), replayer=replayer),
@@ -662,7 +677,7 @@ class TestDlqMaintenancePoller:
         teardown_error = RuntimeError('replay scope teardown failed')
         replayer = _CompletedReplayExecutor(teardown_error)
         uow = RecordingUoW()
-        config = MessagingConfig(dead_letter=DeadLetterConfig(auto_replay_enabled=True, polling=_FAST))
+        config = MessagingConfig(dead_letter=_auto_replay_config())
 
         async with make_async_container(
             _deps(dlq=_MaintDlqStore(claimable=[_dlq_entry()]), replayer=replayer, uow=uow),
@@ -685,7 +700,7 @@ class TestDlqMaintenancePoller:
         cancellation_error = anyio.get_cancelled_exc_class()()
         replayer = _CancellationCompletedReplayExecutor(cancel_scope, cancellation_error)
         uow = _CheckpointingUoW()
-        config = DeadLetterConfig(auto_replay_enabled=True, polling=_FAST)
+        config = _auto_replay_config()
 
         async with make_async_container(
             _deps(dlq=_MaintDlqStore(claimable=[_dlq_entry()]), replayer=replayer, uow=uow),
@@ -705,7 +720,7 @@ class TestDlqMaintenancePoller:
         replayer = _RecordingReplayExecutor()
         uow = RecordingUoW(commit_error=commit_error)
         dlq = _RepeatingMaintDlqStore(_dlq_entry())
-        config = DeadLetterConfig(auto_replay_enabled=True, polling=_FAST)
+        config = _auto_replay_config()
 
         async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
             poller = _TestableDlqMaintenancePoller(container=container, config=config)
@@ -724,7 +739,7 @@ class TestDlqMaintenancePoller:
         replayer = _PartialFailureReplayExecutor(first.id, failure)
         uow = RecordingUoW()
         dlq = _RepeatingMaintDlqStore(first, second)
-        config = DeadLetterConfig(auto_replay_enabled=True, polling=_FAST)
+        config = _auto_replay_config()
 
         async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
             poller = _TestableDlqMaintenancePoller(container=container, config=config)
@@ -747,7 +762,7 @@ class TestDlqMaintenancePoller:
         replayer = _PartialFailureReplayExecutor(first.id, cancellation_error)
         uow = RecordingUoW()
         dlq = _RepeatingMaintDlqStore(first, second)
-        config = DeadLetterConfig(auto_replay_enabled=True, polling=_FAST)
+        config = _auto_replay_config()
 
         async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
             poller = _TestableDlqMaintenancePoller(container=container, config=config)
@@ -795,7 +810,7 @@ class TestDlqMaintenancePoller:
         replayer = _PartialFailureReplayExecutor(first.id, failure)
         uow = RecordingUoW()
         dlq = _RepeatingMaintDlqStore(first, second)
-        config = DeadLetterConfig(auto_replay_enabled=True, polling=_FAST)
+        config = _auto_replay_config()
 
         async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
             poller = _TestableDlqMaintenancePoller(container=container, config=config)
@@ -821,7 +836,7 @@ class TestDlqMaintenancePoller:
         replayer = _PartialFailureReplayExecutor(uuid4(), BaseExceptionGroup('fatal replay failure', [fatal]))
         uow = RecordingUoW()
         dlq = _RepeatingMaintDlqStore(entry)
-        config = DeadLetterConfig(auto_replay_enabled=True, polling=_FAST)
+        config = _auto_replay_config()
 
         async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
             poller = _TestableDlqMaintenancePoller(container=container, config=config)
@@ -843,7 +858,7 @@ class TestDlqMaintenancePoller:
         replayer = _FailOnceReplayExecutor(failure)
         uow = RecordingUoW()
         dlq = _RetryOnceMaintDlqStore(entry)
-        config = MessagingConfig(dead_letter=DeadLetterConfig(auto_replay_enabled=True, polling=_FAST))
+        config = MessagingConfig(dead_letter=_auto_replay_config())
 
         async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
             agent = DurabilityMaintenanceAgent(container=container, config=config)
@@ -865,7 +880,7 @@ class TestDlqMaintenancePoller:
         replayer = _PartialFailureReplayExecutor(uuid4(), cancellation_error)
         uow = RecordingUoW()
         dlq = _RepeatingMaintDlqStore(entry)
-        config = MessagingConfig(dead_letter=DeadLetterConfig(auto_replay_enabled=True, polling=_FAST))
+        config = MessagingConfig(dead_letter=_auto_replay_config())
 
         async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
             agent = DurabilityMaintenanceAgent(container=container, config=config)
@@ -883,14 +898,7 @@ class TestDlqMaintenancePoller:
     @staticmethod
     async def test_does_not_claim_when_auto_replay_disabled() -> None:
         dlq = _MaintDlqStore(claimable=[_dlq_entry()], purge_count=1)
-        config = MessagingConfig(
-            dead_letter=DeadLetterConfig(
-                auto_replay_enabled=False,
-                retention=timedelta(days=30),
-                cleanup_interval=timedelta(seconds=0),
-                polling=_FAST,
-            ),
-        )
+        config = _cleanup_only_config()
         async with make_async_container(_deps(dlq=dlq)) as container:
             agent = DurabilityMaintenanceAgent(container=container, config=config)
             await agent.start()
@@ -904,14 +912,7 @@ class TestDlqMaintenancePoller:
     @staticmethod
     async def test_purges_when_retention_set() -> None:
         dlq = _MaintDlqStore(purge_count=2)
-        config = MessagingConfig(
-            dead_letter=DeadLetterConfig(
-                auto_replay_enabled=False,
-                retention=timedelta(days=30),
-                cleanup_interval=timedelta(seconds=0),
-                polling=_FAST,
-            ),
-        )
+        config = _cleanup_only_config()
         async with make_async_container(_deps(dlq=dlq)) as container:
             agent = DurabilityMaintenanceAgent(container=container, config=config)
             await agent.start()
@@ -944,7 +945,7 @@ class TestDlqMaintenancePoller:
             assert await poller.tick() == 2
 
         assert clock_calls == 1
-        assert dlq.purged == [(sampled - timedelta(days=30), sampled)]
+        assert dlq.purged == [(timedelta(days=30), sampled)]
 
     @staticmethod
     async def test_purge_fires_once_per_interval_while_replay_runs_every_tick() -> None:

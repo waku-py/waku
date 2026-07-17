@@ -4,7 +4,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import anyio
 import pytest
@@ -17,10 +17,38 @@ from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
 
 from tests.messaging.helpers import make_envelope
 
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
 
 @dataclass(frozen=True, slots=True)
 class _Ping(IMessage):
     tag: str
+
+
+def _tag_recorder() -> tuple[list[str], asyncio.Event, Callable[[MessageEnvelope[Any]], Awaitable[None]]]:
+    received: list[str] = []
+    processed = asyncio.Event()
+
+    async def handler(envelope: MessageEnvelope[Any]) -> None:  # noqa: RUF029
+        received.append(envelope.payload.tag)
+        processed.set()
+
+    return received, processed, handler
+
+
+async def _worker_raising(failure: BaseException) -> MemoryStreamWorker[int]:
+    handled = asyncio.Event()
+
+    async def handler(_item: int) -> None:  # noqa: RUF029
+        handled.set()
+        raise failure
+
+    worker: MemoryStreamWorker[int] = MemoryStreamWorker(max_buffer_size=1, stop_timeout=timedelta(seconds=0.5))
+    await worker.start(handler)
+    await worker.send(1)
+    await handled.wait()
+    return worker
 
 
 class TestMemoryStreamWorkerLifecycle:
@@ -34,12 +62,7 @@ class TestMemoryStreamWorkerLifecycle:
 
     @staticmethod
     async def test_start_then_send_routes_envelope_to_handler() -> None:
-        received: list[str] = []
-        processed = asyncio.Event()
-
-        async def handler(envelope: MessageEnvelope[Any]) -> None:  # noqa: RUF029
-            received.append(envelope.payload.tag)
-            processed.set()
+        received, processed, handler = _tag_recorder()
 
         worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=timedelta(seconds=0.5))
         await worker.start(handler)
@@ -197,17 +220,7 @@ class TestMemoryStreamWorkerErrorIsolation:
             RuntimeError('rollback failed'),
             RuntimeError('handler failed'),
         )
-        failure = BaseExceptionGroup('mixed failure', [cancelled, fatal])
-        handled = asyncio.Event()
-
-        async def handler(_item: int) -> None:  # noqa: RUF029
-            handled.set()
-            raise failure
-
-        worker: MemoryStreamWorker[int] = MemoryStreamWorker(max_buffer_size=1, stop_timeout=timedelta(seconds=0.5))
-        await worker.start(handler)
-        await worker.send(1)
-        await handled.wait()
+        worker = await _worker_raising(BaseExceptionGroup('mixed failure', [cancelled, fatal]))
 
         with pytest.raises(BaseExceptionGroup) as raised:
             await worker.stop()
@@ -220,17 +233,7 @@ class TestMemoryStreamWorkerErrorIsolation:
             RuntimeError('rollback failed'),
             RuntimeError('handler failed'),
         )
-        failure = BaseExceptionGroup('fatal failure', [fatal])
-        handled = asyncio.Event()
-
-        async def handler(_item: int) -> None:  # noqa: RUF029
-            handled.set()
-            raise failure
-
-        worker: MemoryStreamWorker[int] = MemoryStreamWorker(max_buffer_size=1, stop_timeout=timedelta(seconds=0.5))
-        await worker.start(handler)
-        await worker.send(1)
-        await handled.wait()
+        worker = await _worker_raising(BaseExceptionGroup('fatal failure', [fatal]))
 
         with pytest.raises(TransactionExecutionError) as raised:
             await worker.stop()
@@ -287,12 +290,7 @@ async def _assert_fatal_signal_survives_failing_on_drain(signal: TransactionExec
 class TestMemoryStreamWorkerPauseResume:
     @staticmethod
     async def test_pause_holds_dispatch_until_resume() -> None:
-        received: list[str] = []
-        processed = asyncio.Event()
-
-        async def handler(envelope: MessageEnvelope[Any]) -> None:  # noqa: RUF029
-            received.append(envelope.payload.tag)
-            processed.set()
+        received, processed, handler = _tag_recorder()
 
         worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=timedelta(seconds=1.0))
         await worker.start(handler)
@@ -313,12 +311,7 @@ class TestMemoryStreamWorkerPauseResume:
 class TestMemoryStreamWorkerPauseTokens:
     @staticmethod
     async def test_two_pause_tokens_block_until_both_resumed() -> None:
-        received: list[str] = []
-        processed = asyncio.Event()
-
-        async def handler(envelope: MessageEnvelope[Any]) -> None:  # noqa: RUF029
-            received.append(envelope.payload.tag)
-            processed.set()
+        received, processed, handler = _tag_recorder()
 
         worker = MemoryStreamWorker(max_buffer_size=4, stop_timeout=timedelta(seconds=1.0))
         await worker.start(handler)

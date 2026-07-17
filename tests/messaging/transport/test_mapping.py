@@ -343,26 +343,18 @@ class TestMetadataFromHeaders:
         assert meta.message_id == 'm'
 
     @staticmethod
-    def test_foreign_content_type_raises_unsupported_content_type_error() -> None:
+    @pytest.mark.parametrize(
+        'content_type',
+        ['application/xml', 'application/octet-stream'],
+        ids=['foreign-text', 'binary'],
+    )
+    def test_unsupported_content_type_raises(content_type: str) -> None:
         headers = {
             'message_id': 'm',
             'correlation_id': 'c',
             'causation_id': 'x',
             'message_type': 't',
-            'content-type': 'application/xml',
-        }
-
-        with pytest.raises(UnsupportedContentTypeError):
-            metadata_from_headers(headers)
-
-    @staticmethod
-    def test_binary_content_type_raises_unsupported_content_type_error() -> None:
-        headers = {
-            'message_id': 'm',
-            'correlation_id': 'c',
-            'causation_id': 'x',
-            'message_type': 't',
-            'content-type': 'application/octet-stream',
+            'content-type': content_type,
         }
 
         with pytest.raises(UnsupportedContentTypeError):

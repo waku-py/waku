@@ -170,8 +170,8 @@ class SqlAlchemyOutboxStore(IOutboxStore):
         return result.rowcount
 
     @override
-    async def delete_expired_dispatched(self, older_than: timedelta) -> int:
-        cutoff = func.now() - older_than
+    async def delete_expired_dispatched(self, older_than: timedelta, *, now: datetime) -> int:
+        cutoff = now - older_than
         stmt = delete(_t).where(_t.c.status == OutboxStatus.DISPATCHED.value).where(_t.c.dispatched_at < cutoff)
         result = cast('CursorResult[Any]', await self._session.execute(stmt))
         return result.rowcount

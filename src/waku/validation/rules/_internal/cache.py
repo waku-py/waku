@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import Generic, TypeVar
+from typing import TYPE_CHECKING, Generic, TypeVar
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 __all__ = ['LRUCache']
 
@@ -27,6 +30,14 @@ class LRUCache(Generic[_ValueT]):
         self._cache[key] = value
         if len(self._cache) > self._max_size:
             self._cache.popitem(last=False)
+
+    def get_or_compute(self, key: str, compute: Callable[[], _ValueT]) -> _ValueT:
+        cached = self.get(key)
+        if cached is not None:
+            return cached
+        result = compute()
+        self.put(key, result)
+        return result
 
     def clear(self) -> None:
         self._cache.clear()

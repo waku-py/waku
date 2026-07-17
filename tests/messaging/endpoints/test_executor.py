@@ -262,6 +262,47 @@ async def _run_executor(
         return outcome
 
 
+async def _run_executor_observed(
+    handler: type[RequestHandler[_FailingCommand, None]],
+) -> tuple[ExecutionOutcome, list[tuple[ExecutionOutcome, Exception | None]]]:
+    observer, recorded = _make_observer()
+    async with create_test_app(
+        imports=[MessagingModule.register()],
+        extensions=[MessagingExtension().bind(handler)],
+    ) as app:
+        executor = await _make_executor(app, NOOP_EVALUATOR)
+        envelope = make_envelope(_FailingCommand(value='test'))
+        result = (await executor.execute(envelope, handler, on_result=observer)).outcome
+    return result, recorded
+
+
+async def _materialize_dead_letter(
+    uow: IUnitOfWork,
+    dead_letters: IDeadLetterStore,
+    *,
+    value: str,
+) -> ExecutionOutcome:
+    handler, _ = _make_always_fail_handler()
+    config = MessagingConfig(
+        endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
+        dead_letter=DeadLetterConfig(),
+    )
+    async with create_test_app(
+        imports=[MessagingModule.register(config)],
+        extensions=[MessagingExtension().bind(handler)],
+        providers=_durability_providers(uow, dead_letters),
+    ) as app:
+        envelope = make_envelope(_FailingCommand(value=value))
+        return (
+            await materialize_standalone_dead_letter(
+                app.container,
+                envelope=envelope,
+                endpoint_uri='test://q',
+                intent=_dead_letter_intent(),
+            )
+        ).outcome
+
+
 async def test_executor_transient_retried() -> None:
     handler, calls = _make_fail_n_times_handler(fail_count=1)
     evaluator = _evaluator_for(ErrorPolicy.on_any_exception().retry(max_attempts=3))
@@ -733,30 +774,10 @@ class TestEndpointExecutorDeadLetter:
 
     @staticmethod
     async def test_dead_letter_save_failure_is_logged_after_rollback(caplog: pytest.LogCaptureFixture) -> None:
-        handler, _ = _make_always_fail_handler()
         uow = RecordingUoW()
-        dead_letters = FailingDeadLetterStore()
-
-        config = MessagingConfig(
-            endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
-            dead_letter=DeadLetterConfig(),
-        )
 
         with caplog.at_level(logging.ERROR, logger='waku.messaging.endpoints.executor'):
-            async with create_test_app(
-                imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(handler)],
-                providers=_durability_providers(uow, dead_letters),
-            ) as app:
-                envelope = make_envelope(_FailingCommand(value='dlq-fail'))
-                outcome = (
-                    await materialize_standalone_dead_letter(
-                        app.container,
-                        envelope=envelope,
-                        endpoint_uri='test://q',
-                        intent=_dead_letter_intent(),
-                    )
-                ).outcome
+            outcome = await _materialize_dead_letter(uow, FailingDeadLetterStore(), value='dlq-fail')
 
         assert outcome is ExecutionOutcome.DEAD_LETTER_FAILED
         assert uow.rollback_count == 1
@@ -764,63 +785,25 @@ class TestEndpointExecutorDeadLetter:
 
     @staticmethod
     async def test_dead_letter_write_failure_returns_failed_outcome() -> None:
-        handler, _ = _make_always_fail_handler()
-        dead_letters = FailingDeadLetterStore()
-        uow = RecordingUoW()
-        config = MessagingConfig(
-            endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
-            dead_letter=DeadLetterConfig(),
-        )
-
-        async with create_test_app(
-            imports=[MessagingModule.register(config)],
-            extensions=[MessagingExtension().bind(handler)],
-            providers=_durability_providers(uow, dead_letters),
-        ) as app:
-            envelope = make_envelope(_FailingCommand(value='dlq-fail'))
-            outcome = (
-                await materialize_standalone_dead_letter(
-                    app.container,
-                    envelope=envelope,
-                    endpoint_uri='test://q',
-                    intent=_dead_letter_intent(),
-                )
-            ).outcome
+        outcome = await _materialize_dead_letter(RecordingUoW(), FailingDeadLetterStore(), value='dlq-fail')
 
         assert outcome is ExecutionOutcome.DEAD_LETTER_FAILED  # ERR-2: failed DLQ write keeps the durable row
 
     @staticmethod
     async def test_dead_letter_commit_failure_rolls_back_before_failed_outcome() -> None:
-        handler, _ = _make_always_fail_handler()
         actions: list[str] = []
-        commit_error = RuntimeError('commit failed')
-        uow = _ActionRecordingUoW(actions, commit_error=commit_error)
+        uow = _ActionRecordingUoW(actions, commit_error=RuntimeError('commit failed'))
         dl_store = _ActionRecordingDeadLetterStore(actions)
-        config = MessagingConfig(
-            endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
-            dead_letter=DeadLetterConfig(),
-        )
 
-        async with create_test_app(
-            imports=[MessagingModule.register(config)],
-            extensions=[MessagingExtension().bind(handler)],
-            providers=_durability_providers(uow, dl_store),
-        ) as app:
-            envelope = make_envelope(_FailingCommand(value='dlq-commit-fail'))
-            outcome = (
-                await materialize_standalone_dead_letter(
-                    app.container,
-                    envelope=envelope,
-                    endpoint_uri='test://q',
-                    intent=_dead_letter_intent(),
-                )
-            ).outcome
+        outcome = await _materialize_dead_letter(uow, dl_store, value='dlq-commit-fail')
 
         assert outcome is ExecutionOutcome.DEAD_LETTER_FAILED
         assert actions == ['save', 'commit', 'rollback']
 
     @staticmethod
     async def test_dead_letter_rollback_failure_escapes_instead_of_returning_failed_outcome() -> None:
+        # Kept inline: pytest.raises must wrap only materialize, inside the app lifecycle, so the
+        # RollbackFailedError is asserted before create_test_app's shutdown runs.
         handler, _ = _make_always_fail_handler()
         actions: list[str] = []
         rollback_error = RuntimeError('rollback failed')
@@ -855,6 +838,8 @@ class TestEndpointExecutorDeadLetter:
 
     @staticmethod
     async def test_dead_letter_commit_cancellation_completes_rollback_and_remains_cancellation() -> None:
+        # Kept inline: the cancel scope must wrap only materialize, inside the app lifecycle, so app
+        # shutdown runs uncancelled after the cancellation is caught.
         handler, _ = _make_always_fail_handler()
         actions: list[str] = []
         cancel_scope = anyio.CancelScope()
@@ -885,15 +870,7 @@ class TestEndpointExecutorDeadLetter:
 
 async def test_on_result_called_with_success() -> None:
     handler, _ = _make_fail_n_times_handler(fail_count=0)
-    observer, recorded = _make_observer()
-
-    async with create_test_app(
-        imports=[MessagingModule.register()],
-        extensions=[MessagingExtension().bind(handler)],
-    ) as app:
-        executor = await _make_executor(app, NOOP_EVALUATOR)
-        envelope = make_envelope(_FailingCommand(value='test'))
-        result = (await executor.execute(envelope, handler, on_result=observer)).outcome
+    result, recorded = await _run_executor_observed(handler)
 
     assert result is ExecutionOutcome.SUCCESS
     assert recorded == [(ExecutionOutcome.SUCCESS, None)]
@@ -901,15 +878,7 @@ async def test_on_result_called_with_success() -> None:
 
 async def test_on_result_called_with_failure_no_policy() -> None:
     handler, _ = _make_always_fail_handler()
-    observer, recorded = _make_observer()
-
-    async with create_test_app(
-        imports=[MessagingModule.register()],
-        extensions=[MessagingExtension().bind(handler)],
-    ) as app:
-        executor = await _make_executor(app, NOOP_EVALUATOR)
-        envelope = make_envelope(_FailingCommand(value='test'))
-        result = (await executor.execute(envelope, handler, on_result=observer)).outcome
+    result, recorded = await _run_executor_observed(handler)
 
     assert result is ExecutionOutcome.FAILED_NO_POLICY
     assert len(recorded) == 1

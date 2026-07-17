@@ -9,7 +9,6 @@ from waku.modules import HasModuleMetadata
 from waku.modules._internal.metadata import DynamicModule
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
     from uuid import UUID
 
     from waku.modules import ModuleRegistry
@@ -34,34 +33,22 @@ class ModuleTypesExtractor:
         self._cache = cache
 
     def get_provided_types(self, module: Module) -> set[type[object]]:
-        return self._cached(
+        return self._cache.get_or_compute(
             f'{_CachePrefix.PROVIDED}_{module.id}',
             lambda: self._extract_provided_types(module),
         )
 
     def get_context_vars(self, module: Module) -> set[type[object]]:
-        return self._cached(
+        return self._cache.get_or_compute(
             f'{_CachePrefix.CONTEXT}_{module.id}',
             lambda: {cv.provides.type_hint for cv in module.provider.context_vars},
         )
 
     def get_reexported_types(self, module: Module, registry: ModuleRegistry) -> set[type[object]]:
-        return self._cached(
+        return self._cache.get_or_compute(
             f'{_CachePrefix.REEXPORTED}_{module.id}',
             lambda: _collect_reexported_types(module, registry),
         )
-
-    def _cached(
-        self,
-        key: str,
-        compute: Callable[[], set[type[object]]],
-    ) -> set[type[object]]:
-        cached = self._cache.get(key)
-        if cached is not None:
-            return cached
-        result = compute()
-        self._cache.put(key, result)
-        return result
 
     @staticmethod
     def _extract_provided_types(module: Module) -> set[type[object]]:

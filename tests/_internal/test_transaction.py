@@ -3,7 +3,7 @@ from __future__ import annotations
 
 # Dishka introspects provider signatures, so this annotation must resolve at runtime.
 from collections.abc import AsyncIterator, Awaitable, Callable  # noqa: TC003
-from typing import TYPE_CHECKING, Never, assert_type
+from typing import TYPE_CHECKING, Never, TypeVar, assert_type
 
 import anyio
 import anyio.lowlevel
@@ -91,6 +91,53 @@ class _RecordingUoW(IUnitOfWork):
         self.actions.append('rollback-done')
 
 
+_ResultValueT = TypeVar('_ResultValueT')
+
+
+def cancelling_operation(
+    cancel_scope: anyio.CancelScope,
+    cancellations: list[BaseException],
+) -> Callable[[], Awaitable[TransactionDecision[None, Never]]]:
+    async def operation() -> TransactionDecision[None, Never]:
+        cancel_scope.cancel()
+        try:
+            await anyio.lowlevel.checkpoint()
+        except BaseException as error:
+            cancellations.append(error)
+            raise
+        msg = 'cancelled checkpoint returned'
+        raise AssertionError(msg)
+
+    return operation
+
+
+async def assert_aborted_result_hidden_until_rollback(
+    uow: IUnitOfWork,
+    operation: Callable[[], Awaitable[TransactionDecision[_ResultValueT, Never]]],
+    *,
+    rollback_started: anyio.Event,
+    terminal_release: anyio.Event,
+    expected_error: Exception,
+) -> None:
+    observed: list[TransactionResult[_ResultValueT, Never]] = []
+
+    async def run() -> None:
+        observed.append(await TransactionExecution(uow).execute(operation))
+
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(run)
+        with anyio.fail_after(1):
+            await rollback_started.wait()
+        try:
+            assert observed == []
+        finally:
+            terminal_release.set()
+
+    assert observed == [Aborted(expected_error)]
+    assert isinstance(observed[0], Aborted)
+    assert observed[0].error is expected_error
+
+
 async def test_commit_value_is_hidden_until_commit_completes() -> None:
     commit_started = anyio.Event()
     terminal_release = anyio.Event()
@@ -138,26 +185,17 @@ async def test_operation_error_is_hidden_until_rollback_completes() -> None:
     rollback_started = anyio.Event()
     terminal_release = anyio.Event()
     uow = _RecordingUoW(rollback_started=rollback_started, terminal_release=terminal_release)
-    observed: list[TransactionResult[None, Never]] = []
 
     async def operation() -> TransactionDecision[None, Never]:
         raise operation_error
 
-    async def run() -> None:
-        observed.append(await TransactionExecution(uow).execute(operation))
-
-    async with anyio.create_task_group() as task_group:
-        task_group.start_soon(run)
-        with anyio.fail_after(1):
-            await rollback_started.wait()
-        try:
-            assert observed == []
-        finally:
-            terminal_release.set()
-
-    assert observed == [Aborted(operation_error)]
-    assert isinstance(observed[0], Aborted)
-    assert observed[0].error is operation_error
+    await assert_aborted_result_hidden_until_rollback(
+        uow,
+        operation,
+        rollback_started=rollback_started,
+        terminal_release=terminal_release,
+        expected_error=operation_error,
+    )
 
 
 async def test_commit_error_is_hidden_until_rollback_completes() -> None:
@@ -169,26 +207,17 @@ async def test_commit_error_is_hidden_until_rollback_completes() -> None:
         rollback_started=rollback_started,
         terminal_release=(None, terminal_release),
     )
-    observed: list[TransactionResult[str, Never]] = []
 
     async def operation() -> TransactionDecision[str, Never]:
         return Commit('hidden')
 
-    async def run() -> None:
-        observed.append(await TransactionExecution(uow).execute(operation))
-
-    async with anyio.create_task_group() as task_group:
-        task_group.start_soon(run)
-        with anyio.fail_after(1):
-            await rollback_started.wait()
-        try:
-            assert observed == []
-        finally:
-            terminal_release.set()
-
-    assert observed == [Aborted(commit_error)]
-    assert isinstance(observed[0], Aborted)
-    assert observed[0].error is commit_error
+    await assert_aborted_result_hidden_until_rollback(
+        uow,
+        operation,
+        rollback_started=rollback_started,
+        terminal_release=terminal_release,
+        expected_error=commit_error,
+    )
 
 
 async def test_operation_error_is_returned_only_after_successful_rollback() -> None:
@@ -294,17 +323,7 @@ async def test_operation_cancellation_is_re_raised_by_identity_after_shielded_ro
     cancellation: list[BaseException] = []
 
     with anyio.CancelScope() as cancel_scope:
-
-        async def operation() -> TransactionDecision[None, Never]:
-            cancel_scope.cancel()
-            try:
-                await anyio.lowlevel.checkpoint()
-            except BaseException as error:
-                cancellation.append(error)
-                raise
-            msg = 'cancelled checkpoint returned'
-            raise AssertionError(msg)
-
+        operation = cancelling_operation(cancel_scope, cancellation)
         with pytest.raises(anyio.get_cancelled_exc_class()) as raised:
             await TransactionExecution(uow).execute(operation)
 
@@ -332,17 +351,7 @@ async def test_cancellation_remains_primary_when_rollback_fails() -> None:
     cancellation: list[BaseException] = []
 
     with anyio.CancelScope() as cancel_scope:
-
-        async def operation() -> TransactionDecision[None, Never]:
-            cancel_scope.cancel()
-            try:
-                await anyio.lowlevel.checkpoint()
-            except BaseException as error:
-                cancellation.append(error)
-                raise
-            msg = 'cancelled checkpoint returned'
-            raise AssertionError(msg)
-
+        operation = cancelling_operation(cancel_scope, cancellation)
         with pytest.raises(anyio.get_cancelled_exc_class()) as raised:
             await TransactionExecution(uow).execute(operation)
 

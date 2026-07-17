@@ -41,25 +41,21 @@ class TestSingleUpcaster:
 
 class TestChainedUpcasters:
     @staticmethod
-    def test_applies_sequentially() -> None:
+    @pytest.mark.parametrize(
+        ('stored_data', 'schema_version'),
+        [
+            pytest.param({'name': 'Alice'}, 1, id='from_version_1_applies_full_chain'),
+            pytest.param({'full_name': 'Alice'}, 2, id='from_version_2_starts_mid_chain'),
+        ],
+    )
+    def test_upcasts_to_full_name_and_email(stored_data: dict[str, str], schema_version: int) -> None:
         chain = UpcasterChain({
             'OrderCreated': [
                 rename_field(from_version=1, old='name', new='full_name'),
                 add_field(from_version=2, field='email', default=''),
             ],
         })
-        result = chain.upcast('OrderCreated', {'name': 'Alice'}, schema_version=1)
-        assert result == {'full_name': 'Alice', 'email': ''}
-
-    @staticmethod
-    def test_starts_from_stored_version() -> None:
-        chain = UpcasterChain({
-            'OrderCreated': [
-                rename_field(from_version=1, old='name', new='full_name'),
-                add_field(from_version=2, field='email', default=''),
-            ],
-        })
-        result = chain.upcast('OrderCreated', {'full_name': 'Alice'}, schema_version=2)
+        result = chain.upcast('OrderCreated', stored_data, schema_version=schema_version)
         assert result == {'full_name': 'Alice', 'email': ''}
 
 

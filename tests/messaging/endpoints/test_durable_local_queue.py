@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import anyio.lowlevel
 import pytest
-from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
+from dishka import AsyncContainer, make_async_container
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
@@ -18,7 +18,6 @@ from waku._internal.transaction import (
 )
 from waku.messages import IEvent
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
-from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.endpoints._internal.durable_local_queue import DurableLocalQueueEndpoint
 from waku.messaging.endpoints._internal.execution import (
     IEndpointExecution,
@@ -29,14 +28,12 @@ from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers
-from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.transport._internal.wire import encode_payload
-from waku.serialization.codec import PayloadCodec
-from waku.uow import IUnitOfWork
 
 from tests._wait import ControllableSleep, wait_until
 from tests.messaging.helpers import (
     NOOP_OBSERVERS,
+    EndpointDepsProvider,
     RecordingAllocator,
     RecordingDeadLetterStore,
     RecordingUoW,
@@ -160,44 +157,6 @@ class _RequeueOnceExecutor(_StubExecutor):
         return _intent(outcome)
 
 
-class _EndpointDepsProvider(Provider):
-    scope = Scope.REQUEST
-
-    def __init__(
-        self,
-        inbox: IInboxStore,
-        dlq: IDeadLetterStore,
-        allocator: ISequenceAllocator | None = None,
-        uow: IUnitOfWork | None = None,
-    ) -> None:
-        super().__init__()
-        self._inbox = inbox
-        self._dlq = dlq
-        self._codec = make_codec()
-        self._uow: IUnitOfWork = uow or RecordingUoW()
-        self._allocator = allocator or RecordingAllocator()
-
-    @provide
-    def inbox(self) -> IInboxStore:
-        return self._inbox
-
-    @provide
-    def dlq(self) -> IDeadLetterStore:
-        return self._dlq
-
-    @provide(scope=Scope.APP)
-    def codec(self) -> PayloadCodec:
-        return self._codec
-
-    @provide
-    def uow(self) -> IUnitOfWork:
-        return self._uow
-
-    @provide
-    def sequence_allocator(self) -> ISequenceAllocator:
-        return self._allocator
-
-
 def _endpoint(  # noqa: PLR0913 -- test helper mirroring DurableLocalQueueEndpoint's config surface
     container: AsyncContainer,
     executor: IEndpointExecution,
@@ -234,7 +193,7 @@ class TestDurableLocalQueueEndpoint:
     async def test_dispatch_persists_entry_and_marks_it_handled() -> None:
         _NoopHandler.invocations = []
         inbox = FakeInboxStore()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(container, executor, frozenset([_NoopHandler]))
             await endpoint.start()
@@ -249,7 +208,7 @@ class TestDurableLocalQueueEndpoint:
     @staticmethod
     async def test_dispatch_drops_message_when_stopped() -> None:
         inbox = FakeInboxStore()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(container, executor, frozenset([_NoopHandler]))
             async with container() as scope:
@@ -262,7 +221,7 @@ class TestDurableLocalQueueEndpoint:
     @staticmethod
     async def test_duplicate_dispatch_is_deduplicated() -> None:
         inbox = FakeInboxStore()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(container, executor, frozenset([_NoopHandler]))
             await endpoint.start()
@@ -280,7 +239,7 @@ class TestDurableLocalQueueEndpoint:
         _NoopHandler.invocations = []
         _SecondHandler.invocations = []
         inbox = FakeInboxStore()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(container, executor, frozenset([_NoopHandler, _SecondHandler]))
             await endpoint.start()
@@ -304,7 +263,7 @@ class TestDurableLocalQueueEndpoint:
         def handled_count() -> int:
             return sum(1 for entry in inbox.entries.values() if entry.status is InboxStatus.HANDLED)
 
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(container, executor, frozenset([_NoopHandler, _SecondHandler]))
             await endpoint.start()
@@ -332,7 +291,7 @@ class TestDurableLocalQueueEndpoint:
     async def test_dispatch_claims_rows_with_owner_id() -> None:
         _NoopHandler.invocations = []
         inbox = FakeInboxStore()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(container, executor, frozenset([_NoopHandler]), inbox_owner_id='owner-claim-test')
             await endpoint.start()
@@ -351,7 +310,7 @@ class TestDurableLocalQueueEndpoint:
     async def test_pause_blocks_processing_until_resume() -> None:
         _NoopHandler.invocations = []
         inbox = FakeInboxStore()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(container, executor, frozenset([_NoopHandler]))
             await endpoint.start()
@@ -377,7 +336,7 @@ class TestDurableLocalQueueInboxDecomposition:
         # persist() must store encoded payload + metadata + typed correlation/causation columns.
         inbox = FakeInboxStore()
         codec = make_codec()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(container, executor, frozenset([_NoopHandler]))
             await endpoint.start()
@@ -403,7 +362,7 @@ class TestDurableLocalQueueInboxDecomposition:
         NOW = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
         inbox = FakeInboxStore()
         codec = make_codec()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(
                 container,
@@ -435,7 +394,7 @@ class TestDurableLocalQueuePartitioning:
         inbox = FakeInboxStore()
         allocator = RecordingAllocator()
         async with make_async_container(
-            _EndpointDepsProvider(inbox, RecordingDeadLetterStore(), allocator)
+            EndpointDepsProvider(inbox, RecordingDeadLetterStore(), allocator=allocator)
         ) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(container, executor, frozenset([_NoopHandler]), partition_by=_kind_partition)
@@ -455,7 +414,7 @@ class TestDurableLocalQueuePartitioning:
         inbox = FakeInboxStore()
         allocator = RecordingAllocator()
         async with make_async_container(
-            _EndpointDepsProvider(inbox, RecordingDeadLetterStore(), allocator)
+            EndpointDepsProvider(inbox, RecordingDeadLetterStore(), allocator=allocator)
         ) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(container, executor, frozenset([_NoopHandler, _SecondHandler]))
@@ -476,7 +435,7 @@ class TestDurableLocalQueueScheduled:
     @staticmethod
     async def test_future_scheduled_message_persists_scheduled_row_without_enqueueing() -> None:
         inbox = FakeInboxStore()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(
                 container,
@@ -504,7 +463,7 @@ class TestDurableLocalQueueScheduled:
         inbox = FakeInboxStore()
         allocator = RecordingAllocator()
         async with make_async_container(
-            _EndpointDepsProvider(inbox, RecordingDeadLetterStore(), allocator)
+            EndpointDepsProvider(inbox, RecordingDeadLetterStore(), allocator=allocator)
         ) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(
@@ -534,7 +493,7 @@ class TestDurableLocalQueueScheduled:
         commit_error = RuntimeError('commit failed')
         rollback_error = RuntimeError('rollback failed')
         uow = RecordingUoW(commit_error=commit_error, rollback_error=rollback_error)
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore(), uow=uow)) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore(), uow=uow)) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(
                 container,
@@ -566,7 +525,7 @@ class TestDurableLocalQueueScheduled:
         inbox = FakeInboxStore()
         commit_error = RuntimeError('commit failed')
         uow = RecordingUoW(commit_error=commit_error)
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore(), uow=uow)) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore(), uow=uow)) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(
                 container,
@@ -593,7 +552,7 @@ class TestDurableLocalQueueScheduled:
     async def test_past_scheduled_time_dispatches_immediately() -> None:
         _NoopHandler.invocations = []
         inbox = FakeInboxStore()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(
                 container,
@@ -617,7 +576,7 @@ class TestDurableLocalQueueCircuitBreaker:
     async def test_circuit_breaker_trips_and_pauses_processing() -> None:
         _NoopHandler.invocations = []
         inbox = FakeInboxStore()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.FAILED_NO_POLICY, exc=RuntimeError())
             endpoint = _endpoint(
                 container,
@@ -648,7 +607,7 @@ class TestDurableLocalQueueRequeue:
     @staticmethod
     async def test_requeue_increments_attempts_and_reprocesses() -> None:
         inbox = FakeInboxStore()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _RequeueOnceExecutor()
             endpoint = _endpoint(container, executor, frozenset([_NoopHandler]), max_requeue_attempts=5)
             await endpoint.start()
@@ -665,7 +624,7 @@ class TestDurableLocalQueueRequeue:
     async def test_requeue_dead_letters_at_bound() -> None:
         inbox = FakeInboxStore()
         dlq = RecordingDeadLetterStore()
-        async with make_async_container(_EndpointDepsProvider(inbox, dlq)) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, dlq)) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.REQUEUED)
             endpoint = _endpoint(container, executor, frozenset([_NoopHandler]), max_requeue_attempts=2)
             await endpoint.start()
@@ -683,7 +642,7 @@ class TestDurableLocalQueuePause:
     async def test_pause_policy_pauses_then_resumes_and_reprocesses() -> None:
         inbox = FakeInboxStore()
         sleep = ControllableSleep()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _PauseOnceExecutor(pause_duration=timedelta(minutes=10))
             endpoint = _endpoint(
                 container, executor, frozenset([_NoopHandler]), max_requeue_attempts=5, pause_sleep=sleep
@@ -706,7 +665,7 @@ class TestDurableLocalQueuePause:
     async def test_pause_dead_letters_at_shared_budget() -> None:
         inbox = FakeInboxStore()
         sleep = ControllableSleep()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.PAUSED, pause_duration=timedelta(minutes=10))
             endpoint = _endpoint(
                 container, executor, frozenset([_NoopHandler]), max_requeue_attempts=2, pause_sleep=sleep
@@ -728,7 +687,7 @@ class TestDurableLocalQueuePause:
         # resume the listener while the CB hold is still down.
         inbox = FakeInboxStore()
         sleep = ControllableSleep()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _PauseOnceExecutor(pause_duration=timedelta(minutes=10))
             endpoint = _endpoint(
                 container, executor, frozenset([_NoopHandler]), max_requeue_attempts=5, pause_sleep=sleep
@@ -762,7 +721,7 @@ class TestDurableLocalQueueOnSent:
         _NoopHandler.invocations = []
         inbox = FakeInboxStore()
         spy = _SentSpy()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(container, executor, frozenset([_NoopHandler]), observers=MessageObservers([spy]))
             await endpoint.start()
@@ -777,7 +736,7 @@ class TestDurableLocalQueueOnSent:
         now = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
         inbox = FakeInboxStore()
         spy = _SentSpy()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(
                 container,
@@ -799,7 +758,7 @@ class TestDurableLocalQueueOnSent:
         _NoopHandler.invocations = []
         inbox = FakeInboxStore()
         spy = _SentSpy()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(container, executor, frozenset([_NoopHandler]), observers=MessageObservers([spy]))
             await endpoint.start()
@@ -815,7 +774,7 @@ class TestDurableLocalQueueOnSent:
     async def test_dispatch_to_stopped_endpoint_does_not_fire_on_sent() -> None:
         inbox = FakeInboxStore()
         spy = _SentSpy()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(container, executor, frozenset([_NoopHandler]), observers=MessageObservers([spy]))
             # Endpoint never started -> the receiver rejects the dispatch, mirroring the BUFFERED endpoint.
@@ -828,7 +787,7 @@ class TestDurableLocalQueueOnSent:
     async def test_dispatch_with_no_subscribed_handlers_does_not_fire_on_sent() -> None:
         inbox = FakeInboxStore()
         spy = _SentSpy()
-        async with make_async_container(_EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             endpoint = _endpoint(container, executor, frozenset(), observers=MessageObservers([spy]))
             await endpoint.start()

@@ -249,7 +249,8 @@ Backend-author conformance kit: assembly and facet contract suites.
 `OutboxStoreContract` ·
 `SequenceAllocatorContract` ·
 `SnapshotStoreContract` ·
-`make_envelope`
+`make_envelope` ·
+`make_outbox_message`
 
 ## `waku.extensions`
 

@@ -38,6 +38,17 @@ def _scheduled_entry(execution_time: datetime | None, **overrides: Any) -> Inbox
     return InboxEntry(**(defaults | overrides))
 
 
+async def _promote_with_immediate_sibling(inbox_store: IInboxStore) -> tuple[InboxEntry, InboxEntry, int]:
+    allocator = RecordingAllocator()
+    immediate_seq = await allocator.allocate(_GROUP_A)
+    immediate = _scheduled_entry(None, group_id=_GROUP_A, status=InboxStatus.INCOMING, sequence_number=immediate_seq)
+    scheduled = _scheduled_entry(_PAST, group_id=_GROUP_A)
+    await inbox_store.store_incoming(immediate)
+    await inbox_store.store_incoming(scheduled)
+    await inbox_store.promote_due_scheduled(_NOW, allocator, batch_size=100)
+    return immediate, scheduled, immediate_seq
+
+
 async def test_due_scheduled_row_is_promoted_and_allocated_a_sequence(inbox_store: IInboxStore) -> None:
     entry = _scheduled_entry(_PAST, group_id='A')
     await inbox_store.store_incoming(entry)
@@ -75,14 +86,7 @@ async def test_keyless_due_scheduled_row_promotes_without_a_sequence(inbox_store
 async def test_promoted_sequence_sorts_after_already_incoming_sibling(inbox_store: IInboxStore) -> None:
     # BLOCKER 1: a delayed message must drain AFTER an immediate same-group message. Both the immediate
     # and the promoted allocation go through the same allocator, so promotion gets the higher sequence.
-    allocator = RecordingAllocator()
-    immediate_seq = await allocator.allocate(_GROUP_A)
-    immediate = _scheduled_entry(None, group_id=_GROUP_A, status=InboxStatus.INCOMING, sequence_number=immediate_seq)
-    scheduled = _scheduled_entry(_PAST, group_id=_GROUP_A)
-    await inbox_store.store_incoming(immediate)
-    await inbox_store.store_incoming(scheduled)
-
-    await inbox_store.promote_due_scheduled(_NOW, allocator, batch_size=100)
+    immediate, scheduled, immediate_seq = await _promote_with_immediate_sibling(inbox_store)
 
     # The immediate sibling is the partition head; hand it off to expose the promoted row's sequence.
     head = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w')
@@ -100,14 +104,7 @@ async def test_promoted_scheduled_drains_after_immediate_sibling(inbox_store: II
     # BLOCKER-1, end of the chain: the immediate same-(group, destination) row is the partition head
     # (lower sequence), so the head-of-queue claim returns IT — the promoted scheduled row drains only
     # after. Deterministic where an end-to-end race could not be.
-    allocator = RecordingAllocator()
-    immediate_seq = await allocator.allocate(_GROUP_A)
-    immediate = _scheduled_entry(None, group_id=_GROUP_A, status=InboxStatus.INCOMING, sequence_number=immediate_seq)
-    scheduled = _scheduled_entry(_PAST, group_id=_GROUP_A)
-    await inbox_store.store_incoming(immediate)
-    await inbox_store.store_incoming(scheduled)
-
-    await inbox_store.promote_due_scheduled(_NOW, allocator, batch_size=100)
+    immediate, _scheduled, _immediate_seq = await _promote_with_immediate_sibling(inbox_store)
 
     head = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='w')
     assert [e.id for e in head] == [immediate.id]

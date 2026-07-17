@@ -10,7 +10,7 @@ from waku.backends.testing.event_store import (
     make_envelope,
 )
 from waku.backends.testing.inbox import InboxStoreContract
-from waku.backends.testing.outbox import OutboxStoreContract
+from waku.backends.testing.outbox import OutboxStoreContract, make_outbox_message
 from waku.backends.testing.sequence import SequenceAllocatorContract
 from waku.backends.testing.snapshot import SnapshotStoreContract
 
@@ -28,4 +28,5 @@ __all__ = [
     'SequenceAllocatorContract',
     'SnapshotStoreContract',
     'make_envelope',
+    'make_outbox_message',
 ]

@@ -74,6 +74,21 @@ def repository(
     return BankAccountRepository(event_store, snapshot_store, config_registry, state_serializer)
 
 
+@pytest.fixture
+def threshold_100_registry() -> SnapshotConfigRegistry:
+    return SnapshotConfigRegistry({
+        'BankAccount': SnapshotConfig(strategy=EventCountStrategy(threshold=100)),
+    })
+
+
+def _account_with_two_deposits() -> BankAccount:
+    account = BankAccount()
+    account.open('Alice')
+    account.deposit(100)
+    account.deposit(200)
+    return account
+
+
 async def test_load_without_snapshot_full_replay(
     repository: BankAccountRepository,
     event_store: InMemoryEventStore,  # noqa: ARG001
@@ -93,11 +108,9 @@ async def test_load_with_snapshot_partial_replay(
     event_store: InMemoryEventStore,
     state_serializer: JsonSnapshotStateSerializer,
     snapshot_store: InMemorySnapshotStore,
+    threshold_100_registry: SnapshotConfigRegistry,
 ) -> None:
-    config_registry = SnapshotConfigRegistry({
-        'BankAccount': SnapshotConfig(strategy=EventCountStrategy(threshold=100)),
-    })
-    repo = BankAccountRepository(event_store, snapshot_store, config_registry, state_serializer)
+    repo = BankAccountRepository(event_store, snapshot_store, threshold_100_registry, state_serializer)
 
     account = BankAccount()
     account.open('Alice')
@@ -131,10 +144,7 @@ async def test_save_triggers_snapshot_at_threshold(
     repository: BankAccountRepository,
     snapshot_store: InMemorySnapshotStore,
 ) -> None:
-    account = BankAccount()
-    account.open('Alice')
-    account.deposit(100)
-    account.deposit(200)
+    account = _account_with_two_deposits()
     await repository.save('acc-1', account)
 
     saved = await snapshot_store.load(StreamId.for_aggregate('BankAccount', 'acc-1'))
@@ -262,10 +272,7 @@ async def test_snapshot_save_writes_aggregate_name_as_state_type(
     })
     repo = RenamedBankAccountRepo(event_store, snapshot_store, config_registry, state_serializer)
 
-    account = BankAccount()
-    account.open('Alice')
-    account.deposit(100)
-    account.deposit(200)
+    account = _account_with_two_deposits()
     await repo.save('acc-1', account)
 
     saved = await snapshot_store.load(StreamId.for_aggregate('Account', 'acc-1'))
@@ -286,12 +293,10 @@ async def test_load_with_matching_schema_version_uses_snapshot(
     mocker: MockerFixture,
     event_store: InMemoryEventStore,
     state_serializer: JsonSnapshotStateSerializer,
+    threshold_100_registry: SnapshotConfigRegistry,
 ) -> None:
     snapshot_store = mocker.AsyncMock(spec=ISnapshotStore)
-    config_registry = SnapshotConfigRegistry({
-        'BankAccount': SnapshotConfig(strategy=EventCountStrategy(threshold=100)),
-    })
-    repo = BankAccountRepository(event_store, snapshot_store, config_registry, state_serializer)
+    repo = BankAccountRepository(event_store, snapshot_store, threshold_100_registry, state_serializer)
 
     account = BankAccount()
     account.open('Alice')
@@ -370,10 +375,7 @@ async def test_save_writes_current_schema_version(
     })
     repo = BankAccountRepository(event_store, snapshot_store, config_registry, state_serializer)
 
-    account = BankAccount()
-    account.open('Alice')
-    account.deposit(100)
-    account.deposit(200)
+    account = _account_with_two_deposits()
     await repo.save('acc-1', account)
 
     saved = await snapshot_store.load(StreamId.for_aggregate('BankAccount', 'acc-1'))
@@ -391,10 +393,7 @@ async def test_snapshot_save_failure_does_not_prevent_aggregate_save(
     })
     repository = BankAccountRepository(event_store, _FailingSnapshotStore(), config_registry, state_serializer)
 
-    account = BankAccount()
-    account.open('Alice')
-    account.deposit(100)
-    account.deposit(200)
+    account = _account_with_two_deposits()
     version, events = await repository.save('acc-1', account)
 
     assert version == 2
@@ -434,10 +433,7 @@ async def test_snapshot_side_failure_does_not_fail_save(
     })
     repository = repository_type(event_store, snapshot_store, config_registry, state_serializer)
 
-    account = BankAccount()
-    account.open('Alice')
-    account.deposit(100)
-    account.deposit(200)
+    account = _account_with_two_deposits()
     version, events = await repository.save('acc-1', account)
 
     assert version == 2

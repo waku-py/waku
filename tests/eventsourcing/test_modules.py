@@ -82,6 +82,21 @@ class ItemRepository(EventSourcedRepository[Item]):
     pass
 
 
+def _two_module_imports(first_ext: EventSourcingExtension, second_ext: EventSourcingExtension) -> list[type]:
+    @module(
+        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()],
+        extensions=[first_ext],
+    )
+    class FirstModule:
+        pass
+
+    @module(extensions=[second_ext])
+    class SecondModule:
+        pass
+
+    return [FirstModule, SecondModule]
+
+
 async def test_event_sourcing_module_provides_the_exact_configured_config_instance() -> None:
     config = EventSourcingConfig()
     async with (
@@ -359,21 +374,8 @@ async def test_same_event_type_across_two_modules() -> None:
         event_types=[ItemCreated],
     )
 
-    @module(
-        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()],
-        extensions=[producer_ext],
-    )
-    class ProducerModule:
-        pass
-
-    @module(
-        extensions=[consumer_ext],
-    )
-    class ConsumerModule:
-        pass
-
     async with (
-        create_test_app(imports=[ProducerModule, ConsumerModule]) as app,
+        create_test_app(imports=_two_module_imports(producer_ext, consumer_ext)) as app,
         app.container() as container,
     ):
         registry = await container.get(EventTypeRegistry)
@@ -393,21 +395,8 @@ async def test_same_event_type_with_aliases_across_two_modules() -> None:
         event_types=[shared_event],
     )
 
-    @module(
-        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()],
-        extensions=[producer_ext],
-    )
-    class ProducerModule:
-        pass
-
-    @module(
-        extensions=[consumer_ext],
-    )
-    class ConsumerModule:
-        pass
-
     async with (
-        create_test_app(imports=[ProducerModule, ConsumerModule]) as app,
+        create_test_app(imports=_two_module_imports(producer_ext, consumer_ext)) as app,
         app.container() as container,
     ):
         registry = await container.get(EventTypeRegistry)
@@ -431,21 +420,8 @@ async def test_same_upcasters_across_two_modules() -> None:
         event_types=[shared_event],
     )
 
-    @module(
-        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()],
-        extensions=[producer_ext],
-    )
-    class ProducerModule:
-        pass
-
-    @module(
-        extensions=[consumer_ext],
-    )
-    class ConsumerModule:
-        pass
-
     async with (
-        create_test_app(imports=[ProducerModule, ConsumerModule]) as app,
+        create_test_app(imports=_two_module_imports(producer_ext, consumer_ext)) as app,
         app.container() as container,
     ):
         chain = await container.get(UpcasterChain)
@@ -475,21 +451,8 @@ async def test_conflicting_upcasters_across_modules_raises() -> None:
         ],
     )
 
-    @module(
-        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()],
-        extensions=[producer_ext],
-    )
-    class ProducerModule:
-        pass
-
-    @module(
-        extensions=[consumer_ext],
-    )
-    class ConsumerModule:
-        pass
-
     with pytest.raises(UpcasterChainError, match='Conflicting upcaster definitions'):
-        async with create_test_app(imports=[ProducerModule, ConsumerModule]):
+        async with create_test_app(imports=_two_module_imports(producer_ext, consumer_ext)):
             pass  # pragma: no cover
 
 
@@ -515,21 +478,8 @@ async def test_shared_event_identical_upcasters_from_two_modules_builds() -> Non
         ],
     )
 
-    @module(
-        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()],
-        extensions=[producer_ext],
-    )
-    class ProducerModule:
-        pass
-
-    @module(
-        extensions=[consumer_ext],
-    )
-    class ConsumerModule:
-        pass
-
     async with (
-        create_test_app(imports=[ProducerModule, ConsumerModule]) as app,
+        create_test_app(imports=_two_module_imports(producer_ext, consumer_ext)) as app,
         app.container() as container,
     ):
         chain = await container.get(UpcasterChain)
@@ -559,21 +509,8 @@ async def test_shared_event_divergent_upcasters_still_conflicts() -> None:
         ],
     )
 
-    @module(
-        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()],
-        extensions=[producer_ext],
-    )
-    class ProducerModule:
-        pass
-
-    @module(
-        extensions=[consumer_ext],
-    )
-    class ConsumerModule:
-        pass
-
     with pytest.raises(UpcasterChainError, match='Conflicting upcaster definitions'):
-        async with create_test_app(imports=[ProducerModule, ConsumerModule]):
+        async with create_test_app(imports=_two_module_imports(producer_ext, consumer_ext)):
             pass  # pragma: no cover
 
 
@@ -604,19 +541,8 @@ async def test_duplicate_aggregate_name_across_modules_raises() -> None:
     ext_a = EventSourcingExtension().bind_aggregate(repository=ItemRepository)
     ext_b = EventSourcingExtension().bind_aggregate(repository=DuplicateItemRepository)
 
-    @module(
-        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()],
-        extensions=[ext_a],
-    )
-    class ModuleA:
-        pass
-
-    @module(extensions=[ext_b])
-    class ModuleB:
-        pass
-
     with pytest.raises(DuplicateAggregateNameError, match='Item'):
-        async with create_test_app(imports=[ModuleA, ModuleB]):
+        async with create_test_app(imports=_two_module_imports(ext_a, ext_b)):
             pass  # pragma: no cover
 
 
@@ -624,18 +550,7 @@ async def test_different_aggregate_names_across_modules_passes() -> None:
     ext_a = EventSourcingExtension().bind_aggregate(repository=ItemRepository)
     ext_b = EventSourcingExtension().bind_aggregate(repository=ItemLogRepository)
 
-    @module(
-        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()],
-        extensions=[ext_a],
-    )
-    class ModuleA:
-        pass
-
-    @module(extensions=[ext_b])
-    class ModuleB:
-        pass
-
-    async with create_test_app(imports=[ModuleA, ModuleB]):
+    async with create_test_app(imports=_two_module_imports(ext_a, ext_b)):
         pass
 
 
@@ -979,17 +894,6 @@ async def test_duplicate_aggregate_name_between_aggregate_and_decider_raises() -
         event_types=[ItemCreated],
     )
 
-    @module(
-        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()],
-        extensions=[ext_a],
-    )
-    class AggregateModule:
-        pass
-
-    @module(extensions=[ext_b])
-    class DeciderModule:
-        pass
-
     with pytest.raises(DuplicateAggregateNameError, match='Item'):
-        async with create_test_app(imports=[AggregateModule, DeciderModule]):
+        async with create_test_app(imports=_two_module_imports(ext_a, ext_b)):
             pass  # pragma: no cover

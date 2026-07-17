@@ -389,10 +389,11 @@ class PostgresDeadLetterStore(IDeadLetterStore):
         )
 
     @override
-    async def delete_expired_dead_letters(self, older_than: datetime, *, now: datetime) -> int:
+    async def delete_expired_dead_letters(self, older_than: timedelta, *, now: datetime) -> int:
+        cutoff = now - older_than
         result = await self._session.execute(
             delete_stmt(dead_letter_table).where(
-                dead_letter_table.c.created_at < older_than,
+                dead_letter_table.c.created_at < cutoff,
                 (
                     dead_letter_table.c.replay_lease_expires_at.is_(None)
                     | (dead_letter_table.c.replay_lease_expires_at <= now)

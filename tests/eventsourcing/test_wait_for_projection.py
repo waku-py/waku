@@ -64,6 +64,14 @@ def in_memory_checkpoint_store() -> InMemoryCheckpointStore:
     return InMemoryCheckpointStore()
 
 
+async def _append_one_event(event_store: InMemoryEventStore) -> None:
+    await event_store.append_to_stream(
+        StreamId(stream_type='test', stream_key='1'),
+        [EventEnvelope(domain_event=DummyEvent(value=1), idempotency_key='k1')],
+        expected_version=NoStream(),
+    )
+
+
 async def test_wait_for_projection_returns_immediately_when_no_events(
     event_store: InMemoryEventStore,
     in_memory_checkpoint_store: InMemoryCheckpointStore,
@@ -80,12 +88,7 @@ async def test_wait_for_projection_returns_when_caught_up(
     event_store: InMemoryEventStore,
     in_memory_checkpoint_store: InMemoryCheckpointStore,
 ) -> None:
-    stream_id = StreamId(stream_type='test', stream_key='1')
-    await event_store.append_to_stream(
-        stream_id,
-        [EventEnvelope(domain_event=DummyEvent(value=1), idempotency_key='k1')],
-        expected_version=NoStream(),
-    )
+    await _append_one_event(event_store)
 
     head = await event_store.global_head_position()
     await in_memory_checkpoint_store.save(
@@ -104,12 +107,7 @@ async def test_wait_for_projection_raises_timeout(
     event_store: InMemoryEventStore,
     in_memory_checkpoint_store: InMemoryCheckpointStore,
 ) -> None:
-    stream_id = StreamId(stream_type='test', stream_key='1')
-    await event_store.append_to_stream(
-        stream_id,
-        [EventEnvelope(domain_event=DummyEvent(value=1), idempotency_key='k1')],
-        expected_version=NoStream(),
-    )
+    await _append_one_event(event_store)
 
     with pytest.raises(TimeoutError, match='did not catch up'):
         await wait_for_projection(
@@ -125,12 +123,7 @@ async def test_wait_for_all_projections(
     event_store: InMemoryEventStore,
     in_memory_checkpoint_store: InMemoryCheckpointStore,
 ) -> None:
-    stream_id = StreamId(stream_type='test', stream_key='1')
-    await event_store.append_to_stream(
-        stream_id,
-        [EventEnvelope(domain_event=DummyEvent(value=1), idempotency_key='k1')],
-        expected_version=NoStream(),
-    )
+    await _append_one_event(event_store)
 
     head = await event_store.global_head_position()
     for name in ('proj_a', 'proj_b'):
@@ -155,12 +148,7 @@ async def test_wait_for_all_projections_raises_timeout(
     event_store: InMemoryEventStore,
     in_memory_checkpoint_store: InMemoryCheckpointStore,
 ) -> None:
-    stream_id = StreamId(stream_type='test', stream_key='1')
-    await event_store.append_to_stream(
-        stream_id,
-        [EventEnvelope(domain_event=DummyEvent(value=1), idempotency_key='k1')],
-        expected_version=NoStream(),
-    )
+    await _append_one_event(event_store)
 
     head = await event_store.global_head_position()
     await in_memory_checkpoint_store.save(

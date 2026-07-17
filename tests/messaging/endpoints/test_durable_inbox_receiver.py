@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import anyio
 import pytest
-from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
+from dishka import AsyncContainer, Provider, Scope, make_async_container
 from typing_extensions import override
 
 from waku._internal.transaction import (
@@ -39,18 +39,15 @@ from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.exceptions import RequeueBudgetExceededError
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.models import InboxStatus
-from waku.messaging.sequence import ISequenceAllocator
-from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
 from tests.messaging.helpers import (
-    RecordingAllocator,
+    EndpointDepsProvider,
     RecordingDeadLetterStore,
     RecordingUoW,
     StubEndpointExecution,
-    make_codec,
     make_envelope,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
@@ -99,38 +96,6 @@ def _intent(
         pause_duration=pause_duration,
         requeue_limit=requeue_limit,
     )
-
-
-class _DepsProvider(Provider):
-    scope = Scope.REQUEST
-
-    def __init__(self, inbox: IInboxStore, dlq: IDeadLetterStore, uow: IUnitOfWork | None = None) -> None:
-        super().__init__()
-        self._inbox = inbox
-        self._dlq = dlq
-        self._codec = make_codec()
-        self._uow = uow or RecordingUoW()
-        self._allocator: ISequenceAllocator = RecordingAllocator()
-
-    @provide
-    def inbox(self) -> IInboxStore:
-        return self._inbox
-
-    @provide
-    def dlq(self) -> IDeadLetterStore:
-        return self._dlq
-
-    @provide(scope=Scope.APP)
-    def codec(self) -> PayloadCodec:
-        return self._codec
-
-    @provide
-    def uow(self) -> IUnitOfWork:
-        return self._uow
-
-    @provide
-    def allocator(self) -> ISequenceAllocator:
-        return self._allocator
 
 
 class _StubExecutor(StubEndpointExecution):
@@ -392,7 +357,7 @@ class TestDurableInboxReceiverFinalization:
         inbox = _TraceInbox(events)
         executor = _TraceExecutor(events, outcome=ExecutionOutcome.SUCCESS)
         async with make_async_container(
-            _DepsProvider(inbox, RecordingDeadLetterStore(), _TraceUoW(events))
+            EndpointDepsProvider(inbox, RecordingDeadLetterStore(), uow=_TraceUoW(events))
         ) as container:
             receiver = _receiver(container, executor)
             receiver.attach_circuit_breaker(_TraceCircuitBreaker(events))
@@ -414,7 +379,9 @@ class TestDurableInboxReceiverFinalization:
         error = RuntimeError('handler failed')
         executor = _TraceExecutor(events, outcome=ExecutionOutcome.DEAD_LETTERED, error=error)
         standalone_dead_letters = RecordingDeadLetterStore()
-        async with make_async_container(_DepsProvider(inbox, standalone_dead_letters, _TraceUoW(events))) as container:
+        async with make_async_container(
+            EndpointDepsProvider(inbox, standalone_dead_letters, uow=_TraceUoW(events))
+        ) as container:
             receiver = _receiver(container, executor)
             receiver.attach_circuit_breaker(_TraceCircuitBreaker(events))
             envelope = make_envelope(_Event(kind='Poison'))
@@ -439,7 +406,7 @@ class TestDurableInboxReceiverFinalization:
         error = RuntimeError('handler failed')
         executor = _TraceExecutor(events, outcome=ExecutionOutcome.DEAD_LETTERED, error=error)
         async with make_async_container(
-            _DepsProvider(inbox, RecordingDeadLetterStore(), _TraceUoW(events))
+            EndpointDepsProvider(inbox, RecordingDeadLetterStore(), uow=_TraceUoW(events))
         ) as container:
             receiver = _receiver(container, executor)
             receiver.attach_circuit_breaker(_TraceCircuitBreaker(events))
@@ -555,7 +522,7 @@ class TestDurableInboxReceiverFinalization:
         inbox = _FailingFinalizeInbox(events)
         executor = _TraceExecutor(events, outcome=ExecutionOutcome.SUCCESS)
         async with make_async_container(
-            _DepsProvider(inbox, RecordingDeadLetterStore(), _TraceUoW(events))
+            EndpointDepsProvider(inbox, RecordingDeadLetterStore(), uow=_TraceUoW(events))
         ) as container:
             receiver = _receiver(container, executor)
             receiver.attach_circuit_breaker(_TraceCircuitBreaker(events))
@@ -597,7 +564,7 @@ class TestDurableInboxReceiverPersist:
     @staticmethod
     async def test_persist_returns_only_fresh_handlers() -> None:
         inbox = FakeInboxStore()
-        async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             receiver = _receiver(container, executor)
             envelope = make_envelope(_Event(kind='OrderPlaced'))
@@ -616,7 +583,7 @@ class TestDurableInboxReceiverPersist:
         commit_error = RuntimeError('commit failed')
         rollback_error = RuntimeError('rollback failed')
         uow = RecordingUoW(commit_error=commit_error, rollback_error=rollback_error)
-        async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore(), uow)) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore(), uow=uow)) as container:
             receiver = _receiver(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS))
             envelope = make_envelope(_Event(kind='OrderPlaced'))
 
@@ -632,7 +599,7 @@ class TestDurableInboxReceiverPersist:
     @staticmethod
     async def test_persist_re_persisting_same_id_and_handler_returns_empty() -> None:
         inbox = FakeInboxStore()
-        async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             receiver = _receiver(container, executor)
             envelope = make_envelope(_Event(kind='OrderPlaced'))
@@ -648,7 +615,7 @@ class TestDurableInboxReceiverProcess:
     @staticmethod
     async def test_enqueue_and_success_marks_inbox_row_handled() -> None:
         inbox = FakeInboxStore()
-        async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
             receiver = _receiver(container, executor)
             envelope = make_envelope(_Event(kind='Shipped'))
@@ -667,7 +634,7 @@ class TestDurableInboxReceiverProcess:
     @staticmethod
     async def test_requeue_increments_attempts_and_reprocesses() -> None:
         inbox = FakeInboxStore()
-        async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             call_count = 0
 
             class _RequeueOnceThenSucceed(_StubExecutor):
@@ -700,7 +667,7 @@ class TestDurableInboxReceiverProcess:
     @staticmethod
     async def test_exceeding_max_requeue_attempts_moves_to_dead_letter() -> None:
         inbox = FakeInboxStore()
-        async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.REQUEUED)
             receiver = _receiver(container, executor, max_requeue_attempts=3, max_buffer_size=1_000)
             envelope = make_envelope(_Event(kind='Poison'))
@@ -718,7 +685,7 @@ class TestDurableInboxReceiverProcess:
     async def test_exhaustion_observes_the_effective_budget_error() -> None:
         inbox = FakeInboxStore()
         original_error = RuntimeError('handler failed')
-        async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _CapturingTerminalExecutor(outcome=ExecutionOutcome.REQUEUED, error=original_error)
             receiver = _receiver(container, executor, max_requeue_attempts=2, max_buffer_size=1_000)
             envelope = make_envelope(_Event(kind='Poison'))
@@ -735,7 +702,7 @@ class TestDurableInboxReceiverProcess:
     @staticmethod
     async def test_per_rule_budget_dead_letters_below_endpoint_bound() -> None:
         inbox = FakeInboxStore()
-        async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.REQUEUED, requeue_limit=2)
             receiver = _receiver(container, executor, max_requeue_attempts=5, max_buffer_size=1_000)
             envelope = make_envelope(_Event(kind='BudgetTwo'))
@@ -751,7 +718,7 @@ class TestDurableInboxReceiverProcess:
     @staticmethod
     async def test_distinct_per_rule_budget_honored_independently() -> None:
         inbox = FakeInboxStore()
-        async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.REQUEUED, requeue_limit=4)
             receiver = _receiver(container, executor, max_requeue_attempts=5, max_buffer_size=1_000)
             envelope = make_envelope(_Event(kind='BudgetFour'))
@@ -824,7 +791,7 @@ class TestDurableInboxReceiverBackpressureSeams:
         async def resume(token: PauseToken) -> None:  # noqa: ARG001, RUF029
             pauses.append('resume')
 
-        async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             receiver = _receiver(
                 container,
                 _ObservingExecutor(outcome=ExecutionOutcome.FAILED_NO_POLICY, exc=RuntimeError()),
@@ -850,7 +817,7 @@ class TestDurableInboxReceiverBackpressureSeams:
         # No breaker attached => the PassthroughCircuitBreaker default: failing outcomes are recorded to
         # nothing and the receiver never pauses.
         inbox = FakeInboxStore()
-        async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             receiver = _receiver(
                 container,
                 _ObservingExecutor(outcome=ExecutionOutcome.FAILED_NO_POLICY, exc=RuntimeError()),
@@ -870,7 +837,7 @@ class TestDurableInboxReceiverBackpressureSeams:
     async def test_queue_depth_reflects_buffered_items() -> None:
         inbox = FakeInboxStore()
         started, release = asyncio.Event(), asyncio.Event()
-        async with make_async_container(_DepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             receiver = _receiver(container, _BlockingExecutor(started=started, release=release), max_buffer_size=10)
 
             await receiver.start()

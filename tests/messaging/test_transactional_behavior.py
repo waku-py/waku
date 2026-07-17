@@ -63,6 +63,26 @@ async def _fail() -> str:  # noqa: RUF029
     raise ValueError(msg)
 
 
+def _swallow_two_failures(
+    inner: TransactionalBehavior,
+    first_error: Exception,
+    second_error: Exception,
+) -> CallNext[None]:
+    async def swallow_both_failures() -> None:
+        async def fail_first() -> None:  # noqa: RUF029
+            raise first_error
+
+        async def fail_second() -> None:  # noqa: RUF029
+            raise second_error
+
+        with contextlib.suppress(ValueError):
+            await inner.handle('first', call_next=fail_first)
+        with contextlib.suppress(ValueError):
+            await inner.handle('second', call_next=fail_second)
+
+    return swallow_both_failures
+
+
 class TestTransactionalBehavior:
     @staticmethod
     async def test_commits_on_success() -> None:
@@ -172,20 +192,8 @@ class TestNestingAwareTransactional:
         first_error = ValueError('first failed')
         second_error = ValueError('second failed')
 
-        async def fail_first() -> None:  # noqa: RUF029
-            raise first_error
-
-        async def fail_second() -> None:  # noqa: RUF029
-            raise second_error
-
-        async def swallow_both_failures() -> None:
-            with contextlib.suppress(ValueError):
-                await inner.handle('first', call_next=fail_first)
-            with contextlib.suppress(ValueError):
-                await inner.handle('second', call_next=fail_second)
-
         with pytest.raises(UnexpectedRollbackError) as raised:
-            await outer.handle('outer', call_next=swallow_both_failures)
+            await outer.handle('outer', call_next=_swallow_two_failures(inner, first_error, second_error))
 
         assert raised.value.__cause__ is first_error
         assert uow.commit_count == 0
@@ -201,20 +209,8 @@ class TestNestingAwareTransactional:
         first_error = ValueError('first failed')
         second_error = ValueError('second failed')
 
-        async def fail_first() -> None:  # noqa: RUF029
-            raise first_error
-
-        async def fail_second() -> None:  # noqa: RUF029
-            raise second_error
-
-        async def swallow_both_failures() -> None:
-            with contextlib.suppress(ValueError):
-                await inner.handle('first', call_next=fail_first)
-            with contextlib.suppress(ValueError):
-                await inner.handle('second', call_next=fail_second)
-
         with pytest.raises(TransactionExecutionError) as raised:
-            await outer.handle('outer', call_next=swallow_both_failures)
+            await outer.handle('outer', call_next=_swallow_two_failures(inner, first_error, second_error))
 
         assert isinstance(raised.value, RollbackFailedError)
         assert raised.value.error is rollback_error

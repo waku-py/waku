@@ -43,6 +43,18 @@ def _registry(*policies: ErrorPolicy) -> ErrorPolicyRegistry:
     )
 
 
+def _two_stage_backoff_evaluator() -> ErrorPolicyEvaluator:
+    # retry(2) then a fresh backoff stage with base 1s / max 4s.
+    return ErrorPolicyEvaluator(
+        _registry(
+            ErrorPolicy
+            .on_any_exception()
+            .retry(max_attempts=2)
+            .then_retry_with_backoff(max_attempts=2, base_delay=timedelta(seconds=1), max_delay=timedelta(seconds=4)),
+        )
+    )
+
+
 class TestErrorPolicyEvaluator:
     @staticmethod
     def test_returns_none_when_no_policy_matches() -> None:
@@ -119,16 +131,7 @@ class TestErrorPolicyEvaluator:
 
     @staticmethod
     def test_then_retry_with_backoff_accepts_timedelta_delays() -> None:
-        evaluator = ErrorPolicyEvaluator(
-            _registry(
-                ErrorPolicy
-                .on_any_exception()
-                .retry(max_attempts=2)
-                .then_retry_with_backoff(
-                    max_attempts=2, base_delay=timedelta(seconds=1), max_delay=timedelta(seconds=4)
-                ),
-            )
-        )
+        evaluator = _two_stage_backoff_evaluator()
 
         outcome = evaluator.evaluate(_make_ctx(RuntimeError(), attempt=2))
         assert outcome is not None
@@ -152,16 +155,7 @@ class TestErrorPolicyEvaluator:
     @staticmethod
     def test_second_stage_backoff_restarts_from_its_own_base_delay(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr('waku._internal.adaptive_interval.random.uniform', lambda _lo, hi: hi)
-        evaluator = ErrorPolicyEvaluator(
-            _registry(
-                ErrorPolicy
-                .on_any_exception()
-                .retry(max_attempts=2)
-                .then_retry_with_backoff(
-                    max_attempts=2, base_delay=timedelta(seconds=1), max_delay=timedelta(seconds=4)
-                ),
-            )
-        )
+        evaluator = _two_stage_backoff_evaluator()
 
         outcome = evaluator.evaluate(_make_ctx(RuntimeError(), attempt=2))
         assert outcome is not None

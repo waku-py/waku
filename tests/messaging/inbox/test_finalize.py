@@ -63,22 +63,6 @@ def _intent(outcome: ExecutionOutcome) -> TerminalIntent:
     return TerminalIntent(kinds[outcome])
 
 
-async def test_success_marks_handled() -> None:
-    inbox = FakeInboxStore()
-    uow = RecordingUoW()
-    entry_id, destination = _seed(inbox)
-    async with make_async_container(_Deps(inbox, uow)) as container:
-        await apply_inbox_outcome(
-            container,
-            entry_id=entry_id,
-            destination=destination,
-            intent=_intent(ExecutionOutcome.SUCCESS),
-            keep_after_handled=timedelta(minutes=5),
-        )
-    assert inbox.entries[entry_id, destination].status is InboxStatus.HANDLED
-    assert uow.commit_count == 1
-
-
 @pytest.mark.parametrize(
     'outcome',
     [ExecutionOutcome.DISCARDED, ExecutionOutcome.FAILED_NO_POLICY],
@@ -140,7 +124,7 @@ async def test_terminal_transition_failed_rollback_is_fatal() -> None:
     assert raised.value.primary_error is commit_error
 
 
-async def test_success_outcome_commits_without_rollback() -> None:
+async def test_success_marks_handled_and_commits_without_rollback() -> None:
     inbox = FakeInboxStore()
     uow = RecordingUoW()
     entry_id, destination = _seed(inbox)

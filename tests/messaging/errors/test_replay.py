@@ -347,6 +347,15 @@ def _make_executor(endpoint: Endpoint | None) -> ReplayExecution:
     )
 
 
+def _replay_executor(container: AsyncContainer, execution: IReplayExecution) -> ReplayExecutor:
+    return ReplayExecutor(
+        execution=execution,
+        config=DeadLetterConfig(),
+        scopes=ReprocessScopeOpener(container),
+        now=_AdvancingClock(),
+    )
+
+
 async def test_replay_reinjects_to_destination_preserving_original_message_id() -> None:
     envelope = make_envelope(_DlqEvent('hi'))
     entry = _entry_for(envelope, destination='local://dlq')
@@ -644,12 +653,7 @@ async def test_manual_replay_preserves_mixed_cancellation_group_and_leaf_identit
     failure = BaseExceptionGroup('mixed replay failure', [cancellation, fatal])
 
     async with make_async_container(_ReplayOwnerDeps(store, uow)) as container:
-        replayer = ReplayExecutor(
-            execution=_RaisingReplayExecution(failure),
-            config=DeadLetterConfig(),
-            scopes=ReprocessScopeOpener(container),
-            now=_AdvancingClock(),
-        )
+        replayer = _replay_executor(container, _RaisingReplayExecution(failure))
         with pytest.raises(BaseExceptionGroup) as raised:
             await replayer.replay(entry)
 
@@ -672,12 +676,7 @@ async def test_manual_replay_fatal_only_group_uses_public_translation_without_mu
     failure = BaseExceptionGroup('fatal replay failure', [fatal])
 
     async with make_async_container(_ReplayOwnerDeps(store, uow)) as container:
-        replayer = ReplayExecutor(
-            execution=_RaisingReplayExecution(failure),
-            config=DeadLetterConfig(),
-            scopes=ReprocessScopeOpener(container),
-            now=_AdvancingClock(),
-        )
+        replayer = _replay_executor(container, _RaisingReplayExecution(failure))
         with pytest.raises(RuntimeError) as raised:
             await replayer.replay(entry)
 
@@ -701,12 +700,7 @@ async def test_manual_replay_external_cancellation_remains_primary_after_shielde
     errors: list[BaseException] = []
 
     async with make_async_container(_ReplayOwnerDeps(store, uow)) as container:
-        replayer = ReplayExecutor(
-            execution=_BlockingReplayExecution(entered, anyio.Event()),
-            config=DeadLetterConfig(),
-            scopes=ReprocessScopeOpener(container),
-            now=_AdvancingClock(),
-        )
+        replayer = _replay_executor(container, _BlockingReplayExecution(entered, anyio.Event()))
 
         async def replay() -> None:
             with cancel_scope:

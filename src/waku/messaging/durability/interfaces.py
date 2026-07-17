@@ -71,7 +71,13 @@ class IOutboxStore(abc.ABC):
     async def recover_abandoned(self, threshold: timedelta) -> int: ...
 
     @abc.abstractmethod
-    async def delete_expired_dispatched(self, older_than: timedelta) -> int: ...
+    async def delete_expired_dispatched(self, older_than: timedelta, *, now: datetime) -> int:
+        """Delete DISPATCHED rows older than ``now - older_than``. Returns row count.
+
+        The cutoff derives from the caller-sampled ``now`` (single-clock discipline), never a
+        store-local wall/DB clock.
+        """
+        ...
 
 
 class IInboxStore(abc.ABC):
@@ -227,7 +233,13 @@ class IDeadLetterStore(abc.ABC):
     async def delete(self, entry_id: UUID) -> None: ...
 
     @abc.abstractmethod
-    async def delete_expired_dead_letters(self, older_than: datetime, *, now: datetime) -> int: ...
+    async def delete_expired_dead_letters(self, older_than: timedelta, *, now: datetime) -> int:
+        """Delete dead letters created before ``now - older_than`` that hold no live replay lease.
+
+        The cutoff derives from the caller-sampled ``now`` (single-clock discipline); a strictly
+        live lease is protected from purge.
+        """
+        ...
 
 
 class IDurabilityStore(abc.ABC):

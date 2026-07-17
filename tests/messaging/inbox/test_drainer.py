@@ -204,6 +204,23 @@ class _FatalAfterCommitExecutor(StubEndpointExecution):
         raise AfterCommitError(self.teardown_error)
 
 
+async def _drain_good_and_poison(inbox: FakeInboxStore) -> tuple[InboxEntry, InboxEntry, int]:
+    good = _abandoned_entry(inbox)
+    poison = _abandoned_entry(inbox, destination='tests.GoneHandler')
+    executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        processed = await _drainer(container, executor, max_attempts=3).drain_once()
+    return good, poison, processed
+
+
+async def _drain_and_expect_dead_lettered(inbox: FakeInboxStore, entry: InboxEntry) -> None:
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
+    assert (entry.id, entry.destination) not in inbox.entries
+    assert len(inbox.dead_letters.entries) == 1
+    assert next(iter(inbox.dead_letters.entries.values())).message_type == entry.message_type
+
+
 async def test_drain_crash_recovery_rebuilds_envelope_from_decomposed_row() -> None:
     # Verifies that the drainer reconstructs the full envelope from the decomposed inbox row
     # (encoded payload + metadata + typed correlation_id/causation_id columns) without using
@@ -324,11 +341,7 @@ async def test_drain_poison_unrebuildable_payload_bumps_attempts() -> None:
 async def test_drain_poison_at_cap_dead_letters_and_deletes() -> None:
     inbox = FakeInboxStore()
     entry = _abandoned_entry(inbox, destination='tests.GoneHandler', attempts=2)
-    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
-        await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
-    assert (entry.id, entry.destination) not in inbox.entries
-    assert len(inbox.dead_letters.entries) == 1
-    assert next(iter(inbox.dead_letters.entries.values())).message_type == entry.message_type
+    await _drain_and_expect_dead_lettered(inbox, entry)
 
 
 async def test_drain_poison_corrupt_metadata_blob_at_cap_dead_letters() -> None:
@@ -341,11 +354,7 @@ async def test_drain_poison_corrupt_metadata_blob_at_cap_dead_letters() -> None:
         entry,
         metadata={'message_version': 'abc', 'timestamp': '2026-06-29T10:00:00+00:00', 'headers': {}},
     )
-    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
-        await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
-    assert (entry.id, entry.destination) not in inbox.entries
-    assert len(inbox.dead_letters.entries) == 1
-    assert next(iter(inbox.dead_letters.entries.values())).message_type == entry.message_type
+    await _drain_and_expect_dead_lettered(inbox, entry)
 
 
 async def test_drain_poison_at_cap_moves_without_standalone_dlq(caplog: pytest.LogCaptureFixture) -> None:
@@ -361,11 +370,7 @@ async def test_drain_poison_at_cap_moves_without_standalone_dlq(caplog: pytest.L
 
 async def test_drain_isolates_poison_from_healthy_entries_in_a_batch() -> None:
     inbox = FakeInboxStore()
-    good = _abandoned_entry(inbox)
-    poison = _abandoned_entry(inbox, destination='tests.GoneHandler')
-    executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
-    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
-        processed = await _drainer(container, executor, max_attempts=3).drain_once()
+    good, poison, processed = await _drain_good_and_poison(inbox)
     assert processed == 1
     assert inbox.entries[good.id, good.destination].status is InboxStatus.HANDLED
     assert inbox.entries[poison.id, poison.destination].attempts == 1
@@ -394,11 +399,7 @@ class _IncrementRaisesStore(FakeInboxStore):
 
 async def test_drain_logs_and_continues_when_an_entry_raises() -> None:
     inbox = _IncrementRaisesStore()
-    good = _abandoned_entry(inbox)
-    poison = _abandoned_entry(inbox, destination='tests.GoneHandler')
-    executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
-    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
-        processed = await _drainer(container, executor, max_attempts=3).drain_once()
+    good, poison, processed = await _drain_good_and_poison(inbox)
     assert processed == 1
     assert inbox.entries[good.id, good.destination].status is InboxStatus.HANDLED
     assert inbox.entries[poison.id, poison.destination].status is InboxStatus.INCOMING

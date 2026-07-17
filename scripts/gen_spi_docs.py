@@ -31,10 +31,9 @@ SPI_FACADES: tuple[tuple[str, str], ...] = (
     ('waku.messaging.sending', 'Sending-failure policies applied by the outbox relay.'),
     ('waku.eventsourcing.store', 'Event store contracts (with snapshot/checkpoint facets); in-memory reference store.'),
     ('waku.eventsourcing.snapshot', 'Snapshot model, strategy, and migration contracts.'),
-    ('waku.eventsourcing.projection', 'Projection contracts and polling configuration.'),
     (
-        'waku.eventsourcing.projection.lock',
-        'Lease contract and the in-memory lease; Postgres lease adapters live in `waku.backends.sqlalchemy`.',
+        'waku.eventsourcing.projection',
+        'Projection contracts, polling configuration, and the lease contract with its in-memory lease.',
     ),
     ('waku.eventsourcing.serialization', 'Event and snapshot-state serializer contracts.'),
     ('waku.serialization', 'Payload codec and the upcasting toolkit.'),

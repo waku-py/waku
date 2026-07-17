@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 from typing_extensions import override
 
-from waku.messaging import CallNext, IPipelineBehavior, IRequest, MessageT, RequestHandler, ResponseT
+from waku.messaging import RequestHandler
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import DeadLetterConfig, MessagingConfig, OutboxConfig
 from waku.messaging.errors.policy import ErrorPolicy
@@ -13,41 +12,29 @@ from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.modules import _FRAMEWORK_POLICIES
 from waku.messaging.pipeline._internal.plan import build_behavior_plan
 
-
-@dataclass(frozen=True, slots=True)
-class _Cmd(IRequest[None]):
-    value: str
+from tests.messaging.pipeline.conftest import Cmd, SomeBehavior
 
 
-class _PassthroughBehavior(IPipelineBehavior[MessageT, ResponseT]):
+class _PlainHandler(RequestHandler[Cmd, None]):
     @override
-    async def handle(self, message: MessageT, /, call_next: CallNext[ResponseT]) -> ResponseT:
-        return await call_next()  # pragma: no cover -- plan tests never execute the chain
+    async def handle(self, request: Cmd, /) -> None: ...
 
 
-class _SomeBehavior(_PassthroughBehavior[Any, Any]): ...
-
-
-class _PlainHandler(RequestHandler[_Cmd, None]):
-    @override
-    async def handle(self, request: _Cmd, /) -> None: ...
-
-
-class _DeadLetterPolicyHandler(RequestHandler[_Cmd, None]):
+class _DeadLetterPolicyHandler(RequestHandler[Cmd, None]):
     error_policies = (ErrorPolicy.on_any_exception().move_to_dead_letter(),)
 
     @override
-    async def handle(self, request: _Cmd, /) -> None: ...
+    async def handle(self, request: Cmd, /) -> None: ...
 
 
-class _HandlerWithTransactionalLocal(RequestHandler[_Cmd, None]):
-    behaviors = (TransactionalBehavior, _SomeBehavior)
+class _HandlerWithTransactionalLocal(RequestHandler[Cmd, None]):
+    behaviors = (TransactionalBehavior, SomeBehavior)
 
     @override
-    async def handle(self, request: _Cmd, /) -> None: ...
+    async def handle(self, request: Cmd, /) -> None: ...
 
 
-def _plan_for(handler: type[RequestHandler[_Cmd, None]], config: MessagingConfig) -> tuple[type[Any], ...]:
+def _plan_for(handler: type[RequestHandler[Cmd, None]], config: MessagingConfig) -> tuple[type[Any], ...]:
     plan = build_behavior_plan([handler], _FRAMEWORK_POLICIES, config)
     return plan.for_handler(handler)
 
@@ -89,7 +76,7 @@ def test_handler_local_transactional_is_single_and_at_user_global_tier() -> None
     config = MessagingConfig()
     chain = _plan_for(_HandlerWithTransactionalLocal, config)
     assert chain.count(TransactionalBehavior) == 1
-    assert chain.index(TransactionalBehavior) < chain.index(_SomeBehavior)
+    assert chain.index(TransactionalBehavior) < chain.index(SomeBehavior)
 
 
 def test_plain_handler_without_uow_signal_omits_transactional() -> None:

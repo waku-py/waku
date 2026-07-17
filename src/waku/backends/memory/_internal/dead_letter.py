@@ -11,6 +11,7 @@ from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterStatus,
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from datetime import timedelta
     from uuid import UUID
 
     from waku.backends.memory._internal.transaction import InMemoryWorkspaceAccessor
@@ -150,11 +151,12 @@ class _InMemoryDeadLetterStoreOperations(IDeadLetterStore):
         self.entries.pop(entry_id, None)
 
     @override
-    async def delete_expired_dead_letters(self, older_than: datetime, *, now: datetime) -> int:
+    async def delete_expired_dead_letters(self, older_than: timedelta, *, now: datetime) -> int:
+        cutoff = now - older_than
         stale = [
             entry_id
             for entry_id, entry in self.entries.items()
-            if entry.created_at is not None and entry.created_at < older_than and _lease_is_claimable(entry, now)
+            if entry.created_at is not None and entry.created_at < cutoff and _lease_is_claimable(entry, now)
         ]
         for entry_id in stale:
             del self.entries[entry_id]

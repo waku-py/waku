@@ -1,40 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from typing_extensions import override
-
 from waku import module
 from waku.backends.memory import MemoryBackend
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
 from waku.eventsourcing.store.interfaces import IEventStore
-from waku.integrations.eventsourcing_messaging import CorrelationEnricher, EventSourcedVoidCommandHandler
-from waku.messaging import IRequest, MessagingExtension, MessagingModule
+from waku.integrations.eventsourcing_messaging import CorrelationEnricher
+from waku.messaging import MessagingExtension, MessagingModule
 from waku.messaging.interfaces import IMessageBus
 from waku.testing import create_test_app
 
-from tests.eventsourcing.domain import Note, NoteCreated, NoteRepository
-
-
-@dataclass(frozen=True, kw_only=True)
-class CreateNote(IRequest):
-    note_id: str
-    title: str
-
-
-class CreateNoteHandler(EventSourcedVoidCommandHandler[CreateNote, Note]):
-    @override
-    def _aggregate_id(self, request: CreateNote) -> str:
-        return request.note_id
-
-    @override
-    def _is_creation_command(self, request: CreateNote) -> bool:
-        return True
-
-    @override
-    async def _execute(self, request: CreateNote, aggregate: Note) -> None:
-        aggregate.create(request.title)
+from tests.eventsourcing.domain import NoteCreated, NoteRepository
+from tests.integrations.eventsourcing_messaging.domain import CreateNote, CreateNoteHandler
 
 
 class TestESBusIntegration:

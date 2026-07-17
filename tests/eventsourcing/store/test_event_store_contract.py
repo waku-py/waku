@@ -99,6 +99,22 @@ def _patch_idempotency_first_call_returns_none(mocker: MockerFixture, store: IEv
     mocker.patch.object(store, '_check_idempotency', side_effect=_side_effect)
 
 
+async def _seed_and_arm_savepoint_race(
+    request: pytest.FixtureRequest,
+    mocker: MockerFixture,
+    store: IEventStore,
+    stream_id: StreamId,
+) -> tuple[list[EventEnvelope], int]:
+    _skip_if_in_memory(request, 'savepoint race condition is only relevant for SQLAlchemy store')
+    envelopes = [
+        EventEnvelope(domain_event=OrderCreated(order_id='123'), idempotency_key='key-1'),
+        EventEnvelope(domain_event=ItemAdded(item_name='Widget'), idempotency_key='key-2'),
+    ]
+    original_version = await store.append_to_stream(stream_id, envelopes, expected_version=NoStream())
+    _patch_idempotency_first_call_returns_none(mocker, store)
+    return envelopes, original_version
+
+
 async def test_session_remains_usable_after_idempotent_append(
     request: pytest.FixtureRequest,
     store: IEventStore,
@@ -182,15 +198,7 @@ async def test_savepoint_race_with_all_keys_returns_idempotent_version(
     store: IEventStore,
     stream_id: StreamId,
 ) -> None:
-    _skip_if_in_memory(request, 'savepoint race condition is only relevant for SQLAlchemy store')
-
-    envelopes = [
-        EventEnvelope(domain_event=OrderCreated(order_id='123'), idempotency_key='key-1'),
-        EventEnvelope(domain_event=ItemAdded(item_name='Widget'), idempotency_key='key-2'),
-    ]
-    original_version = await store.append_to_stream(stream_id, envelopes, expected_version=NoStream())
-
-    _patch_idempotency_first_call_returns_none(mocker, store)
+    envelopes, original_version = await _seed_and_arm_savepoint_race(request, mocker, store, stream_id)
     version = await store.append_to_stream(stream_id, envelopes, expected_version=Exact(version=original_version))
 
     assert version == original_version
@@ -233,15 +241,7 @@ async def test_session_usable_after_savepoint_race_recovery(
     store: IEventStore,
     stream_id: StreamId,
 ) -> None:
-    _skip_if_in_memory(request, 'savepoint race condition is only relevant for SQLAlchemy store')
-
-    envelopes = [
-        EventEnvelope(domain_event=OrderCreated(order_id='123'), idempotency_key='key-1'),
-        EventEnvelope(domain_event=ItemAdded(item_name='Widget'), idempotency_key='key-2'),
-    ]
-    original_version = await store.append_to_stream(stream_id, envelopes, expected_version=NoStream())
-
-    _patch_idempotency_first_call_returns_none(mocker, store)
+    envelopes, original_version = await _seed_and_arm_savepoint_race(request, mocker, store, stream_id)
     await store.append_to_stream(stream_id, envelopes, expected_version=Exact(version=original_version))
 
     assert await store.stream_exists(stream_id) is True
@@ -264,15 +264,7 @@ async def test_stream_version_consistent_after_savepoint_race_recovery(
     store: IEventStore,
     stream_id: StreamId,
 ) -> None:
-    _skip_if_in_memory(request, 'savepoint race condition is only relevant for SQLAlchemy store')
-
-    envelopes = [
-        EventEnvelope(domain_event=OrderCreated(order_id='123'), idempotency_key='key-1'),
-        EventEnvelope(domain_event=ItemAdded(item_name='Widget'), idempotency_key='key-2'),
-    ]
-    original_version = await store.append_to_stream(stream_id, envelopes, expected_version=NoStream())
-
-    _patch_idempotency_first_call_returns_none(mocker, store)
+    envelopes, original_version = await _seed_and_arm_savepoint_race(request, mocker, store, stream_id)
     recovered_version = await store.append_to_stream(
         stream_id,
         envelopes,

@@ -149,7 +149,7 @@ The relay is enabled by default with sensible settings (see
 | `mark_failed(message_id, error, next_retry_at)` | Mark a message as failed, schedule next retry      |
 | `move_to_dead_letter(message_id, entry)`  | Move an exhausted message to the dead letter store       |
 | `recover_abandoned(threshold: timedelta)`     | Reset messages stuck in `PROCESSING` beyond the threshold|
-| `delete_expired_dispatched(older_than: timedelta)` | Remove old dispatched messages (returns count)         |
+| `delete_expired_dispatched(older_than: timedelta, *, now: datetime)` | Remove dispatched messages older than `now - older_than` (returns count) |
 
 ### OutboxMessage Lifecycle
 

@@ -16,9 +16,6 @@ import anyio
 from typing_extensions import override
 
 from waku._internal.retort import default_retort
-from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
-from waku.backends.memory._internal.outbox import InMemoryOutboxStore
-from waku.di import object_, scoped
 from waku.messages import IEvent
 from waku.messaging import (
     InboxConfig,
@@ -28,28 +25,19 @@ from waku.messaging import (
     TransactionalBehavior,
 )
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
-from waku.messaging.durability import (
-    DefaultDurabilityStore,
-    IDeadLetterStore,
-    IDurabilityStore,
-    IInboxStore,
-    IOutboxStore,
-)
 from waku.messaging.handler import EventHandler
 from waku.messaging.inbox.backpressure import BufferingLimits
 from waku.messaging.inbox.models import InboxStatus
 from waku.messaging.router import listen
-from waku.messaging.sequence import ISequenceAllocator
 from waku.messaging.transport._internal.wire import encode_payload, envelope_metadata_of
 from waku.messaging.transport.inbound import ConsumeDisposition
 from waku.messaging.transport.interfaces import IEnvelopeMapper, ITransport, Subscription
 from waku.serialization import UpcasterChain
 from waku.serialization.codec import PayloadCodec
 from waku.testing import create_test_app
-from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import RecordingAllocator, RecordingUoW, make_envelope
+from tests.messaging.helpers import durability_providers, make_envelope
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
@@ -146,14 +134,7 @@ async def test_watermark_pauses_then_resumes_listener_end_to_end() -> None:
     async with create_test_app(
         imports=[MessagingModule.register(config)],
         extensions=[MessagingExtension().bind(_BlockingHandler)],
-        providers=[
-            object_(RecordingUoW(), provided_type=IUnitOfWork),
-            object_(inbox, provided_type=IInboxStore),
-            object_(RecordingAllocator(), provided_type=ISequenceAllocator),
-            scoped(IDeadLetterStore, InMemoryDeadLetterStore),
-            scoped(IOutboxStore, InMemoryOutboxStore),
-            scoped(IDurabilityStore, DefaultDurabilityStore),
-        ],
+        providers=durability_providers(inbox),
     ):
         for i in range(3):
             env = make_envelope(_OrderPlaced(order_id=f'o-{i}'))
@@ -195,14 +176,7 @@ async def test_circuit_breaker_pauses_then_resumes_listener_after_pause_time() -
     async with create_test_app(
         imports=[MessagingModule.register(config)],
         extensions=[MessagingExtension().bind(_FailingHandler)],
-        providers=[
-            object_(RecordingUoW(), provided_type=IUnitOfWork),
-            object_(inbox, provided_type=IInboxStore),
-            object_(RecordingAllocator(), provided_type=ISequenceAllocator),
-            scoped(IDeadLetterStore, InMemoryDeadLetterStore),
-            scoped(IOutboxStore, InMemoryOutboxStore),
-            scoped(IDurabilityStore, DefaultDurabilityStore),
-        ],
+        providers=durability_providers(inbox),
     ):
         env = make_envelope(_OrderPlaced(order_id='o-1'))
         await transport.deliver(encode_payload(env, codec), envelope_metadata_of(env))

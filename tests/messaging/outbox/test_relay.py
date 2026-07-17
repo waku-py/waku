@@ -170,7 +170,7 @@ class _RecordingOutboxStore(IOutboxStore):
         return 0
 
     @override
-    async def delete_expired_dispatched(self, older_than: timedelta) -> int:
+    async def delete_expired_dispatched(self, older_than: timedelta, *, now: datetime) -> int:
         self.cleanup_calls += 1
         return self.cleanup_count
 
@@ -1172,6 +1172,20 @@ _PAST = _FIXED_NOW - timedelta(minutes=5)
 _FUTURE = _FIXED_NOW + timedelta(minutes=5)
 
 
+async def _assert_relay_ships(envelope: MessageEnvelope[Any]) -> None:
+    store = _RecordingOutboxStore()
+    msg = _make_outbox_message(envelope)
+    store.pending.append(msg)
+    transport = RecordingTransport()
+
+    async with _run_relay(RelayDepsProvider(store, transport), now=lambda: _FIXED_NOW):
+        await wait_until(lambda: msg.id in store.dispatched_ids)
+
+    assert len(transport.sent) == 1
+    assert msg.id in store.dispatched_ids
+    assert msg.id not in store.discarded_ids
+
+
 class TestRelayExpiration:
     @staticmethod
     async def test_expired_message_is_discarded_before_send() -> None:
@@ -1192,29 +1206,9 @@ class TestRelayExpiration:
     @staticmethod
     async def test_unexpired_message_is_sent() -> None:
         # Regression guard: a deadline still in the future must NOT be over-discarded.
-        store = _RecordingOutboxStore()
-        msg = _make_outbox_message(make_envelope(_TestEvent(value='fresh'), expires_at=_FUTURE))
-        store.pending.append(msg)
-        transport = RecordingTransport()
-
-        async with _run_relay(RelayDepsProvider(store, transport), now=lambda: _FIXED_NOW):
-            await wait_until(lambda: msg.id in store.dispatched_ids)
-
-        assert len(transport.sent) == 1
-        assert msg.id in store.dispatched_ids
-        assert msg.id not in store.discarded_ids
+        await _assert_relay_ships(make_envelope(_TestEvent(value='fresh'), expires_at=_FUTURE))
 
     @staticmethod
     async def test_message_with_no_expiry_is_sent() -> None:
         # The common case: no deadline set -> always sent.
-        store = _RecordingOutboxStore()
-        msg = _make_outbox_message(make_envelope(_TestEvent(value='eternal')))
-        store.pending.append(msg)
-        transport = RecordingTransport()
-
-        async with _run_relay(RelayDepsProvider(store, transport), now=lambda: _FIXED_NOW):
-            await wait_until(lambda: msg.id in store.dispatched_ids)
-
-        assert len(transport.sent) == 1
-        assert msg.id in store.dispatched_ids
-        assert msg.id not in store.discarded_ids
+        await _assert_relay_ships(make_envelope(_TestEvent(value='eternal')))
