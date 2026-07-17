@@ -7,18 +7,15 @@ import pytest
 from dishka.exceptions import NoActiveFactoryError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
-from waku._internal.clock import utc_now
 from waku._internal.lease import ILease, InMemoryLease, LeaseConfig
 from waku.backends.memory import (
     MemoryBackend,
     backend as memory_backend,
 )
-from waku.backends.memory.backend import _build_in_memory_lease
 from waku.backends.sqlalchemy import (
     SqlAlchemyBackend,
     backend as sqla_backend,
 )
-from waku.backends.sqlalchemy.backend import _build_postgres_lease
 from waku.backends.sqlalchemy.lease.store import PostgresLease
 from waku.di import is_registered
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingModule
@@ -193,39 +190,70 @@ class TestProjectionLeaseIsBackendOwned:
             assert isinstance(lease, PostgresLease)
 
 
-class TestFactoryThreadsLeaseConfigValue:
-    # Value pins over the `leadership.lease if leadership is not None else LeaseConfig()` selection: the
-    # container tests above pin the lease TYPE only, so a mutation swapping in an unconditional default
-    # would survive them. These pin the exact LeaseConfig each factory threads into the lease.
+class TestBackendThreadsRegisterLeaseConfig:
+    # The ONE lease-config authority: register(lease_config=...) publishes that LeaseConfig AND builds the
+    # backend lease from it. Each test pins publication (container identity of the resolved LeaseConfig)
+    # and construction (constructor spy), so a mutation that ignores the argument and hardcodes a default
+    # fails. Default tests pin the register() coalescing to LeaseConfig() when no config is passed.
 
     @staticmethod
-    def test_in_memory_factory_threads_configured_leadership_lease(mocker: MockerFixture) -> None:
+    async def test_memory_backend_threads_register_lease_config(mocker: MockerFixture) -> None:
         spy = mocker.spy(memory_backend, 'InMemoryLease')
-        leadership = LeadershipConfig(lease=LeaseConfig(ttl_seconds=7.0))
-        _build_in_memory_lease(MessagingConfig(leadership=leadership), utc_now)
-        assert spy.call_args.args[0] is leadership.lease
+        custom = LeaseConfig(ttl_seconds=7.0)
+        async with create_test_app(
+            imports=[
+                MessagingModule.register(MessagingConfig(leadership=LeadershipConfig())),
+                MemoryBackend.register(lease_config=custom),
+            ],
+        ) as app:
+            assert await app.container.get(LeaseConfig) is custom
+            await app.container.get(ILease)
+        assert spy.call_args.args[0] is custom
 
     @staticmethod
-    def test_in_memory_factory_defaults_config_when_leadership_off(mocker: MockerFixture) -> None:
+    async def test_memory_backend_defaults_lease_config(mocker: MockerFixture) -> None:
         spy = mocker.spy(memory_backend, 'InMemoryLease')
-        _build_in_memory_lease(MessagingConfig(), utc_now)
+        async with create_test_app(
+            imports=[
+                MessagingModule.register(MessagingConfig(leadership=LeadershipConfig())),
+                MemoryBackend.register(),
+            ],
+        ) as app:
+            await app.container.get(ILease)
         assert spy.call_args.args[0] == LeaseConfig()
 
     @staticmethod
-    def test_postgres_factory_threads_configured_leadership_lease(
+    async def test_sqla_backend_threads_register_lease_config(
         mocker: MockerFixture,
         lease_engine: AsyncEngine,
     ) -> None:
         spy = mocker.spy(sqla_backend, 'PostgresLease')
-        leadership = LeadershipConfig(lease=LeaseConfig(ttl_seconds=7.0))
-        _build_postgres_lease(lease_engine, MessagingConfig(leadership=leadership))
-        assert spy.call_args.args[1] is leadership.lease
+        custom = LeaseConfig(ttl_seconds=7.0)
+        async with create_test_app(
+            imports=[
+                MessagingModule.register(MessagingConfig(leadership=LeadershipConfig())),
+                SqlAlchemyBackend.register(
+                    session_factory=_session_factory_over(lease_engine),
+                    engine=lease_engine,
+                    lease_config=custom,
+                ),
+            ],
+        ) as app:
+            assert await app.container.get(LeaseConfig) is custom
+            await app.container.get(ILease)
+        assert spy.call_args.args[1] is custom
 
     @staticmethod
-    def test_postgres_factory_defaults_config_when_leadership_off(
+    async def test_sqla_backend_defaults_lease_config(
         mocker: MockerFixture,
         lease_engine: AsyncEngine,
     ) -> None:
         spy = mocker.spy(sqla_backend, 'PostgresLease')
-        _build_postgres_lease(lease_engine, MessagingConfig())
+        async with create_test_app(
+            imports=[
+                MessagingModule.register(MessagingConfig(leadership=LeadershipConfig())),
+                _sqla_backend(lease_engine, with_engine=True),
+            ],
+        ) as app:
+            await app.container.get(ILease)
         assert spy.call_args.args[1] == LeaseConfig()

@@ -89,8 +89,14 @@ def _session_factory_over(engine: AsyncEngine) -> Callable[[], AsyncIterator[Asy
     return factory
 
 
-def _lease_providers(lease: ILease, *extra: Provider) -> list[Provider]:
-    return [object_(lease, provided_type=ILease), *extra]
+def _lease_providers(lease: ILease, lease_config: LeaseConfig, *extra: Provider) -> list[Provider]:
+    # The backend publishes both ILease and its LeaseConfig; the coordinator reads the config for its
+    # standby re-acquire cadence, so every leadership app registers both.
+    return [
+        object_(lease, provided_type=ILease),
+        object_(lease_config, provided_type=LeaseConfig),
+        *extra,
+    ]
 
 
 class TestFailLoud:
@@ -116,16 +122,18 @@ class TestFailLoud:
 class TestLeaderRunsAgent:
     @staticmethod
     async def test_leader_acquires_lease_and_runs_the_maintenance_agent() -> None:
-        lease = InMemoryLease(LeaseConfig(ttl_seconds=0.2), store={}, now=utc_now)
+        lease_config = LeaseConfig(ttl_seconds=0.2)
+        lease = InMemoryLease(lease_config, store={}, now=utc_now)
         inbox = _CountingInboxStore()
         config = MessagingConfig(
             inbox=InboxConfig(scheduled_poll_interval=timedelta(seconds=0.01)),
-            leadership=LeadershipConfig(lease=LeaseConfig(ttl_seconds=0.2)),
+            leadership=LeadershipConfig(),
         )
         async with create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
             providers=_lease_providers(
                 lease,
+                lease_config,
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
@@ -148,11 +156,12 @@ class TestHandover:
         # under a short ttl) and observing a different holder — clock-advance alone can't wake it. Poll for
         # the state transition under wait_until's fail_after bound, never assert it immediately.
         store: dict[str, tuple[str, datetime]] = {}
-        lease = InMemoryLease(LeaseConfig(ttl_seconds=0.2), store=store, now=utc_now)
-        config = MessagingConfig(leadership=LeadershipConfig(lease=LeaseConfig(ttl_seconds=0.2)))
+        lease_config = LeaseConfig(ttl_seconds=0.2)
+        lease = InMemoryLease(lease_config, store=store, now=utc_now)
+        config = MessagingConfig(leadership=LeadershipConfig())
         async with create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            providers=_lease_providers(lease),
+            providers=_lease_providers(lease, lease_config),
         ) as app:
             coordinator = LeadershipCoordinator(config)
             await coordinator.after_app_init(app)
@@ -172,11 +181,12 @@ class TestGracefulShutdown:
     @staticmethod
     async def test_graceful_shutdown_releases_the_lease() -> None:
         store: dict[str, tuple[str, datetime]] = {}
-        lease = InMemoryLease(LeaseConfig(ttl_seconds=5.0), store=store, now=utc_now)
-        config = MessagingConfig(leadership=LeadershipConfig(lease=LeaseConfig(ttl_seconds=5.0)))
+        lease_config = LeaseConfig(ttl_seconds=5.0)
+        lease = InMemoryLease(lease_config, store=store, now=utc_now)
+        config = MessagingConfig(leadership=LeadershipConfig())
         async with create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            providers=_lease_providers(lease),
+            providers=_lease_providers(lease, lease_config),
         ) as app:
             coordinator = LeadershipCoordinator(config)
             await coordinator.after_app_init(app)
@@ -194,10 +204,11 @@ class TestCoordinatorResilience:
     async def test_acquire_loop_retries_after_a_lease_error() -> None:
         # A transient lease failure logs and retries — it never crashes the loop or claims leadership.
         lease = _RaisingLease()
-        config = MessagingConfig(leadership=LeadershipConfig(lease=LeaseConfig(ttl_seconds=0.2)))
+        lease_config = LeaseConfig(ttl_seconds=0.2)
+        config = MessagingConfig(leadership=LeadershipConfig())
         async with create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            providers=_lease_providers(lease),
+            providers=_lease_providers(lease, lease_config),
         ) as app:
             coordinator = LeadershipCoordinator(config)
             await coordinator.after_app_init(app)
@@ -211,12 +222,13 @@ class TestCoordinatorResilience:
     @staticmethod
     async def test_shutdown_cancels_a_coordinator_that_will_not_release(caplog: pytest.LogCaptureFixture) -> None:
         # The lease release hangs on shutdown; the coordinator cancels the loop after stop_timeout.
+        lease_config = LeaseConfig(ttl_seconds=5.0)
         config = MessagingConfig(
-            leadership=LeadershipConfig(lease=LeaseConfig(ttl_seconds=5.0), stop_timeout=timedelta(seconds=0.05)),
+            leadership=LeadershipConfig(stop_timeout=timedelta(seconds=0.05)),
         )
         async with create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            providers=_lease_providers(_HangingReleaseLease()),
+            providers=_lease_providers(_HangingReleaseLease(), lease_config),
         ) as app:
             coordinator = LeadershipCoordinator(config)
             await coordinator.after_app_init(app)

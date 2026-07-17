@@ -63,18 +63,11 @@ def _leadership_active(config: MessagingConfig) -> bool:
     return config.leadership is not None
 
 
-def _build_postgres_lease(engine: AsyncEngine, config: MessagingConfig) -> ILease:
-    # Factory function so dishka introspects THIS signature, not PostgresLease.__init__. One lease serves
-    # both consumers: the leadership config governs it when set, a default LeaseConfig otherwise (the
-    # projection daemon in a leadership-off app).
-    leadership = config.leadership
-    lease_config = leadership.lease if leadership is not None else LeaseConfig()
+def _build_postgres_lease(engine: AsyncEngine, lease_config: LeaseConfig) -> ILease:
+    # Factory function so dishka introspects THIS signature, not PostgresLease.__init__. The backend
+    # publishes the LeaseConfig as a provider (below), so this ONE lease and the leadership coordinator
+    # read the same authority — SqlAlchemyBackend.register(lease_config=...).
     return PostgresLease(engine, lease_config)
-
-
-def _build_postgres_lease_default(engine: AsyncEngine) -> ILease:
-    # ES-only app: no MessagingConfig in the graph — the projection lease uses the default LeaseConfig.
-    return PostgresLease(engine, LeaseConfig())
 
 
 class _SqlAlchemyBackendWiring(OnModuleRegistration):
@@ -88,15 +81,23 @@ class _SqlAlchemyBackendWiring(OnModuleRegistration):
     follows subsystem presence, never polluting a single-subsystem app's schema.
     """
 
-    __slots__ = ('_checkpoints_table', '_engine', '_event_tables', '_metadata', '_snapshots_table')
+    __slots__ = (
+        '_checkpoints_table',
+        '_engine',
+        '_event_tables',
+        '_lease_config',
+        '_metadata',
+        '_snapshots_table',
+    )
 
     _event_tables: EventStoreTables
     _snapshots_table: SnapshotTables
     _checkpoints_table: CheckpointTables
 
-    def __init__(self, metadata: MetaData, engine: AsyncEngine | None) -> None:
+    def __init__(self, metadata: MetaData, engine: AsyncEngine | None, lease_config: LeaseConfig) -> None:
         self._metadata = metadata
         self._engine = engine
+        self._lease_config = lease_config
 
     @override
     def on_module_registration(
@@ -120,17 +121,23 @@ class _SqlAlchemyBackendWiring(OnModuleRegistration):
             registry.add_provider(owning_module, scoped(ISnapshotStore, self.build_snapshot_store))
             registry.add_provider(owning_module, scoped(ICheckpointStore, self.build_checkpoint_store))
         # The Postgres lease runs an AUTOCOMMIT heartbeat over the engine, so it needs engine= (D5: an
-        # app that passes no engine= registers no lease and is graph-identical to today). When event
-        # sourcing is present the projection daemon acquires the lease regardless of messaging leadership,
-        # so the provider is ungated; a messaging-only app keeps the leadership-gated (inert) provider.
+        # app that passes no engine= registers no lease and is graph-identical to today). The backend
+        # publishes its LeaseConfig alongside the lease (the ONE lease-timing authority, read by both the
+        # lease factory and the leadership coordinator). When event sourcing is present the projection
+        # daemon acquires the lease regardless of messaging leadership, so both providers are ungated; a
+        # messaging-only app keeps them leadership-gated (inert until MessagingConfig.leadership is set).
         if self._engine is not None and (has_messaging or has_es):
             bind_lease_tables(self._metadata)
             registry.add_provider(owning_module, object_(self._engine, provided_type=AsyncEngine))
             if has_es:
-                factory = _build_postgres_lease if has_messaging else _build_postgres_lease_default
-                registry.add_provider(owning_module, singleton(ILease, factory))
+                registry.add_provider(owning_module, object_(self._lease_config, provided_type=LeaseConfig))
+                registry.add_provider(owning_module, singleton(ILease, _build_postgres_lease))
             else:
                 registry.add_provider(owning_module, activator(_leadership_active, LeadershipActive))
+                registry.add_provider(
+                    owning_module,
+                    object_(self._lease_config, provided_type=LeaseConfig, when=LeadershipActive),
+                )
                 registry.add_provider(owning_module, singleton(ILease, _build_postgres_lease, when=LeadershipActive))
 
     def build_snapshot_store(self, session: AsyncSession) -> ISnapshotStore:
@@ -177,6 +184,14 @@ class SqlAlchemyBackend:
     atomicity is a construction guarantee — there is no enrollment step and no coherence check.
     Never register it alongside another backend in one app: two providers for one store port fail
     the container build.
+
+    The backend-owned lease is :class:`PostgresLease` — a plain transactional heartbeat over the
+    ``waku_leases`` table. This deliberately diverges from Marten's default session-level advisory lock:
+    a table heartbeat is compatible with PgBouncer transaction-mode pooling (each heartbeat is a short
+    AUTOCOMMIT statement holding no connection between renewals), trading Marten's instant crash-release
+    failover for failover bounded by ``lease_config.ttl_seconds``. For the reference-shaped instant
+    failover, compose a custom backend around :class:`PostgresAdvisoryLease` (session-bound, holds a
+    connection, not pooler-compatible).
     """
 
     @classmethod
@@ -186,6 +201,7 @@ class SqlAlchemyBackend:
         session_factory: Callable[..., AsyncSession] | Callable[..., AsyncIterator[AsyncSession]],
         metadata: MetaData | None = None,
         engine: AsyncEngine | None = None,
+        lease_config: LeaseConfig | None = None,
     ) -> DynamicModule:
         """Register the backend.
 
@@ -200,8 +216,16 @@ class SqlAlchemyBackend:
                 backend-owned lease — the messaging leadership lease (when ``MessagingConfig.leadership``
                 is set) and the catch-up projection daemon lease. Omitting it registers no lease and is
                 byte-identical to not passing it — nothing lease-related enters the graph.
+            lease_config: Timing (``ttl_seconds``, ``renew_interval_factor``) for the backend-owned
+                :class:`PostgresLease`; the single authority for both the projection daemon lease and
+                the leadership lease. ``ttl_seconds`` bounds leadership failover. Defaults to
+                ``LeaseConfig()``.
         """
-        wiring = _SqlAlchemyBackendWiring(metadata if metadata is not None else MetaData(), engine)
+        wiring = _SqlAlchemyBackendWiring(
+            metadata if metadata is not None else MetaData(),
+            engine,
+            lease_config if lease_config is not None else LeaseConfig(),
+        )
         return DynamicModule(
             parent_module=cls,
             providers=[

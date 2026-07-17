@@ -1,4 +1,3 @@
-from waku._internal.lease import LeaseConfig
 from waku._internal.polling import PollingConfig
 from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
@@ -67,7 +66,6 @@ __all__ = [
     'ISender',
     'InboxConfig',
     'LeadershipConfig',
-    'LeaseConfig',
     'LoggingMessageObserver',
     'MapFrozenError',
     'MessageContext',

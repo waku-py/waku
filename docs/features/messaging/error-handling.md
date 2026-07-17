@@ -457,7 +457,8 @@ Opt in to a background worker that replays entries on a schedule:
 ```python linenums="1"
 from datetime import timedelta
 
-from waku.messaging import DeadLetterConfig, LeaseConfig
+from waku import LeaseConfig
+from waku.messaging import DeadLetterConfig
 
 DeadLetterConfig(
     auto_replay_enabled=True,   # off by default — manual replay only

@@ -79,6 +79,14 @@ it registers no lease and is byte-identical to not passing it. Configuring `lead
 `engine=` fails at `after_app_init` with `ImproperlyConfiguredError` naming the missing engine; a
 projection runner without a lease fails the same way at `create()`.
 
+The default lease is `PostgresLease` — a plain transactional heartbeat over the `waku_leases` table.
+Each renewal is a short AUTOCOMMIT statement holding no connection between renewals, so this backend is
+compatible with PgBouncer in transaction-pooling mode. Tune the lease timing (and thereby the leadership
+failover bound) with `register(lease_config=LeaseConfig(ttl_seconds=..., renew_interval_factor=...))`
+(from `waku`); it defaults to `LeaseConfig()` — 30 s TTL, 10 s renew. This deliberately diverges from
+Marten's default session-level advisory lock, trading instant crash-release failover for pooler
+compatibility; see [swapping the lease](#swapping-the-lease) for the advisory alternative.
+
 Never register two backends in one app — two providers for one store port fail the container build.
 
 ## Memory backend
@@ -212,6 +220,32 @@ sibling, so rollback-together/commit-together holds by construction. Prove it wi
 subclassing `OutboxStoreContract` + `BackendAssemblyContract` whose `backend_module` fixture
 returns `AcmeBackend.register(...)`. Bind whatever tables your stores need at registration time
 (the first-party backends do this in an `OnModuleRegistration` hook fed by `register(metadata=…)`).
+
+### Swapping the lease
+
+The backend-owned lease is registered as an `ILease` provider. To swap the default table lease
+(`PostgresLease`) for the session-level advisory lock, register `PostgresAdvisoryLease` as that
+provider inside your backend. Advisory locks give instant crash-release failover (Marten's mechanism)
+but hold a connection for the whole lease, so a backend built this way is **not** PgBouncer
+transaction-mode compatible — the trade-off described under the
+[projection lease](../features/eventsourcing/projections.md#custom-coordination).
+
+Compose it exactly like [AcmeBackend](#custom-stores-by-composition) above, over the same engine you
+pass to `register()` (`ILease` is framework substrate — the same port the projection daemon and
+leadership coordinator resolve). A backend also publishes its `LeaseConfig` so the leadership
+coordinator can read the failover cadence, so register both:
+
+```python
+from waku import LeaseConfig
+from waku._internal.lease import ILease
+from waku.backends.sqlalchemy import PostgresAdvisoryLease
+from waku.di import object_
+
+# ... inside providers=[...], sharing one LeaseConfig between the lease and the coordinator:
+lease_config = LeaseConfig()
+object_(PostgresAdvisoryLease(engine, lease_config), provided_type=ILease),
+object_(lease_config, provided_type=LeaseConfig),
+```
 
 ### One backend per app
 

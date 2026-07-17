@@ -24,7 +24,7 @@ from waku.backends.memory._internal.transaction import (
     provide_in_memory_transaction_workspace,
 )
 from waku.backends.memory._internal.uow import InMemoryUnitOfWork
-from waku.di import Has, Marker, activator, scoped, singleton
+from waku.di import Has, Marker, activator, object_, scoped, singleton
 from waku.eventsourcing.contracts.event import IMetadataEnricher
 from waku.eventsourcing.modules import EventSourcingConfig
 from waku.eventsourcing.projection.interfaces import IProjection
@@ -56,29 +56,32 @@ def _leadership_active(config: MessagingConfig) -> bool:
     return config.leadership is not None
 
 
-def _build_in_memory_lease(config: MessagingConfig, now: Now) -> ILease:
-    # One lease serves both consumers: the leadership config governs it when set (messaging leadership),
-    # a default LeaseConfig otherwise (projection daemon in a leadership-off or messaging-free app).
-    leadership = config.leadership
-    lease_config = leadership.lease if leadership is not None else LeaseConfig()
+def _build_in_memory_lease(lease_config: LeaseConfig, now: Now) -> ILease:
+    # The backend publishes LeaseConfig (below), so this ONE lease and the leadership coordinator read
+    # the same authority — MemoryBackend.register(lease_config=...). Now is injected only when messaging
+    # is present (it provides the clock).
     return InMemoryLease(lease_config, now=now)
 
 
-def _build_in_memory_lease_default() -> ILease:
-    # ES-only app: no MessagingConfig (hence no Now provider) — the projection lease uses the default clock.
-    return InMemoryLease()
+def _build_in_memory_lease_default(lease_config: LeaseConfig) -> ILease:
+    # ES-only app: no messaging (hence no Now provider) — the projection lease uses the default clock.
+    return InMemoryLease(lease_config)
 
 
 class _MemoryBackendWiring(OnModuleRegistration):
     """Registration-time wiring for the in-memory projection/leadership lease (mirrors the SQLAlchemy seam).
 
-    The memory backend registers its stores statically; only the lease needs a value-aware activator.
-    When event sourcing is present the projection daemon acquires the lease regardless of messaging
-    leadership, so the provider is registered ungated; a messaging-only app keeps the leadership-gated
-    provider, inert until ``MessagingConfig.leadership`` is set.
+    The memory backend registers its stores statically; only the lease needs a value-aware activator. It
+    publishes its ``LeaseConfig`` alongside the lease (the ONE lease-timing authority, read by both the
+    lease factory and the leadership coordinator). When event sourcing is present the projection daemon
+    acquires the lease regardless of messaging leadership, so both providers are ungated; a messaging-only
+    app keeps them leadership-gated, inert until ``MessagingConfig.leadership`` is set.
     """
 
-    __slots__ = ()
+    __slots__ = ('_lease_config',)
+
+    def __init__(self, lease_config: LeaseConfig) -> None:
+        self._lease_config = lease_config
 
     @override
     def on_module_registration(
@@ -92,9 +95,14 @@ class _MemoryBackendWiring(OnModuleRegistration):
         has_es = EventSourcingConfig in provided
         if has_es:
             factory = _build_in_memory_lease if has_messaging else _build_in_memory_lease_default
+            registry.add_provider(owning_module, object_(self._lease_config, provided_type=LeaseConfig))
             registry.add_provider(owning_module, singleton(ILease, factory))
         elif has_messaging:
             registry.add_provider(owning_module, activator(_leadership_active, LeadershipActive))
+            registry.add_provider(
+                owning_module,
+                object_(self._lease_config, provided_type=LeaseConfig, when=LeadershipActive),
+            )
             registry.add_provider(owning_module, singleton(ILease, _build_in_memory_lease, when=LeadershipActive))
 
 
@@ -159,7 +167,7 @@ class MemoryBackend:
     """
 
     @classmethod
-    def register(cls) -> DynamicModule:
+    def register(cls, *, lease_config: LeaseConfig | None = None) -> DynamicModule:
         return DynamicModule(
             parent_module=cls,
             providers=[
@@ -176,6 +184,6 @@ class MemoryBackend:
                 scoped(IDurabilityStore, DefaultDurabilityStore, when=Has(MessagingConfig)),
                 scoped(IEventStore, _build_in_memory_event_store, when=Has(EventSourcingConfig)),
             ],
-            extensions=[_MemoryBackendWiring()],
+            extensions=[_MemoryBackendWiring(lease_config if lease_config is not None else LeaseConfig())],
             is_global=True,
         )

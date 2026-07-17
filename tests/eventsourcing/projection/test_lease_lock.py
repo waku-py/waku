@@ -6,8 +6,8 @@ import anyio.lowlevel
 import pytest
 from sqlalchemy import MetaData, text
 
+from waku._internal.lease import LeaseConfig
 from waku.backends.sqlalchemy import PostgresLease, bind_lease_tables
-from waku.eventsourcing.projection.config import LeaseConfig
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

@@ -10,7 +10,7 @@ import anyio
 from typing_extensions import override
 
 from waku._internal.clock import Now, utc_now
-from waku._internal.lease import ILease
+from waku._internal.lease import ILease, LeaseConfig
 from waku._internal.transaction import (
     AfterCommitError,
     Commit,
@@ -363,10 +363,13 @@ class LeadershipCoordinator(AfterApplicationInit, OnApplicationShutdown):
             )
             raise ImproperlyConfiguredError(msg)
         lease = await app.container.get(ILease)
+        # Lease timing is backend-owned (one authority): the same LeaseConfig the backend built the
+        # lease from drives the standby re-acquire cadence, so failover stays bounded by the lease TTL.
+        lease_config = await app.container.get(LeaseConfig)
         agent = await _build_maintenance_agent(app, self._config)
         self._agent = agent
         self._shutdown = anyio.Event()  # fresh event per run: anyio.Event is one-shot
-        self._task = asyncio.create_task(self._run_loop(lease, agent))
+        self._task = asyncio.create_task(self._run_loop(lease, agent, lease_config.renew_interval_seconds))
         self._task.add_done_callback(self._on_task_done)
 
     def _on_task_done(self, task: asyncio.Task[None]) -> None:
@@ -393,9 +396,8 @@ class LeadershipCoordinator(AfterApplicationInit, OnApplicationShutdown):
         finally:
             self._task = None
 
-    async def _run_loop(self, lease: ILease, agent: DurabilityMaintenanceAgent) -> None:
+    async def _run_loop(self, lease: ILease, agent: DurabilityMaintenanceAgent, renew_interval: float) -> None:
         role = self._leadership.role
-        renew_interval = self._leadership.lease.renew_interval_seconds
         while not self._shutdown.is_set():
             try:
                 await self._acquire_and_run(lease, agent, role)

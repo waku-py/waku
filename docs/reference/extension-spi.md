@@ -158,11 +158,10 @@ Snapshot model, strategy, and migration contracts.
 
 ## `waku.eventsourcing.projection`
 
-Projection contracts, polling configuration, and lease configuration.
+Projection contracts and polling configuration.
 
 `Checkpoint` ·
 `InMemoryCheckpointStore` ·
-`LeaseConfig` ·
 `PollingConfig`
 
 ## `waku.eventsourcing.serialization`

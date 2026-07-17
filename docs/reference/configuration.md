@@ -60,11 +60,12 @@ outbox dispatch loop and inbox recovery stay node-parallel either way.
 
 The SQLAlchemy backend requires an `engine=` argument when `leadership` is set (see
 [Backends](../fundamentals/backends.md)); configuring `leadership` without it fails at startup with
-`ImproperlyConfiguredError`.
+`ImproperlyConfiguredError`. Lease timing is owned by the durability backend, not this config — tune it
+with `SqlAlchemyBackend.register(lease_config=LeaseConfig(...))` / `MemoryBackend.register(...)` (where
+`ttl_seconds` bounds failover); the coordinator consumes that same backend lease.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `lease` | `LeaseConfig` | `LeaseConfig()` | Lease timing (`ttl_seconds`, `renew_interval_factor`), re-exported from the `waku.messaging` facade |
 | `role` | `str` | `'waku:leader'` | The lease key; the `waku:` prefix is reserved for framework-owned roles |
 | `stop_timeout` | `timedelta` | `timedelta(seconds=10)` | Grace period for the maintenance agent to stop on shutdown before it is cancelled |
 

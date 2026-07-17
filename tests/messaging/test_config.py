@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from waku.messaging import DeadLetterConfig, LeadershipConfig, LeaseConfig, MessagingConfig
+from waku.messaging import DeadLetterConfig, LeadershipConfig, MessagingConfig
 
 
 class TestDeadLetterConfigPolling:
@@ -22,14 +22,9 @@ class TestLeadershipConfig:
         assert MessagingConfig().leadership is None
 
     @staticmethod
-    def test_leadership_config_composes_lease_and_reserved_role() -> None:
+    def test_leadership_config_uses_reserved_role() -> None:
+        # Lease timing is backend-owned (SqlAlchemyBackend/MemoryBackend register(lease_config=)), so the
+        # coordinator config carries only the role and stop timeout — no lease knob.
         config = LeadershipConfig()
-        assert isinstance(config.lease, LeaseConfig)
         assert config.role == 'waku:leader'
         assert config.stop_timeout == timedelta(seconds=10)
-
-    @staticmethod
-    def test_leadership_lease_is_tunable() -> None:
-        config = LeadershipConfig(lease=LeaseConfig(ttl_seconds=0.5))
-        assert config.lease.ttl_seconds == 0.5
-        assert config.lease.renew_interval_seconds == 0.5 / 3

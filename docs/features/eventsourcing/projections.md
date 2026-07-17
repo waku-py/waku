@@ -279,10 +279,15 @@ If no backend provides a lease, `CatchUpProjectionRunner.create()` fails loud an
 
 ### PostgreSQL lease
 
-The SQLAlchemy backend leases each projection through the `waku_leases` table. A background
-heartbeat renews the lease; if it detects the lease was stolen (e.g., by another instance after TTL
-expiry), it cancels that projection's task. The lease is valid for 30 seconds and renews every 10
-(the `LeaseConfig` defaults).
+`SqlAlchemyBackend` leases each projection through the `waku_leases` table. A background heartbeat
+renews the lease on a short AUTOCOMMIT statement; if a renew finds the lease was stolen (another
+instance reclaimed it after TTL expiry), it cancels that projection's task. By default the lease is
+valid for 30 seconds and renews every 10 — tune both with
+`SqlAlchemyBackend.register(lease_config=LeaseConfig(...))` (from `waku`). Failover is bounded by
+`ttl_seconds`: a crashed holder's lease becomes reclaimable once it expires.
+
+Because each heartbeat holds no connection between renewals, this lease is safe behind PgBouncer in
+transaction-pooling mode — the pooler-compatible default.
 
 !!! note "Consistency guarantees"
     There is no fencing token mechanism — a stalled holder (e.g., a GC pause) can briefly overlap
@@ -296,9 +301,16 @@ expiry), it cancels that projection's task. The lease is valid for 30 seconds an
 
 ### Custom coordination
 
-The lease is part of the backend boundary, not a user-facing knob. To coordinate differently — for
-example a session-bound advisory lock for a PgBouncer transaction-mode deployment — compose your own
-durability backend. See [durability backends](../../fundamentals/backends.md).
+The lease is part of the backend boundary, not a user-facing knob: to coordinate differently, compose
+your own durability backend and register its `ILease` provider.
+
+The one first-party alternative is `PostgresAdvisoryLease` (`waku.backends.sqlalchemy`), a session-level
+`pg_advisory_lock` — the mechanism Marten's daemon uses. It holds one connection for the whole lease, so
+a crashed holder releases the lock instantly with no TTL wait, at the cost of being incompatible with
+PgBouncer transaction-mode pooling. A background probe checks the held connection on the lease's renew
+interval and cancels the protected work the moment the session drops, so a lost lock never leaves a
+holder running. See [swapping the lease](../../fundamentals/backends.md#swapping-the-lease) for the
+recipe.
 
 ## Checkpoint Store
 

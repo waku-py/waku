@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from waku.eventsourcing.projection.config import LeaseConfig, PollingConfig
+from waku._internal.lease import LeaseConfig
+from waku.eventsourcing.projection.config import PollingConfig
 from waku.exceptions import ImproperlyConfiguredError
 
 

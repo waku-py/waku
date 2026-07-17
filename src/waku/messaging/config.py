@@ -83,9 +83,12 @@ class LeadershipConfig:
     When ``MessagingConfig.leadership`` is set, exactly one node holds the ``role`` lease and runs the
     maintenance agent; standbys wait to take over on lease expiry/steal. When unset (the default),
     every node runs the maintenance agent unconditionally.
+
+    Lease timing (``ttl_seconds``, ``renew_interval_factor``) is owned by the durability backend — tune
+    it via ``SqlAlchemyBackend.register(lease_config=LeaseConfig(...))`` / ``MemoryBackend.register(...)``.
+    The coordinator consumes that same backend lease, so there is no lease knob here.
     """
 
-    lease: LeaseConfig = LeaseConfig()  # noqa: RUF009 — ttl + renew_interval_factor + renew<ttl invariant, reused
     role: str = 'waku:leader'
     """The lease key — the reserved ``waku:`` prefix is framework-owned; parameterized for future per-subsystem leaders."""
     stop_timeout: timedelta = timedelta(seconds=10)
