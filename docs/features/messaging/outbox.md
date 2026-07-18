@@ -251,16 +251,16 @@ OutboxConfig(
 
 | Parameter            | Type                | Default                 | Description                                              |
 |----------------------|---------------------|-------------------------|----------------------------------------------------------|
-| `batch_size`         | `int`               | `100`                   | Messages fetched per poll cycle                          |
+| `batch_size`         | `int`               | `100`                   | Messages fetched per poll cycle; must be at least `1`    |
 | `polling`            | `PollingConfig`     | *(see below)*           | Adaptive poll pacing (nested; see below)                |
 | `max_attempts`       | `int`               | `5`                     | Max relay dispatch attempts before dead-lettering        |
 | `base_delay`         | `timedelta`         | `1 second`              | Base delay for exponential backoff on failure             |
 | `max_delay`          | `timedelta`         | `60 seconds`            | Maximum backoff delay                                    |
 | `stuck_threshold`    | `timedelta`         | `5 minutes`             | Messages stuck in `PROCESSING` longer than this are recovered |
-| `recovery_interval`  | `timedelta`         | `1 minute`              | How often to check for stuck messages                    |
+| `recovery_interval`  | `timedelta`         | `1 minute`              | Strictly positive cadence for checking stuck messages    |
 | `retention`          | `timedelta \| None` | `None`                  | When set, dispatched messages older than this are purged; `None` keeps them |
-| `cleanup_interval`   | `timedelta`         | `1 hour`                | How often to purge dispatched messages when `retention` is set |
-| `stop_timeout`       | `timedelta`         | `timedelta(seconds=10)` | How long to wait for relay shutdown                     |
+| `cleanup_interval`   | `timedelta`         | `1 hour`                | Strictly positive purge cadence when `retention` is set  |
+| `stop_timeout`       | `timedelta`         | `timedelta(seconds=10)` | Strictly positive relay shutdown wait                    |
 
 `polling` nests the adaptive-poll knobs. Left unset, the relay uses a tuned default of
 `PollingConfig(poll_interval_min_seconds=1.0, poll_interval_max_seconds=30.0)`. Override it with your

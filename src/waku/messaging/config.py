@@ -6,6 +6,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final
 
 from waku._internal.lease import LeaseConfig
+from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging._internal.polling_agent import DEFAULT_DURABILITY_POLLING_CONFIG
 from waku.messaging.endpoints.base import EndpointMode
 from waku.messaging.outbox.relay import DEFAULT_RELAY_CONFIG
@@ -59,6 +60,18 @@ class DeadLetterConfig:
     polling: PollingConfig = DEFAULT_DURABILITY_POLLING_CONFIG
     stop_timeout: timedelta = timedelta(seconds=10)
 
+    def __post_init__(self) -> None:
+        if self.batch_size < 1:
+            msg = f'DeadLetterConfig.batch_size must be >= 1, got {self.batch_size}'
+            raise ImproperlyConfiguredError(msg)
+        for field_name, value in (
+            ('cleanup_interval', self.cleanup_interval),
+            ('stop_timeout', self.stop_timeout),
+        ):
+            if value <= timedelta(0):
+                msg = f'DeadLetterConfig.{field_name} must be positive, got {value}'
+                raise ImproperlyConfiguredError(msg)
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EndpointDefaults:
@@ -97,6 +110,11 @@ class LeadershipConfig:
     role: str = 'waku:leader'
     """The lease key — the reserved ``waku:`` prefix is framework-owned; parameterized for future per-subsystem leaders."""
     stop_timeout: timedelta = timedelta(seconds=10)
+
+    def __post_init__(self) -> None:
+        if self.stop_timeout <= timedelta(0):
+            msg = f'LeadershipConfig.stop_timeout must be positive, got {self.stop_timeout}'
+            raise ImproperlyConfiguredError(msg)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from tests.eventsourcing.domain import CounterDecider
 from typing_extensions import override
 
+from waku import ImproperlyConfiguredError
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, EventSourcingError
 from waku.integrations.eventsourcing_messaging import DeciderCommandHandler, DeciderVoidCommandHandler
@@ -288,8 +289,8 @@ async def test_max_attempts_1_no_retry(
     assert mock_save.call_count == 1
 
 
-def test_max_attempts_zero_raises_value_error() -> None:
-    with pytest.raises(ValueError, match='max_attempts must be >= 1'):
+def test_max_attempts_zero_raises_improperly_configured_error() -> None:
+    with pytest.raises(ImproperlyConfiguredError, match='max_attempts must be >= 1'):
         # noinspection PyUnusedLocal
         class ZeroAttemptHandler(IncrementCounterHandler):
             max_attempts = 0

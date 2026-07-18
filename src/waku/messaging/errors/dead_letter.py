@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from waku.messaging.exceptions import MessagingError
+
 if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
@@ -50,10 +52,10 @@ class DeadLetterQuery:
     def __post_init__(self) -> None:
         if self.limit < 0:
             msg = f'DeadLetterQuery.limit must be >= 0, got {self.limit}'
-            raise ValueError(msg)
+            raise MessagingError(msg)
         if self.offset < 0:
             msg = f'DeadLetterQuery.offset must be >= 0, got {self.offset}'
-            raise ValueError(msg)
+            raise MessagingError(msg)
 
 
 def _format_fqn(cls: type) -> str:
@@ -84,7 +86,7 @@ class DeadLetterEntry:
     def __post_init__(self) -> None:
         if (self.replay_owner_id is None) is not (self.replay_lease_expires_at is None):
             msg = 'replay_owner_id and replay_lease_expires_at must both be set or both be None'
-            raise ValueError(msg)
+            raise MessagingError(msg)
 
     @classmethod
     def from_failure(  # noqa: PLR0913
@@ -122,4 +124,4 @@ class DeadLetterEntry:
 def validate_requested_lease(now: datetime, lease_expires_at: datetime) -> None:
     if lease_expires_at <= now:
         msg = 'lease_expires_at must be greater than now'
-        raise ValueError(msg)
+        raise MessagingError(msg)

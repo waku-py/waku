@@ -468,6 +468,9 @@ DeadLetterConfig(
 )
 ```
 
+`DeadLetterConfig.batch_size` must be at least `1`; `cleanup_interval` and `stop_timeout` must be strictly positive.
+Invalid values raise `ImproperlyConfiguredError` when the configuration is constructed.
+
 With `auto_replay_enabled=True`, the maintenance worker claims one replayable row per short
 transaction (`FOR UPDATE SKIP LOCKED` on SQLAlchemy), closes that transaction, dispatches, then
 finalizes through another short owner-guarded transaction. Long dispatches renew through fresh

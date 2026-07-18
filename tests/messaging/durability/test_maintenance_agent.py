@@ -324,7 +324,7 @@ def _deps(
 def _all_three_config() -> MessagingConfig:
     return MessagingConfig(
         outbox=OutboxConfig(
-            relay=OutboxRelayConfig(polling=_FAST, recovery_interval=timedelta(seconds=0)),
+            relay=OutboxRelayConfig(polling=_FAST, recovery_interval=timedelta(microseconds=1)),
         ),
         dead_letter=_auto_replay_config(),
         inbox=InboxConfig(scheduled_poll_interval=timedelta(seconds=0.01)),
@@ -340,7 +340,7 @@ def _cleanup_only_config() -> MessagingConfig:
         dead_letter=DeadLetterConfig(
             auto_replay_enabled=False,
             retention=timedelta(days=30),
-            cleanup_interval=timedelta(seconds=0),
+            cleanup_interval=timedelta(microseconds=1),
             polling=_FAST,
         ),
     )
@@ -475,7 +475,7 @@ class TestOutboxMaintenancePoller:
     async def test_recovers_stuck_messages(caplog: pytest.LogCaptureFixture) -> None:
         outbox = _MaintOutboxStore(recover_count=5)
         config = MessagingConfig(
-            outbox=OutboxConfig(relay=OutboxRelayConfig(polling=_FAST, recovery_interval=timedelta(seconds=0))),
+            outbox=OutboxConfig(relay=OutboxRelayConfig(polling=_FAST, recovery_interval=timedelta(microseconds=1))),
         )
         with caplog.at_level(logging.INFO, logger='waku.messaging._internal.maintenance'):
             async with make_async_container(_deps(outbox=outbox)) as container:
@@ -495,9 +495,9 @@ class TestOutboxMaintenancePoller:
             outbox=OutboxConfig(
                 relay=OutboxRelayConfig(
                     polling=_FAST,
-                    recovery_interval=timedelta(seconds=0),
+                    recovery_interval=timedelta(microseconds=1),
                     retention=timedelta(hours=1),
-                    cleanup_interval=timedelta(seconds=0),
+                    cleanup_interval=timedelta(microseconds=1),
                 ),
             ),
         )
@@ -518,7 +518,7 @@ class TestOutboxMaintenancePoller:
     async def test_does_not_purge_when_retention_unset() -> None:
         outbox = _MaintOutboxStore(recover_count=1)
         config = MessagingConfig(
-            outbox=OutboxConfig(relay=OutboxRelayConfig(polling=_FAST, recovery_interval=timedelta(seconds=0))),
+            outbox=OutboxConfig(relay=OutboxRelayConfig(polling=_FAST, recovery_interval=timedelta(microseconds=1))),
         )
         async with make_async_container(_deps(outbox=outbox)) as container:
             agent = DurabilityMaintenanceAgent(container=container, config=config)
@@ -534,7 +534,7 @@ class TestOutboxMaintenancePoller:
     async def test_recovery_failure_does_not_crash_loop() -> None:
         outbox = _MaintOutboxStore(recover_error=ConnectionError('recovery backend down'))
         config = MessagingConfig(
-            outbox=OutboxConfig(relay=OutboxRelayConfig(polling=_FAST, recovery_interval=timedelta(seconds=0))),
+            outbox=OutboxConfig(relay=OutboxRelayConfig(polling=_FAST, recovery_interval=timedelta(microseconds=1))),
         )
         async with make_async_container(_deps(outbox=outbox)) as container:
             agent = DurabilityMaintenanceAgent(container=container, config=config)
@@ -579,9 +579,9 @@ class TestOutboxMaintenancePoller:
         outbox = _MaintOutboxStore(recover_count=2, cleanup_count=3)
         uow = RecordingUoW()
         config = OutboxRelayConfig(
-            recovery_interval=timedelta(seconds=0),
+            recovery_interval=timedelta(microseconds=1),
             retention=timedelta(hours=1),
-            cleanup_interval=timedelta(seconds=0),
+            cleanup_interval=timedelta(microseconds=1),
         )
         async with make_async_container(_deps(outbox=outbox, uow=uow)) as container:
             poller = _TestableOutboxMaintenancePoller(container=container, config=config)
@@ -596,9 +596,9 @@ class TestOutboxMaintenancePoller:
         outbox = _MaintOutboxStore(recover_count=2, cleanup_count=3)
         uow = RecordingUoW(commit_error=commit_error)
         config = OutboxRelayConfig(
-            recovery_interval=timedelta(seconds=0),
+            recovery_interval=timedelta(microseconds=1),
             retention=timedelta(hours=1),
-            cleanup_interval=timedelta(seconds=0),
+            cleanup_interval=timedelta(microseconds=1),
         )
         async with make_async_container(_deps(outbox=outbox, uow=uow)) as container:
             poller = _TestableOutboxMaintenancePoller(container=container, config=config)
@@ -937,7 +937,7 @@ class TestDlqMaintenancePoller:
         config = DeadLetterConfig(
             auto_replay_enabled=False,
             retention=timedelta(days=30),
-            cleanup_interval=timedelta(seconds=0),
+            cleanup_interval=timedelta(microseconds=1),
             polling=_FAST,
         )
         async with make_async_container(_deps(dlq=dlq)) as container:

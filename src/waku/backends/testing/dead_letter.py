@@ -12,6 +12,7 @@ from waku.messaging.errors.dead_letter import (
     DeadLetterQuery,
     DeadLetterStatus,
 )
+from waku.messaging.exceptions import MessagingError
 
 if TYPE_CHECKING:
     from waku.messaging.durability import IDeadLetterStore
@@ -186,21 +187,21 @@ class DeadLetterStoreContract:
         now = datetime.now(tz=UTC)
 
         for invalid_expiry in (now, now - timedelta(microseconds=1)):
-            with pytest.raises(ValueError, match='lease_expires_at must be greater than now'):
+            with pytest.raises(MessagingError, match='lease_expires_at must be greater than now'):
                 await dlq_store.claim_replayable(
                     3,
                     owner_id='worker-a',
                     now=now,
                     lease_expires_at=invalid_expiry,
                 )
-            with pytest.raises(ValueError, match='lease_expires_at must be greater than now'):
+            with pytest.raises(MessagingError, match='lease_expires_at must be greater than now'):
                 await dlq_store.claim_replay(
                     entry.id,
                     owner_id='worker-a',
                     now=now,
                     lease_expires_at=invalid_expiry,
                 )
-            with pytest.raises(ValueError, match='lease_expires_at must be greater than now'):
+            with pytest.raises(MessagingError, match='lease_expires_at must be greater than now'):
                 await dlq_store.renew_replay_claim(
                     entry.id,
                     owner_id='worker-a',

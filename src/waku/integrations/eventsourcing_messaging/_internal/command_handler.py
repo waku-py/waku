@@ -4,6 +4,7 @@ import abc
 from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any, ClassVar, Generic
 
+from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging.contracts.message import ResponseT
 from waku.messaging.contracts.request import RequestT
 from waku.messaging.handler import RequestHandler
@@ -25,7 +26,7 @@ class OptimisticRetryCommandHandler(
         super().__init_subclass__(**kwargs)
         if 'max_attempts' in cls.__dict__ and cls.max_attempts < 1:
             msg = f'{cls.__name__}.max_attempts must be >= 1, got {cls.max_attempts}'
-            raise ValueError(msg)
+            raise ImproperlyConfiguredError(msg)
 
     def _idempotency_key(self, request: RequestT, version: int) -> str | None:  # noqa: ARG002, PLR6301
         """Return a deduplication token for idempotent event appends.

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from typing_extensions import override
 
-from waku import module
+from waku import ImproperlyConfiguredError, module
 from waku.backends.memory import MemoryBackend
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, EventSourcingError
@@ -243,8 +243,8 @@ async def test_idempotency_key_passed_to_repository_save(mocker: MockerFixture) 
     assert kwargs['idempotency_key'] == 'key-123'
 
 
-def test_max_attempts_zero_raises_value_error() -> None:
-    with pytest.raises(ValueError, match='max_attempts must be >= 1'):
+def test_max_attempts_zero_raises_improperly_configured_error() -> None:
+    with pytest.raises(ImproperlyConfiguredError, match='max_attempts must be >= 1'):
         # noinspection PyUnusedLocal
         class ZeroAttemptHandler(EditNoteHandler):
             max_attempts = 0

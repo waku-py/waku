@@ -21,6 +21,7 @@ from waku.messaging import (
     EventHandler,
     HandlerMap,
     MessagingConfig,
+    MessagingError,
     MessagingExtension,
     MessagingModule,
     TransactionalBehavior,
@@ -69,11 +70,11 @@ def test_dead_letter_replay_lease_pair_and_default_config() -> None:
     entry = _entry_for(envelope, 'local://lease')
 
     with pytest.raises(
-        ValueError, match='replay_owner_id and replay_lease_expires_at must both be set or both be None'
+        MessagingError, match='replay_owner_id and replay_lease_expires_at must both be set or both be None'
     ):
         replace(entry, replay_owner_id='owner')
     with pytest.raises(
-        ValueError, match='replay_owner_id and replay_lease_expires_at must both be set or both be None'
+        MessagingError, match='replay_owner_id and replay_lease_expires_at must both be set or both be None'
     ):
         replace(entry, replay_lease_expires_at=now + timedelta(minutes=1))
 

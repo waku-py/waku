@@ -17,6 +17,7 @@ from typing_extensions import override
 
 from waku._internal.clock import Now, utc_now
 from waku._internal.transaction import AfterCommitError, RollbackFailedError, TransactionExecutionError
+from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IEvent
 from waku.messaging import PollingConfig
 from waku.messaging._internal.escalation import RetryAction, walk_stages
@@ -348,6 +349,42 @@ class TestOutboxRelayConfigPolling:
         # PollingConfig's own defaults, not the relay's cadence.
         assert config.polling.poll_interval_max_seconds == 5.0
 
+    @staticmethod
+    @pytest.mark.parametrize('batch_size', [0, -1])
+    def test_batch_size_must_be_positive(batch_size: int) -> None:
+        with pytest.raises(
+            ImproperlyConfiguredError,
+            match=r'OutboxRelayConfig\.batch_size must be >= 1',
+        ):
+            OutboxRelayConfig(batch_size=batch_size)
+
+    @staticmethod
+    @pytest.mark.parametrize('value', [timedelta(0), timedelta(microseconds=-1)])
+    def test_recovery_interval_must_be_positive(value: timedelta) -> None:
+        with pytest.raises(
+            ImproperlyConfiguredError,
+            match=r'OutboxRelayConfig\.recovery_interval must be positive',
+        ):
+            OutboxRelayConfig(recovery_interval=value)
+
+    @staticmethod
+    @pytest.mark.parametrize('value', [timedelta(0), timedelta(microseconds=-1)])
+    def test_cleanup_interval_must_be_positive(value: timedelta) -> None:
+        with pytest.raises(
+            ImproperlyConfiguredError,
+            match=r'OutboxRelayConfig\.cleanup_interval must be positive',
+        ):
+            OutboxRelayConfig(cleanup_interval=value)
+
+    @staticmethod
+    @pytest.mark.parametrize('value', [timedelta(0), timedelta(microseconds=-1)])
+    def test_stop_timeout_must_be_positive(value: timedelta) -> None:
+        with pytest.raises(
+            ImproperlyConfiguredError,
+            match=r'OutboxRelayConfig\.stop_timeout must be positive',
+        ):
+            OutboxRelayConfig(stop_timeout=value)
+
 
 def test_build_relay_default_policy_mirrors_config() -> None:
     policy = build_relay_default_policy(OutboxRelayConfig(max_attempts=5))
@@ -514,9 +551,9 @@ class TestOutboxRelayOperations:
         transport = RecordingTransport()
         config = OutboxRelayConfig(
             polling=PollingConfig(poll_interval_min_seconds=0.01),
-            recovery_interval=timedelta(seconds=0),
+            recovery_interval=timedelta(microseconds=1),
             retention=timedelta(hours=1),
-            cleanup_interval=timedelta(seconds=0),
+            cleanup_interval=timedelta(microseconds=1),
         )
 
         async with _run_relay(RelayDepsProvider(store, transport), config):

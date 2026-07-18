@@ -35,6 +35,11 @@ and `MessagingModule.register(MessagingConfig())` are equivalent.
 | `observers` | `Sequence[type[IMessageObserver]]` | `()` | Global message observers (fire on every message incl. `invoke()`), DI-constructed at app scope |
 | `transports` | `Mapping[str, TransportFactory]` | `{}` | Transport factories keyed by URI scheme; each invoked once at bootstrap |
 
+Durability configuration validates work and cadence values at construction. `OutboxRelayConfig`, `InboxConfig`, and
+`DeadLetterConfig` require `batch_size >= 1`. Relay `recovery_interval`, `cleanup_interval`, and `stop_timeout`; inbox
+`recovery_interval`, `scheduled_poll_interval`, and `stop_timeout`; dead-letter `cleanup_interval` and `stop_timeout`;
+and `LeadershipConfig.stop_timeout` must all be strictly positive. Invalid values raise `ImproperlyConfiguredError`.
+
 ### EndpointDefaults
 
 Nested under `MessagingConfig.endpoint_defaults`. Each knob is a fallback, shadowed by an explicit
@@ -67,7 +72,7 @@ with `SqlAlchemyBackend.register(lease_config=LeaseConfig(...))` / `MemoryBacken
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `role` | `str` | `'waku:leader'` | The lease key; the `waku:` prefix is reserved for framework-owned roles |
-| `stop_timeout` | `timedelta` | `timedelta(seconds=10)` | Grace period for the maintenance agent to stop on shutdown before it is cancelled |
+| `stop_timeout` | `timedelta` | `timedelta(seconds=10)` | Strictly positive grace period before maintenance cancellation |
 
 ---
 

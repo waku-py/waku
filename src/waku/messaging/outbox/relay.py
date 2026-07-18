@@ -18,6 +18,7 @@ from waku._internal.transaction import (
     execute_in_uow_scope,
     require_committed,
 )
+from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging._internal.escalation import RetryAction
 from waku.messaging._internal.polling_agent import (
     DEFAULT_DURABILITY_POLLING_CONFIG,
@@ -68,6 +69,19 @@ class OutboxRelayConfig:
     retention: timedelta | None = None
     cleanup_interval: timedelta = _DEFAULT_CLEANUP_INTERVAL
     stop_timeout: timedelta = timedelta(seconds=10)
+
+    def __post_init__(self) -> None:
+        if self.batch_size < 1:
+            msg = f'OutboxRelayConfig.batch_size must be >= 1, got {self.batch_size}'
+            raise ImproperlyConfiguredError(msg)
+        for field_name, value in (
+            ('recovery_interval', self.recovery_interval),
+            ('cleanup_interval', self.cleanup_interval),
+            ('stop_timeout', self.stop_timeout),
+        ):
+            if value <= timedelta(0):
+                msg = f'OutboxRelayConfig.{field_name} must be positive, got {value}'
+                raise ImproperlyConfiguredError(msg)
 
 
 DEFAULT_RELAY_CONFIG: Final = OutboxRelayConfig()

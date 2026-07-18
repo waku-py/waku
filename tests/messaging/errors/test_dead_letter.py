@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import dataclasses
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
 
+from waku.messaging import MessagingError
 from waku.messaging.errors.dead_letter import (
     DeadLetterDestinationKind,
     DeadLetterEntry,
     DeadLetterQuery,
     DeadLetterStatus,
+    validate_requested_lease,
 )
 
 
@@ -54,6 +57,13 @@ class TestDeadLetterEntry:
         entry = _from_failure()
         with pytest.raises(dataclasses.FrozenInstanceError):
             entry.status = DeadLetterStatus.REPLAYED  # type: ignore[misc]
+
+    @staticmethod
+    def test_replay_lease_fields_must_be_paired() -> None:
+        with pytest.raises(MessagingError, match='must both be set or both be None'):
+            dataclasses.replace(_from_failure(), replay_owner_id='worker-1')
+        with pytest.raises(MessagingError, match='must both be set or both be None'):
+            dataclasses.replace(_from_failure(), replay_lease_expires_at=datetime.now(UTC))
 
     @staticmethod
     def test_from_failure_requires_destination_kind() -> None:
@@ -109,10 +119,20 @@ class TestDeadLetterQuery:
 
     @staticmethod
     def test_negative_limit_rejected() -> None:
-        with pytest.raises(ValueError, match='limit must be >= 0'):
+        with pytest.raises(MessagingError, match='limit must be >= 0'):
             DeadLetterQuery(limit=-1)
 
     @staticmethod
     def test_negative_offset_rejected() -> None:
-        with pytest.raises(ValueError, match='offset must be >= 0'):
+        with pytest.raises(MessagingError, match='offset must be >= 0'):
             DeadLetterQuery(offset=-1)
+
+
+@pytest.mark.parametrize(
+    'lease_expires_at_delta',
+    [timedelta(0), timedelta(microseconds=-1)],
+)
+def test_requested_lease_must_expire_after_now(lease_expires_at_delta: timedelta) -> None:
+    now = datetime.now(UTC)
+    with pytest.raises(MessagingError, match='lease_expires_at must be greater than now'):
+        validate_requested_lease(now, now + lease_expires_at_delta)
