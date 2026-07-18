@@ -20,7 +20,7 @@ from waku.messaging.endpoints._internal.redelivery import (
 )
 from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
 from waku.messaging.endpoints.base import Endpoint
-from waku.messaging.endpoints.executor import materialize_standalone_dead_letter
+from waku.messaging.endpoints.executor import materialize_or_discard_dead_letter
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 
 if TYPE_CHECKING:
@@ -167,21 +167,15 @@ class LocalQueueEndpoint(Endpoint):
     ) -> ExecutionOutcome:
         if intent.kind is not TerminalIntentKind.DEAD_LETTER:
             return outcome_from_intent(intent)
-        if not self._dead_letter_capable:
-            logger.warning(
-                'Discarding dead-letter intent without configured durability: message_id=%s was not persisted',
-                envelope.message_id,
-            )
-            outcome = ExecutionOutcome.DISCARDED
-        else:
-            result = await materialize_standalone_dead_letter(
-                self._container,
-                endpoint_uri=self._uri,
-                envelope=envelope,
-                intent=intent,
-            )
-            outcome = result.outcome
-        return outcome
+        result = await materialize_or_discard_dead_letter(
+            self._container,
+            endpoint_uri=self._uri,
+            envelope=envelope,
+            intent=intent,
+            dead_letter_capable=self._dead_letter_capable,
+            logger=logger,
+        )
+        return result.outcome
 
     async def _emit_terminal(
         self,

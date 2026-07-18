@@ -29,6 +29,7 @@ __all__ = [
     'execute_in_uow_scope',
     'extract_transaction_execution_error',
     'require_committed',
+    'reraise_transaction_fatal',
     'run_committed',
 ]
 
@@ -198,6 +199,20 @@ def can_defer_transaction_fatal(error: BaseException, fatal: TransactionExecutio
         return False
     _, remaining = error.split(TransactionExecutionError)
     return remaining is None or isinstance(remaining, Exception)
+
+
+def reraise_transaction_fatal(error: BaseException) -> Never:
+    """Unwrap a group-wrapped or bare transaction fatal to its underlying error, else re-raise the original.
+
+    A bare fatal or a deferrable teardown-group fatal unwraps to ``raise fatal.error from
+    fatal.primary_error``. A non-extractable error (cancellation, any other ``BaseException``) or a group
+    still carrying a control-flow leaf re-raises the original so cancellation is never demoted to a
+    recoverable failure.
+    """
+    fatal = extract_transaction_execution_error(error)
+    if fatal is None or (fatal is not error and not can_defer_transaction_fatal(error, fatal)):
+        raise error
+    raise fatal.error from fatal.primary_error
 
 
 def require_committed(result: Committed[_CommitT] | RolledBack[Never] | Aborted) -> _CommitT:

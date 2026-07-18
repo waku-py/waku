@@ -25,6 +25,7 @@ from waku._internal.transaction import (
     TransactionResult,
     execute_in_uow_scope,
     extract_transaction_execution_error,
+    reraise_transaction_fatal,
 )
 from waku.di import provider
 from waku.testing import create_test_app
@@ -810,6 +811,37 @@ def test_extract_transaction_execution_error_returns_none_without_fatal() -> Non
     error = BaseExceptionGroup('ordinary', [ValueError('first'), ExceptionGroup('nested', [RuntimeError('second')])])
 
     assert extract_transaction_execution_error(error) is None
+
+
+def test_reraise_transaction_fatal_unwraps_bare_fatal_to_underlying_error() -> None:
+    primary_error = ValueError('handler failed')
+    inner_error = RuntimeError('rollback failed')
+    fatal = RollbackFailedError(inner_error, primary_error)
+
+    with pytest.raises(RuntimeError) as raised:
+        reraise_transaction_fatal(fatal)
+
+    assert raised.value is inner_error
+    assert raised.value.__cause__ is primary_error
+
+
+def test_reraise_transaction_fatal_re_raises_control_flow_leaf_by_identity() -> None:
+    control_flow = KeyboardInterrupt()
+
+    with pytest.raises(KeyboardInterrupt) as raised:
+        reraise_transaction_fatal(control_flow)
+
+    assert raised.value is control_flow
+
+
+def test_reraise_transaction_fatal_re_raises_non_deferrable_group_by_identity() -> None:
+    fatal = AfterCommitError(RuntimeError('after commit'))
+    error = BaseExceptionGroup('mixed', [fatal, KeyboardInterrupt()])
+
+    with pytest.raises(BaseExceptionGroup) as raised:
+        reraise_transaction_fatal(error)
+
+    assert raised.value is error
 
 
 async def test_transaction_result_preserves_generic_evidence_without_any() -> None:

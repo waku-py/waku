@@ -16,6 +16,7 @@ directly from this module.
 
 from __future__ import annotations
 
+from dataclasses import fields
 from datetime import datetime
 from typing import TYPE_CHECKING, Final
 
@@ -34,19 +35,12 @@ __all__ = [
 WIRE_CONTENT_TYPE: Final[str] = 'application/json'
 
 # Keys owned by the framework — a user header under any of these names is silently dropped (reserved wins).
-_RESERVED_KEYS: Final[frozenset[str]] = frozenset({
-    'message_id',
-    'correlation_id',
-    'causation_id',
-    'message_type',
-    'message_version',
-    'timestamp',
-    'scheduled_time',
-    'expires_at',
-    'content-type',
-    'group_id',
-    'tenant_id',
-})
+# Derived from EnvelopeMetadata's own fields (the single authority) rather than restated as a literal:
+# every field name except `headers` (the user-header carrier), unioned with the wire-only `content-type`
+# header that has no dataclass field of its own.
+_RESERVED_KEYS: Final[frozenset[str]] = frozenset(
+    {f.name for f in fields(EnvelopeMetadata)} - {'headers'} | {'content-type'},
+)
 
 
 class UnsupportedContentTypeError(Exception):

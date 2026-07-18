@@ -114,6 +114,33 @@ async def materialize_standalone_dead_letter(
     assert_never(result)
 
 
+async def materialize_or_discard_dead_letter(
+    container: AsyncContainer,
+    *,
+    envelope: MessageEnvelope[Any],
+    endpoint_uri: str,
+    intent: TerminalIntent,
+    dead_letter_capable: bool,
+    logger: logging.Logger,
+) -> ExecutionResult:
+    """Persist a dead-letter intent when the endpoint is capable, else warn and discard it.
+
+    The caller supplies its own module ``logger`` so the discard warning keeps its owning logger name.
+    """
+    if not dead_letter_capable:
+        logger.warning(
+            'Discarding dead-letter intent without configured durability: message_id=%s was not persisted',
+            envelope.message_id,
+        )
+        return ExecutionResult(ExecutionOutcome.DISCARDED)
+    return await materialize_standalone_dead_letter(
+        container,
+        envelope=envelope,
+        endpoint_uri=endpoint_uri,
+        intent=intent,
+    )
+
+
 class EndpointExecutor:
     """Public inline endpoint owner that materializes terminal intent after any required persistence."""
 
@@ -163,17 +190,13 @@ class EndpointExecutor:
     async def _materialize(self, envelope: MessageEnvelope[Any], intent: TerminalIntent) -> ExecutionResult:
         if intent.kind is not TerminalIntentKind.DEAD_LETTER:
             return _result_from_intent(intent)
-        if not self._dead_letter_capable:
-            logger.warning(
-                'Discarding dead-letter intent without configured durability: message_id=%s was not persisted',
-                envelope.message_id,
-            )
-            return ExecutionResult(ExecutionOutcome.DISCARDED)
-        return await materialize_standalone_dead_letter(
+        return await materialize_or_discard_dead_letter(
             self._container,
             envelope=envelope,
             endpoint_uri=self._endpoint_uri,
             intent=intent,
+            dead_letter_capable=self._dead_letter_capable,
+            logger=logger,
         )
 
 

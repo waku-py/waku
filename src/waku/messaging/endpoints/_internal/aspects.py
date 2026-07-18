@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 from waku._internal.sentinel import MISSING
 
@@ -17,7 +17,10 @@ __all__ = [
     'ListenAspect',
     'SendAspect',
     'resolve_max_requeue_attempts',
+    'resolve_override',
 ]
+
+_ValueT = TypeVar('_ValueT')
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -33,6 +36,11 @@ class SendAspect:
     sending_failure_policies: Sequence[SendingFailurePolicy] = ()
 
 
+def resolve_override(override: _ValueT | MISSING, default: _ValueT) -> _ValueT:  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+    # MISSING inherits default; None opts out
+    return default if override is MISSING else override
+
+
 def resolve_max_requeue_attempts(override: int | MISSING, config: MessagingConfig) -> int:  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
     """Fall back to ``config.endpoint_defaults.max_requeue_attempts`` when the per-entry override is unset."""
-    return config.endpoint_defaults.max_requeue_attempts if override is MISSING else override
+    return resolve_override(override, config.endpoint_defaults.max_requeue_attempts)

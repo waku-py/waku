@@ -16,6 +16,7 @@ __all__ = [
     'RetryAction',
     'RetryStage',
     'best_match',
+    'resolve_with_default',
     'validate_ends_with_terminal',
     'walk_stages',
 ]
@@ -136,6 +137,18 @@ def _policy_matches(policy: Matchable, exc: Exception) -> bool:
     if policy.exception_type is not None and not isinstance(exc, policy.exception_type):
         return False
     return policy.predicate is None or policy.predicate(exc)
+
+
+def resolve_with_default(
+    scoped: Sequence[_MatchableT],
+    default_policies: Sequence[_MatchableT],
+    exc: Exception,
+) -> _MatchableT | None:
+    # A scoped (per-handler / per-destination) match beats a default match even when less specific.
+    match = best_match(scoped, exc)
+    if match is not None:
+        return match
+    return best_match(default_policies, exc)
 
 
 def validate_max_attempts(max_attempts: int) -> None:

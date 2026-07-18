@@ -6,12 +6,12 @@ import contextlib
 import enum
 import time
 from collections import deque
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
 
 import anyio
 from typing_extensions import override
 
-from waku.messaging.endpoints.outcome import ExecutionOutcome
+from waku.messaging.endpoints.outcome import FAILURE_OUTCOMES, ExecutionOutcome
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -23,12 +23,6 @@ __all__ = [
     'CircuitBreaker',
     'CircuitState',
 ]
-
-_FAILURE_OUTCOMES: Final[frozenset[ExecutionOutcome]] = frozenset({
-    ExecutionOutcome.DEAD_LETTERED,
-    ExecutionOutcome.DEAD_LETTER_FAILED,
-    ExecutionOutcome.FAILED_NO_POLICY,
-})
 
 
 @enum.unique
@@ -108,7 +102,7 @@ class CircuitBreaker(ICircuitBreaker):
         if outcome is ExecutionOutcome.DISCARDED:
             return
         async with self._lock:
-            is_failure = outcome in _FAILURE_OUTCOMES and self._exc_counts(exc)
+            is_failure = outcome in FAILURE_OUTCOMES and self._exc_counts(exc)
             now = self._now()
             self._window.append((now, is_failure))
             self._evict(now)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from waku.messaging._internal.escalation import best_match, validate_ends_with_terminal
+from waku.messaging._internal.escalation import resolve_with_default, validate_ends_with_terminal
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -42,8 +42,4 @@ class SendingFailurePolicyRegistry:
                 validate_ends_with_terminal(policy.stages)
 
     def resolve(self, destination: str, exc: Exception) -> SendingFailurePolicy | None:
-        per_destination = self._destination_policies.get(destination, ())
-        match = best_match(per_destination, exc)
-        if match is not None:
-            return match
-        return best_match(self._default_policies, exc)
+        return resolve_with_default(self._destination_policies.get(destination, ()), self._default_policies, exc)

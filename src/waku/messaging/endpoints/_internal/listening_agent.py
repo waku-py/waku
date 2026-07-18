@@ -7,10 +7,9 @@ from typing import TYPE_CHECKING
 import anyio
 from typing_extensions import override
 
-from waku._internal.sentinel import MISSING
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging._internal.circuit_breaker import CircuitBreaker
-from waku.messaging.endpoints._internal.aspects import resolve_max_requeue_attempts
+from waku.messaging.endpoints._internal.aspects import resolve_max_requeue_attempts, resolve_override
 from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
 from waku.messaging.inbox._internal.listener import InboundListener
 from waku.messaging.inbox._internal.noop_backpressure import NoOpBackpressure
@@ -208,7 +207,7 @@ class ListeningAgent:
 
 
 def _resolve_inbound_circuit_breaker(listen: ListenAspect, config: MessagingConfig) -> CircuitBreakerConfig | None:
-    return listen.circuit_breaker if listen.circuit_breaker is not MISSING else config.endpoint_defaults.circuit_breaker  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows  # MISSING inherits default; None opts out
+    return resolve_override(listen.circuit_breaker, config.endpoint_defaults.circuit_breaker)
 
 
 def create_listening_agent(  # noqa: PLR0913

@@ -6,13 +6,12 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from enum import StrEnum, unique
-from typing import TYPE_CHECKING, Any, Final, Generic, Never, TypeAlias, TypeVar, assert_never
+from typing import TYPE_CHECKING, Any, Generic, Never, TypeAlias, TypeVar, assert_never
 
 import anyio
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
-from waku._internal.sentinel import MISSING
 from waku._internal.transaction import (
     Abort,
     Aborted,
@@ -26,6 +25,7 @@ from waku.messaging._internal.outbox_cascading import DeferredCascadeFlusher
 from waku.messaging._internal.transaction import TransactionDepth
 from waku.messaging.behaviors.transactional import decide_transaction
 from waku.messaging.context import message_context_scope
+from waku.messaging.endpoints._internal.aspects import resolve_override
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors.executor import FailureContext
 from waku.messaging.errors.policy import RetryAction
@@ -49,12 +49,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _ResultT_co = TypeVar('_ResultT_co', covariant=True)
-
-
-DEFERRED_TERMINAL_OUTCOMES: Final[frozenset[ExecutionOutcome]] = frozenset({
-    ExecutionOutcome.REQUEUED,
-    ExecutionOutcome.PAUSED,
-})
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,8 +242,7 @@ class EndpointExecution(IEndpointExecution):
             return intent
 
     def _resolve_timeout(self, handler_type: HandlerType) -> timedelta | None:
-        value = handler_type.execution_timeout
-        return self._default_execution_timeout if value is MISSING else value  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+        return resolve_override(handler_type.execution_timeout, self._default_execution_timeout)
 
     async def _dispatch_in_scope(
         self,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from waku._internal.clock import Now, utc_now
-from waku._internal.transaction import can_defer_transaction_fatal, extract_transaction_execution_error
+from waku._internal.transaction import reraise_transaction_fatal
 from waku.messaging._internal.ownership import AppScopeSource  # noqa: TC001
 from waku.messaging.errors._internal.replay import IReplayExecution, ReplayClaimOwner
 
@@ -38,10 +38,5 @@ class ReplayExecutor:
             return False
         try:
             return await self._owner.replay_claimed(claimed, self._execution)
-        except BaseException as error:
-            # Public surface: unwrap a bare fatal or a deferrable teardown-group fatal to its underlying
-            # error; a group still carrying a control-flow leaf propagates so cancellation is never demoted.
-            fatal = extract_transaction_execution_error(error)
-            if fatal is None or (fatal is not error and not can_defer_transaction_fatal(error, fatal)):
-                raise
-        raise fatal.error from fatal.primary_error
+        except BaseException as error:  # noqa: BLE001 -- transaction-fatal/cancellation must propagate
+            reraise_transaction_fatal(error)

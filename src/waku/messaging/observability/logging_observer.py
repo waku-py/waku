@@ -6,28 +6,19 @@ from typing_extensions import override
 
 from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.contracts.handler import HandlerType
-from waku.messaging.endpoints.outcome import ExecutionOutcome
+from waku.messaging.endpoints.outcome import DEFERRED_TERMINAL_OUTCOMES, FAILURE_OUTCOMES, ExecutionOutcome
 from waku.messaging.observability.audit import AuditedMemberResolver
 from waku.messaging.observability.observer import INVOKE_DESTINATION, IMessageObserver
 
 __all__ = ['LoggingMessageObserver']
 
 _LOGGER_ROOT: Final[str] = 'waku.message'
-_FAILURE_OUTCOMES: Final[frozenset[ExecutionOutcome]] = frozenset({
-    ExecutionOutcome.DEAD_LETTERED,
-    ExecutionOutcome.DEAD_LETTER_FAILED,
-    ExecutionOutcome.FAILED_NO_POLICY,
-})
-_WARNING_OUTCOMES: Final[frozenset[ExecutionOutcome]] = frozenset({
-    ExecutionOutcome.REQUEUED,
-    ExecutionOutcome.PAUSED,
-})
 
 
 def _executed_level(outcome: ExecutionOutcome) -> int:
-    if outcome in _FAILURE_OUTCOMES:
+    if outcome in FAILURE_OUTCOMES:
         return logging.ERROR
-    if outcome in _WARNING_OUTCOMES:
+    if outcome in DEFERRED_TERMINAL_OUTCOMES:
         return logging.WARNING
     return logging.INFO
 

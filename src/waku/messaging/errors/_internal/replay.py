@@ -30,7 +30,8 @@ from waku.messaging.context import message_context_scope
 from waku.messaging.durability import IDeadLetterStore
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind
 from waku.messaging.handler_map import HandlerMap  # noqa: TC001
-from waku.messaging.inbox.destination import handler_destination
+from waku.messaging.inbox.destination import handler_map_by_destination
+from waku.messaging.inbox.identifiers import HandlerDestination
 from waku.messaging.router import MessageRouter  # noqa: TC001
 from waku.messaging.transport._internal.wire import rebuild_envelope, wire_metadata_from_entry
 from waku.serialization.codec import PayloadCodec  # noqa: TC001
@@ -90,9 +91,7 @@ class ReplayExecution(IReplayExecution):
         self._router = router
         self._dispatcher = dispatcher
         self._app_scope = app_scope
-        self._handler_by_fqn: dict[str, HandlerType] = {
-            handler_destination(handler_type): handler_type for handler_type in handler_map.handler_types()
-        }
+        self._handler_by_fqn: dict[HandlerDestination, HandlerType] = handler_map_by_destination(handler_map)
 
     @override
     async def dispatch(self, entry: DeadLetterEntry) -> None:
@@ -115,7 +114,7 @@ class ReplayExecution(IReplayExecution):
         await dispatch_owned(self._app_scope, self._container, envelope, [endpoint])
 
     async def _dispatch_to_handler(self, entry: DeadLetterEntry, envelope: MessageEnvelope[Any]) -> None:
-        handler_type = self._handler_by_fqn.get(entry.destination)
+        handler_type = self._handler_by_fqn.get(HandlerDestination(entry.destination))
         if handler_type is None:
             msg = f'no registered handler for destination {entry.destination!r}'
             raise RuntimeError(msg)

@@ -50,6 +50,20 @@ def _handler_requires_uow(handler: HandlerType, config: MessagingConfig) -> bool
     return policies_need_dead_letter(handler.error_policies)
 
 
+def _positioned_excluding_transactional(
+    source: Sequence[type[IPipelineBehavior[Any, Any]]],
+    position: Position,
+) -> tuple[PositionedBehavior, ...]:
+    # TransactionalBehavior is excluded from every non-TransactionalPolicy source: TransactionalPolicy is
+    # its sole per-type owner, so a handler that does not need a UoW gets no spurious transactional frame
+    # even when TransactionalBehavior is listed globally or locally.
+    return tuple(
+        PositionedBehavior(behavior, position, sequence=index)
+        for index, behavior in enumerate(source)
+        if not issubclass(behavior, TransactionalBehavior)
+    )
+
+
 def _resolve_transactional_behavior(
     handler: HandlerType,
     config: MessagingConfig,
@@ -125,11 +139,7 @@ class UserGlobalPolicy(IBehaviorPolicy):
         handler: HandlerType,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]:
-        return tuple(
-            PositionedBehavior(behavior, Position.USER_GLOBAL, sequence=index)
-            for index, behavior in enumerate(config.global_pipeline_behaviors)
-            if not issubclass(behavior, TransactionalBehavior)
-        )
+        return _positioned_excluding_transactional(config.global_pipeline_behaviors, Position.USER_GLOBAL)
 
 
 class TransactionalPolicy(IBehaviorPolicy):
@@ -165,8 +175,4 @@ class HandlerLocalPolicy(IBehaviorPolicy):
         handler: HandlerType,
         config: MessagingConfig,
     ) -> Sequence[PositionedBehavior]:
-        return tuple(
-            PositionedBehavior(behavior, Position.HANDLER_LOCAL, sequence=index)
-            for index, behavior in enumerate(handler.behaviors)
-            if not issubclass(behavior, TransactionalBehavior)
-        )
+        return _positioned_excluding_transactional(handler.behaviors, Position.HANDLER_LOCAL)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar, Never
 
 import anyio
@@ -25,7 +24,7 @@ from waku.serialization.codec import PayloadCodec
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-    from datetime import datetime
+    from datetime import datetime, timedelta
 
     from dishka import AsyncContainer
 
@@ -64,7 +63,7 @@ class DurableLocalQueueEndpoint(Endpoint):
         executor: IEndpointExecution,
         observers: MessageObservers,
         container: AsyncContainer,
-        inbox_config_keep_after_handled_seconds: float,
+        keep_after_handled: timedelta,
         inbox_owner_id: str,
         stop_timeout: timedelta,
         max_buffer_size: float,
@@ -84,7 +83,7 @@ class DurableLocalQueueEndpoint(Endpoint):
             container=container,
             executor=executor,
             inbox_owner_id=inbox_owner_id,
-            keep_after_handled=timedelta(seconds=inbox_config_keep_after_handled_seconds),
+            keep_after_handled=keep_after_handled,
             partition_by=partition_by,
             max_requeue_attempts=max_requeue_attempts,
             pause_sleep=pause_sleep,

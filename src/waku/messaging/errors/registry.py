@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from waku.exceptions import ImproperlyConfiguredError
-from waku.messaging._internal.escalation import best_match
+from waku.messaging._internal.escalation import resolve_with_default
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -49,11 +49,7 @@ class ErrorPolicyRegistry:
         self._default_policies: tuple[ErrorPolicy, ...] = tuple(default_policies)
 
     def resolve(self, handler_type: _HandlerType, exc: Exception) -> ErrorPolicy | None:
-        per_handler = self._handler_policies.get(handler_type, ())
-        match = best_match(per_handler, exc)
-        if match is not None:
-            return match
-        return best_match(self._default_policies, exc)
+        return resolve_with_default(self._handler_policies.get(handler_type, ()), self._default_policies, exc)
 
 
 def _reject_duplicates(handler_type: _HandlerType | None, policies: Sequence[ErrorPolicy]) -> None:

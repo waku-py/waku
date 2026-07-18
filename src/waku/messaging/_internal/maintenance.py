@@ -35,6 +35,9 @@ from waku.messaging.errors._internal.replay import IReplayExecution, ReplayClaim
 from waku.messaging.sequence import ISequenceAllocator
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+    from datetime import datetime, timedelta
+
     from dishka import AsyncContainer
 
     from waku.application import WakuApplication
@@ -56,6 +59,59 @@ logger = logging.getLogger(__name__)
 _PROMOTION_JITTER_FACTOR: Final[float] = 0.1
 
 
+class _Throttle:
+    """Monotonic time-gate: admits an action at most once per ``interval`` seconds.
+
+    Tracks the last pass on the ``time.monotonic()`` clock; ``ready`` returns True and resets the
+    window only once at least ``interval`` seconds have elapsed since the previous pass.
+    """
+
+    __slots__ = ('_interval', '_last_run')
+
+    def __init__(self, interval: float) -> None:
+        self._interval = interval
+        self._last_run = 0.0
+
+    def ready(self, now: float) -> bool:
+        if now - self._last_run < self._interval:
+            return False
+        self._last_run = now
+        return True
+
+
+async def _run_retention_cleanup(
+    container: AsyncContainer,
+    throttle: _Throttle,
+    retention: timedelta | None,
+    now_fn: Now,
+    delete_fn: Callable[[AsyncContainer, timedelta, datetime], Awaitable[int]],
+    log_message: str,
+) -> int:
+    if retention is None:
+        return 0
+    if not throttle.ready(time.monotonic()):
+        return 0
+    sampled_now = now_fn()
+
+    async def cleanup(scope: AsyncContainer) -> TransactionDecision[int, Never]:
+        return Commit(await delete_fn(scope, retention, sampled_now))
+
+    purged = await run_committed(container, cleanup)
+    if purged > 0:
+        logger.info(log_message, purged)
+    return purged
+
+
+async def _delete_expired_dispatched(scope: AsyncContainer, older_than: timedelta, now: datetime) -> int:
+    store: IOutboxStore = await scope.get(IOutboxStore)
+    return await store.delete_expired_dispatched(older_than, now=now)
+
+
+async def _delete_expired_dead_letters(scope: AsyncContainer, older_than: timedelta, now: datetime) -> int:
+    store: IDeadLetterStore = await scope.get(IDeadLetterStore)
+    return await store.delete_expired_dead_letters(older_than, now=now)
+
+
 class _OutboxMaintenancePoller(PollingAgent):
     """Outbox recovery-sweep + dispatched-cleanup, split off the relay's hot dispatch path.
 
@@ -65,14 +121,14 @@ class _OutboxMaintenancePoller(PollingAgent):
 
     placement = Placement.SINGLETON_PER_DC
 
-    __slots__ = ('_config', '_container', '_last_cleanup', '_last_recovery', '_now')
+    __slots__ = ('_cleanup_throttle', '_config', '_container', '_now', '_recovery_throttle')
 
     def __init__(self, *, container: AsyncContainer, config: OutboxRelayConfig, now: Now = utc_now) -> None:
         self._container = container
         self._config = config
         self._now = now
-        self._last_recovery = 0.0
-        self._last_cleanup = 0.0
+        self._recovery_throttle = _Throttle(config.recovery_interval.total_seconds())
+        self._cleanup_throttle = _Throttle(config.cleanup_interval.total_seconds())
         super().__init__(stop_timeout=config.stop_timeout)
 
     @override
@@ -86,10 +142,8 @@ class _OutboxMaintenancePoller(PollingAgent):
         return recovered + purged
 
     async def _maybe_recover_abandoned(self) -> int:
-        now = time.monotonic()
-        if now - self._last_recovery < self._config.recovery_interval.total_seconds():
+        if not self._recovery_throttle.ready(time.monotonic()):
             return 0
-        self._last_recovery = now
 
         async def recover(scope: AsyncContainer) -> TransactionDecision[int, Never]:
             store = await scope.get(IOutboxStore)
@@ -101,23 +155,14 @@ class _OutboxMaintenancePoller(PollingAgent):
         return recovered
 
     async def _maybe_cleanup(self) -> int:
-        retention = self._config.retention
-        if retention is None:
-            return 0
-        now = time.monotonic()
-        if now - self._last_cleanup < self._config.cleanup_interval.total_seconds():
-            return 0
-        self._last_cleanup = now
-        sampled_now = self._now()
-
-        async def cleanup(scope: AsyncContainer) -> TransactionDecision[int, Never]:
-            store = await scope.get(IOutboxStore)
-            return Commit(await store.delete_expired_dispatched(retention, now=sampled_now))
-
-        purged = await run_committed(self._container, cleanup)
-        if purged > 0:
-            logger.info('Purged %d dispatched outbox messages older than retention', purged)
-        return purged
+        return await _run_retention_cleanup(
+            self._container,
+            self._cleanup_throttle,
+            self._config.retention,
+            self._now,
+            _delete_expired_dispatched,
+            'Purged %d dispatched outbox messages older than retention',
+        )
 
 
 class _DlqMaintenancePoller(PollingAgent):
@@ -125,7 +170,7 @@ class _DlqMaintenancePoller(PollingAgent):
 
     placement = Placement.SINGLETON_PER_DC
 
-    __slots__ = ('_config', '_container', '_execution', '_last_cleanup', '_now', '_owner')
+    __slots__ = ('_cleanup_throttle', '_config', '_container', '_execution', '_now', '_owner')
 
     def __init__(self, *, container: AsyncContainer, config: DeadLetterConfig, now: Now = utc_now) -> None:
         self._container = container
@@ -133,7 +178,7 @@ class _DlqMaintenancePoller(PollingAgent):
         self._now = now
         self._owner = ReplayClaimOwner(container=container, config=config, now=now)
         self._execution = _ScopedReplayExecution(container)
-        self._last_cleanup = 0.0
+        self._cleanup_throttle = _Throttle(config.cleanup_interval.total_seconds())
         super().__init__(stop_timeout=config.stop_timeout)
 
     @override
@@ -172,23 +217,14 @@ class _DlqMaintenancePoller(PollingAgent):
         return replayed
 
     async def _maybe_cleanup(self) -> int:
-        retention = self._config.retention
-        if retention is None:
-            return 0
-        now = time.monotonic()
-        if now - self._last_cleanup < self._config.cleanup_interval.total_seconds():
-            return 0
-        self._last_cleanup = now
-        sampled_now = self._now()
-
-        async def delete_expired(scope: AsyncContainer) -> TransactionDecision[int, Never]:
-            store = await scope.get(IDeadLetterStore)
-            return Commit(await store.delete_expired_dead_letters(retention, now=sampled_now))
-
-        purged = await run_committed(self._container, delete_expired)
-        if purged > 0:
-            logger.info('Purged %d dead letters older than retention', purged)
-        return purged
+        return await _run_retention_cleanup(
+            self._container,
+            self._cleanup_throttle,
+            self._config.retention,
+            self._now,
+            _delete_expired_dead_letters,
+            'Purged %d dead letters older than retention',
+        )
 
 
 class _PromotionPoller(PollingAgent):

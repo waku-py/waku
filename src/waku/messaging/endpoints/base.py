@@ -10,10 +10,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Final, TypeAlias, final
 from waku._internal.sentinel import MISSING
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from waku.di import AsyncContainer
-    from waku.messages import IMessage
     from waku.messaging._internal.pauser import PauseToken
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
@@ -47,7 +44,7 @@ class LocalQueueEntry:
     max_parallel: int = 1
     stop_timeout: timedelta = timedelta(seconds=5)
     max_buffer_size: float = math.inf
-    partition_by: Callable[[IMessage], str | None] | None = None
+    partition_by: PartitionKeyExtractor | None = None
     circuit_breaker: CircuitBreakerConfig | MISSING | None = MISSING  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
     max_requeue_attempts: int | MISSING = MISSING  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
     observers: tuple[type[IMessageObserver], ...] = ()

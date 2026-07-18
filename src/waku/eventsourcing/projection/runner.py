@@ -16,9 +16,8 @@ from waku._internal.transaction import (
     Committed,
     Rollback,
     RolledBack,
-    can_defer_transaction_fatal,
     execute_in_uow_scope,
-    extract_transaction_execution_error,
+    reraise_transaction_fatal,
     run_committed,
 )
 from waku.di import is_registered
@@ -139,13 +138,8 @@ class CatchUpProjectionRunner:
             while True:
                 try:
                     outcome = await self._run_cycle(rebuild_binding, processor)
-                except BaseException as error:
-                    # A failed rollback is fatal, whether it arrives bare or masked inside a teardown
-                    # group; unwrap it group-aware. Cancellation and non-fatal errors propagate untouched.
-                    fatal = extract_transaction_execution_error(error)
-                    if fatal is None or (fatal is not error and not can_defer_transaction_fatal(error, fatal)):
-                        raise
-                    raise fatal.error from fatal.primary_error
+                except BaseException as error:  # noqa: BLE001 -- transaction-fatal/cancellation must propagate
+                    reraise_transaction_fatal(error)
                 if outcome.retry_delay_seconds is not None:
                     await anyio.sleep(outcome.retry_delay_seconds)
                     continue
@@ -205,14 +199,8 @@ class CatchUpProjectionRunner:
                     binding.projection.projection_name,
                 )
                 outcome = CycleOutcome(events_processed=0, checkpoint_mutated=False)
-            except BaseException as error:
-                # A failed rollback is fatal, whether it arrives bare or masked inside a teardown group:
-                # unwrap it group-aware so a broken transaction never masquerades as a recoverable cycle.
-                # Cancellation (no extractable fatal) stays cancellation and propagates untouched.
-                fatal = extract_transaction_execution_error(error)
-                if fatal is None or (fatal is not error and not can_defer_transaction_fatal(error, fatal)):
-                    raise
-                raise fatal.error from fatal.primary_error
+            except BaseException as error:  # noqa: BLE001 -- transaction-fatal/cancellation must propagate
+                reraise_transaction_fatal(error)
 
             if outcome.retry_delay_seconds is not None:
                 await self._wait(outcome.retry_delay_seconds)

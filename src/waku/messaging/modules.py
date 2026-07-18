@@ -47,7 +47,7 @@ from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.contracts.pipeline import IPipelineBehavior
 from waku.messaging.contracts.request import IRequest
 from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore, IOutboxStore
-from waku.messaging.endpoints._internal.aspects import resolve_max_requeue_attempts
+from waku.messaging.endpoints._internal.aspects import resolve_max_requeue_attempts, resolve_override
 from waku.messaging.endpoints._internal.durable_local_queue import DurableLocalQueueEndpoint
 from waku.messaging.endpoints._internal.execution import EndpointExecutionFactory
 from waku.messaging.endpoints._internal.external import ExternalEndpoint
@@ -293,11 +293,11 @@ def _requires_dead_letter_store(handler_map: HandlerMap, config: MessagingConfig
 
 
 def _resolve_mode(entry: LocalQueueEntry, config: MessagingConfig) -> EndpointMode:
-    return config.endpoint_defaults.mode if entry.mode is MISSING else entry.mode  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+    return resolve_override(entry.mode, config.endpoint_defaults.mode)
 
 
 def _resolve_circuit_breaker(entry: LocalQueueEntry, config: MessagingConfig) -> 'CircuitBreakerConfig | None':
-    return entry.circuit_breaker if entry.circuit_breaker is not MISSING else config.endpoint_defaults.circuit_breaker  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows  # MISSING inherits default; None opts out
+    return resolve_override(entry.circuit_breaker, config.endpoint_defaults.circuit_breaker)
 
 
 def _reject_inline_deferred_terminal(config: MessagingConfig) -> None:
@@ -310,12 +310,17 @@ def _reject_inline_deferred_terminal(config: MessagingConfig) -> None:
             raise ImproperlyConfiguredError(msg)
 
 
+def _local_queue_honors_partition(entry: LocalQueueEntry, config: MessagingConfig) -> bool:
+    # A local_queue honors partition_by iff partition_by is set AND the resolved mode is DURABLE.
+    return entry.partition_by is not None and _resolve_mode(entry, config) is EndpointMode.DURABLE
+
+
 def _reject_partition_by_on_non_sequenced_local(config: MessagingConfig) -> None:
     for entry in config.endpoints:
         if (
             isinstance(entry, LocalQueueEntry)
             and entry.partition_by is not None
-            and _resolve_mode(entry, config) is not EndpointMode.DURABLE
+            and not _local_queue_honors_partition(entry, config)
         ):
             msg = (
                 f'local_queue {entry.uri!r} sets partition_by but resolves to '
@@ -400,11 +405,7 @@ def _requires_sequence_allocator(config: MessagingConfig) -> bool:
         # broker endpoints always honor partition_by (outbox/inbox)
         if isinstance(entry, BrokerEndpointEntry) and entry.partition_by is not MISSING:  # type: ignore[comparison-overlap]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
             return True
-        if (
-            isinstance(entry, LocalQueueEntry)
-            and entry.partition_by is not None
-            and _resolve_mode(entry, config) == EndpointMode.DURABLE
-        ):
+        if isinstance(entry, LocalQueueEntry) and _local_queue_honors_partition(entry, config):
             return True
     return False
 
@@ -649,7 +650,7 @@ def _build_endpoint(
                 executor=context.execution_factory.for_uri(entry.uri),
                 observers=observers,
                 container=context.container,
-                inbox_config_keep_after_handled_seconds=inbox.keep_after_handled.total_seconds(),
+                keep_after_handled=inbox.keep_after_handled,
                 inbox_owner_id=inbox.resolve_owner_id(),
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,

@@ -22,7 +22,7 @@ from waku.messaging.endpoints._internal.execution import (
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.handler_map import HandlerMap
 from waku.messaging.inbox._internal.finalize import apply_inbox_outcome
-from waku.messaging.inbox.destination import handler_destination
+from waku.messaging.inbox.destination import handler_map_by_destination
 from waku.messaging.transport._internal.wire import rebuild_envelope, wire_metadata_from_entry
 from waku.serialization.codec import PayloadCodec
 
@@ -211,7 +211,7 @@ async def build_inbox_drainer(container: AsyncContainer, config: InboxConfig) ->
     type_registry = await container.get(MessageTypeRegistry)
     factory = await container.get(EndpointExecutionFactory)
 
-    handler_by_fqn = {handler_destination(handler_type): handler_type for handler_type in registry.handler_types()}
+    handler_by_fqn = handler_map_by_destination(registry)
 
     return InboxDrainer(
         container=container,
