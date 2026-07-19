@@ -537,14 +537,14 @@ def _is_decorator_active(
 class DependenciesAccessibleRule(ValidationRule):
     """Validates that all dependencies required by providers are accessible."""
 
-    __slots__ = ('_cache',)
+    __slots__ = ('_cache_size',)
 
     def __init__(self, cache_size: int = 1000) -> None:
-        self._cache = LRUCache[set[DependencyKey]](cache_size)
+        self._cache_size = cache_size
 
     @override
     def validate(self, context: ValidationContext) -> list[ValidationError]:
-        self._cache.clear()
+        cache = LRUCache[set[DependencyKey]](self._cache_size)
 
         registry = context.app.registry
         modules = list(registry.modules)
@@ -561,7 +561,7 @@ class DependenciesAccessibleRule(ValidationRule):
             )
             for module in modules
         }
-        keys_extractor = _ModuleKeysExtractor(self._cache, validation_factories)
+        keys_extractor = _ModuleKeysExtractor(cache, validation_factories)
         strategies: list[AccessibilityStrategy] = [
             GlobalProvidersStrategy(modules, container, keys_extractor, registry),
             LocalProvidersStrategy(keys_extractor),
