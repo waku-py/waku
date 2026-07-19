@@ -60,5 +60,7 @@ class SqlAlchemySnapshotStore(ISnapshotStore):
                 'updated_at': sa_func.now(),
             },
         )
-        await self._session.execute(stmt)
-        await self._session.flush()
+        # SAVEPOINT the write so a server-side rejection rolls back only this snapshot, never the caller's
+        # outer transaction: an aborted PG transaction would poison the durable event append committed with it.
+        async with self._session.begin_nested():
+            await self._session.execute(stmt)

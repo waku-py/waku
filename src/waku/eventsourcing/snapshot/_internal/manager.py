@@ -79,8 +79,10 @@ class SnapshotManager:
         *,
         state_type_name: str,
     ) -> None:
-        # Snapshots are a rebuildable cache: the boundary deliberately spans state production,
-        # serialization, and the store write, so no snapshot-side bug can fail a durable append.
+        # Snapshots are a rebuildable cache. Two complementary guards keep a snapshot-side failure from
+        # touching the durable append: policy here (non-fatal log-and-continue over state production,
+        # serialization, and the store write), and mechanism in the adapter (the store isolates its write
+        # per the ISnapshotStore.save contract, so a rejected write can't poison the caller's transaction).
         try:
             state_data = self._serializer.serialize(produce_state())
             snapshot = Snapshot(

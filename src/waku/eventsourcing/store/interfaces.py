@@ -27,7 +27,16 @@ class ISnapshotStore(abc.ABC):
     async def load(self, stream_id: StreamId, /) -> Snapshot | None: ...
 
     @abc.abstractmethod
-    async def save(self, snapshot: Snapshot, /) -> None: ...
+    async def save(self, snapshot: Snapshot, /) -> None:
+        """Persist a snapshot; a failure MUST NOT leave the caller's transaction unusable.
+
+        The snapshot is a rebuildable cache, so ``save`` may fail (the caller degrades to a stale/absent
+        snapshot and replays events). A failed ``save`` MUST leave the caller free to commit work done
+        before it — the durable event append it shares a transaction with. Backends over a shared
+        transactional resource MUST isolate the write (e.g. a SAVEPOINT) so a rejected write cannot abort
+        the outer transaction; isolated-resource backends satisfy this trivially.
+        """
+        ...
 
 
 class ICheckpointStore(abc.ABC):
