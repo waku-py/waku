@@ -1,8 +1,13 @@
+from typing import cast
+
+import pytest
 from pytest_mock import MockerFixture
 from typing_extensions import override
 
 from waku import Module, WakuApplication, WakuFactory
+from waku.di import scoped
 from waku.extensions import (
+    DEFAULT_EXTENSIONS,
     AfterApplicationInit,
     OnApplicationInit,
     OnApplicationShutdown,
@@ -11,7 +16,10 @@ from waku.extensions import (
     OnModuleInit,
 )
 from waku.modules import ModuleMetadata
+from waku.validation import ValidationExtension
+from waku.validation.rules import DependencyInaccessibleError
 
+from tests.data import A, B
 from tests.module_utils import create_basic_module
 
 
@@ -129,3 +137,23 @@ async def test_close_without_initialize_skips_shutdown_extensions(mocker: Mocker
 
     on_module_destroy_mock.assert_not_called()
     on_app_shutdown_mock.assert_not_called()
+
+
+async def test_default_extension_rules_cannot_be_cleared_to_disable_validation() -> None:
+    a_module = create_basic_module(providers=[scoped(A)], exports=[], name='AModule')
+    b_module = create_basic_module(providers=[scoped(B)], imports=[], name='BModule')
+    app_module = create_basic_module(imports=[a_module, b_module], name='AppModule')
+
+    default_validation = cast('ValidationExtension', DEFAULT_EXTENSIONS[0])
+    with pytest.raises(AttributeError):
+        default_validation.rules.clear()  # type: ignore[attr-defined]
+
+    application = WakuFactory(app_module).create()
+    with pytest.raises(ExceptionGroup) as exc_info:
+        await application.initialize()
+
+    b_registered = application.registry.get(b_module)
+    error = exc_info.value.exceptions[0]
+    assert isinstance(error, DependencyInaccessibleError)
+    assert error.required_type is A
+    assert error.from_module is b_registered

@@ -117,7 +117,7 @@ class ModuleRegistryBuilder:
             module = Module(type_, metadata)
 
             self._modules[module.id] = module
-            self._providers.append(module.create_provider())
+            self._providers.extend(module.create_providers())
 
         _, root_metadata = self._get_metadata(self._root_module_type)
         return self._modules[root_metadata.id]

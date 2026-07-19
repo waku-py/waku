@@ -31,7 +31,7 @@ class ValidationExtension(AfterApplicationInit):
     __slots__ = ('rules', 'strict')
 
     def __init__(self, rules: Sequence[ValidationRule], *, strict: bool = True) -> None:
-        self.rules = rules
+        self.rules: Final[tuple[ValidationRule, ...]] = tuple(rules)
         self.strict: Final = strict
 
     @override

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections import defaultdict
+from itertools import starmap
 from typing import TYPE_CHECKING, Final, cast
 
 from waku.di import DEFAULT_COMPONENT, BaseProvider
@@ -9,6 +11,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from dishka import Provider
+    from dishka.entities.component import Component
 
     from waku.extensions import ModuleExtension
     from waku.modules._internal.metadata import DynamicModule, ModuleMetadata, ModuleType
@@ -50,14 +53,22 @@ class Module:
     @property
     def provider(self) -> BaseProvider:
         if self._provider is None:
-            msg = f'Module {self.name} provider not yet created. Call create_provider() first.'
+            msg = f'Module {self.name} provider not yet created. Call create_providers() first.'
             raise RuntimeError(msg)
         return self._provider
 
-    def create_provider(self) -> BaseProvider:
+    def create_providers(self) -> Sequence[BaseProvider]:
         cls = cast('type[_ModuleProvider]', type(f'{self.name}Provider', (_ModuleProvider,), {}))
-        self._provider = cls(self.providers)
-        return self._provider
+        grouped: dict[Component, list[Provider]] = defaultdict(list)
+        for provider in self.providers:
+            grouped[provider.component].append(provider)
+        # Component-faithful aggregation: one holder per distinct component so dishka stamps each
+        # source with its declared component at graph build (see BaseProvider/graph_builder).
+        component_providers = list(starmap(cls, grouped.items()))
+        # Component-agnostic union kept for the accessibility validator, which enumerates sources
+        # without distinguishing components.
+        self._provider = cls(DEFAULT_COMPONENT, self.providers)
+        return component_providers
 
     def __str__(self) -> str:
         return self.__repr__()
@@ -73,10 +84,12 @@ class Module:
 
 
 class _ModuleProvider(BaseProvider):
-    def __init__(self, providers: Iterable[Provider]) -> None:
-        super().__init__(DEFAULT_COMPONENT)
+    def __init__(self, component: Component, providers: Iterable[Provider]) -> None:
+        super().__init__(component)
         for provider in providers:
-            self.factories.extend(provider.factories)
+            # Stamp each factory with its provider's component so the component-agnostic validation
+            # union stays component-faithful and does not reject valid FromComponent dependencies.
+            self.factories.extend(factory.with_component(provider.component) for factory in provider.factories)
             self.aliases.extend(provider.aliases)
             self.decorators.extend(provider.decorators)
             self.context_vars.extend(provider.context_vars)
