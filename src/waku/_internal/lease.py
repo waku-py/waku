@@ -94,7 +94,8 @@ class HeartbeatLease(ILease):
                 finally:
                     tg.cancel_scope.cancel()
         finally:
-            await self._release(name)
+            with anyio.CancelScope(shield=True):
+                await self._release(name)
 
     async def _heartbeat(self, name: str, cancel_scope: anyio.CancelScope) -> None:
         while not cancel_scope.cancel_called:
@@ -145,7 +146,7 @@ class InMemoryLease(HeartbeatLease):
     @override
     async def _renew(self, name: str) -> bool:
         entry = self._store.get(name)
-        if entry is None or entry[0] != self._holder_id:
+        if entry is None or entry[0] != self._holder_id or entry[1] <= self._now():
             return False
         self._store[name] = (self._holder_id, self._now() + timedelta(seconds=self._config.ttl_seconds))
         return True

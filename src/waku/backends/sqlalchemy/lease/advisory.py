@@ -74,7 +74,8 @@ class PostgresAdvisoryLease(ILease):
                     finally:
                         tg.cancel_scope.cancel()
             finally:
-                await self._release(conn, name)
+                with anyio.CancelScope(shield=True):
+                    await self._release(conn, name)
 
     async def _probe(self, conn: AsyncConnection, cancel_scope: anyio.CancelScope) -> None:
         while not cancel_scope.cancel_called:

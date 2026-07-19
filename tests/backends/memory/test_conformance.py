@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+import anyio.lowlevel
 import pytest
 from typing_extensions import override
 
+from waku._internal.lease import ILease, InMemoryLease, LeaseConfig
 from waku.backends.memory import MemoryBackend
 from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.backends.memory._internal.inbox import InMemoryInboxStore
@@ -16,6 +19,8 @@ from waku.backends.testing import (
     DeadLetterStoreContract,
     EventStoreContract,
     InboxStoreContract,
+    LeaseBackend,
+    LeaseContract,
     OutboxStoreContract,
     SequenceAllocatorContract,
     SnapshotStoreContract,
@@ -53,6 +58,26 @@ class TestMemorySequenceConformance(SequenceAllocatorContract):
     @override
     def backend_module(self) -> DynamicModule:
         return MemoryBackend.register()
+
+
+class TestMemoryLeaseConformance(LeaseContract):
+    @pytest.fixture
+    @override
+    def lease_backend(self) -> LeaseBackend:
+        store: dict[str, tuple[str, datetime]] = {}
+        fixed_now = datetime(2026, 1, 1, tzinfo=UTC)
+
+        def make(config: LeaseConfig) -> ILease:
+            return InMemoryLease(config, store=store, now=lambda: fixed_now)
+
+        async def expire(name: str) -> None:
+            await anyio.lowlevel.checkpoint()
+            holder, _ = store[name]
+            # Land expiry exactly on the deadline (expires_at == now) so B5 pins the memory
+            # `_renew` boundary guard as `<=`: a `<` mutant would resurrect at the tie and hang.
+            store[name] = (holder, fixed_now)
+
+        return LeaseBackend(make=make, expire=expire)
 
 
 class TestMemoryOutboxConformance(OutboxStoreContract):

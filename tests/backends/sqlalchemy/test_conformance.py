@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator  # noqa: TC003  # dishka introspects the session factory signature
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import pytest
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import override
 
+from waku._internal.lease import ILease, LeaseConfig
 from waku.backends.sqlalchemy import (
+    PostgresAdvisoryLease,
+    PostgresLease,
     SqlAlchemyBackend,
     SqlAlchemyCheckpointStore,
     SqlAlchemyDeadLetterStore,
@@ -20,6 +23,7 @@ from waku.backends.sqlalchemy import (
     bind_dead_letter_tables,
     bind_event_store_tables,
     bind_inbox_tables,
+    bind_lease_tables,
     bind_outbox_tables,
     bind_sequence_tables,
     bind_snapshot_tables,
@@ -30,6 +34,8 @@ from waku.backends.testing import (
     DeadLetterStoreContract,
     EventStoreContract,
     InboxStoreContract,
+    LeaseBackend,
+    LeaseContract,
     OutboxStoreContract,
     SequenceAllocatorContract,
     SnapshotStoreContract,
@@ -40,7 +46,7 @@ from waku.serialization.upcasting.chain import UpcasterChain
 from tests.backends.sqlalchemy.conftest import pg_session_for
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Awaitable, Sequence
 
     from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -121,6 +127,47 @@ class TestSqlAlchemySequenceConformance(SequenceAllocatorContract):
         yield
         async with pg_engine.begin() as conn:
             await conn.run_sync(metadata.drop_all)
+
+
+class TestSqlAlchemyLeaseConformance(LeaseContract):
+    @pytest.fixture
+    @override
+    async def lease_backend(self, pg_engine: AsyncEngine) -> AsyncIterator[LeaseBackend]:
+        metadata = MetaData()
+        bind_lease_tables(metadata)
+        async with pg_engine.begin() as conn:
+            await conn.run_sync(metadata.create_all)
+
+        def make(config: LeaseConfig) -> ILease:
+            return PostgresLease(pg_engine, config)
+
+        async def expire(name: str) -> None:
+            async with pg_engine.connect() as conn:
+                await conn.execution_options(isolation_level='AUTOCOMMIT')
+                await conn.execute(
+                    text("UPDATE waku_leases SET expires_at = now() - interval '1 second' WHERE name = :name"),
+                    {'name': name},
+                )
+
+        yield LeaseBackend(make=make, expire=expire)
+
+        async with pg_engine.begin() as conn:
+            await conn.run_sync(metadata.drop_all)
+
+
+class TestSqlAlchemyAdvisoryLeaseConformance(LeaseContract):
+    supports_expiry: ClassVar[bool] = False
+
+    @pytest.fixture
+    @override
+    def lease_backend(self, pg_engine: AsyncEngine) -> LeaseBackend:
+        def make(config: LeaseConfig) -> ILease:
+            return PostgresAdvisoryLease(pg_engine, config)
+
+        def expire(_name: str) -> Awaitable[None]:
+            raise NotImplementedError
+
+        return LeaseBackend(make=make, expire=expire)
 
 
 class TestSqlAlchemyOutboxConformance(OutboxStoreContract):

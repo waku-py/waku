@@ -241,6 +241,8 @@ Backend-author conformance kit: assembly and facet contract suites.
 `EventStoreFactory` ·
 `InboxStoreContract` ·
 `ItemAdded` ·
+`LeaseBackend` ·
+`LeaseContract` ·
 `OrderCreated` ·
 `OrderShipped` ·
 `OutboxStoreContract` ·

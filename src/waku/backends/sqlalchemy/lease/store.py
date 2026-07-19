@@ -32,7 +32,7 @@ RETURNING name;
 _RENEW_SQL = text("""\
 UPDATE waku_leases
 SET renewed_at = now(), expires_at = now() + make_interval(secs => :ttl)
-WHERE name = :name AND holder_id = :holder;
+WHERE name = :name AND holder_id = :holder AND expires_at > now();
 """)
 
 _RELEASE_SQL = text("""\
