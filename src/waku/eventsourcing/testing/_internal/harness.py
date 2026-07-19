@@ -144,29 +144,45 @@ class _AggregateWhenResult(Generic[AggregateT]):
         assert predicate(self._aggregate), f'State predicate failed for aggregate: {self._aggregate}'  # noqa: S101
 
 
+async def _subscribed_head_position(
+    event_reader: IEventReader,
+    event_type_names: Sequence[str] | None,
+) -> int:
+    """Return the head position a projection must reach: filtered head when subscribed, else global head."""
+    if event_type_names is None:
+        return await event_reader.global_head_position()
+    events = await event_reader.read_all(event_types=event_type_names)
+    return events[-1].global_position if events else -1
+
+
 async def wait_for_projection(
     checkpoint_store: ICheckpointStore,
     event_reader: IEventReader,
     projection_name: str,
     *,
+    event_type_names: Sequence[str] | None = None,
     deadline: float = 5.0,
     poll_interval: float = 0.1,
 ) -> None:
-    """Poll until a projection's checkpoint reaches the global head position.
+    """Poll until a projection's checkpoint reaches the head position among its subscribed event types.
 
-    Returns immediately when the event store is empty (head position == -1).
+    A filtered projection advances its checkpoint only to the last *matching* event, so its wait target
+    is the head among ``event_type_names`` (the global head when unfiltered). Returns immediately when
+    there is nothing to catch up to (head position == -1).
 
     Args:
         checkpoint_store: Store to read projection checkpoints from.
-        event_reader: Event reader to determine the global head position.
+        event_reader: Event reader to determine the head position.
         projection_name: Name of the projection to wait for.
+        event_type_names: Subscribed event-type names to target the filtered head; ``None`` targets the
+            unfiltered global head.
         deadline: Maximum seconds to wait before raising ``TimeoutError``.
         poll_interval: Seconds between checkpoint polls.
 
     Raises:
         TimeoutError: If the projection does not catch up within *deadline* seconds.
     """
-    head = await event_reader.global_head_position()
+    head = await _subscribed_head_position(event_reader, event_type_names)
     if head == -1:
         return
 
@@ -192,11 +208,12 @@ async def wait_for_all_projections(
 ) -> None:
     """Poll until every registered catch-up projection has caught up.
 
-    Delegates to :func:`wait_for_projection` for each binding in the registry.
+    Delegates to :func:`wait_for_projection` for each binding, targeting each projection's filtered head
+    via its resolved ``event_type_names``.
 
     Args:
         checkpoint_store: Store to read projection checkpoints from.
-        event_reader: Event reader to determine the global head position.
+        event_reader: Event reader to determine the head position.
         projection_registry: Registry of catch-up projection bindings.
         deadline: Maximum seconds to wait *per projection*.
         poll_interval: Seconds between checkpoint polls.
@@ -209,6 +226,7 @@ async def wait_for_all_projections(
             checkpoint_store=checkpoint_store,
             event_reader=event_reader,
             projection_name=binding.projection.projection_name,
+            event_type_names=binding.event_type_names,
             deadline=deadline,
             poll_interval=poll_interval,
         )

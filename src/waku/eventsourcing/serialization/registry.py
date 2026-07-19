@@ -63,6 +63,18 @@ class EventTypeRegistry:
     def get_name(self, event_type: type[IEvent], /) -> str:
         return self.get_identity(event_type).name
 
+    def names_for(self, event_type: type[IEvent], /) -> frozenset[str]:
+        """Return every persisted name for a type: its canonical name plus every registered alias.
+
+        Derived from the single ``_name_to_type`` mapping (no second dict to drift).
+
+        Raises:
+            UnknownEventTypeError: If *event_type* was never registered.
+        """
+        if event_type not in self._type_to_identity:
+            raise UnknownEventTypeError(event_type.__name__)
+        return frozenset(name for name, mapped_type in self._name_to_type.items() if mapped_type is event_type)
+
     def get_identity(self, event_type: type[IEvent], /) -> MessageIdentity:
         try:
             return self._type_to_identity[event_type]

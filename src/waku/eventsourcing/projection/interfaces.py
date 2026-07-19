@@ -50,7 +50,9 @@ class ICatchUpProjection(IProjection, ABC):
     ``project()`` must be idempotent.
 
     Set ``event_types`` to filter which event types this projection receives.
-    When ``None`` (default), all events are delivered.
+    ``None`` (default) delivers every event. A non-empty sequence delivers exactly those types,
+    alias-expanded to include historical names. An empty sequence is rejected with
+    ``EventSourcingConfigError`` at module registration.
     """
 
     event_types: ClassVar[Sequence[type[IEvent]] | None] = None

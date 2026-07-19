@@ -10,7 +10,8 @@ from typing_extensions import override
 from waku import module
 from waku.backends.memory import MemoryBackend
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate, IDecider
-from waku.eventsourcing.contracts.event import EventMetadata, IMetadataEnricher
+from waku.eventsourcing.contracts.event import EventEnvelope, EventMetadata, IMetadataEnricher
+from waku.eventsourcing.contracts.stream import NoStream, StreamId
 from waku.eventsourcing.decider.repository import DeciderRepository
 from waku.eventsourcing.exceptions import (
     DuplicateAggregateNameError,
@@ -27,6 +28,7 @@ from waku.eventsourcing.modules import (
     EventType,
     SnapshotOptions,
 )
+from waku.eventsourcing.projection._internal.processor import ProjectionProcessor
 from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
 from waku.eventsourcing.projection.interfaces import (
     ICatchUpProjection,
@@ -778,6 +780,147 @@ async def test_projection_with_unregistered_event_type_raises() -> None:
     with pytest.raises(EventSourcingConfigError, match=r"'FilteredProjection'.*'ItemCreated'.*not registered"):
         async with create_test_app(imports=[TestModule]):
             pass  # pragma: no cover
+
+
+class EmptyFilterProjection(ICatchUpProjection):
+    projection_name = 'empty_filter'
+    event_types = ()
+
+    @override
+    async def project(self, events: Sequence[StoredEvent], /) -> None:  # pragma: no cover
+        pass
+
+
+class RecordingFilteredProjection(ICatchUpProjection):
+    projection_name = 'recording_filtered'
+    event_types = (ItemCreated,)
+
+    def __init__(self) -> None:
+        self.received: list[StoredEvent] = []
+
+    @override
+    async def project(self, events: Sequence[StoredEvent], /) -> None:
+        self.received.extend(events)
+
+
+async def test_filtered_projection_alias_names_expanded() -> None:
+    es_ext = EventSourcingExtension()
+    es_ext.bind_aggregate(
+        repository=ItemRepository,
+        event_types=[EventType(ItemCreated, aliases=['ItemCreatedV0'])],
+    )
+    es_ext.bind_catch_up_projection(FilteredProjection)
+
+    @module(
+        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()],
+        extensions=[es_ext],
+    )
+    class TestModule:
+        pass
+
+    async with create_test_app(imports=[TestModule]) as app, app.container() as container:
+        binding = (await container.get(CatchUpProjectionRegistry)).get('filtered')
+        assert binding.event_type_names == ('ItemCreated', 'ItemCreatedV0')
+
+
+async def test_empty_event_types_raises() -> None:
+    es_ext = EventSourcingExtension()
+    es_ext.bind_aggregate(repository=ItemRepository, event_types=[ItemCreated])
+    es_ext.bind_catch_up_projection(EmptyFilterProjection)
+
+    @module(
+        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()],
+        extensions=[es_ext],
+    )
+    class TestModule:
+        pass
+
+    with pytest.raises(EventSourcingConfigError, match=r"'EmptyFilterProjection'.*empty event_types"):
+        async with create_test_app(imports=[TestModule]):
+            pass  # pragma: no cover
+
+
+async def test_none_event_types_still_resolves_to_no_filter() -> None:
+    es_ext = EventSourcingExtension()
+    es_ext.bind_aggregate(repository=ItemRepository, event_types=[ItemCreated])
+    es_ext.bind_catch_up_projection(SearchIndexProjection)
+
+    @module(
+        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()],
+        extensions=[es_ext],
+    )
+    class TestModule:
+        pass
+
+    async with create_test_app(imports=[TestModule]) as app, app.container() as container:
+        binding = (await container.get(CatchUpProjectionRegistry)).get('search_index')
+        assert binding.event_type_names is None
+
+
+async def test_catch_up_rebuild_includes_historically_aliased_rows() -> None:
+    es_ext = EventSourcingExtension()
+    es_ext.bind_aggregate(
+        repository=ItemRepository,
+        event_types=[EventType(ItemCreated, aliases=['ItemCreatedV0'])],
+    )
+    es_ext.bind_catch_up_projection(RecordingFilteredProjection)
+
+    @module(
+        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()],
+        extensions=[es_ext],
+    )
+    class TestModule:
+        pass
+
+    async with create_test_app(imports=[TestModule]) as app, app.container() as container:
+        binding = (await container.get(CatchUpProjectionRegistry)).get('recording_filtered')
+
+    # A historical row persisted under the old name, now registered as an alias of the same type.
+    legacy_registry = EventTypeRegistry()
+    legacy_registry.register(ItemCreated, name='ItemCreatedV0')
+    legacy_registry.freeze()
+    store = InMemoryEventStore(legacy_registry)
+    await store.append_to_stream(
+        StreamId(stream_type='item', stream_key='1'),
+        [EventEnvelope(domain_event=ItemCreated(name='legacy'), idempotency_key='k1')],
+        expected_version=NoStream(),
+    )
+
+    projection = RecordingFilteredProjection()
+    outcome = await ProjectionProcessor(binding).run_once(projection, store, InMemoryCheckpointStore())
+
+    assert outcome.events_processed == 1
+    assert [event.event_type for event in projection.received] == ['ItemCreatedV0']
+
+
+def test_bind_catch_up_projection_uses_vo_defaults() -> None:
+    es_ext = EventSourcingExtension()
+    es_ext.bind_catch_up_projection(SearchIndexProjection)
+
+    binding = es_ext.catch_up_bindings[0]
+    assert binding.error_policy is ProjectionErrorPolicy.STOP
+    assert binding.max_retry_attempts == 0
+    assert binding.base_retry_delay_seconds == 10.0
+    assert binding.max_retry_delay_seconds == 300.0
+    assert binding.batch_size == 100
+    assert binding.gap_detection_enabled is True
+    assert binding.gap_timeout_seconds == 10.0
+
+
+def test_bind_catch_up_projection_forwards_only_set_override() -> None:
+    es_ext = EventSourcingExtension()
+    es_ext.bind_catch_up_projection(SearchIndexProjection, batch_size=50)
+
+    binding = es_ext.catch_up_bindings[0]
+    assert binding.batch_size == 50
+    assert binding.base_retry_delay_seconds == 10.0
+
+
+def test_bind_catch_up_projection_validates_through_vo() -> None:
+    es_ext = EventSourcingExtension()
+
+    with pytest.raises(EventSourcingConfigError, match='batch_size'):
+        es_ext.bind_catch_up_projection(SearchIndexProjection, batch_size=0)
 
 
 @pytest.mark.parametrize(

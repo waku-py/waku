@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Self, TypeAlias
 from typing_extensions import override
 
 from waku._internal.provider_scan import provided_type_hints
+from waku._internal.sentinel import MISSING
 from waku.di import Provider, WithParents, is_registered, many, object_, scoped
 from waku.eventsourcing._internal.introspection import resolve_generic_args
 from waku.eventsourcing.contracts.aggregate import IDecider
@@ -280,27 +281,32 @@ class EventSourcingExtension(OnModuleConfigure):
         self,
         projection: type[ICatchUpProjection],
         *,
-        error_policy: ProjectionErrorPolicy = ProjectionErrorPolicy.STOP,
-        max_retry_attempts: int = 0,
-        base_retry_delay_seconds: float = 10.0,
-        max_retry_delay_seconds: float = 300.0,
-        batch_size: int = 100,
-        gap_detection_enabled: bool = True,
-        gap_timeout_seconds: float = 10.0,
+        error_policy: ProjectionErrorPolicy | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+        max_retry_attempts: int | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+        base_retry_delay_seconds: float | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+        max_retry_delay_seconds: float | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+        batch_size: int | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+        gap_detection_enabled: bool | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+        gap_timeout_seconds: float | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
     ) -> Self:
+        # MISSING-passthrough: forward only explicitly-set kwargs so CatchUpProjectionBinding stays the
+        # single source of default values (no duplicated defaults to drift). The builder path still runs
+        # the VO's __post_init__ validation.
+        overrides: dict[str, Any] = {
+            key: value
+            for key, value in {
+                'error_policy': error_policy,
+                'max_retry_attempts': max_retry_attempts,
+                'base_retry_delay_seconds': base_retry_delay_seconds,
+                'max_retry_delay_seconds': max_retry_delay_seconds,
+                'batch_size': batch_size,
+                'gap_detection_enabled': gap_detection_enabled,
+                'gap_timeout_seconds': gap_timeout_seconds,
+            }.items()
+            if value is not MISSING
+        }
         self._registry.catch_up_projection_types.append(projection)
-        self._catch_up_bindings.append(
-            CatchUpProjectionBinding(
-                projection=projection,
-                error_policy=error_policy,
-                max_retry_attempts=max_retry_attempts,
-                base_retry_delay_seconds=base_retry_delay_seconds,
-                max_retry_delay_seconds=max_retry_delay_seconds,
-                batch_size=batch_size,
-                gap_detection_enabled=gap_detection_enabled,
-                gap_timeout_seconds=gap_timeout_seconds,
-            ),
-        )
+        self._catch_up_bindings.append(CatchUpProjectionBinding(projection=projection, **overrides))
         return self
 
     @property
@@ -431,13 +437,22 @@ class EventSourcingRegistryAggregator(RegistryAggregator['EventSourcingExtension
     ) -> tuple[CatchUpProjectionBinding, ...]:
         resolved: list[CatchUpProjectionBinding] = []
         for binding in bindings:
-            if binding.projection.event_types is None:
+            event_types = binding.projection.event_types
+            if event_types is None:  # None is the sole 'subscribe to all' spelling.
                 resolved.append(binding)
                 continue
-            names: list[str] = []
-            for et in binding.projection.event_types:
+            if not event_types:
+                msg = (
+                    f'Projection {binding.projection.__name__!r} declares an empty event_types; '
+                    f'set event_types = None to subscribe to all events.'
+                )
+                raise EventSourcingConfigError(msg)
+            names: set[str] = set()
+            for et in event_types:
                 try:
-                    names.append(event_type_registry.get_name(et))
+                    # Alias-expand to every persisted name (canonical + aliases) so a rebuild sees
+                    # historical rows stored under an older name now registered as an alias.
+                    names.update(event_type_registry.names_for(et))
                 except UnknownEventTypeError:
                     msg = (
                         f'Projection {binding.projection.__name__!r} declares event type '
@@ -445,7 +460,7 @@ class EventSourcingRegistryAggregator(RegistryAggregator['EventSourcingExtension
                         f'via bind_aggregate(event_types=[...]).'
                     )
                     raise EventSourcingConfigError(msg) from None
-            resolved.append(replace(binding, event_type_names=tuple(names)))
+            resolved.append(replace(binding, event_type_names=tuple(sorted(names))))
         return tuple(resolved)
 
     @staticmethod

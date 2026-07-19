@@ -228,3 +228,35 @@ def test_get_identity_for_unregistered_type_raises() -> None:
 
     with pytest.raises(UnknownEventTypeError, match='OrderCreated'):
         registry.get_identity(OrderCreated)
+
+
+def test_names_for_returns_canonical_only_when_no_aliases() -> None:
+    registry = EventTypeRegistry()
+    registry.register(OrderCreated)
+
+    assert registry.names_for(OrderCreated) == frozenset({'OrderCreated'})
+
+
+def test_names_for_returns_canonical_and_every_alias() -> None:
+    registry = EventTypeRegistry()
+    registry.register(OrderCreated, name='order.created')
+    registry.add_alias(OrderCreated, 'order_created_v1')
+    registry.add_alias(OrderCreated, 'order_created_v0')
+
+    assert registry.names_for(OrderCreated) == frozenset({'order.created', 'order_created_v1', 'order_created_v0'})
+
+
+def test_names_for_excludes_names_of_other_types() -> None:
+    registry = EventTypeRegistry()
+    registry.register(OrderCreated)
+    registry.register(ItemAdded)
+    registry.add_alias(ItemAdded, 'item_added_v0')
+
+    assert registry.names_for(OrderCreated) == frozenset({'OrderCreated'})
+
+
+def test_names_for_unregistered_type_raises() -> None:
+    registry = EventTypeRegistry()
+
+    with pytest.raises(UnknownEventTypeError, match='OrderCreated'):
+        registry.names_for(OrderCreated)
