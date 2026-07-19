@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import dataclasses
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, TypeGuard
@@ -49,16 +50,18 @@ class _InMemoryDeadLetterStoreOperations(IDeadLetterStore):
     async def save(self, entry: DeadLetterEntry) -> None:
         if entry.created_at is None:
             entry = dataclasses.replace(entry, created_at=datetime.now(tz=UTC))
-        self.entries[entry.id] = entry
+        # Serialize-in isolation: persist a snapshot so a caller mutating payload/metadata after
+        # save never rewrites the stored row (the SQL peer serializes to JSONB on execute).
+        self.entries[entry.id] = copy.deepcopy(entry)
 
     @override
     async def fetch(self, batch_size: int = 100) -> Sequence[DeadLetterEntry]:
-        return self._oldest_first()[:batch_size]
+        return [self._snapshot(entry) for entry in self._oldest_first()[:batch_size]]
 
     @override
     async def fetch_one(self, entry_id: UUID) -> DeadLetterEntry:
         try:
-            return self.entries[entry_id]
+            return self._snapshot(self.entries[entry_id])
         except KeyError:
             msg = f'Dead letter entry {entry_id} not found'
             raise KeyError(msg) from None
@@ -67,7 +70,7 @@ class _InMemoryDeadLetterStoreOperations(IDeadLetterStore):
     async def query(self, filters: DeadLetterQuery) -> Sequence[DeadLetterEntry]:
         matched = [entry for entry in self.entries.values() if self._matches(entry, filters)]
         matched.sort(key=self._created_at_key, reverse=True)
-        return matched[filters.offset : filters.offset + filters.limit]
+        return [self._snapshot(entry) for entry in matched[filters.offset : filters.offset + filters.limit]]
 
     @override
     async def claim_replayable(
@@ -169,7 +172,13 @@ class _InMemoryDeadLetterStoreOperations(IDeadLetterStore):
             replay_lease_expires_at=lease_expires_at,
         )
         self.entries[entry.id] = claimed
-        return claimed
+        return self._snapshot(claimed)
+
+    @staticmethod
+    def _snapshot(entry: DeadLetterEntry) -> DeadLetterEntry:
+        # Deserialize-out isolation: every read return is a snapshot, so a caller mutating
+        # payload/metadata never rewrites stored state (the SQL peer reads fresh objects per row).
+        return copy.deepcopy(entry)
 
     def _oldest_first(self) -> list[DeadLetterEntry]:
         return sorted(self.entries.values(), key=self._created_at_key)

@@ -64,6 +64,23 @@ class OutboxStoreContract:
         fetched = await outbox_store.fetch_head_of_queue(batch_size=10)
         assert len(fetched) == 1
 
+    async def test_saved_message_isolated_from_caller_and_fetch_mutation(self, outbox_store: IOutboxStore) -> None:
+        # A persisted store must behave like a real DB: mutating the caller's payload after save never
+        # rewrites the stored row, and mutating a fetched result never rewrites stored state.
+        payload = {'items': ['original']}
+        message = make_outbox_message(payload=payload)
+        await outbox_store.save_batch([message])
+        payload['items'].append('leaked-after-save')
+
+        first = await outbox_store.fetch_head_of_queue(batch_size=10)
+        assert first[0].payload == {'items': ['original']}
+
+        first[0].payload['items'].append('leaked-from-read')
+        past = datetime.now(tz=UTC) - timedelta(seconds=1)
+        await outbox_store.mark_failed(first[0].id, 'retry', next_retry_at=past)
+        refetched = await outbox_store.fetch_head_of_queue(batch_size=10)
+        assert refetched[0].payload == {'items': ['original']}
+
     async def test_non_uuid_correlation_causation_round_trip(self, outbox_store: IOutboxStore) -> None:
         # Free-form (non-UUID) correlation/causation ids from foreign upstreams must round-trip verbatim.
         message = make_outbox_message(correlation_id='trace-abc-123', causation_id='req-xyz-789')

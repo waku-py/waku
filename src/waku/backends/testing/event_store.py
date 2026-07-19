@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Protocol
 import pytest
 from typing_extensions import override
 
-from waku.eventsourcing.contracts.event import EventEnvelope
+from waku.eventsourcing.contracts.event import EventEnvelope, EventMetadata
 from waku.eventsourcing.contracts.stream import AnyVersion, Exact, NoStream, StreamExists, StreamId, StreamPosition
 from waku.eventsourcing.exceptions import (
     ConcurrencyConflictError,
@@ -55,6 +55,13 @@ class OrderShipped(IEvent):
     """Sample event the contract appends; register it in your ``EventTypeRegistry``."""
 
     tracking_number: str
+
+
+@dataclass(frozen=True)
+class OrderTagged(IEvent):
+    """Sample event carrying a nested-mutable field; pins domain-event write/read isolation."""
+
+    tags: list[str]
 
 
 def make_envelope(event: IEvent) -> EventEnvelope:
@@ -120,6 +127,7 @@ class EventStoreContract:
         reg.register(OrderCreated)
         reg.register(ItemAdded)
         reg.register(OrderShipped)
+        reg.register(OrderTagged)
         return reg
 
     @pytest.fixture
@@ -188,6 +196,42 @@ class EventStoreContract:
         assert events[1].position == 1
         assert events[1].global_position == 1
         assert events[1].data == ItemAdded(item_name='Widget')
+
+    async def test_stored_events_are_isolated_from_caller_and_read_mutation(
+        self,
+        store: IEventStore,
+        stream_id: StreamId,
+    ) -> None:
+        # A persisted store must behave like a real DB: it neither retains the caller's mutable
+        # domain event / metadata nor hands back an object a caller can mutate into stored history.
+        # `OrderTagged.tags` (domain event) and `EventMetadata.extra` are both nested-mutable vectors.
+        tags = ['original']
+        extra = {'tags': ['original']}
+        await store.append_to_stream(
+            stream_id,
+            [
+                EventEnvelope(
+                    domain_event=OrderTagged(tags=tags),
+                    idempotency_key='key-1',
+                    metadata=EventMetadata(extra=extra),
+                ),
+            ],
+            expected_version=NoStream(),
+        )
+        tags.append('leaked-after-append')
+        extra['tags'].append('leaked-after-append')
+
+        first = await store.read_stream(stream_id)
+        first_event = first[0].data
+        assert isinstance(first_event, OrderTagged)
+        assert first_event.tags == ['original']
+        assert first[0].metadata.extra == {'tags': ['original']}
+
+        first_event.tags.append('leaked-from-read')
+        first[0].metadata.extra['tags'].append('leaked-from-read')
+        second = await store.read_stream(stream_id)
+        assert second[0].data == OrderTagged(tags=['original'])
+        assert second[0].metadata.extra == {'tags': ['original']}
 
     async def test_read_stream_raises_for_nonexistent_stream(
         self,

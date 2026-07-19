@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -55,7 +56,9 @@ class _InMemoryInboxStoreOperations(IInboxStore):
         key = (entry.id, entry.destination)
         if key in self.entries:
             return False
-        self.entries[key] = entry
+        # Serialize-in isolation: persist a snapshot so a caller mutating payload/metadata after
+        # store never rewrites the stored row (the SQL peer serializes to JSONB on execute).
+        self.entries[key] = copy.deepcopy(entry)
         return True
 
     @override
@@ -117,7 +120,9 @@ class _InMemoryInboxStoreOperations(IInboxStore):
         for entry in selected:
             updated = replace(entry, owner_id=owner_id)
             self.entries[entry.id, entry.destination] = updated
-            claimed.append(updated)
+            # Deserialize-out isolation: hand back a snapshot so a caller mutating payload/metadata
+            # never rewrites stored state (the SQL peer reads fresh objects per row).
+            claimed.append(copy.deepcopy(updated))
         return claimed
 
     @override

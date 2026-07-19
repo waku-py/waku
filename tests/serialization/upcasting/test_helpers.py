@@ -67,6 +67,16 @@ class TestAddField:
         result_b = upcaster.upcast({'x': 2})
         assert result_a['tags'] is not result_b['tags']
 
+    @staticmethod
+    def test_nested_mutable_default_not_shared() -> None:
+        upcaster = add_field(from_version=1, field='meta', default={'tags': ['leaked']})
+        result_a = upcaster.upcast({'x': 1})
+        result_b = upcaster.upcast({'x': 2})
+
+        result_a['meta']['tags'].append('mutated')
+
+        assert result_b['meta']['tags'] == ['leaked']
+
 
 class TestRemoveField:
     @staticmethod

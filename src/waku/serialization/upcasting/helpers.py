@@ -67,7 +67,7 @@ def add_field(from_version: int, *, field: str, default: Any) -> IPayloadUpcaste
     def _add(data: dict[str, Any]) -> dict[str, Any]:
         result = dict(data)
         if field not in result:
-            result[field] = copy.copy(default)
+            result[field] = copy.deepcopy(default)
         return result
 
     return FnUpcaster(from_version, fn=_add, key=('add_field', field, _hashable_or_repr(default)))

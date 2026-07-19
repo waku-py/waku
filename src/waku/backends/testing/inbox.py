@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 __all__ = ['InboxStoreContract']
 
 
-def _make_entry(
+def _make_entry(  # noqa: PLR0913
     *,
     entry_id: UUID | None = None,
     destination: str = 'tests.messaging.HandlerA',
@@ -30,10 +30,11 @@ def _make_entry(
     correlation_id: str | None = None,
     causation_id: str | None = None,
     metadata: dict[str, Any] | None = None,
+    payload: dict[str, Any] | None = None,
 ) -> InboxEntry:
     return InboxEntry(
         id=entry_id or uuid4(),
-        payload={'test': True},
+        payload=payload if payload is not None else {'test': True},
         message_type='test.Event',
         source_uri=EndpointUri('local://orders'),
         destination=HandlerDestination(destination),
@@ -79,6 +80,22 @@ class InboxStoreContract:
     def inbox_store(self) -> IInboxStore:
         msg = 'override the inbox_store fixture with your backend adapter'
         raise NotImplementedError(msg)  # pragma: no cover
+
+    async def test_saved_entry_isolated_from_caller_and_fetch_mutation(self, inbox_store: IInboxStore) -> None:
+        # A persisted store must behave like a real DB: mutating the caller's payload after store never
+        # rewrites the stored row, and mutating a fetched result never rewrites stored state.
+        payload = {'items': ['original']}
+        entry = _make_entry(payload=payload)
+        await inbox_store.store_incoming(entry)
+        payload['items'].append('leaked-after-store')
+
+        first = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='worker-1')
+        assert first[0].payload == {'items': ['original']}
+
+        first[0].payload['items'].append('leaked-from-read')
+        await inbox_store.recover_abandoned(threshold=timedelta(seconds=-1))
+        second = await inbox_store.fetch_pending_partitioned(batch_size=10, owner_id='worker-2')
+        assert second[0].payload == {'items': ['original']}
 
     async def test_destination_round_trips_handler_fqn_byte_identical(self, inbox_store: IInboxStore) -> None:
         destination = handler_destination(_DedupHandler)

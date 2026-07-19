@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import dataclasses
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -72,7 +73,9 @@ class _InMemoryOutboxStoreOperations(IOutboxStore):
             if key in keys:
                 continue
             keys.add(key)
-            self.messages.append(msg)
+            # Serialize-in isolation: persist a snapshot so a caller mutating payload/metadata after
+            # save never rewrites the stored row (the SQL peer serializes to JSONB on execute).
+            self.messages.append(copy.deepcopy(msg))
 
     @override
     async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
@@ -106,7 +109,12 @@ class _InMemoryOutboxStoreOperations(IOutboxStore):
     def _claim(self, selected: list[OutboxMessage], now: datetime) -> list[OutboxMessage]:
         for msg in selected:
             self._replace(msg.id, status=OutboxStatus.PROCESSING, processing_started_at=now)
-        return [dataclasses.replace(msg, status=OutboxStatus.PROCESSING, processing_started_at=now) for msg in selected]
+        # Deserialize-out isolation: the claimed rows returned to the relay are snapshots, so a caller
+        # mutating payload/metadata never rewrites stored state (the SQL peer reads fresh objects).
+        return [
+            copy.deepcopy(dataclasses.replace(msg, status=OutboxStatus.PROCESSING, processing_started_at=now))
+            for msg in selected
+        ]
 
     @override
     async def mark_dispatched(self, message_id: UUID) -> None:

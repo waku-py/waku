@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import logging
 import uuid
 from collections.abc import Sequence  # noqa: TC003  # Dishka needs runtime access
@@ -154,7 +155,9 @@ class _InMemoryEventStoreOperations(IEventStore):
             subset = events[offset:]
             if count is not None:
                 subset = subset[:count]
-            return list(subset)
+            # Deserialize-out isolation: a caller mutating a read result must not rewrite stored history
+            # nor another read — mirroring the SQL backend, which reconstructs a fresh object per row.
+            return [copy.deepcopy(event) for event in subset]
 
     @override
     async def archive_stream(self, stream_id: StreamId, /) -> None:
@@ -189,7 +192,7 @@ class _InMemoryEventStoreOperations(IEventStore):
             ]
             if count is not None:
                 filtered = filtered[:count]
-            return filtered
+            return [copy.deepcopy(event) for event in filtered]
 
     @override
     async def stream_exists(self, stream_id: StreamId, /) -> bool:
@@ -277,8 +280,10 @@ class _InMemoryEventStoreOperations(IEventStore):
                     position=position,
                     global_position=state.global_position,
                     timestamp=datetime.now(UTC),
-                    data=envelope.domain_event,
-                    metadata=enrich_metadata(envelope.metadata, self._enrichers),
+                    # Serialize-in isolation: the store must not retain the caller's mutable event or
+                    # metadata — mirroring the SQL backend, which persists a JSON snapshot on write.
+                    data=copy.deepcopy(envelope.domain_event),
+                    metadata=copy.deepcopy(enrich_metadata(envelope.metadata, self._enrichers)),
                     idempotency_key=envelope.idempotency_key,
                     schema_version=self._registry.get_version(type(envelope.domain_event)),
                 )

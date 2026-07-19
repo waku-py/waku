@@ -48,6 +48,21 @@ class DeadLetterStoreContract:
         msg = 'override the dlq_store fixture with your backend adapter'
         raise NotImplementedError(msg)  # pragma: no cover
 
+    async def test_saved_entry_isolated_from_caller_and_fetch_mutation(self, dlq_store: IDeadLetterStore) -> None:
+        # A persisted store must behave like a real DB: mutating the caller's payload after save never
+        # rewrites the stored row, and mutating a fetched result never rewrites another fetch.
+        payload = {'items': ['original']}
+        entry = _make_entry(payload=payload)
+        await dlq_store.save(entry)
+        payload['items'].append('leaked-after-save')
+
+        first = await dlq_store.fetch(batch_size=10)
+        assert first[0].payload == {'items': ['original']}
+
+        first[0].payload['items'].append('leaked-from-read')
+        second = await dlq_store.fetch(batch_size=10)
+        assert second[0].payload == {'items': ['original']}
+
     async def test_non_uuid_correlation_causation_round_trip(self, dlq_store: IDeadLetterStore) -> None:
         # Free-form (non-UUID) correlation/causation ids from foreign upstreams must round-trip verbatim.
         entry = _make_entry(correlation_id='trace-abc-123', causation_id='req-xyz-789')
