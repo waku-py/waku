@@ -3,29 +3,25 @@ from __future__ import annotations
 import copy
 from contextlib import asynccontextmanager
 from itertools import chain
-from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
-import anyio
-from dishka import STRICT_VALIDATION, Scope, make_async_container
-from dishka.async_container import CONTAINER_KEY
 from dishka.dependency_source import ContextVariable
-from dishka.entities.factory_type import FactoryType
 from dishka.entities.marker import BaseMarker, BoolMarker
 
-from waku.di import DEFAULT_COMPONENT, AsyncContainer, BaseProvider
+from waku.di import BaseProvider
 from waku.exceptions import ImproperlyConfiguredError
 from waku.extensions import DEFAULT_EXTENSIONS
 from waku.factory import WakuFactory
 from waku.modules._internal.metadata import module
+from waku.testing._internal.container_override import ContainerOverride
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Sequence
 
     from dishka import Provider
-    from dishka.dependency_source import Factory
-    from dishka.registry import Registry
 
     from waku.application import WakuApplication
+    from waku.di import AsyncContainer
     from waku.extensions import ApplicationExtension, ModuleExtension
     from waku.modules import ModuleType
     from waku.modules._internal.metadata import DynamicModule
@@ -86,77 +82,17 @@ async def override(
 
     Raises:
         ImproperlyConfiguredError: If container is not at root (APP) scope.
+
+    Note:
+        Mutates the container in place. Nested (LIFO) overrides are safe; overriding
+        the same container from concurrent tasks is not.
     """
-    if container.scope != Scope.APP:
-        msg = (
-            f'override() only supports root (APP scope) containers, '
-            f'got {container.scope.name} scope. '
-            f'Use application.container instead of a scoped container.'
-        )
-        raise ImproperlyConfiguredError(msg)
-
-    marked = tuple(_as_override(provider) for provider in providers)
-
-    original_context = container._context or {}  # noqa: SLF001
-    merged_context = {**original_context, **(context or {})}
-    new_container = make_async_container(
-        _container_provider(container),
-        *marked,
-        context=merged_context,
-        start_scope=container.scope,
-        validation_settings=STRICT_VALIDATION,
-    )
-
-    # Only copy cache when no providers are overridden (context-only override)
-    # Provider overrides may have transitive effects, so rebuild everything
-    if not providers:
-        _copy_cache(container, new_container)
-
-    _swap(container, new_container)
-    container._cache[CONTAINER_KEY] = container  # noqa: SLF001
-    body_error: BaseException | None = None
-    try:
+    async with ContainerOverride(
+        container,
+        *(_as_override(provider) for provider in providers),
+        context=context,
+    ):
         yield
-    except BaseException as error:
-        body_error = error
-        raise
-    finally:
-        _swap(new_container, container)
-        with anyio.CancelScope(shield=True):
-            await new_container.close(body_error)
-
-
-def _container_provider(container: AsyncContainer) -> BaseProvider:
-    container_provider = BaseProvider(component=DEFAULT_COMPONENT)
-    registry: Registry | None = container.registry
-    while registry is not None:
-        container_provider.factories.extend(_extract_factories(registry))
-        registry = registry.child_registry
-    return container_provider
-
-
-def _extract_factories(registry: Registry) -> list[Factory]:
-    return [
-        factory.replace(when_override=None)
-        for dep_key, factory in registry.factories.items()
-        if (dep_key.type_hint is not AsyncContainer and factory.type is not FactoryType.CONTEXT)
-    ]
-
-
-def _copy_cache(
-    source: AsyncContainer,
-    target: AsyncContainer,
-) -> None:
-    source_cache = cast('dict[Any, Any]', source._cache)  # noqa: SLF001
-    target_cache = cast('dict[Any, Any]', target._cache)  # noqa: SLF001
-    target_cache.update(source_cache)
-
-
-def _swap(c1: AsyncContainer, c2: AsyncContainer) -> None:
-    for attr in type(c1).__slots__:
-        tmp = getattr(c1, attr)
-        setattr(c1, attr, getattr(c2, attr))
-        setattr(c2, attr, tmp)
 
 
 @asynccontextmanager
