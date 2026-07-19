@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from collections import Counter
 from collections.abc import AsyncIterator  # noqa: TC003 -- dishka introspects the provider signature at runtime
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -12,8 +13,10 @@ import pytest
 from typing_extensions import override
 
 from waku import module
-from waku._internal.lease import ILease, InMemoryLease
+from waku._internal.lease import ILease, InMemoryLease, LeaseConfig
 from waku.di import object_, provider
+from waku.eventsourcing.contracts.event import EventEnvelope
+from waku.eventsourcing.contracts.stream import NoStream, StreamId
 from waku.eventsourcing.exceptions import ProjectionLockedError, ProjectionStoppedError, UnknownProjectionError
 from waku.eventsourcing.projection.config import PollingConfig
 from waku.eventsourcing.projection.interfaces import ICatchUpProjection, ProjectionErrorPolicy
@@ -32,6 +35,7 @@ from tests.eventsourcing.projection.helpers import (
     FlakyProjection,
     PoisonProjection,
     RecordingProjection,
+    SampleEvent,
     StopProjection,
     make_binding,
     sample_event_values,
@@ -55,6 +59,10 @@ _FAST_POLLING = PollingConfig(
     poll_interval_max_seconds=0.01,
     poll_interval_step_seconds=0.0,
 )
+
+# Short lease TTL so the standby re-acquire cadence (renew_interval_seconds) is sub-hundredth-second:
+# a standing-by projection reclaims a freed lease well within each test's wait_until bound.
+_FAST_LEASE_CONFIG = LeaseConfig(ttl_seconds=0.03)
 
 
 class _NoOpUoW(IUnitOfWork):
@@ -118,6 +126,21 @@ class RenewFailingLock(ILease):
     async def _failing_renew() -> None:
         msg = 'lease renew failed'
         raise RuntimeError(msg)
+
+
+class _CountingLease(ILease):
+    # Delegates to a real lease while recording how many times each name was acquired, so a test can prove
+    # the standby loop is LIVE (keeps re-attempting acquisition) without leaning on a log line.
+    def __init__(self, inner: ILease) -> None:
+        self._inner = inner
+        self.attempts: Counter[str] = Counter()
+
+    @override
+    @contextlib.asynccontextmanager
+    async def acquire(self, name: str) -> AsyncGenerator[bool]:
+        self.attempts[name] += 1
+        async with self._inner.acquire(name) as acquired:
+            yield acquired
 
 
 class _RoleNamedProjection(RecordingProjection):
@@ -224,6 +247,8 @@ def _make_app(
         object_(store, provided_type=IEventReader),
         object_(checkpoint_store, provided_type=ICheckpointStore),
         object_(lock, provided_type=ILease),
+        # The backend publishes LeaseConfig alongside ILease; create() reads it for the standby cadence.
+        object_(_FAST_LEASE_CONFIG, provided_type=LeaseConfig),
         object_(projection_registry),
         *[object_(proj, provided_type=type(proj)) for proj in projections],
         resolved_uow_provider,
@@ -251,6 +276,15 @@ def _durable_position_is(session: FakeSession, projection_name: str, position: i
     return predicate
 
 
+async def _append_sample_events(store: InMemoryEventStore, values: Sequence[int], *, stream_key: str) -> None:
+    stream_id = StreamId(stream_type='test', stream_key=stream_key)
+    await store.append_to_stream(
+        stream_id,
+        [EventEnvelope(domain_event=SampleEvent(value=v), idempotency_key=f'more-{v}') for v in values],
+        expected_version=NoStream(),
+    )
+
+
 async def test_create_without_registered_lease_fails_loud() -> None:
     # The projection-daemon lease is backend-owned; with no ILease provider in the container, create()
     # must fail loud and name the backend fix rather than run without single-instance coordination.
@@ -264,6 +298,21 @@ async def test_create_without_registered_lease_fails_loud() -> None:
             await CatchUpProjectionRunner.create(container=app.container)
 
     assert 'MemoryBackend.register(' in str(exc_info.value)
+
+
+async def test_create_with_lease_but_no_lease_config_fails_loud() -> None:
+    # A durability backend publishes LeaseConfig alongside ILease. If it registered an ILease but no
+    # LeaseConfig, create() must fail loud and name the fix rather than surface a cryptic dishka error.
+    @module(providers=[object_(CatchUpProjectionRegistry(())), object_(InMemoryLease(), provided_type=ILease)])
+    class LeaseWithoutConfigModule:
+        pass
+
+    app = WakuFactory(LeaseWithoutConfigModule).create()
+    async with app:
+        with pytest.raises(ImproperlyConfiguredError, match='LeaseConfig') as exc_info:
+            await CatchUpProjectionRunner.create(container=app.container)
+
+    assert 'lease_config=' in str(exc_info.value)
 
 
 async def test_runner_processes_all_events(
@@ -420,7 +469,7 @@ async def test_rebuild_error_cases(
             await runner.rebuild(rebuild_name)
 
 
-async def test_runner_skips_locked_projection(
+async def test_runner_stands_by_when_locked(
     event_store: InMemoryEventStore,
     in_memory_checkpoint_store: InMemoryCheckpointStore,
 ) -> None:
@@ -436,11 +485,153 @@ async def test_runner_skips_locked_projection(
             container=app.container,
             polling=_FAST_POLLING,
         )
-        # A fully locked projection skips immediately, so run() returns on its own (no shutdown needed).
-        with anyio.fail_after(2):
-            await runner.run()
+        finished = anyio.Event()
 
+        async def run_to_completion() -> None:
+            await runner.run()
+            finished.set()
+
+        # A permanently held lease no longer exits the projection: run() stays a LIVE standby that never
+        # self-completes, processes nothing, and leaves only when request_shutdown() wakes its interruptible
+        # wait. Both facts are asserted on run()'s liveness directly, independent of any log line. Proving
+        # run() does not self-complete is a negative, so it needs a bounded observation window: a one-shot
+        # or finite-bounded standby loop would set `finished` well inside 0.2s.
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(run_to_completion)
+                with anyio.move_on_after(0.2):
+                    await finished.wait()
+                assert not finished.is_set()  # run() did not self-complete while locked
+                assert len(projection.received) == 0
+                runner.request_shutdown()  # releasing the standby lets run() (and the task group) finish
+
+    assert finished.is_set()  # request_shutdown() released the standby wait
     assert len(projection.received) == 0
+
+
+async def test_standby_takes_over_when_holder_releases(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    await seed_events(event_store, count=5)
+
+    key = _lease_key('recording')
+    store: dict[str, tuple[str, datetime]] = {key: ('other-node', datetime.now(tz=UTC) + timedelta(seconds=60))}
+    lock = InMemoryLease(_FAST_LEASE_CONFIG, store=store)
+    projection = RecordingProjection()
+    binding = make_binding(RecordingProjection)
+    app = _make_app(event_store, in_memory_checkpoint_store, lock, (projection,), (binding,))
+
+    with caplog.at_level(logging.INFO, logger='waku.eventsourcing.projection.runner'):
+        async with app:
+            runner = await CatchUpProjectionRunner.create(container=app.container, polling=_FAST_POLLING)
+            with anyio.fail_after(5):
+                async with anyio.create_task_group() as tg:
+                    tg.start_soon(runner.run)
+                    await wait_until(lambda: 'standing by' in caplog.text)
+                    assert len(projection.received) == 0  # stood by while the foreign holder owned the lease
+                    del store[key]  # the holder releases; the standby must reclaim and catch up
+                    await wait_until(lambda: len(projection.received) >= 5)
+                    runner.request_shutdown()
+
+    assert sample_event_values(projection.received) == [0, 1, 2, 3, 4]
+
+
+async def test_leader_loss_returns_to_standby_then_reacquires(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    await seed_events(event_store, count=1)
+
+    # A robust lock TTL so the ex-leader's heartbeat detects the steal without a false self-expiry; the
+    # standby re-acquire cadence is the (independent) fast LeaseConfig _make_app publishes.
+    key = _lease_key('recording')
+    store: dict[str, tuple[str, datetime]] = {}
+    lock = InMemoryLease(LeaseConfig(ttl_seconds=0.2), store=store)
+    projection = RecordingProjection()
+    binding = make_binding(RecordingProjection, gap_detection_enabled=False)
+    app = _make_app(event_store, in_memory_checkpoint_store, lock, (projection,), (binding,))
+
+    with caplog.at_level(logging.INFO, logger='waku.eventsourcing.projection.runner'):
+        async with app:
+            runner = await CatchUpProjectionRunner.create(container=app.container, polling=_FAST_POLLING)
+            with anyio.fail_after(5):
+                async with anyio.create_task_group() as tg:
+                    tg.start_soon(runner.run)
+                    await wait_until(lambda: len(projection.received) >= 1)  # led and processed the prefix
+                    # A second node steals the lease: the ex-leader's heartbeat observes the loss as
+                    # cancellation, absorbs it, and returns to standby instead of dying.
+                    store[key] = ('node-2', datetime.now(tz=UTC) + timedelta(seconds=60))
+                    await wait_until(lambda: 'standing by' in caplog.text)
+                    await _append_sample_events(event_store, [1, 2, 3, 4], stream_key='2')
+                    del store[key]  # the stealer releases; the ex-leader reacquires and finishes
+                    await wait_until(lambda: len(projection.received) >= 5)
+                    runner.request_shutdown()
+
+    assert sample_event_values(projection.received) == [0, 1, 2, 3, 4]
+
+
+async def test_standby_projection_does_not_block_sibling(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
+    await seed_events(event_store, count=5)
+
+    locked_key = _lease_key('idle_proj')
+    store: dict[str, tuple[str, datetime]] = {locked_key: ('other-node', datetime.now(tz=UTC) + timedelta(seconds=60))}
+    lock = _CountingLease(InMemoryLease(_FAST_LEASE_CONFIG, store=store))
+    good_projection = RecordingProjection()
+    idle_projection = IdleProjection()
+    good_binding = make_binding(RecordingProjection)
+    idle_binding = make_binding(IdleProjection)
+    app = _make_app(
+        event_store,
+        in_memory_checkpoint_store,
+        lock,
+        (good_projection, idle_projection),
+        (good_binding, idle_binding),
+    )
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(container=app.container, polling=_FAST_POLLING)
+        # The idle projection is permanently locked (forever standby); it must not block or cancel the free
+        # sibling, and it must stay a LIVE standby that keeps re-attempting acquisition rather than exiting
+        # one-shot. Waiting for >= 2 acquisition attempts on the locked key proves the standby loop is live
+        # independent of any log line; request_shutdown() must still wake its interruptible wait.
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(runner.run)
+                await wait_until(lambda: len(good_projection.received) >= 5 and lock.attempts[locked_key] >= 2)
+                runner.request_shutdown()
+
+    assert len(good_projection.received) == 5
+    assert lock.attempts[locked_key] >= 2  # the standby re-attempted acquisition; it did not exit one-shot
+
+
+async def test_projection_error_stops_without_reacquiring(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    await seed_events(event_store, count=5)
+
+    lock = AlwaysAcquiredLock()
+    projection = PoisonProjection(poison_value=0)
+    binding = make_binding(PoisonProjection)  # STOP policy, no retries
+    app = _make_app(event_store, in_memory_checkpoint_store, lock, (projection,), (binding,))
+
+    with caplog.at_level(logging.ERROR, logger='waku.eventsourcing.projection.runner'):
+        async with app:
+            runner = await CatchUpProjectionRunner.create(container=app.container, polling=_FAST_POLLING)
+            # Deterministic poison stops the projection for good: the standby loop must NOT swallow it into
+            # a reacquire (which would rerun run() forever and re-hit the poison), so run() returns on its own.
+            with anyio.fail_after(5):
+                await runner.run()
+
+    assert "Projection 'poison' stopped due to unrecoverable error" in caplog.text
+    assert len(projection.batches) == 1  # processed the poison batch exactly once — no reacquire loop
 
 
 async def test_namespaced_lease_key_avoids_leadership_role_collision(

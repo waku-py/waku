@@ -454,15 +454,22 @@ class LeadershipCoordinator(AfterApplicationInit, OnApplicationShutdown):
 
     async def _acquire_and_run(self, lease: ILease, agent: DurabilityMaintenanceAgent, role: str) -> None:
         started = False
-        async with lease.acquire(role) as held:
-            if held:
-                started = True  # set BEFORE start() so a mid-start steal still stops what began
-                await agent.start()
-                self._leading = True
-                # Held until graceful shutdown (this returns) OR the lease is stolen (this await is
-                # cancelled and the cancellation is absorbed by the lease's task group, so control
-                # resumes past the `async with` where we stop the agent off the cancellation path).
-                await self._shutdown.wait()
-        if started:
-            self._leading = False
-            await agent.stop()
+        try:
+            async with lease.acquire(role) as held:
+                if held:
+                    started = True  # set BEFORE start() so a mid-start steal still stops what began
+                    await agent.start()
+                    self._leading = True
+                    # Held until graceful shutdown (this returns) OR the lease is stolen (this await is
+                    # cancelled and the cancellation is absorbed by the lease's task group, so control
+                    # resumes past the `async with` off the cancellation path).
+                    await self._shutdown.wait()
+        finally:
+            # The started agent is stopped on EVERY exit path — graceful return, a later poller's start()
+            # raising mid-startup, or cancellation — so no partially started poller is ever leaked. The
+            # stop stays OUTSIDE the acquire context: on a steal the absorbed cancellation lets control
+            # reach here uncancelled, and agent.stop() joins even a partially started agent (a poller with
+            # no worker task no-ops).
+            if started:
+                self._leading = False
+                await agent.stop()

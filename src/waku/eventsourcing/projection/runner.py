@@ -8,7 +8,7 @@ import anyio
 
 from waku._internal.adaptive_interval import AdaptiveInterval
 from waku._internal.clock import Now, utc_now
-from waku._internal.lease import ILease
+from waku._internal.lease import DEFAULT_LEASE_CONFIG, ILease, LeaseConfig
 from waku._internal.polling import DEFAULT_POLLING_CONFIG
 from waku._internal.shutdown import wait_for_shutdown
 from waku._internal.transaction import (
@@ -64,12 +64,14 @@ class CatchUpProjectionRunner:
         registry: CatchUpProjectionRegistry,
         polling: PollingConfig = DEFAULT_POLLING_CONFIG,
         clock: Now = utc_now,
+        standby_interval: float = DEFAULT_LEASE_CONFIG.renew_interval_seconds,
     ) -> None:
         self._container = container
         self._lock = lock
         self._registry = registry
         self._polling = polling
         self._clock = clock
+        self._standby_interval = standby_interval
         self._shutdown_event = anyio.Event()
 
     @classmethod
@@ -91,6 +93,18 @@ class CatchUpProjectionRunner:
             )
             raise ImproperlyConfiguredError(msg)
         lock = await container.get(ILease)
+        # Lease timing is backend-owned (one authority): the same LeaseConfig the backend built the lease
+        # from bounds the standby re-acquire cadence, so a non-leading instance reclaims a freed lease
+        # within the TTL. A backend that publishes ILease must publish its LeaseConfig alongside it; fail
+        # loud and name the fix if it did not, matching the leadership coordinator's contract.
+        if not await is_registered(container, LeaseConfig):
+            msg = (
+                'CatchUpProjectionRunner resolved an ILease but no LeaseConfig — a durability backend must '
+                'publish its LeaseConfig alongside ILease, e.g. '
+                'SqlAlchemyBackend.register(..., engine=<AsyncEngine>, lease_config=<LeaseConfig>).'
+            )
+            raise ImproperlyConfiguredError(msg)
+        lease_config = await container.get(LeaseConfig)
         async with container() as scope:
             registry = await scope.get(CatchUpProjectionRegistry)
         if projections is not None:
@@ -101,6 +115,7 @@ class CatchUpProjectionRunner:
             registry=registry,
             polling=polling,
             clock=clock,
+            standby_interval=lease_config.renew_interval_seconds,
         )
 
     async def run(self) -> None:
@@ -164,18 +179,33 @@ class CatchUpProjectionRunner:
 
     async def _run_projection(self, binding: CatchUpProjectionBinding) -> None:
         projection_name = binding.projection.projection_name
-        # One boundary around the whole body (lock acquisition, lease heartbeat, poll loop): a failure
-        # here stops only this projection's task, never the sibling projections sharing the task group.
-        # Cancellation is a BaseException and passes through untouched.
+        # One boundary around the whole lease lifecycle (standby, acquisition, heartbeat, poll loop): a
+        # ProjectionError or transaction-fatal that escapes the standby loop stops only this projection's
+        # task, never the sibling projections sharing the task group. Cancellation is a BaseException and
+        # passes through untouched (the run() task-group backstop).
         try:
-            await self._acquire_and_poll(binding, projection_name)
+            await self._lead_or_standby(binding, projection_name)
         except Exception:
             logger.exception('Projection %r stopped due to unrecoverable error', projection_name)
+
+    async def _lead_or_standby(self, binding: CatchUpProjectionBinding, projection_name: str) -> None:
+        # Stand by and (re)acquire the lease until shutdown. A NORMAL return from _acquire_and_poll means
+        # the lease was not held, or was held then lost — loss is delivered as cancellation and absorbed
+        # at the lease's task-group boundary, so control resumes here past the acquire; either way, wait
+        # one cadence and retry so a non-leading (or ex-leading) instance takes over when the lease frees.
+        # A RAISED ProjectionError/transaction-fatal is deterministic poison, not a lease outcome: it is
+        # deliberately NOT caught here so it propagates to _run_projection and stops this projection for
+        # good, rather than thrashing the same poison across reacquisitions.
+        while not self._shutdown_event.is_set():
+            await self._acquire_and_poll(binding, projection_name)
+            if self._shutdown_event.is_set():
+                break
+            await self._wait(self._standby_interval)
 
     async def _acquire_and_poll(self, binding: CatchUpProjectionBinding, projection_name: str) -> None:
         async with self._lock.acquire(_lease_key(projection_name)) as acquired:
             if not acquired:
-                logger.info('Projection %r is locked by another instance, skipping', projection_name)
+                logger.info('Projection %r is held by another instance; standing by', projection_name)
                 return
 
             interval = AdaptiveInterval(

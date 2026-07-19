@@ -25,6 +25,7 @@ from waku.di import object_
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging import LeadershipConfig, MessagingConfig, MessagingModule, OutboxConfig
 from waku.messaging._internal.maintenance import DurabilityMaintenanceAgent, LeadershipCoordinator
+from waku.messaging._internal.polling_agent import FixedPace, Placement, PollingAgent
 from waku.messaging.durability import IInboxStore
 from waku.messaging.inbox import EndpointUri, HandlerDestination
 from waku.messaging.inbox.config import InboxConfig
@@ -39,6 +40,7 @@ from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
     from dishka import Provider
+    from pytest_mock import MockerFixture
 
 
 _LEADER_KEY = 'waku:leader'
@@ -318,3 +320,91 @@ class TestOverlapIsSafe:
 
         incoming = [e for e in inbox.entries.values() if e.status is InboxStatus.INCOMING]
         assert len(incoming) == len(due)  # no phantom/duplicated promotions from the overlap
+
+
+class _RecordingPoller(PollingAgent):
+    """Idle poller that counts its start/stop calls so a leaked started poller is observable."""
+
+    placement = Placement.PER_POD
+
+    def __init__(self) -> None:
+        super().__init__(stop_timeout=timedelta(seconds=1))
+        self.start_count = 0
+        self.stop_count = 0
+
+    @override
+    def _make_pace(self) -> FixedPace:
+        return FixedPace(60.0)
+
+    @override
+    async def _tick(self) -> int:
+        return 0
+
+    @override
+    async def start(self) -> None:
+        self.start_count += 1
+        await super().start()
+
+    @override
+    async def stop(self) -> None:
+        self.stop_count += 1
+        await super().stop()
+
+
+class _StartRaisingPoller(PollingAgent):
+    """Poller whose start() always raises, modelling a later poller failing mid-agent-startup."""
+
+    placement = Placement.PER_POD
+
+    def __init__(self) -> None:
+        super().__init__(stop_timeout=timedelta(seconds=1))
+
+    @override
+    def _make_pace(self) -> FixedPace:
+        return FixedPace(60.0)
+
+    @override
+    async def _tick(self) -> int:
+        return 0
+
+    @override
+    async def start(self) -> None:
+        msg = 'poller start failed'
+        raise RuntimeError(msg)
+
+
+class _InjectedPollerAgent(DurabilityMaintenanceAgent):
+    """Agent with test-supplied pollers, reusing the real reversed, error-aggregating start/stop."""
+
+    def __init__(self, pollers: tuple[PollingAgent, ...]) -> None:
+        self._pollers = pollers
+
+
+class TestPartialStartCleanup:
+    @staticmethod
+    async def test_start_failure_stops_the_already_started_poller(mocker: MockerFixture) -> None:
+        # The agent starts pollers sequentially; when the second poller's start() raises, the coordinator
+        # must still stop the first (already started) poller — the try/finally, not the post-block cleanup.
+        recording = _RecordingPoller()
+        agent = _InjectedPollerAgent((recording, _StartRaisingPoller()))
+        mocker.patch(
+            'waku.messaging._internal.maintenance._build_maintenance_agent',
+            new_callable=mocker.AsyncMock,
+            return_value=agent,
+        )
+        lease_config = LeaseConfig(ttl_seconds=0.2)
+        lease = InMemoryLease(lease_config, store={}, now=utc_now)
+        config = MessagingConfig(leadership=LeadershipConfig())
+        async with create_test_app(
+            imports=[MessagingModule.register(MessagingConfig())],
+            providers=_lease_providers(lease, lease_config),
+        ) as app:
+            coordinator = LeadershipCoordinator(config)
+            await coordinator.after_app_init(app)
+            try:
+                await wait_until(lambda: recording.stop_count >= 1)
+            finally:
+                await coordinator.on_app_shutdown(app)
+
+        assert recording.start_count >= 1
+        assert recording.stop_count >= 1  # the started poller was stopped despite the sibling's failure
