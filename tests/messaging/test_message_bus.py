@@ -646,6 +646,14 @@ class TestMessagingConfigValidation:  # noqa: PLR0904 -- cohesive startup valida
             MessagingModule.register(config)
 
     @staticmethod
+    def test_duplicate_local_queue_uri_raises() -> None:
+        config = MessagingConfig(
+            endpoints=[local_queue('orders'), local_queue('orders', max_parallel=4)],
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='declared more than once'):
+            MessagingModule.register(config)
+
+    @staticmethod
     def test_invoke_scheme_endpoint_raises() -> None:
         config = MessagingConfig(
             endpoints=[local_queue('invoke://x')],

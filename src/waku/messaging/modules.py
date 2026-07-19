@@ -196,6 +196,7 @@ class MessagingModule:
         _validate_transport_schemes(config)
         _reject_inline_deferred_terminal(config)
         _reject_partition_by_on_non_sequenced_local(config)
+        _reject_duplicate_local_queue_uris(config)
         _reject_local_broker_uri_collision(config)
         _reject_reserved_invoke_scheme(config)
 
@@ -328,6 +329,23 @@ def _reject_partition_by_on_non_sequenced_local(config: MessagingConfig) -> None
                 '(and broker endpoints) — use EndpointMode.DURABLE or remove partition_by'
             )
             raise ImproperlyConfiguredError(msg)
+
+
+def _reject_duplicate_local_queue_uris(config: MessagingConfig) -> None:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for entry in config.endpoints:
+        if not isinstance(entry, LocalQueueEntry):
+            continue
+        if entry.uri in seen:
+            duplicates.add(entry.uri)
+        seen.add(entry.uri)
+    if duplicates:
+        msg = (
+            f'local_queue URI(s) {sorted(duplicates)} declared more than once; each local_queue endpoint '
+            'URI must be unique — a duplicate declaration would silently override the first'
+        )
+        raise ImproperlyConfiguredError(msg)
 
 
 def _reject_local_broker_uri_collision(config: MessagingConfig) -> None:
