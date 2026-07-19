@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from waku.messaging._internal.identity import MessageTypeRegistry
     from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
     from waku.messaging.handler_map import HandlerMap
-    from waku.messaging.inbox.backpressure import IListenerBackpressure
+    from waku.messaging.inbox._internal.backpressure import IListenerBackpressure
     from waku.messaging.transport.interfaces import EnvelopeMetadata
     from waku.serialization.codec import PayloadCodec
 

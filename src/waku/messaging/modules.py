@@ -41,7 +41,6 @@ from waku.messaging._internal.outbox_cascading import DeferredCascadeFlusher
 from waku.messaging._internal.ownership import AppScopeSource
 from waku.messaging._internal.routing_builder import RoutingTableBuilder
 from waku.messaging._internal.transaction import TransactionDepth
-from waku.messaging.behaviors.transactional import TransactionalBehavior
 from waku.messaging.config import DEFAULT_MESSAGING_CONFIG, DeadLetterConfig, MessagingConfig
 from waku.messaging.context import MessageContext, get_message_context
 from waku.messaging.contracts.pipeline import IPipelineBehavior
@@ -291,6 +290,10 @@ def _requires_dead_letter_store(handler_map: HandlerMap, config: MessagingConfig
     if policies_need_dead_letter(config.endpoint_defaults.error_policies):
         return True
     return any(policies_need_dead_letter(handler_type.error_policies) for handler_type in handler_map.handler_types())
+
+
+def _durability_required(handler_map: HandlerMap, config: MessagingConfig) -> bool:
+    return any((config.outbox, config.inbox, config.dead_letter)) or _requires_dead_letter_store(handler_map, config)
 
 
 def _resolve_mode(entry: LocalQueueEntry, config: MessagingConfig) -> EndpointMode:
@@ -775,13 +778,10 @@ class HandlerMapAggregator(RegistryAggregator['MessagingExtension', HandlerMap])
         registry.add_provider(owning_module, object_(SendingFailureEvaluator(registry=sending_registry)))
 
     def _require_store_providers(self, provided: 'frozenset[Any]', handler_map: HandlerMap) -> None:
-        dead_letters_required = _requires_dead_letter_store(handler_map, self._config)
-        durability_required = (
-            any((self._config.outbox, self._config.inbox, self._config.dead_letter)) or dead_letters_required
-        )
-        if not durability_required:
+        if not _durability_required(handler_map, self._config):
             return
 
+        dead_letters_required = _requires_dead_letter_store(handler_map, self._config)
         capability_name = (
             'dead_letter'
             if dead_letters_required and not self._config.outbox and not self._config.inbox
@@ -897,14 +897,8 @@ class _UnitOfWorkValidationExtension(OnContainerBuilt):
     async def on_container_built(self, app: 'WakuApplication') -> None:
         plan = await app.container.get(BehaviorPlan)
         handler_map = await app.container.get(HandlerMap)
-        transactional_required = any(
-            any(issubclass(behavior, TransactionalBehavior) for behavior in plan.for_handler(handler_type))
-            for handler_type in handler_map.handler_types()
-        )
-        dead_letters_required = _requires_dead_letter_store(handler_map, self._config)
-        durability_required = (
-            any((self._config.outbox, self._config.inbox, self._config.dead_letter)) or dead_letters_required
-        )
+        transactional_required = any(plan.has_transaction(handler_type) for handler_type in handler_map.handler_types())
+        durability_required = _durability_required(handler_map, self._config)
         if not transactional_required and not durability_required:
             return
 
@@ -927,7 +921,7 @@ class _UnitOfWorkValidationExtension(OnContainerBuilt):
                 self._require_identity('outbox', durability.outbox, await scope.get(IOutboxStore))
             if self._config.inbox is not None:
                 self._require_identity('inbox', durability.inbox, await scope.get(IInboxStore))
-            if self._config.dead_letter is not None or dead_letters_required:
+            if self._config.dead_letter is not None or _requires_dead_letter_store(handler_map, self._config):
                 self._require_identity('dead_letters', durability.dead_letters, await scope.get(IDeadLetterStore))
 
     @staticmethod

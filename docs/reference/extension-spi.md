@@ -29,7 +29,6 @@ Broker transports and the wire seam (mappers, metadata, dispositions).
 `MalformedMetadataError` ·
 `Subscription` ·
 `TransportFactory` ·
-`UnsupportedContentTypeError` ·
 `metadata_from_headers` ·
 `wire_headers_of`
 

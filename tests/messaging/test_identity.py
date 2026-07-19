@@ -42,16 +42,6 @@ class EmptyIdentityEvent(IMessage):
 
 class TestMessageIdentity:
     @staticmethod
-    def test_str_for_version_1_omits_version_suffix() -> None:
-        identity = MessageIdentity(name='order-placed', version=1)
-        assert str(identity) == 'order-placed'
-
-    @staticmethod
-    def test_str_for_version_above_1_appends_v_suffix() -> None:
-        identity = MessageIdentity(name='order-placed', version=2)
-        assert str(identity) == 'order-placed.v2'
-
-    @staticmethod
     def test_empty_name_rejected() -> None:
         with pytest.raises(ImproperlyConfiguredError, match='name must be non-empty'):
             MessageIdentity(name='')

@@ -11,9 +11,9 @@ from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging._internal.circuit_breaker import CircuitBreaker
 from waku.messaging.endpoints._internal.aspects import resolve_max_requeue_attempts, resolve_override
 from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
+from waku.messaging.inbox._internal.backpressure import IListenerBackpressure, ListenerBackpressure
 from waku.messaging.inbox._internal.listener import InboundListener
 from waku.messaging.inbox._internal.noop_backpressure import NoOpBackpressure
-from waku.messaging.inbox.backpressure import IListenerBackpressure, ListenerBackpressure
 from waku.messaging.transport._internal.registry import split_destination
 
 if TYPE_CHECKING:

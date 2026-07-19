@@ -122,6 +122,15 @@ class DeadLetterEntry:
 
 
 def validate_requested_lease(now: datetime, lease_expires_at: datetime) -> None:
+    """Reject an already-expired replay lease.
+
+    EXTENSION-SPI helper for ``IDeadLetterStore`` implementers — the backend dead-letter stores call it
+    before claiming a replay lease — so it stays on the public ``waku.messaging.errors`` facade. It is not
+    internal machinery: ``_internal`` would be unreachable to backends, which live outside the messaging domain.
+
+    Raises:
+        MessagingError: When ``lease_expires_at`` is not strictly after ``now``.
+    """
     if lease_expires_at <= now:
         msg = 'lease_expires_at must be greater than now'
         raise MessagingError(msg)

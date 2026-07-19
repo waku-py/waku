@@ -21,8 +21,3 @@ class MessageIdentity:
         if self.version < 1:
             msg = 'version must be >= 1'
             raise ImproperlyConfiguredError(msg)
-
-    def __str__(self) -> str:
-        if self.version == 1:
-            return self.name
-        return f'{self.name}.v{self.version}'

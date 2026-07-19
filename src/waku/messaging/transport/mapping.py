@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     'WIRE_CONTENT_TYPE',
-    'UnsupportedContentTypeError',
     'metadata_from_headers',
     'wire_headers_of',
 ]

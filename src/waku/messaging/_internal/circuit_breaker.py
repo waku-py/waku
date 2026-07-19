@@ -150,12 +150,6 @@ class CircuitBreaker(ICircuitBreaker):
         if self._resume_task is asyncio.current_task():
             self._resume_task = None
 
-    async def wait_for_resume(self) -> None:
-        # Test helper. Capture locally — the task clears _resume_task on completion.
-        task = self._resume_task
-        if task is not None:
-            await task
-
     @override
     async def aclose(self) -> None:
         if self._resume_task is not None:

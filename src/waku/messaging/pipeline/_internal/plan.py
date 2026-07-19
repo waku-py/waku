@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from waku.messaging.behaviors.transactional import TransactionalBehavior
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -25,6 +27,9 @@ class BehaviorPlan:
 
     def for_handler(self, handler: HandlerType) -> tuple[type[IPipelineBehavior[Any, Any]], ...]:
         return self._plan.get(handler, ())
+
+    def has_transaction(self, handler: HandlerType) -> bool:
+        return any(issubclass(behavior, TransactionalBehavior) for behavior in self.for_handler(handler))
 
 
 def build_behavior_plan(

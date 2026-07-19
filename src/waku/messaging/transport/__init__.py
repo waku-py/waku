@@ -11,7 +11,6 @@ from waku.messaging.transport.interfaces import (
 )
 from waku.messaging.transport.mapping import (
     WIRE_CONTENT_TYPE,
-    UnsupportedContentTypeError,
     metadata_from_headers,
     wire_headers_of,
 )
@@ -28,7 +27,6 @@ __all__ = [
     'MalformedMetadataError',
     'Subscription',
     'TransportFactory',
-    'UnsupportedContentTypeError',
     'metadata_from_headers',
     'wire_headers_of',
 ]

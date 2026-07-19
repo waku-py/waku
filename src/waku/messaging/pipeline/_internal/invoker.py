@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 from waku.messaging._internal.transaction import TransactionDepth
-from waku.messaging.behaviors.transactional import TransactionalBehavior, run_in_transaction
+from waku.messaging.behaviors.transactional import run_in_transaction
 from waku.messaging.pipeline._internal.executor import PipelineExecutor
 from waku.messaging.pipeline._internal.plan import BehaviorPlan  # noqa: TC001 -- Dishka introspects __init__ at runtime
 from waku.uow import IUnitOfWork
@@ -34,7 +34,7 @@ class HandlerPipelineInvoker:
         self._plan = plan
 
     def has_transaction(self, handler_type: HandlerType) -> bool:
-        return any(issubclass(behavior, TransactionalBehavior) for behavior in self._plan.for_handler(handler_type))
+        return self._plan.has_transaction(handler_type)
 
     async def invoke(
         self,
@@ -61,8 +61,6 @@ class HandlerPipelineInvoker:
         scope: AsyncContainer,
         message: IMessage,
         handler_type: HandlerType,
-        *,
-        execution_wrapper: _ExecutionWrapper = _execute_direct,
     ) -> Any:
         if not self.has_transaction(handler_type):
             msg = f'{handler_type.__name__} has no transactional pipeline'
@@ -72,10 +70,5 @@ class HandlerPipelineInvoker:
         return await run_in_transaction(
             uow,
             depth,
-            lambda: self.invoke(
-                scope,
-                message,
-                handler_type,
-                execution_wrapper=execution_wrapper,
-            ),
+            lambda: self.invoke(scope, message, handler_type),
         )

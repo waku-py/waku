@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing_extensions import override
 
-from waku.messaging.inbox.backpressure import IListenerBackpressure
+from waku.messaging.inbox._internal.backpressure import IListenerBackpressure
 
 
 class NoOpBackpressure(IListenerBackpressure):

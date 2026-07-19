@@ -119,9 +119,8 @@ async def test_threshold_one_trips_at_full_failure_rate() -> None:
 async def test_resumes_and_resets_after_pause_time() -> None:
     breaker, calls, sleep = await _tripped_breaker()
     sleep.released.set()  # release the resume task
-    await breaker.wait_for_resume()
+    await wait_until(lambda: calls == ['pause', 'resume'])
     _assert_state(breaker, CircuitState.CLOSED)
-    assert calls == ['pause', 'resume']
     # window was reset → a fresh failure does not immediately re-trip below minimum
     await _record(breaker, ExecutionOutcome.FAILED_NO_POLICY, RuntimeError())
     _assert_state(breaker, CircuitState.CLOSED)
@@ -210,7 +209,7 @@ async def test_old_entries_evicted_from_window() -> None:
 async def test_retrips_after_resume() -> None:
     breaker, calls, sleep = await _tripped_breaker()
     sleep.released.set()
-    await breaker.wait_for_resume()
+    await wait_until(lambda: calls == ['pause', 'resume'])
     _assert_state(breaker, CircuitState.CLOSED)
     # a fresh failing burst after resume trips AGAIN (window reset + tripping re-armed)
     sleep.released = anyio.Event()  # re-arm the gate so the 2nd pause stays parked
@@ -255,8 +254,11 @@ async def test_circuit_breaker_resume_does_not_open_gate_held_by_another_pauser(
     async def pause() -> PauseToken:  # noqa: RUF029 -- async to satisfy the pause callback
         return registry.pause()
 
+    resumed: list[PauseToken] = []
+
     async def resume(token: PauseToken) -> None:  # noqa: RUF029 -- async to satisfy the resume callback
         registry.resume(token)
+        resumed.append(token)
 
     breaker = CircuitBreaker(
         config=CircuitBreakerConfig(failure_rate_threshold=0.5, minimum_throughput=2, pause_time=timedelta(seconds=30)),
@@ -271,7 +273,7 @@ async def test_circuit_breaker_resume_does_not_open_gate_held_by_another_pauser(
     assert tripped is True
     await wait_until(lambda: sleep.requested == [30.0])
     sleep.released.set()
-    await breaker.wait_for_resume()
+    await wait_until(lambda: len(resumed) == 1)
     # The CB released its OWN token, but `other` still holds the gate closed.
     still_held = registry.paused
     assert still_held is True

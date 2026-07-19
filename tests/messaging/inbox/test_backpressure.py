@@ -3,8 +3,9 @@ import anyio.lowlevel
 import pytest
 from typing_extensions import override
 
+from waku.messaging.inbox._internal.backpressure import ListenerBackpressure
 from waku.messaging.inbox._internal.noop_backpressure import NoOpBackpressure
-from waku.messaging.inbox.backpressure import BufferingLimits, ListenerBackpressure
+from waku.messaging.inbox.backpressure import BufferingLimits
 from waku.messaging.transport.interfaces import Subscription
 
 
