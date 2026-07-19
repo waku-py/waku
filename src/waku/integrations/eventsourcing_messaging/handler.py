@@ -7,6 +7,7 @@ from typing import Generic
 from typing_extensions import override
 
 from waku.eventsourcing.contracts.aggregate import AggregateT
+from waku.eventsourcing.forwarding import IAppendedEvents  # noqa: TC001  # Dishka needs runtime access
 from waku.eventsourcing.repository import EventSourcedRepository  # noqa: TC001  # Dishka needs runtime access
 from waku.integrations.eventsourcing_messaging._internal.command_handler import OptimisticRetryCommandHandler
 from waku.integrations.eventsourcing_messaging._internal.retry import execute_with_optimistic_retry
@@ -26,7 +27,9 @@ class EventSourcedCommandHandler(
     def __init__(
         self,
         repository: EventSourcedRepository[AggregateT],
+        appended: IAppendedEvents,
     ) -> None:
+        super().__init__(appended)
         self._repository = repository
 
     @override
@@ -61,6 +64,7 @@ class EventSourcedCommandHandler(
             request_name=type(request).__name__,
             aggregate_id=aggregate_id,
             attempt_context=self._create_attempt_context,
+            reset=self._appended.clear,
         )
 
     @abc.abstractmethod

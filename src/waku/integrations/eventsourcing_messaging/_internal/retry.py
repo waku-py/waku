@@ -22,6 +22,7 @@ async def execute_with_optimistic_retry(
     request_name: str,
     aggregate_id: str,
     attempt_context: Callable[[], AbstractAsyncContextManager[Any]],
+    reset: Callable[[], None],
 ) -> _ResultT:
     for attempt in range(1, max_attempts + 1):
         if attempt > 1:
@@ -33,6 +34,8 @@ async def execute_with_optimistic_retry(
                 max_attempts,
             )
 
+        # Discard any accumulated side-effects from a prior attempt before running this one.
+        reset()
         try:
             async with attempt_context():
                 return await attempt_fn()

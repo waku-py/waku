@@ -281,11 +281,6 @@ class SqlAlchemyEventStore(IEventStore):
         *,
         expected_version: ExpectedVersion,
     ) -> int:
-        # Reset per attempt: append_to_stream re-runs on every optimistic-retry attempt, so clearing
-        # on entry guarantees the post-success collector holds ONLY the winning attempt's events.
-        if self._appended_events is not None:
-            self._appended_events.clear()
-
         if not events:
             return await self._resolve_current_version(stream_id, expected_version)
 
@@ -321,10 +316,8 @@ class SqlAlchemyEventStore(IEventStore):
                 ) from exc  # pragma: no cover
             raise  # pragma: no cover
 
-        # Record only on the real-append path (inside the tx) — never on the dedup early-returns above.
-        # An optimistic conflict raises in _update_stream_version before _insert_events, so a losing
-        # attempt never reaches here; combined with clear-on-entry, the collector reflects exactly the
-        # events that survived to commit.
+        # Record only on the real-append path (inside the tx), never on the dedup early-returns above.
+        # A losing optimistic attempt raises in _update_stream_version before reaching here.
         if self._appended_events is not None:
             self._appended_events.record(stored_events)
 

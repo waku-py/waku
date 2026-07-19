@@ -36,9 +36,9 @@ class ForwardingConsumer:
 class IAppendedEvents(Protocol):
     """Scoped hand-off of the domain events appended during a command's transaction.
 
-    The event store calls ``record()`` on the real-append path and ``clear()`` on each
-    ``append_to_stream`` entry (per optimistic-retry attempt); ``EventForwardingBehavior`` calls
-    ``drain()`` after the handler returns. This is an Event-Sourcing-local contract holding appended
+    The event store calls ``record()`` on the real-append path; the optimistic-retry loop fires the
+    per-attempt reset (bound to ``clear()``) at the start of each attempt; ``EventForwardingBehavior``
+    calls ``drain()`` after the handler returns. This is an Event-Sourcing-local contract holding appended
     ``StoredEvent``s — data plus stream provenance, no bus, no router — so the store stays ignorant of
     messaging.
     """
@@ -54,8 +54,9 @@ class AppendedEventsCollector(IAppendedEvents):
     """In-memory ``scoped`` collector: one per DI command scope, spanning all retry attempts.
 
     The scoped lifetime alone is too coarse — a single command scope spans every optimistic-retry
-    attempt — so the store ``clear()``s on each ``append_to_stream`` entry. The result: after the
-    winning attempt returns, the collector holds exactly the events that survived to commit.
+    attempt — so the optimistic-retry loop resets it (via ``clear()``) at the start of each attempt.
+    The result: after the winning attempt returns, the collector holds exactly the events that survived
+    to commit, across however many streams that attempt appended.
     """
 
     __slots__ = ('_events',)

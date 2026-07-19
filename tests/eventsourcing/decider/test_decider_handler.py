@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
     from waku.eventsourcing.contracts.aggregate import IDecider
     from waku.eventsourcing.decider.repository import DeciderRepository
+    from waku.eventsourcing.forwarding import IAppendedEvents
     from waku.eventsourcing.store.in_memory import InMemoryEventStore
 
     from tests.eventsourcing.decider.conftest import CounterRepository
@@ -21,6 +22,7 @@ from typing_extensions import override
 from waku import ImproperlyConfiguredError
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, EventSourcingError
+from waku.eventsourcing.forwarding import AppendedEventsCollector
 from waku.integrations.eventsourcing_messaging import DeciderCommandHandler, DeciderVoidCommandHandler
 from waku.messaging.contracts.request import IRequest
 
@@ -136,7 +138,7 @@ async def test_handle_loads_state_decides_saves_and_returns_response(
     decider: CounterDecider,
 ) -> None:
     await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
-    handler = IncrementCounterHandler(repository=repository, decider=decider)
+    handler = IncrementCounterHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
 
     result = await handler.handle(IncrementCounterCommand(counter_id='c-1', amount=5))
 
@@ -147,7 +149,7 @@ async def test_handle_new_aggregate_creates_via_load(
     repository: CounterRepository,
     decider: CounterDecider,
 ) -> None:
-    handler = IncrementCounterHandler(repository=repository, decider=decider)
+    handler = IncrementCounterHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
 
     result = await handler.handle(IncrementCounterCommand(counter_id='new-1', amount=7))
 
@@ -159,7 +161,7 @@ async def test_void_handler_persists_without_response(
     decider: CounterDecider,
 ) -> None:
     await repository.save('c-void', [Incremented(amount=1)], expected_version=-1)
-    handler = IncrementCounterVoidHandler(repository=repository, decider=decider)
+    handler = IncrementCounterVoidHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
 
     await handler.handle(IncrementCounterVoidCommand(counter_id='c-void', amount=2))
 
@@ -173,7 +175,7 @@ async def test_default_idempotency_key_passes_none_to_repository(
     repository: CounterRepository,
     decider: CounterDecider,
 ) -> None:
-    handler = CreateCounterHandler(repository=repository, decider=decider)
+    handler = CreateCounterHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
 
     save_spy = mocker.spy(repository, 'save')
     await handler.handle(CreateCounterCommand(counter_id='c-1', amount=1))
@@ -188,7 +190,7 @@ async def test_idempotency_key_passed_to_repository_save(
     repository: CounterRepository,
     decider: CounterDecider,
 ) -> None:
-    handler = IdempotentCreateCounterHandler(repository=repository, decider=decider)
+    handler = IdempotentCreateCounterHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
 
     save_spy = mocker.spy(repository, 'save')
     await handler.handle(IdempotentCreateCounterCommand(counter_id='c-key', amount=5, idempotency_key='key-abc'))
@@ -205,7 +207,7 @@ async def test_concurrent_create_retries_as_update(
 ) -> None:
     await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
 
-    handler = CreateCounterHandler(repository=repository, decider=decider)
+    handler = CreateCounterHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
     conflict = ConcurrencyConflictError(
         stream_id=StreamId.for_aggregate('Counter', 'c-1'), expected_version=-1, actual_version=0
     )
@@ -223,7 +225,7 @@ async def test_retry_succeeds_on_second_attempt(
 ) -> None:
     await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
 
-    handler = IncrementCounterHandler(repository=repository, decider=decider)
+    handler = IncrementCounterHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
     conflict = ConcurrencyConflictError(
         stream_id=StreamId.for_aggregate('Counter', 'c-1'), expected_version=0, actual_version=1
     )
@@ -242,7 +244,7 @@ async def test_retry_exhausted_raises_concurrency_error(
 ) -> None:
     await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
 
-    handler = TwoAttemptIncrementHandler(repository=repository, decider=decider)
+    handler = TwoAttemptIncrementHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
     conflict = ConcurrencyConflictError(
         stream_id=StreamId.for_aggregate('Counter', 'c-1'), expected_version=0, actual_version=1
     )
@@ -261,7 +263,7 @@ async def test_non_concurrency_error_not_retried(
 ) -> None:
     await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
 
-    handler = IncrementCounterHandler(repository=repository, decider=decider)
+    handler = IncrementCounterHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
     mock_save = mocker.patch.object(repository, 'save', side_effect=EventSourcingError('generic error'))
 
     with pytest.raises(EventSourcingError, match='generic error'):
@@ -277,7 +279,7 @@ async def test_max_attempts_1_no_retry(
 ) -> None:
     await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
 
-    handler = NoRetryIncrementHandler(repository=repository, decider=decider)
+    handler = NoRetryIncrementHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
     conflict = ConcurrencyConflictError(
         stream_id=StreamId.for_aggregate('Counter', 'c-1'), expected_version=0, actual_version=1
     )
@@ -303,9 +305,10 @@ class IncrementWithContextHandler(
         self,
         repository: DeciderRepository[CounterState, Increment, Incremented],
         decider: IDecider[CounterState, Increment, Incremented],
+        appended: IAppendedEvents,
         context: RecordingContext,
     ) -> None:
-        super().__init__(repository, decider)
+        super().__init__(repository, decider, appended)
         self._context = context
 
     @override
@@ -327,7 +330,9 @@ async def test_attempt_context_entered_per_attempt(
 ) -> None:
     await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
     ctx = RecordingContext()
-    handler = IncrementWithContextHandler(repository=repository, decider=decider, context=ctx)
+    handler = IncrementWithContextHandler(
+        repository=repository, decider=decider, appended=AppendedEventsCollector(), context=ctx
+    )
 
     await handler.handle(IncrementCounterVoidCommand(counter_id='c-1', amount=5))
 
@@ -363,7 +368,9 @@ async def test_attempt_context_entered_per_retry_attempt(
             contexts.append(c)
             return c
 
-    handler = RetryIncrementWithContextHandler(repository=repository, decider=decider)
+    handler = RetryIncrementWithContextHandler(
+        repository=repository, decider=decider, appended=AppendedEventsCollector()
+    )
     conflict = ConcurrencyConflictError(
         stream_id=StreamId.for_aggregate('Counter', 'c-1'), expected_version=0, actual_version=1
     )
@@ -402,7 +409,7 @@ async def test_idempotency_key_includes_current_version_in_stored_events(
         def _idempotency_key(self, request: IncrementCounterCommand, version: int) -> str | None:
             return f'{request.counter_id}:increment:{version}'
 
-    handler = VersionAwareHandler(repository=repository, decider=decider)
+    handler = VersionAwareHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
 
     await handler.handle(IncrementCounterCommand(counter_id='c-1', amount=3))
 

@@ -23,6 +23,7 @@ async def test_attempt_context_entered_and_exited_on_success(mocker: MockerFixtu
         request_name='Test',
         aggregate_id='a-1',
         attempt_context=lambda: ctx,
+        reset=lambda: None,
     )
     assert result == 42
     assert ctx.entered == 1
@@ -58,12 +59,42 @@ async def test_attempt_context_rolled_back_on_conflict_then_fresh_on_retry() -> 
         request_name='Test',
         aggregate_id='a-1',
         attempt_context=make_context,
+        reset=lambda: None,
     )
 
     assert result == 'ok'
     assert len(contexts) == 2
     assert contexts[0].exit_exceptions == [ConcurrencyConflictError]
     assert contexts[1].exit_exceptions == [None]
+
+
+async def test_reset_fired_at_the_start_of_every_attempt(mocker: MockerFixture) -> None:
+    reset = mocker.Mock()
+    calls = 0
+    conflict = ConcurrencyConflictError(
+        stream_id=StreamId.for_aggregate('T', 'a-1'),
+        expected_version=0,
+        actual_version=1,
+    )
+
+    async def attempt() -> str:  # noqa: RUF029
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise conflict
+        return 'ok'
+
+    result = await execute_with_optimistic_retry(
+        attempt,
+        max_attempts=3,
+        request_name='Test',
+        aggregate_id='a-1',
+        attempt_context=nullcontext,
+        reset=reset,
+    )
+
+    assert result == 'ok'
+    assert reset.call_count == 2
 
 
 async def test_attempt_context_rolled_back_on_non_concurrency_error() -> None:
@@ -80,6 +111,7 @@ async def test_attempt_context_rolled_back_on_non_concurrency_error() -> None:
             request_name='Test',
             aggregate_id='a-1',
             attempt_context=lambda: ctx,
+            reset=lambda: None,
         )
 
     assert ctx.entered == 1
@@ -94,6 +126,7 @@ async def test_nullcontext_as_attempt_context(mocker: MockerFixture) -> None:
         request_name='Test',
         aggregate_id='a-1',
         attempt_context=nullcontext,
+        reset=lambda: None,
     )
     assert result == 99
 
@@ -124,6 +157,7 @@ async def test_all_retries_exhausted_raises_conflict() -> None:
             request_name='Test',
             aggregate_id='a-1',
             attempt_context=make_context,
+            reset=lambda: None,
         )
 
     assert exc_info.value is conflict

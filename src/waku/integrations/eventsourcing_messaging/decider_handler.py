@@ -13,6 +13,7 @@ from waku.eventsourcing.contracts.aggregate import (
     StateT,
 )
 from waku.eventsourcing.decider.repository import DeciderRepository  # noqa: TC001  # Dishka needs runtime access
+from waku.eventsourcing.forwarding import IAppendedEvents  # noqa: TC001  # Dishka needs runtime access
 from waku.integrations.eventsourcing_messaging._internal.command_handler import OptimisticRetryCommandHandler
 from waku.integrations.eventsourcing_messaging._internal.retry import execute_with_optimistic_retry
 from waku.messaging.contracts.message import ResponseT
@@ -32,7 +33,9 @@ class DeciderCommandHandler(
         self,
         repository: DeciderRepository[StateT, CommandT, EventT],
         decider: IDecider[StateT, CommandT, EventT],
+        appended: IAppendedEvents,
     ) -> None:
+        super().__init__(appended)
         self._repository = repository
         self._decider = decider
 
@@ -68,6 +71,7 @@ class DeciderCommandHandler(
             request_name=type(request).__name__,
             aggregate_id=aggregate_id,
             attempt_context=self._create_attempt_context,
+            reset=self._appended.clear,
         )
 
     @abc.abstractmethod

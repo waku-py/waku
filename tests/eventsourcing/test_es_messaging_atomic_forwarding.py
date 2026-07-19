@@ -88,6 +88,23 @@ class FailAfterAppendHandler(EventSourcedVoidCommandHandler[CreateNote, Note]):
         raise RuntimeError(msg)
 
 
+class CreateNoteAndSideNoteHandler(EventSourcedVoidCommandHandler[CreateNote, Note]):
+    @override
+    def _aggregate_id(self, request: CreateNote) -> str:
+        return request.note_id
+
+    @override
+    def _is_creation_command(self, request: CreateNote) -> bool:
+        return True
+
+    @override
+    async def _execute(self, request: CreateNote, aggregate: Note) -> None:
+        aggregate.create(request.title)
+        side = Note()
+        side.create('side')
+        await self._repository.save(f'side-{request.note_id}', side)
+
+
 # Forwarding is subscriber-gated, and route() requires the routed type to have a registered handler.
 # These dormant subscribers exist only to declare the route to the external (outbox) endpoint — the
 # external route means they never actually run; the forwarded event goes to the outbox.
@@ -192,6 +209,18 @@ async def test_each_appended_event_forwarded_once_no_double_flush(pg_engine: Asy
 
     forwarded_types = sorted(m.message_type.rsplit('.', 1)[-1] for m in outbox_rows)
     assert forwarded_types == ['NoteCreated', 'NoteEdited']
+
+
+async def test_two_aggregates_in_one_command_are_both_forwarded(pg_engine: AsyncEngine) -> None:
+    msg_ext = MessagingExtension().bind(CreateNoteAndSideNoteHandler).bind(_NoteCreatedSubscriber)
+    async with _forwarding_app(pg_engine, msg_ext=msg_ext, routing=[route(NoteCreated).to('test://notes')]) as c:
+        bus = await c.get(IMessageBus)
+        await bus.invoke(CreateNote(note_id='n-4', title='Primary'))
+
+        outbox_rows = await _resolved_outbox_rows(c)
+
+    forwarded_types = sorted(m.message_type.rsplit('.', 1)[-1] for m in outbox_rows)
+    assert forwarded_types == ['NoteCreated', 'NoteCreated']
 
 
 async def test_unrouted_appended_event_not_forwarded(pg_engine: AsyncEngine) -> None:

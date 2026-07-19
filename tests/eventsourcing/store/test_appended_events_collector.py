@@ -85,19 +85,22 @@ async def test_idempotent_replay_records_nothing(
     assert collector.drain() == []
 
 
-async def test_clear_on_entry_keeps_only_latest_attempt(
+async def test_multiple_appends_accumulate_all_events(
     recording_store: SqlAlchemyEventStore,
     collector: AppendedEventsCollector,
     order_stream: StreamId,
 ) -> None:
-    first, second = OrderCreated('first'), ItemAdded('second')
+    other_stream = StreamId.for_aggregate('Order', 'collector-2')
+    first, second = OrderCreated('first'), OrderCreated('second')
     await recording_store.append_to_stream(order_stream, [make_envelope(first)], expected_version=NoStream())
-    # The second append re-enters append_to_stream (as a retry would) and clears the prior record.
-    await recording_store.append_to_stream(order_stream, [make_envelope(second)], expected_version=Exact(0))
-    assert [s.data for s in collector.drain()] == [second]
+    await recording_store.append_to_stream(other_stream, [make_envelope(second)], expected_version=NoStream())
+
+    stored = collector.drain()
+    assert [s.data for s in stored] == [first, second]
+    assert [s.stream_id for s in stored] == [order_stream, other_stream]
 
 
-async def test_conflicting_attempt_clears_and_records_nothing(
+async def test_conflicting_append_records_nothing_new(
     recording_store: SqlAlchemyEventStore,
     collector: AppendedEventsCollector,
     order_stream: StreamId,
@@ -109,4 +112,4 @@ async def test_conflicting_attempt_clears_and_records_nothing(
         await recording_store.append_to_stream(
             order_stream, [make_envelope(ItemAdded('x'))], expected_version=NoStream()
         )
-    assert collector.drain() == []
+    assert [s.data for s in collector.drain()] == [OrderCreated('1')]

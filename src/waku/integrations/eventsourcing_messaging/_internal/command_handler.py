@@ -4,6 +4,7 @@ import abc
 from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any, ClassVar, Generic
 
+from waku.eventsourcing.forwarding import IAppendedEvents  # noqa: TC001  # Dishka needs runtime access
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging.contracts.message import ResponseT
 from waku.messaging.contracts.request import RequestT
@@ -22,6 +23,9 @@ class OptimisticRetryCommandHandler(
 
     max_attempts: ClassVar[int] = 3
 
+    def __init__(self, appended: IAppendedEvents) -> None:
+        self._appended = appended
+
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
         if 'max_attempts' in cls.__dict__ and cls.max_attempts < 1:
@@ -39,8 +43,5 @@ class OptimisticRetryCommandHandler(
         return None
 
     def _create_attempt_context(self) -> AbstractAsyncContextManager[Any]:  # noqa: PLR6301
-        """Return a new context manager for a single retry attempt.
-
-        Called once per attempt — must return a fresh instance each time.
-        """
+        """Return a fresh per-attempt context manager (e.g. a transaction). Default: no-op."""
         return nullcontext()
