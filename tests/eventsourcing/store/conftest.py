@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Protocol
 
 import pytest
 from sqlalchemy import MetaData
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from waku.backends.sqlalchemy.event_store.store import SqlAlchemyEventStore
 from waku.backends.sqlalchemy.event_store.tables import bind_event_store_tables
@@ -15,9 +16,9 @@ from waku.eventsourcing.store.in_memory import InMemoryEventStore
 from waku.serialization.upcasting.chain import UpcasterChain
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import AsyncIterator, Sequence
 
-    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.ext.asyncio import AsyncEngine
 
     from waku.eventsourcing.contracts.event import IMetadataEnricher
     from waku.eventsourcing.projection.interfaces import IProjection
@@ -83,3 +84,23 @@ def store_factory(request: pytest.FixtureRequest, registry: EventTypeRegistry) -
 @pytest.fixture
 def store(store_factory: EventStoreFactory) -> IEventStore:
     return store_factory()
+
+
+@pytest.fixture
+async def pg_session_pair(pg_engine: AsyncEngine) -> AsyncIterator[tuple[AsyncSession, AsyncSession]]:
+    # Two independently-committing sessions over the shared engine — the SQL contention tests need
+    # real concurrent READ COMMITTED transactions, which the single-transaction ``pg_session`` cannot model.
+    metadata = MetaData()
+    bind_event_store_tables(metadata)
+
+    async with pg_engine.begin() as conn:
+        await conn.run_sync(metadata.create_all)
+
+    async with (
+        AsyncSession(pg_engine, expire_on_commit=False) as session_a,
+        AsyncSession(pg_engine, expire_on_commit=False) as session_b,
+    ):
+        yield session_a, session_b
+
+    async with pg_engine.begin() as conn:
+        await conn.run_sync(metadata.drop_all)

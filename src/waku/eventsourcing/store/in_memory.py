@@ -21,6 +21,7 @@ from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa:
 from waku.eventsourcing.store.enrichment import enrich_metadata
 from waku.eventsourcing.store.idempotency import IdempotencyVerdict, classify_idempotency
 from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventStore, ISnapshotStore
+from waku.eventsourcing.store.read_bounds import check_read_bounds
 from waku.eventsourcing.store.version_check import check_expected_version
 from waku.exceptions import ImproperlyConfiguredError
 
@@ -134,6 +135,7 @@ class _InMemoryEventStoreOperations(IEventStore):
         start: int | StreamPosition = StreamPosition.START,
         count: int | None = None,
     ) -> list[StoredEvent]:
+        check_read_bounds(start, count)
         async with self._lock:
             state = self._get_state()
             key = str(stream_id)

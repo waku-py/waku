@@ -388,6 +388,34 @@ class EventStoreContract:
 
         assert events == []
 
+    async def test_read_stream_with_negative_start_raises_value_error(
+        self,
+        store: IEventStore,
+        stream_id: StreamId,
+    ) -> None:
+        await store.append_to_stream(
+            stream_id,
+            [make_envelope(OrderCreated(order_id='1'))],
+            expected_version=NoStream(),
+        )
+
+        with pytest.raises(ValueError, match='start'):
+            await store.read_stream(stream_id, start=-1)
+
+    async def test_read_stream_with_negative_count_raises_value_error(
+        self,
+        store: IEventStore,
+        stream_id: StreamId,
+    ) -> None:
+        await store.append_to_stream(
+            stream_id,
+            [make_envelope(OrderCreated(order_id='1'))],
+            expected_version=NoStream(),
+        )
+
+        with pytest.raises(ValueError, match='count'):
+            await store.read_stream(stream_id, count=-1)
+
     async def test_read_all_returns_events_across_streams(self, store: IEventStore) -> None:
         await _seed_cross_stream_events(store)
 

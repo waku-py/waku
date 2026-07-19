@@ -39,6 +39,7 @@ from waku.eventsourcing.store.interfaces import (  # Dishka needs runtime access
     IEventStore,
     ISnapshotStore,
 )
+from waku.eventsourcing.store.read_bounds import check_read_bounds
 from waku.eventsourcing.store.version_check import check_expected_version
 from waku.exceptions import ImproperlyConfiguredError
 from waku.serialization.upcasting.chain import UpcasterChain  # noqa: TC001  # Dishka needs runtime access
@@ -135,6 +136,7 @@ class SqlAlchemyEventStore(IEventStore):
         start: int | StreamPosition = StreamPosition.START,
         count: int | None = None,
     ) -> list[StoredEvent]:
+        check_read_bounds(start, count)
         key = str(stream_id)
 
         if count == 0:
@@ -388,6 +390,7 @@ class SqlAlchemyEventStore(IEventStore):
                 .where(
                     self._streams.c.stream_id == key,
                     self._streams.c.version == expected_version,
+                    self._not_deleted,
                 )
                 .values(
                     version=new_version,
@@ -395,8 +398,15 @@ class SqlAlchemyEventStore(IEventStore):
                 )
             ),
         )
-        if result.rowcount != 1:  # pragma: no cover
-            raise ConcurrencyConflictError(stream_id, expected_version, new_version)
+        if result.rowcount == 1:
+            return
+        # The conditional UPDATE and archive_stream's plain UPDATE serialize on the stream row, so a
+        # miss means a concurrent-and-committed writer moved the row out from under us. Re-read to tell
+        # an archival apart from a stale version — the losing appender must raise the matching taxonomy.
+        stream_row = await self._get_stream(stream_id)
+        if stream_row.deleted_at is not None:
+            raise StreamArchivedError(stream_id)
+        raise ConcurrencyConflictError(stream_id, expected_version, int(stream_row.version))
 
     async def _insert_events(
         self,

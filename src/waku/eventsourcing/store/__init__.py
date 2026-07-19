@@ -8,6 +8,7 @@ from waku.eventsourcing.store.interfaces import (
     IEventWriter,
     ISnapshotStore,
 )
+from waku.eventsourcing.store.read_bounds import check_read_bounds
 from waku.eventsourcing.store.version_check import check_expected_version
 
 __all__ = [
@@ -19,6 +20,7 @@ __all__ = [
     'IdempotencyVerdict',
     'InMemoryEventStore',
     'check_expected_version',
+    'check_read_bounds',
     'classify_idempotency',
     'enrich_metadata',
 ]

@@ -11,7 +11,11 @@ from waku.backends.sqlalchemy.event_store.tables import bind_event_store_tables
 from waku.backends.testing import EventStoreContract, ItemAdded, OrderCreated, make_envelope
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
-from waku.eventsourcing.exceptions import PartialDuplicateAppendError
+from waku.eventsourcing.exceptions import (
+    ConcurrencyConflictError,
+    PartialDuplicateAppendError,
+    StreamArchivedError,
+)
 from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.snapshot.in_memory import InMemorySnapshotStore
@@ -20,13 +24,15 @@ from waku.exceptions import ImproperlyConfiguredError
 from waku.serialization.upcasting.chain import UpcasterChain
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Awaitable, Callable, Sequence
 
     from pytest_mock import MockerFixture
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from waku.backends.sqlalchemy.event_store.tables import EventStoreTables
     from waku.backends.testing import EventStoreFactory
     from waku.eventsourcing.contracts.event import IMetadataEnricher
+    from waku.eventsourcing.contracts.stream import ExpectedVersion
     from waku.eventsourcing.projection.interfaces import IProjection
     from waku.eventsourcing.serialization.registry import EventTypeRegistry
     from waku.eventsourcing.store.interfaces import IEventStore
@@ -319,3 +325,155 @@ def test_in_memory_store_without_facets_rejects_facet_access(registry: EventType
         _ = store.snapshots
     with pytest.raises(ImproperlyConfiguredError, match='checkpoints facet'):
         _ = store.checkpoints
+
+
+# ── Two-session Postgres contention (real READ COMMITTED, SQLAlchemy only) ─────────────────────────
+
+
+def _sql_store(
+    session: AsyncSession,
+    registry: EventTypeRegistry,
+    tables: EventStoreTables,
+) -> SqlAlchemyEventStore:
+    return SqlAlchemyEventStore(
+        session=session,
+        serializer=JsonEventSerializer(registry),
+        registry=registry,
+        tables=tables,
+        upcaster_chain=UpcasterChain({}),
+    )
+
+
+def _arm_after_version_read(
+    mocker: MockerFixture,
+    store: SqlAlchemyEventStore,
+    interleave: Callable[[], Awaitable[None]],
+) -> None:
+    # Fire ``interleave`` once, in the append's race window: after the live version is read and the
+    # archived fast-path check passes, but before the version-advancing conditional UPDATE runs.
+    original = SqlAlchemyEventStore._resolve_current_version  # noqa: SLF001
+
+    async def _side_effect(stream_id: StreamId, expected_version: ExpectedVersion) -> int:
+        version = await original(store, stream_id, expected_version)
+        await interleave()
+        return version
+
+    mocker.patch.object(store, '_resolve_current_version', side_effect=_side_effect)
+
+
+async def test_append_racing_a_committed_archive_raises_stream_archived(
+    pg_session_pair: tuple[AsyncSession, AsyncSession],
+    registry: EventTypeRegistry,
+    mocker: MockerFixture,
+) -> None:
+    session_a, session_b = pg_session_pair
+    tables = bind_event_store_tables(MetaData())
+    store_a = _sql_store(session_a, registry, tables)
+    store_b = _sql_store(session_b, registry, tables)
+    stream_id = StreamId.for_aggregate('Order', 'race')
+
+    await store_a.append_to_stream(stream_id, [make_envelope(OrderCreated(order_id='1'))], expected_version=NoStream())
+    await session_a.commit()
+
+    async def _archive_and_commit() -> None:
+        await store_b.archive_stream(stream_id)
+        await session_b.commit()
+
+    _arm_after_version_read(mocker, store_a, _archive_and_commit)
+
+    with pytest.raises(StreamArchivedError):
+        await store_a.append_to_stream(
+            stream_id,
+            [make_envelope(ItemAdded(item_name='post-archive'))],
+            expected_version=Exact(0),
+        )
+    await session_a.rollback()
+
+    surviving = await store_a.read_stream(stream_id)
+    assert len(surviving) == 1
+
+
+async def test_concurrent_same_version_appends_raise_concurrency_for_loser(
+    pg_session_pair: tuple[AsyncSession, AsyncSession],
+    registry: EventTypeRegistry,
+    mocker: MockerFixture,
+) -> None:
+    session_a, session_b = pg_session_pair
+    tables = bind_event_store_tables(MetaData())
+    store_a = _sql_store(session_a, registry, tables)
+    store_b = _sql_store(session_b, registry, tables)
+    stream_id = StreamId.for_aggregate('Order', 'contend')
+
+    await store_a.append_to_stream(stream_id, [make_envelope(OrderCreated(order_id='1'))], expected_version=NoStream())
+    await session_a.commit()
+
+    async def _winner_appends_and_commits() -> None:
+        await store_b.append_to_stream(
+            stream_id,
+            [make_envelope(ItemAdded(item_name='winner'))],
+            expected_version=Exact(0),
+        )
+        await session_b.commit()
+
+    _arm_after_version_read(mocker, store_a, _winner_appends_and_commits)
+
+    with pytest.raises(ConcurrencyConflictError) as exc_info:
+        await store_a.append_to_stream(
+            stream_id,
+            [
+                make_envelope(ItemAdded(item_name='loser-1')),
+                make_envelope(ItemAdded(item_name='loser-2')),
+            ],
+            expected_version=Exact(0),
+        )
+    await session_a.rollback()
+
+    # The loser targets two events (new_version=2) but the winner committed one (actual=1): the raised
+    # actual_version must report the winner's real committed version, not the loser's stale append target.
+    assert exc_info.value.actual_version == 1
+
+    events = await store_a.read_stream(stream_id)
+    assert len(events) == 2
+    assert events[1].data == ItemAdded(item_name='winner')
+
+
+async def test_concurrent_appends_to_distinct_streams_share_one_global_position_order(
+    pg_session_pair: tuple[AsyncSession, AsyncSession],
+    registry: EventTypeRegistry,
+    mocker: MockerFixture,
+) -> None:
+    session_a, session_b = pg_session_pair
+    tables = bind_event_store_tables(MetaData())
+    store_a = _sql_store(session_a, registry, tables)
+    store_b = _sql_store(session_b, registry, tables)
+    stream_a = StreamId.for_aggregate('Order', 'A')
+    stream_b = StreamId.for_aggregate('Order', 'B')
+
+    async def _append_b_and_commit() -> None:
+        await store_b.append_to_stream(
+            stream_b,
+            [make_envelope(OrderCreated(order_id='B'))],
+            expected_version=NoStream(),
+        )
+        await session_b.commit()
+
+    # Interleave B's whole append+commit inside A's append window so the two appenders allocate global
+    # positions from the shared IDENTITY sequence concurrently, not in program order.
+    _arm_after_version_read(mocker, store_a, _append_b_and_commit)
+
+    await store_a.append_to_stream(
+        stream_a,
+        [make_envelope(OrderCreated(order_id='A'))],
+        expected_version=NoStream(),
+    )
+    await session_a.commit()
+
+    # read_all must merge both streams into ONE gapless, ascending total order — the invariant outbox
+    # relays and projections watermark on. B allocated first (inside the window), so it leads.
+    combined = await store_a.read_all()
+    positions = [event.global_position for event in combined]
+
+    assert [event.data for event in combined] == [OrderCreated(order_id='B'), OrderCreated(order_id='A')]
+    assert positions == sorted(positions)
+    assert len(set(positions)) == len(positions)
+    assert positions[1] == positions[0] + 1

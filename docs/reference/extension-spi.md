@@ -139,6 +139,7 @@ Event store contracts (with snapshot/checkpoint facets); in-memory reference sto
 `IdempotencyVerdict` ·
 `InMemoryEventStore` ·
 `check_expected_version` ·
+`check_read_bounds` ·
 `classify_idempotency` ·
 `enrich_metadata`
 

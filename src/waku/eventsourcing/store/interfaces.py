@@ -98,8 +98,9 @@ class IEventWriter(abc.ABC):
         Archived streams are excluded from ``read_all``, ``read_positions``,
         and ``stream_exists``; their events remain readable via ``read_stream``
         for audit purposes. Appending to an archived stream raises
-        ``StreamArchivedError``. Both the ``stream_exists`` exclusion and the
-        append block are intentionally stricter than Marten's archive semantics.
+        ``StreamArchivedError`` — parity with Marten, whose ``mt_quick_append_events``
+        also raises on an archived stream. The ``stream_exists`` exclusion is a
+        Waku choice stricter than Marten's archive semantics.
 
         Raises ``StreamNotFoundError`` if the stream does not exist.
         No-op if already archived.
