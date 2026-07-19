@@ -305,6 +305,56 @@ async def test_runner_exits_when_no_projections(
             await runner.run()
 
 
+async def test_runner_threads_injected_clock_into_processor_checkpoints(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
+    await seed_events(event_store, count=5)
+    frozen = datetime(2030, 1, 1, tzinfo=UTC)
+
+    lock = InMemoryLease()
+    projection = RecordingProjection()
+    binding = make_binding(RecordingProjection)
+    app = _make_app(event_store, in_memory_checkpoint_store, lock, (projection,), (binding,))
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(
+            container=app.container,
+            polling=_FAST_POLLING,
+            clock=lambda: frozen,
+        )
+        await _run_until(runner, lambda: len(projection.received) >= 5)
+
+    checkpoint = await in_memory_checkpoint_store.load('recording')
+    assert checkpoint is not None
+    assert checkpoint.updated_at == frozen
+
+
+async def test_rebuild_threads_injected_clock_into_processor_reset(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
+    await seed_events(event_store, count=5)
+    frozen = datetime(2030, 1, 1, tzinfo=UTC)
+
+    lock = InMemoryLease()
+    projection = RecordingProjection()
+    binding = make_binding(RecordingProjection)
+    app = _make_app(event_store, in_memory_checkpoint_store, lock, (projection,), (binding,))
+
+    async with app:
+        runner = await CatchUpProjectionRunner.create(
+            container=app.container,
+            polling=_FAST_POLLING,
+            clock=lambda: frozen,
+        )
+        await runner.rebuild('recording')
+
+    checkpoint = await in_memory_checkpoint_store.load('recording')
+    assert checkpoint is not None
+    assert checkpoint.updated_at == frozen
+
+
 async def test_rebuild_resets_and_reprocesses(
     event_store: InMemoryEventStore,
     in_memory_checkpoint_store: InMemoryCheckpointStore,

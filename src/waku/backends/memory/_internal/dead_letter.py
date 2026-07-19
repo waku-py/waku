@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, TypeGuard
 
 from typing_extensions import override
 
+from waku._internal.clock import utc_now
 from waku.messaging.durability import IDeadLetterStore
 from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterStatus, validate_requested_lease
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from datetime import timedelta
+    from datetime import datetime, timedelta
     from uuid import UUID
 
     from waku.backends.memory._internal.transaction import InMemoryWorkspaceAccessor
@@ -49,7 +49,7 @@ class _InMemoryDeadLetterStoreOperations(IDeadLetterStore):
     @override
     async def save(self, entry: DeadLetterEntry) -> None:
         if entry.created_at is None:
-            entry = dataclasses.replace(entry, created_at=datetime.now(tz=UTC))
+            entry = dataclasses.replace(entry, created_at=utc_now())
         # Serialize-in isolation: persist a snapshot so a caller mutating payload/metadata after
         # save never rewrites the stored row (the SQL peer serializes to JSONB on execute).
         self.entries[entry.id] = copy.deepcopy(entry)
@@ -185,7 +185,7 @@ class _InMemoryDeadLetterStoreOperations(IDeadLetterStore):
 
     @staticmethod
     def _created_at_key(entry: DeadLetterEntry) -> datetime:
-        return entry.created_at if entry.created_at is not None else datetime.now(tz=UTC)
+        return entry.created_at if entry.created_at is not None else utc_now()
 
     @staticmethod
     def _matches(entry: DeadLetterEntry, filters: DeadLetterQuery) -> bool:

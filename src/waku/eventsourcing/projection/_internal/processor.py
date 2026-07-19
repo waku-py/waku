@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Final
 
 from waku._internal.adaptive_interval import calculate_backoff_with_jitter
+from waku._internal.clock import Now, utc_now
 from waku.eventsourcing.exceptions import ProjectionStoppedError
 from waku.eventsourcing.projection._internal.gap_tracker import GapTracker
 from waku.eventsourcing.projection.checkpoint import Checkpoint
@@ -53,8 +53,9 @@ _IDLE: Final[CycleOutcome] = CycleOutcome(events_processed=0, checkpoint_mutated
 
 
 class ProjectionProcessor:
-    def __init__(self, binding: CatchUpProjectionBinding) -> None:
+    def __init__(self, binding: CatchUpProjectionBinding, clock: Now = utc_now) -> None:
         self._binding = binding
+        self._clock = clock
         self._attempts: int = 0
         self._gap_tracker: GapTracker | None = (
             GapTracker(binding.gap_timeout_seconds) if binding.gap_detection_enabled else None
@@ -95,7 +96,7 @@ class ProjectionProcessor:
             Checkpoint(
                 projection_name=self.projection_name,
                 position=events[-1].global_position,
-                updated_at=datetime.now(UTC),
+                updated_at=self._clock(),
             ),
         )
         self._attempts = 0
@@ -106,7 +107,7 @@ class ProjectionProcessor:
             Checkpoint(
                 projection_name=self.projection_name,
                 position=-1,
-                updated_at=datetime.now(UTC),
+                updated_at=self._clock(),
             ),
         )
 
@@ -181,7 +182,7 @@ class ProjectionProcessor:
                 checkpoint=Checkpoint(
                     projection_name=self.projection_name,
                     position=events[-1].global_position,
-                    updated_at=datetime.now(UTC),
+                    updated_at=self._clock(),
                 ),
                 events=events,
                 error=exc,

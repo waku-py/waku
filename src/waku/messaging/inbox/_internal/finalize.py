@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Never, assert_never
 
+from waku._internal.clock import Now, utc_now
 from waku._internal.transaction import (
     Aborted,
     Commit,
@@ -35,6 +35,7 @@ async def apply_inbox_outcome(
     intent: TerminalIntent,
     keep_after_handled: timedelta,
     dead_letter: DeadLetterEntry | None = None,
+    now_fn: Now = utc_now,
 ) -> ExecutionResult:
     """Materialize a durable-inbox terminal intent after its row transition commits.
 
@@ -49,7 +50,7 @@ async def apply_inbox_outcome(
     """
     if intent.kind is TerminalIntentKind.DEAD_LETTER:
         return await _move_to_dead_letter(container, entry_id, destination, dead_letter)
-    return await _apply_non_dead_letter_outcome(container, entry_id, destination, intent, keep_after_handled)
+    return await _apply_non_dead_letter_outcome(container, entry_id, destination, intent, keep_after_handled, now_fn)
 
 
 async def _move_to_dead_letter(
@@ -83,12 +84,13 @@ async def _apply_non_dead_letter_outcome(
     destination: str,
     intent: TerminalIntent,
     keep_after_handled: timedelta,
+    now_fn: Now,
 ) -> ExecutionResult:
     async def apply(scope: AsyncContainer) -> TransactionDecision[ExecutionResult, Never]:
         inbox = await scope.get(IInboxStore)
         match intent.kind:
             case TerminalIntentKind.SUCCESS:
-                keep_until = datetime.now(tz=UTC) + keep_after_handled
+                keep_until = now_fn() + keep_after_handled
                 await inbox.mark_as_handled(entry_id, destination, keep_until)
                 outcome = ExecutionOutcome.SUCCESS
             case TerminalIntentKind.DISCARD:

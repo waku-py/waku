@@ -5,12 +5,12 @@ import logging
 import uuid
 from collections.abc import Sequence  # noqa: TC003  # Dishka needs runtime access
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, TypeAlias, assert_never
 
 import anyio
 from typing_extensions import override
 
+from waku._internal.clock import utc_now
 from waku.eventsourcing.contracts.event import EventEnvelope, IMetadataEnricher, StoredEvent
 from waku.eventsourcing.contracts.stream import StreamPosition
 from waku.eventsourcing.exceptions import (
@@ -271,6 +271,14 @@ class _InMemoryEventStoreOperations(IEventStore):
                 is_new_stream = False
 
             stored_events: list[StoredEvent] = []
+            # ONE captured instant for the whole append call: a per-event clock read (even a fast one)
+            # can observe distinct microsecond values, breaking any consumer that orders/groups stored
+            # events by append batch — mirrors the SQLAlchemy store's once-per-append stamp. Not
+            # constructor-injectable: this store is directly dishka-class-registerable with zero other
+            # providers (see test_standalone_memory_adapters_resolve_through_direct_dishka_class_registration),
+            # and dishka's STRICT_VALIDATION requires every typed __init__ param to resolve regardless of
+            # a Python default, so a `Now`-typed param here would demand a `Now` provider in EVERY app.
+            stamped_at = utc_now()
             for envelope in events:
                 position = len(stream)
                 stored = StoredEvent(
@@ -279,7 +287,7 @@ class _InMemoryEventStoreOperations(IEventStore):
                     event_type=self._registry.get_name(type(envelope.domain_event)),
                     position=position,
                     global_position=state.global_position,
-                    timestamp=datetime.now(UTC),
+                    timestamp=stamped_at,
                     # Serialize-in isolation: the store must not retain the caller's mutable event or
                     # metadata — mirroring the SQL backend, which persists a JSON snapshot on write.
                     data=copy.deepcopy(envelope.domain_event),

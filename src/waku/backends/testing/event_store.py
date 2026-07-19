@@ -971,6 +971,29 @@ class EventStoreContract:
                 expected_version=Exact(version=0),
             )
 
+    async def test_append_stamps_every_event_with_one_shared_timestamp(
+        self,
+        store: IEventStore,
+        stream_id: StreamId,
+    ) -> None:
+        # One append call must capture ONE instant for every event it persists — a per-event clock
+        # read (even a fast one) can observe distinct microsecond values, which breaks any consumer
+        # ordering/grouping stored events by append batch.
+        await store.append_to_stream(
+            stream_id,
+            [
+                make_envelope(OrderCreated(order_id='1')),
+                make_envelope(ItemAdded(item_name='A')),
+                make_envelope(OrderShipped(tracking_number='T1')),
+            ],
+            expected_version=NoStream(),
+        )
+
+        events = await store.read_stream(stream_id)
+
+        assert len(events) == 3
+        assert events[0].timestamp == events[1].timestamp == events[2].timestamp
+
     async def test_read_stream_end_works_on_archived_stream(
         self,
         store: IEventStore,

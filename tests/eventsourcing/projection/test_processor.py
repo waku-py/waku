@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import anyio
@@ -209,6 +210,52 @@ async def test_retry_recovers_after_transient_failure(
     should_fail = False
     outcome = await processor.run_once(projection, event_store, in_memory_checkpoint_store)
     assert outcome.events_processed == 3
+
+
+async def test_run_once_stamps_checkpoint_updated_at_from_injected_clock(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
+    frozen = datetime(2030, 1, 1, tzinfo=UTC)
+    processor = ProjectionProcessor(make_binding(RecordingProjection), clock=lambda: frozen)
+
+    await seed_events(event_store, count=1)
+    await processor.run_once(RecordingProjection(), event_store, in_memory_checkpoint_store)
+
+    checkpoint = await in_memory_checkpoint_store.load('recording')
+    assert checkpoint is not None
+    assert checkpoint.updated_at == frozen
+
+
+async def test_reset_checkpoint_stamps_updated_at_from_injected_clock(
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
+    frozen = datetime(2030, 1, 1, tzinfo=UTC)
+    processor = ProjectionProcessor(make_binding(RecordingProjection), clock=lambda: frozen)
+
+    await processor.reset_checkpoint(in_memory_checkpoint_store)
+
+    checkpoint = await in_memory_checkpoint_store.load('recording')
+    assert checkpoint is not None
+    assert checkpoint.updated_at == frozen
+
+
+async def test_skip_checkpoint_stamps_updated_at_from_injected_clock(
+    event_store: InMemoryEventStore,
+    in_memory_checkpoint_store: InMemoryCheckpointStore,
+) -> None:
+    frozen = datetime(2030, 1, 1, tzinfo=UTC)
+    projection = StopProjection()
+    processor = ProjectionProcessor(
+        make_binding(StopProjection, error_policy=ProjectionErrorPolicy.SKIP),
+        clock=lambda: frozen,
+    )
+
+    await seed_events(event_store, count=1)
+    outcome = await processor.run_once(projection, event_store, in_memory_checkpoint_store)
+
+    assert outcome.skip is not None
+    assert outcome.skip.checkpoint.updated_at == frozen
 
 
 async def test_reset_checkpoint(

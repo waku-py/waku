@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
@@ -288,6 +289,87 @@ async def test_stream_version_consistent_after_savepoint_race_recovery(
 
 
 # --- read_all event_types filtering ---
+
+
+class _TickingClock:
+    # Strictly-increasing per call: a store that reads the clock ONCE per append stamps every event with
+    # the first tick; a per-event read would stamp each event with a distinct, later tick. This turns
+    # INV-1 (one append -> one timestamp) into a deterministic assertion, independent of hardware timing.
+    def __init__(self, start: datetime, step: timedelta) -> None:
+        self._at = start
+        self._step = step
+
+    def __call__(self) -> datetime:
+        current = self._at
+        self._at += self._step
+        return current
+
+
+# InMemoryEventStore intentionally has NO constructor-level clock injection: it is directly
+# dishka-class-registerable with zero other providers (see
+# test_standalone_memory_adapters_resolve_through_direct_dishka_class_registration in
+# tests/backends/memory/test_conformance.py), and dishka's STRICT_VALIDATION requires every typed
+# __init__ param to resolve regardless of a Python default — a `Now`-typed param would demand a `Now`
+# provider in every app. The append-timestamp fix (one instant per append) is verified backend-agnostically
+# by the shared conformance law above; only the SQLAlchemy store (always built via a factory function,
+# never class-registered) safely exposes clock injection. Both stores are additionally pinned deterministically
+# below with a ticking clock (the shared law relies on real-clock microsecond drift, which faster hardware or
+# coarser clock granularity could false-green).
+async def test_sqlalchemy_store_stamps_every_appended_event_from_one_injected_clock_read(
+    pg_session: AsyncSession,
+    registry: EventTypeRegistry,
+    stream_id: StreamId,
+) -> None:
+    start = datetime(2030, 1, 1, tzinfo=UTC)
+    store = SqlAlchemyEventStore(
+        session=pg_session,
+        serializer=JsonEventSerializer(registry),
+        registry=registry,
+        tables=bind_event_store_tables(MetaData()),
+        upcaster_chain=UpcasterChain({}),
+        clock=_TickingClock(start, timedelta(seconds=1)),
+    )
+
+    await store.append_to_stream(
+        stream_id,
+        [
+            make_envelope(OrderCreated(order_id='1')),
+            make_envelope(ItemAdded(item_name='A')),
+            make_envelope(OrderCreated(order_id='2')),
+        ],
+        expected_version=NoStream(),
+    )
+
+    events = await store.read_stream(stream_id)
+    # All three share the FIRST tick: proves the injected clock is honored (INV-2) AND read once (INV-1);
+    # a per-event read would yield start, start+1s, start+2s.
+    assert [e.timestamp for e in events] == [start, start, start]
+
+
+async def test_in_memory_store_stamps_every_appended_event_from_one_clock_read(
+    mocker: MockerFixture,
+    registry: EventTypeRegistry,
+    stream_id: StreamId,
+) -> None:
+    start = datetime(2030, 1, 1, tzinfo=UTC)
+    # The in-memory store isn't constructor-injectable (see above), so pin INV-1 by patching the module-level
+    # clock with a ticking source: one read per append -> all events share the first tick.
+    mocker.patch('waku.eventsourcing.store.in_memory.utc_now', _TickingClock(start, timedelta(seconds=1)))
+    store = InMemoryEventStore(registry=registry)
+
+    await store.append_to_stream(
+        stream_id,
+        [
+            make_envelope(OrderCreated(order_id='1')),
+            make_envelope(ItemAdded(item_name='A')),
+            make_envelope(OrderCreated(order_id='2')),
+        ],
+        expected_version=NoStream(),
+    )
+
+    events = await store.read_stream(stream_id)
+    # A per-event read would yield start, start+1s, start+2s; the single-read fix yields all-equal.
+    assert [e.timestamp for e in events] == [start, start, start]
 
 
 def test_in_memory_store_exposes_the_exact_composed_facets(registry: EventTypeRegistry) -> None:

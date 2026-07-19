@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Sequence  # noqa: TC003  # Dishka needs runtime access
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol, assert_never, cast
 
 from sqlalchemy import (  # Dishka needs runtime access
@@ -15,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002  # Dishka needs runtime access
 from typing_extensions import override
 
+from waku._internal.clock import Now, utc_now
 from waku.backends.sqlalchemy._internal.serialization import row_to_stored_event, serialize_metadata
 from waku.backends.sqlalchemy.event_store.tables import (  # Dishka needs runtime access
     IDEMPOTENCY_KEY_CONSTRAINT,
@@ -45,6 +45,8 @@ from waku.exceptions import ImproperlyConfiguredError
 from waku.serialization.upcasting.chain import UpcasterChain  # noqa: TC001  # Dishka needs runtime access
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from sqlalchemy.engine import CursorResult
 
     from waku.eventsourcing.contracts.event import EventEnvelope
@@ -89,6 +91,7 @@ class SqlAlchemyEventStore(IEventStore):
         appended_events: IAppendedEvents | None = None,
         snapshots: ISnapshotStore | None = None,
         checkpoints: ICheckpointStore | None = None,
+        clock: Now = utc_now,
     ) -> None:
         self._session = session
         self._serializer = serializer
@@ -101,6 +104,7 @@ class SqlAlchemyEventStore(IEventStore):
         self._appended_events = appended_events
         self._snapshots = snapshots
         self._checkpoints = checkpoints
+        self._clock = clock
 
     @property
     @override
@@ -420,9 +424,12 @@ class SqlAlchemyEventStore(IEventStore):
         envelopes_data: list[tuple[uuid.UUID, str, datetime, IEvent, EventMetadata]] = []
 
         position = start_position
+        # ONE captured instant for the whole append call, computed before the loop: a per-event clock
+        # read (even a fast one) can observe distinct microsecond values, breaking any consumer that
+        # orders/groups stored events by append batch — mirrors the in-memory store's single stamp.
+        now = self._clock()
         for envelope in events:
             event_id = uuid.uuid4()
-            now = datetime.now(UTC)
             event_type = self._registry.get_name(type(envelope.domain_event))
             metadata = enrich_metadata(envelope.metadata, self._enrichers)
 

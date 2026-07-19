@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
+from waku._internal.clock import utc_now
 from waku.messaging.durability import IDeadLetterStore, IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from datetime import timedelta
+    from datetime import datetime, timedelta
     from typing import Any
     from uuid import UUID
 
@@ -79,7 +79,7 @@ class _InMemoryOutboxStoreOperations(IOutboxStore):
 
     @override
     async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
-        now = datetime.now(tz=UTC)
+        now = utc_now()
         pending = [msg for msg in self.messages if msg.status is OutboxStatus.PENDING]
         # Head per (group_id, destination): lowest-sequence NON-TERMINAL row (PENDING or PROCESSING),
         # INDEPENDENT of next_retry_at. A committed PROCESSING (in-flight) row still occupies its slot
@@ -118,7 +118,7 @@ class _InMemoryOutboxStoreOperations(IOutboxStore):
 
     @override
     async def mark_dispatched(self, message_id: UUID) -> None:
-        self._replace(message_id, status=OutboxStatus.DISPATCHED, dispatched_at=datetime.now(tz=UTC))
+        self._replace(message_id, status=OutboxStatus.DISPATCHED, dispatched_at=utc_now())
 
     @override
     async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry) -> None:
@@ -148,7 +148,7 @@ class _InMemoryOutboxStoreOperations(IOutboxStore):
 
     @override
     async def recover_abandoned(self, threshold: timedelta) -> int:
-        cutoff = datetime.now(tz=UTC) - threshold
+        cutoff = utc_now() - threshold
         recovered = 0
         for i, msg in enumerate(self.messages):
             if (

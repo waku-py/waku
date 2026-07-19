@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Final, assert_never
 import anyio
 
 from waku._internal.adaptive_interval import AdaptiveInterval
+from waku._internal.clock import Now, utc_now
 from waku._internal.lease import ILease
 from waku._internal.polling import DEFAULT_POLLING_CONFIG
 from waku._internal.shutdown import wait_for_shutdown
@@ -62,11 +63,13 @@ class CatchUpProjectionRunner:
         lock: ILease,
         registry: CatchUpProjectionRegistry,
         polling: PollingConfig = DEFAULT_POLLING_CONFIG,
+        clock: Now = utc_now,
     ) -> None:
         self._container = container
         self._lock = lock
         self._registry = registry
         self._polling = polling
+        self._clock = clock
         self._shutdown_event = anyio.Event()
 
     @classmethod
@@ -75,6 +78,7 @@ class CatchUpProjectionRunner:
         container: AsyncContainer,
         projections: Sequence[type[ICatchUpProjection]] | None = None,
         polling: PollingConfig = DEFAULT_POLLING_CONFIG,
+        clock: Now = utc_now,
     ) -> CatchUpProjectionRunner:
         # The projection-daemon lease is backend-owned: the durability backend registers an ``ILease``
         # (memory -> in-process, sqlalchemy -> Postgres table). Fail loud and name the fix when none is
@@ -96,6 +100,7 @@ class CatchUpProjectionRunner:
             lock=lock,
             registry=registry,
             polling=polling,
+            clock=clock,
         )
 
     async def run(self) -> None:
@@ -126,7 +131,7 @@ class CatchUpProjectionRunner:
             # against not-yet-committed positions; on permanent historical gaps it only stalls the replay,
             # so the rebuild pass runs with it disabled and processes every committed event past the gap.
             rebuild_binding = replace(binding, gap_detection_enabled=False)
-            processor = ProjectionProcessor(rebuild_binding)
+            processor = ProjectionProcessor(rebuild_binding, self._clock)
 
             async def reset(scope: AsyncContainer) -> TransactionDecision[None, Never]:
                 checkpoint_store = await scope.get(ICheckpointStore)
@@ -179,7 +184,7 @@ class CatchUpProjectionRunner:
                 step_seconds=self._polling.poll_interval_step_seconds,
                 jitter_factor=self._polling.poll_interval_jitter_factor,
             )
-            processor = ProjectionProcessor(binding)
+            processor = ProjectionProcessor(binding, self._clock)
             await self._poll_loop(binding, processor, interval)
 
     async def _poll_loop(

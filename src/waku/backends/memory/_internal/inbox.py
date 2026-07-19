@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
+from waku._internal.clock import utc_now
 from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 from waku.messaging.sequence import allocate_sequence_by_id
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from datetime import timedelta
+    from datetime import datetime, timedelta
     from uuid import UUID
 
     from waku.backends.memory._internal.transaction import InMemoryWorkspaceAccessor
@@ -130,7 +130,7 @@ class _InMemoryInboxStoreOperations(IInboxStore):
         # Mirror the SQLAlchemy store: only reclaim owned INCOMING rows whose updated_at is older than
         # `now - threshold`. A just-written/claimed row (updated_at unset) is treated as fresh (now),
         # so a positive threshold leaves it alone — matching the production server-default behaviour.
-        now = datetime.now(tz=UTC)
+        now = utc_now()
         cutoff = now - threshold
         recovered = 0
         for key, entry in list(self.entries.items()):
