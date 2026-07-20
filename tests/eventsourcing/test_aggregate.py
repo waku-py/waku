@@ -3,9 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+from typing_extensions import override
 
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
-from waku.messaging.contracts.event import IEvent
+from waku.messages import IEvent
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,7 @@ class TaskAggregate(EventSourcedAggregate):
             raise ValueError(msg)
         self._raise_event(TaskCompleted())
 
+    @override
     def _apply(self, event: IEvent) -> None:
         match event:
             case TaskCreated(title=title):
@@ -81,6 +83,27 @@ def test_collect_events_is_destructive() -> None:
     assert second == []
 
 
+def test_pending_events_is_non_destructive() -> None:
+    aggregate = TaskAggregate()
+    aggregate.create('Write tests')
+
+    first = aggregate.pending_events
+    second = aggregate.pending_events
+
+    assert first == [TaskCreated(title='Write tests')]
+    assert second == first
+
+
+def test_mark_persisted_clears_pending_events() -> None:
+    aggregate = TaskAggregate()
+    aggregate.create('Write tests')
+
+    aggregate.mark_persisted(0)
+
+    assert aggregate.version == 0
+    assert aggregate.pending_events == []
+
+
 def test_load_from_history_reconstructs_state_and_sets_version() -> None:
     aggregate = TaskAggregate()
     history = [TaskCreated(title='From history'), TaskCompleted()]
@@ -111,7 +134,7 @@ def test_create_sets_title_and_complete_sets_completed() -> None:
 
     aggregate.complete()
 
-    assert aggregate.completed is True
+    assert aggregate.completed
 
 
 def test_completing_already_completed_aggregate_raises_error() -> None:

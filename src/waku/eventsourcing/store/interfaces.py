@@ -10,12 +10,41 @@ if TYPE_CHECKING:
 
     from waku.eventsourcing.contracts.event import EventEnvelope, StoredEvent
     from waku.eventsourcing.contracts.stream import ExpectedVersion, StreamId
+    from waku.eventsourcing.projection.checkpoint import Checkpoint
+    from waku.eventsourcing.snapshot.interfaces import Snapshot
 
 __all__ = [
+    'ICheckpointStore',
     'IEventReader',
     'IEventStore',
     'IEventWriter',
+    'ISnapshotStore',
 ]
+
+
+class ISnapshotStore(abc.ABC):
+    @abc.abstractmethod
+    async def load(self, stream_id: StreamId, /) -> Snapshot | None: ...
+
+    @abc.abstractmethod
+    async def save(self, snapshot: Snapshot, /) -> None:
+        """Persist a snapshot; a failure MUST NOT leave the caller's transaction unusable.
+
+        The snapshot is a rebuildable cache, so ``save`` may fail (the caller degrades to a stale/absent
+        snapshot and replays events). A failed ``save`` MUST leave the caller free to commit work done
+        before it — the durable event append it shares a transaction with. Backends over a shared
+        transactional resource MUST isolate the write (e.g. a SAVEPOINT) so a rejected write cannot abort
+        the outer transaction; isolated-resource backends satisfy this trivially.
+        """
+        ...
+
+
+class ICheckpointStore(abc.ABC):
+    @abc.abstractmethod
+    async def load(self, projection_name: str, /) -> Checkpoint | None: ...
+
+    @abc.abstractmethod
+    async def save(self, checkpoint: Checkpoint, /) -> None: ...
 
 
 class IEventReader(abc.ABC):
@@ -72,19 +101,44 @@ class IEventWriter(abc.ABC):
     ) -> int: ...
 
     @abc.abstractmethod
-    async def delete_stream(self, stream_id: StreamId, /) -> None:
-        """Mark a stream as permanently deleted.
+    async def archive_stream(self, stream_id: StreamId, /) -> None:
+        """Mark a stream as archived.
 
-        Deleted streams are excluded from ``read_all``, ``read_positions``,
-        and ``stream_exists``. Appending to a deleted stream raises
-        ``StreamDeletedError``. Events remain accessible via ``read_stream``
-        for audit purposes.
+        Archived streams are excluded from ``read_all``, ``read_positions``,
+        and ``stream_exists``; their events remain readable via ``read_stream``
+        for audit purposes. Appending to an archived stream raises
+        ``StreamArchivedError`` — parity with Marten, whose ``mt_quick_append_events``
+        also raises on an archived stream. The ``stream_exists`` exclusion is a
+        Waku choice stricter than Marten's archive semantics.
 
         Raises ``StreamNotFoundError`` if the stream does not exist.
-        No-op if already deleted.
+        No-op if already archived.
         """
         ...
 
+    @property
+    def records_appended_events(self) -> bool:
+        """Whether this store records appended domain events into ``IAppendedEvents`` for forwarding.
+
+        Default ``False``: a store forwards nothing unless it deliberately wires the appended-events
+        collector, so ES startup validation rejects ``forwarding=[...]`` against a store whose trait is
+        ``False``. Recording stores override to ``True``.
+        """
+        return False
+
 
 class IEventStore(IEventReader, IEventWriter, abc.ABC):
-    pass
+    """Cohesive per-backend event-sourcing store: append/read stay primary; snapshots/checkpoints are facets.
+
+    A backend assembles the facets over its single scoped resource, so a facet port resolved from the
+    same scope IS the corresponding facet of this object. Projection LOCKS are deliberately excluded —
+    coordination, not durability.
+    """
+
+    @property
+    @abc.abstractmethod
+    def snapshots(self) -> ISnapshotStore: ...
+
+    @property
+    @abc.abstractmethod
+    def checkpoints(self) -> ICheckpointStore: ...

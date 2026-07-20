@@ -1,0 +1,204 @@
+from __future__ import annotations
+
+import copy
+from contextlib import asynccontextmanager
+from itertools import chain
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
+
+from dishka.dependency_source import ContextVariable
+from dishka.entities.marker import BaseMarker, BoolMarker
+
+from waku.di import BaseProvider
+from waku.exceptions import ImproperlyConfiguredError
+from waku.extensions import DEFAULT_EXTENSIONS
+from waku.factory import WakuFactory
+from waku.modules._internal.metadata import module
+from waku.testing._internal.container_override import ContainerOverride
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator, Sequence
+
+    from dishka import Provider
+
+    from waku.application import WakuApplication
+    from waku.di import AsyncContainer
+    from waku.extensions import ApplicationExtension, ModuleExtension
+    from waku.modules import ModuleType
+    from waku.modules._internal.metadata import DynamicModule
+
+
+__all__ = [
+    'create_test_app',
+    'override',
+]
+
+
+_ProviderT = TypeVar('_ProviderT', bound=BaseProvider)
+
+
+class _HasOverride(Protocol):
+    when_active: BaseMarker | None
+    when_override: BaseMarker | None
+
+
+@asynccontextmanager
+async def override(
+    container: AsyncContainer,
+    *providers: BaseProvider,
+    context: dict[Any, Any] | None = None,
+) -> AsyncGenerator[None]:
+    """Temporarily override providers and/or context in an AsyncContainer for testing.
+
+    Args:
+        container: The container whose providers/context will be overridden.
+        *providers: Providers to override in the container.
+        context: Context values to override.
+
+    Yields:
+        None: Context in which the container uses the overridden providers/context.
+
+    Example:
+        ```python
+        from waku import WakuFactory, module
+        from waku.di import Scope, singleton
+        from waku.testing import override
+
+
+        class Service: ...
+
+
+        class ServiceOverride(Service): ...
+
+
+        # Override providers
+        async with override(application.container, singleton(ServiceOverride, provided_type=Service)):
+            service = await application.container.get(Service)
+            assert isinstance(service, ServiceOverride)
+
+        # Override context
+        async with override(application.container, context={int: 123}):
+            ...
+        ```
+
+    Raises:
+        ImproperlyConfiguredError: If container is not at root (APP) scope.
+
+    Note:
+        Mutates the container in place. Nested (LIFO) overrides are safe; overriding
+        the same container from concurrent tasks is not.
+    """
+    async with ContainerOverride(
+        container,
+        *(_as_override(provider) for provider in providers),
+        context=context,
+    ):
+        yield
+
+
+@asynccontextmanager
+async def create_test_app(
+    *,
+    base: ModuleType | DynamicModule | None = None,
+    providers: Sequence[Provider] = (),
+    imports: Sequence[ModuleType | DynamicModule] = (),
+    extensions: Sequence[ModuleExtension] = (),
+    app_extensions: Sequence[ApplicationExtension] = DEFAULT_EXTENSIONS,
+    context: dict[Any, Any] | None = None,
+) -> AsyncGenerator[WakuApplication]:
+    """Create a minimal test application with given configuration.
+
+    Useful for testing extensions and module configurations in isolation
+    without needing to set up a full application structure.
+
+    Args:
+        base: Base module to build upon. When provided, the test module
+            imports this module and providers act as overrides.
+        providers: Providers to register in the test module.
+            When `base` is provided, these override existing providers.
+        imports: Additional modules to import into the test module.
+        extensions: Module extensions to register.
+        app_extensions: Application extensions to register (default: DEFAULT_EXTENSIONS).
+        context: Context values to pass to the container.
+
+    Yields:
+        Initialized WakuApplication.
+
+    Example:
+        ```python
+        from waku.testing import create_test_app
+        from waku.di import singleton
+
+
+        class IRepository(Protocol):
+            async def get(self, id: str) -> Entity: ...
+
+
+        class FakeRepository(IRepository):
+            async def get(self, id: str) -> Entity:
+                return Entity(id=id)
+
+
+        # Create test app from scratch
+        async def test_my_extension():
+            extension = MyExtension().bind(SomeHandler)
+
+            async with create_test_app(
+                extensions=[extension],
+                providers=[singleton(IRepository, FakeRepository)],
+            ) as app:
+                service = await app.container.get(MyService)
+                result = await service.do_something()
+                assert result == expected
+
+
+        # Create test app based on existing module with overrides
+        async def test_with_base_module():
+            async with create_test_app(
+                base=AppModule,
+                providers=[singleton(IRepository, FakeRepository)],
+            ) as app:
+                # FakeRepository replaces the real one from AppModule
+                repo = await app.container.get(IRepository)
+                assert isinstance(repo, FakeRepository)
+        ```
+    """
+    all_imports = list(imports)
+    if base is not None:
+        all_imports.insert(0, base)
+
+    override_providers = [_as_override(provider) for provider in providers] if base is not None else list(providers)
+
+    @module(
+        providers=override_providers,
+        imports=all_imports,
+        extensions=list(extensions),
+    )
+    class _TestModule:
+        pass
+
+    app = WakuFactory(_TestModule, context=context, extensions=app_extensions).create()
+    async with app:
+        yield app
+
+
+def _as_override(provider: _ProviderT) -> _ProviderT:
+    """Build an override-marked copy of a provider, leaving the caller's object untouched.
+
+    Raises:
+        ImproperlyConfiguredError: If the provider is conditional (declared with `when=`).
+    """
+    for factory in chain[_HasOverride](provider.factories, provider.aliases):
+        # dishka forbids combining `when=` with an override: an override replaces base providers
+        # unconditionally, so a conditional one would silently drop its activation condition.
+        if factory.when_active is not None:
+            msg = 'A conditional provider (declared with `when=`) cannot be used as an override.'
+            raise ImproperlyConfiguredError(msg)
+
+    marked = copy.copy(provider)
+    marked.factories = [factory.replace(when_override=BoolMarker(True)) for factory in provider.factories]  # noqa: FBT003
+    marked.aliases = [alias.replace(when_override=BoolMarker(True)) for alias in provider.aliases]  # noqa: FBT003
+    marked.context_vars = [
+        ContextVariable(provides=context_var.provides, scope=context_var.scope, override=True)
+        for context_var in provider.context_vars
+    ]
+    return marked

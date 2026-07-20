@@ -6,9 +6,15 @@ import sys
 from typing import TYPE_CHECKING, cast
 
 import pytest
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
+from testcontainers.postgres import PostgresContainer  # type: ignore[import-untyped]
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Iterator
+
     from _pytest.fixtures import SubRequest
+    from sqlalchemy.ext.asyncio import AsyncEngine
 
 
 @pytest.fixture(
@@ -34,3 +40,16 @@ if TYPE_CHECKING:
 )
 def anyio_backend(request: SubRequest) -> tuple[str, dict[str, object]]:
     return cast('tuple[str, dict[str, object]]', request.param)
+
+
+@pytest.fixture(scope='session')
+def pg_container() -> Iterator[str]:
+    with PostgresContainer('postgres:17', driver='psycopg') as pg:
+        yield pg.get_connection_url()
+
+
+@pytest.fixture
+async def pg_engine(pg_container: str) -> AsyncIterator[AsyncEngine]:
+    engine = create_async_engine(pg_container, poolclass=NullPool)
+    yield engine
+    await engine.dispose()

@@ -7,22 +7,23 @@ import pytest
 
 if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
-    from unittest.mock import AsyncMock
 
     from pytest_mock import MockerFixture
 
     from waku.eventsourcing.contracts.aggregate import IDecider
     from waku.eventsourcing.decider.repository import DeciderRepository
+    from waku.eventsourcing.forwarding import IAppendedEvents
     from waku.eventsourcing.store.in_memory import InMemoryEventStore
-    from waku.messaging.interfaces import IPublisher
 
     from tests.eventsourcing.decider.conftest import CounterRepository
     from tests.eventsourcing.domain import CounterDecider
 from typing_extensions import override
 
+from waku import ImproperlyConfiguredError
 from waku.eventsourcing.contracts.stream import StreamId
-from waku.eventsourcing.decider.handler import DeciderCommandHandler, DeciderVoidCommandHandler
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, EventSourcingError
+from waku.eventsourcing.forwarding import AppendedEventsCollector
+from waku.integrations.eventsourcing_messaging import DeciderCommandHandler, DeciderVoidCommandHandler
 from waku.messaging.contracts.request import IRequest
 
 from tests.eventsourcing.domain import CounterState, Increment, Incremented
@@ -135,10 +136,9 @@ class IdempotentCreateCounterHandler(
 async def test_handle_loads_state_decides_saves_and_returns_response(
     repository: CounterRepository,
     decider: CounterDecider,
-    publisher: AsyncMock,
 ) -> None:
     await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
-    handler = IncrementCounterHandler(repository=repository, decider=decider, publisher=publisher)
+    handler = IncrementCounterHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
 
     result = await handler.handle(IncrementCounterCommand(counter_id='c-1', amount=5))
 
@@ -148,46 +148,34 @@ async def test_handle_loads_state_decides_saves_and_returns_response(
 async def test_handle_new_aggregate_creates_via_load(
     repository: CounterRepository,
     decider: CounterDecider,
-    publisher: AsyncMock,
 ) -> None:
-    handler = IncrementCounterHandler(repository=repository, decider=decider, publisher=publisher)
+    handler = IncrementCounterHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
 
     result = await handler.handle(IncrementCounterCommand(counter_id='new-1', amount=7))
 
     assert result == CounterResponse(value=7, version=0)
-    publisher.publish.assert_awaited_once_with(Incremented(amount=7))
 
 
-async def test_handle_publishes_each_produced_event(
+async def test_void_handler_persists_without_response(
     repository: CounterRepository,
     decider: CounterDecider,
-    publisher: AsyncMock,
-) -> None:
-    handler = CreateCounterHandler(repository=repository, decider=decider, publisher=publisher)
-
-    await handler.handle(CreateCounterCommand(counter_id='c-pub', amount=3))
-
-    publisher.publish.assert_awaited_once_with(Incremented(amount=3))
-
-
-async def test_void_handler_returns_none(
-    repository: CounterRepository,
-    decider: CounterDecider,
-    publisher: AsyncMock,
 ) -> None:
     await repository.save('c-void', [Incremented(amount=1)], expected_version=-1)
-    handler = IncrementCounterVoidHandler(repository=repository, decider=decider, publisher=publisher)
+    handler = IncrementCounterVoidHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
 
     await handler.handle(IncrementCounterVoidCommand(counter_id='c-void', amount=2))
+
+    state, version = await repository.load('c-void')
+    assert state.value == 3
+    assert version == 1
 
 
 async def test_default_idempotency_key_passes_none_to_repository(
     mocker: MockerFixture,
     repository: CounterRepository,
     decider: CounterDecider,
-    publisher: AsyncMock,
 ) -> None:
-    handler = CreateCounterHandler(repository=repository, decider=decider, publisher=publisher)
+    handler = CreateCounterHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
 
     save_spy = mocker.spy(repository, 'save')
     await handler.handle(CreateCounterCommand(counter_id='c-1', amount=1))
@@ -201,9 +189,8 @@ async def test_idempotency_key_passed_to_repository_save(
     mocker: MockerFixture,
     repository: CounterRepository,
     decider: CounterDecider,
-    publisher: AsyncMock,
 ) -> None:
-    handler = IdempotentCreateCounterHandler(repository=repository, decider=decider, publisher=publisher)
+    handler = IdempotentCreateCounterHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
 
     save_spy = mocker.spy(repository, 'save')
     await handler.handle(IdempotentCreateCounterCommand(counter_id='c-key', amount=5, idempotency_key='key-abc'))
@@ -217,11 +204,10 @@ async def test_concurrent_create_retries_as_update(
     mocker: MockerFixture,
     repository: CounterRepository,
     decider: CounterDecider,
-    publisher: AsyncMock,
 ) -> None:
     await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
 
-    handler = CreateCounterHandler(repository=repository, decider=decider, publisher=publisher)
+    handler = CreateCounterHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
     conflict = ConcurrencyConflictError(
         stream_id=StreamId.for_aggregate('Counter', 'c-1'), expected_version=-1, actual_version=0
     )
@@ -230,38 +216,35 @@ async def test_concurrent_create_retries_as_update(
     result = await handler.handle(CreateCounterCommand(counter_id='c-1', amount=5))
 
     assert result == CounterResponse(value=15, version=1)
-    publisher.publish.assert_awaited_once()
 
 
 async def test_retry_succeeds_on_second_attempt(
     mocker: MockerFixture,
     repository: CounterRepository,
     decider: CounterDecider,
-    publisher: AsyncMock,
 ) -> None:
     await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
 
-    handler = IncrementCounterHandler(repository=repository, decider=decider, publisher=publisher)
+    handler = IncrementCounterHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
     conflict = ConcurrencyConflictError(
         stream_id=StreamId.for_aggregate('Counter', 'c-1'), expected_version=0, actual_version=1
     )
-    mocker.patch.object(repository, 'save', side_effect=fail_save_n_times(repository.save, conflict))
+    mock_save = mocker.patch.object(repository, 'save', side_effect=fail_save_n_times(repository.save, conflict))
 
     result = await handler.handle(IncrementCounterCommand(counter_id='c-1', amount=5))
 
     assert result == CounterResponse(value=15, version=1)
-    publisher.publish.assert_awaited_once()
+    assert mock_save.call_count == 2
 
 
 async def test_retry_exhausted_raises_concurrency_error(
     mocker: MockerFixture,
     repository: CounterRepository,
     decider: CounterDecider,
-    publisher: AsyncMock,
 ) -> None:
     await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
 
-    handler = TwoAttemptIncrementHandler(repository=repository, decider=decider, publisher=publisher)
+    handler = TwoAttemptIncrementHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
     conflict = ConcurrencyConflictError(
         stream_id=StreamId.for_aggregate('Counter', 'c-1'), expected_version=0, actual_version=1
     )
@@ -271,18 +254,16 @@ async def test_retry_exhausted_raises_concurrency_error(
         await handler.handle(IncrementCounterCommand(counter_id='c-1', amount=5))
 
     assert mock_save.call_count == 2
-    publisher.publish.assert_not_awaited()
 
 
 async def test_non_concurrency_error_not_retried(
     mocker: MockerFixture,
     repository: CounterRepository,
     decider: CounterDecider,
-    publisher: AsyncMock,
 ) -> None:
     await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
 
-    handler = IncrementCounterHandler(repository=repository, decider=decider, publisher=publisher)
+    handler = IncrementCounterHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
     mock_save = mocker.patch.object(repository, 'save', side_effect=EventSourcingError('generic error'))
 
     with pytest.raises(EventSourcingError, match='generic error'):
@@ -295,11 +276,10 @@ async def test_max_attempts_1_no_retry(
     mocker: MockerFixture,
     repository: CounterRepository,
     decider: CounterDecider,
-    publisher: AsyncMock,
 ) -> None:
     await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
 
-    handler = NoRetryIncrementHandler(repository=repository, decider=decider, publisher=publisher)
+    handler = NoRetryIncrementHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
     conflict = ConcurrencyConflictError(
         stream_id=StreamId.for_aggregate('Counter', 'c-1'), expected_version=0, actual_version=1
     )
@@ -311,8 +291,8 @@ async def test_max_attempts_1_no_retry(
     assert mock_save.call_count == 1
 
 
-def test_max_attempts_zero_raises_value_error() -> None:
-    with pytest.raises(ValueError, match='max_attempts must be >= 1'):
+def test_max_attempts_zero_raises_improperly_configured_error() -> None:
+    with pytest.raises(ImproperlyConfiguredError, match='max_attempts must be >= 1'):
         # noinspection PyUnusedLocal
         class ZeroAttemptHandler(IncrementCounterHandler):
             max_attempts = 0
@@ -325,10 +305,10 @@ class IncrementWithContextHandler(
         self,
         repository: DeciderRepository[CounterState, Increment, Incremented],
         decider: IDecider[CounterState, Increment, Incremented],
-        publisher: IPublisher,
+        appended: IAppendedEvents,
         context: RecordingContext,
     ) -> None:
-        super().__init__(repository, decider, publisher)
+        super().__init__(repository, decider, appended)
         self._context = context
 
     @override
@@ -347,11 +327,12 @@ class IncrementWithContextHandler(
 async def test_attempt_context_entered_per_attempt(
     repository: CounterRepository,
     decider: CounterDecider,
-    publisher: AsyncMock,
 ) -> None:
     await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
     ctx = RecordingContext()
-    handler = IncrementWithContextHandler(repository=repository, decider=decider, publisher=publisher, context=ctx)
+    handler = IncrementWithContextHandler(
+        repository=repository, decider=decider, appended=AppendedEventsCollector(), context=ctx
+    )
 
     await handler.handle(IncrementCounterVoidCommand(counter_id='c-1', amount=5))
 
@@ -363,7 +344,6 @@ async def test_attempt_context_entered_per_retry_attempt(
     mocker: MockerFixture,
     repository: CounterRepository,
     decider: CounterDecider,
-    publisher: AsyncMock,
 ) -> None:
     await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
 
@@ -388,7 +368,9 @@ async def test_attempt_context_entered_per_retry_attempt(
             contexts.append(c)
             return c
 
-    handler = RetryIncrementWithContextHandler(repository=repository, decider=decider, publisher=publisher)
+    handler = RetryIncrementWithContextHandler(
+        repository=repository, decider=decider, appended=AppendedEventsCollector()
+    )
     conflict = ConcurrencyConflictError(
         stream_id=StreamId.for_aggregate('Counter', 'c-1'), expected_version=0, actual_version=1
     )
@@ -403,7 +385,6 @@ async def test_attempt_context_entered_per_retry_attempt(
 async def test_idempotency_key_includes_current_version_in_stored_events(
     repository: CounterRepository,
     decider: CounterDecider,
-    publisher: AsyncMock,
     event_store: InMemoryEventStore,
 ) -> None:
     await repository.save('c-1', [Incremented(amount=10)], expected_version=-1)
@@ -428,7 +409,7 @@ async def test_idempotency_key_includes_current_version_in_stored_events(
         def _idempotency_key(self, request: IncrementCounterCommand, version: int) -> str | None:
             return f'{request.counter_id}:increment:{version}'
 
-    handler = VersionAwareHandler(repository=repository, decider=decider, publisher=publisher)
+    handler = VersionAwareHandler(repository=repository, decider=decider, appended=AppendedEventsCollector())
 
     await handler.handle(IncrementCounterCommand(counter_id='c-1', amount=3))
 

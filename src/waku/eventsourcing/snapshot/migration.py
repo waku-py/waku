@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import copy
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -15,7 +16,6 @@ if TYPE_CHECKING:
 __all__ = [
     'ISnapshotMigration',
     'SnapshotMigrationChain',
-    'migrate_snapshot_or_discard',
 ]
 
 logger = logging.getLogger(__name__)
@@ -30,6 +30,8 @@ class ISnapshotMigration(abc.ABC):
 
 
 class SnapshotMigrationChain:
+    """Ordered snapshot-state migrations that upgrade a stored snapshot to the current version."""
+
     __slots__ = ('_migrations',)
 
     def __init__(self, migrations: Sequence[ISnapshotMigration]) -> None:
@@ -62,6 +64,8 @@ class SnapshotMigrationChain:
         return self._migrations
 
     def migrate(self, state: dict[str, Any], from_version: int) -> tuple[dict[str, Any], int]:
+        # Work on a copy so an in-place migration can never corrupt the caller's dict.
+        state = copy.deepcopy(state)
         current = from_version
         for m in self._migrations:
             if m.from_version == current:
@@ -95,4 +99,4 @@ def migrate_snapshot_or_discard(
     )
 
 
-_EMPTY_CHAIN = SnapshotMigrationChain(())
+EMPTY_CHAIN = SnapshotMigrationChain(())

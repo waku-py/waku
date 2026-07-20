@@ -6,7 +6,7 @@ import pytest
 
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
-from waku.messaging import IEvent
+from waku.messages import IEvent
 
 
 @dataclass(frozen=True)

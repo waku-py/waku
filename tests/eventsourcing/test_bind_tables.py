@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from sqlalchemy import MetaData
 
-from waku.eventsourcing.projection.lock.sqlalchemy.tables import bind_lease_tables
-from waku.eventsourcing.projection.sqlalchemy.tables import bind_checkpoint_tables
-from waku.eventsourcing.snapshot.sqlalchemy.tables import bind_snapshot_tables
-from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
+from waku.backends.sqlalchemy.checkpoint.tables import CheckpointTables, bind_checkpoint_tables
+from waku.backends.sqlalchemy.event_store.tables import bind_event_store_tables
+from waku.backends.sqlalchemy.lease.tables import LeaseTables, bind_lease_tables
+from waku.backends.sqlalchemy.snapshot.tables import SnapshotTables, bind_snapshot_tables
 
 
 def test_bind_event_store_tables() -> None:
@@ -29,13 +29,15 @@ def test_bind_event_store_tables_idempotent() -> None:
     assert first.events is second.events
 
 
-def test_bind_snapshot_tables() -> None:
+def test_bind_snapshot_tables_returns_wrapper() -> None:
     metadata = MetaData()
 
     result = bind_snapshot_tables(metadata)
 
+    assert isinstance(result, SnapshotTables)
     assert 'es_snapshots' in metadata.tables
-    assert result is metadata.tables['es_snapshots']
+    assert result.snapshots is metadata.tables['es_snapshots']
+    assert result.snapshots.name == 'es_snapshots'
 
 
 def test_bind_snapshot_tables_idempotent() -> None:
@@ -44,16 +46,18 @@ def test_bind_snapshot_tables_idempotent() -> None:
     first = bind_snapshot_tables(metadata)
     second = bind_snapshot_tables(metadata)
 
-    assert first is second
+    assert first.snapshots is second.snapshots
 
 
-def test_bind_checkpoint_tables() -> None:
+def test_bind_checkpoint_tables_returns_wrapper() -> None:
     metadata = MetaData()
 
     result = bind_checkpoint_tables(metadata)
 
+    assert isinstance(result, CheckpointTables)
     assert 'es_checkpoints' in metadata.tables
-    assert result is metadata.tables['es_checkpoints']
+    assert result.checkpoints is metadata.tables['es_checkpoints']
+    assert result.checkpoints.name == 'es_checkpoints'
 
 
 def test_bind_checkpoint_tables_idempotent() -> None:
@@ -62,16 +66,18 @@ def test_bind_checkpoint_tables_idempotent() -> None:
     first = bind_checkpoint_tables(metadata)
     second = bind_checkpoint_tables(metadata)
 
-    assert first is second
+    assert first.checkpoints is second.checkpoints
 
 
-def test_bind_lease_tables() -> None:
+def test_bind_lease_tables_returns_wrapper() -> None:
     metadata = MetaData()
 
     result = bind_lease_tables(metadata)
 
-    assert 'es_projection_leases' in metadata.tables
-    assert result is metadata.tables['es_projection_leases']
+    assert isinstance(result, LeaseTables)
+    assert 'waku_leases' in metadata.tables
+    assert result.leases is metadata.tables['waku_leases']
+    assert result.leases.name == 'waku_leases'
 
 
 def test_bind_lease_tables_idempotent() -> None:
@@ -80,4 +86,4 @@ def test_bind_lease_tables_idempotent() -> None:
     first = bind_lease_tables(metadata)
     second = bind_lease_tables(metadata)
 
-    assert first is second
+    assert first.leases is second.leases

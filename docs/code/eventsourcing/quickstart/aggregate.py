@@ -1,6 +1,6 @@
 from typing_extensions import override
 
-from waku.messaging import IEvent
+from waku.messages import IEvent
 from waku.eventsourcing import EventSourcedAggregate
 
 from app.events import AccountOpened, MoneyDeposited, MoneyWithdrawn

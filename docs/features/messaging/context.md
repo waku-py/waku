@@ -27,7 +27,7 @@ import logging
 from typing_extensions import override
 
 from waku.messaging import EventHandler
-from waku.messaging.context import get_message_context
+from waku.messaging import get_message_context
 
 
 logger = logging.getLogger(__name__)
@@ -61,6 +61,8 @@ class AuditHandler(EventHandler[OrderPlaced]):
 | `correlation_id` | `UUID`              | Shared across a chain of related messages         |
 | `causation_id`   | `UUID`              | ID of the message that caused this one            |
 | `headers`        | `Mapping[str, str]` | Arbitrary metadata attached to the message        |
+| `group_id`       | `str \| None`       | Partition key of the current message              |
+| `tenant_id`      | `str \| None`       | Tenant marker of the current message              |
 
 For a top-level message (no outer context), `correlation_id` is a fresh UUID and `causation_id`
 equals `message_id`. When a handler dispatches a nested message, the bus propagates the
@@ -99,6 +101,11 @@ sequenceDiagram
 Both messages share `correlation_id=C1`, so you can query all log entries for a single
 end-to-end operation regardless of how many messages were involved.
 
+!!! tip "Distributed tracing"
+    Pass `correlation_id` to your structured logging context to trace a request across all
+    handlers it triggers. Combined with the [outbox](outbox.md), correlation IDs propagate
+    across service boundaries — making end-to-end tracing seamless.
+
 ---
 
 ## Optional Access
@@ -107,7 +114,7 @@ end-to-end operation regardless of how many messages were involved.
 Use it in code that runs both inside and outside message handling:
 
 ```python linenums="1"
-from waku.messaging.context import try_get_message_context
+from waku.messaging import try_get_message_context
 
 
 def get_correlation_id() -> str:
@@ -131,7 +138,7 @@ import logging
 from typing_extensions import override
 
 from waku.messaging import CallNext, IPipelineBehavior, MessageT, ResponseT
-from waku.messaging.context import MessageContext
+from waku.messaging import MessageContext
 
 logger = logging.getLogger(__name__)
 
@@ -158,3 +165,5 @@ class AuditBehavior(IPipelineBehavior[MessageT, ResponseT]):
 - **[Message Bus](index.md)** — setup, interfaces, and dispatch methods
 - **[Requests](requests.md)** — commands, queries, and request handlers
 - **[Pipeline Behaviors](pipeline.md)** — cross-cutting middleware for request handling
+- **[Delivery Options & Scheduling](delivery-options.md)** — override correlation/causation ids per call
+- **[Outbox](outbox.md)** — correlation IDs propagate through the outbox

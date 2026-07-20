@@ -3,10 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import pytest
 from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing_extensions import override
 
-from waku.di import Scope, contextual
+from waku import module
+from waku.backends.sqlalchemy.event_store.store import make_sqlalchemy_event_store
+from waku.backends.sqlalchemy.event_store.tables import bind_event_store_tables
+from waku.di import Scope, contextual, scoped
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.modules import (
     EventSourcingConfig,
@@ -14,20 +19,24 @@ from waku.eventsourcing.modules import (
     EventSourcingModule,
     EventType,
 )
+from waku.eventsourcing.projection.in_memory import InMemoryCheckpointStore
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
-from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
-from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
-from waku.eventsourcing.upcasting import rename_field
-from waku.messaging.contracts.event import IEvent
-from waku.modules import module
+from waku.eventsourcing.snapshot.in_memory import InMemorySnapshotStore
+from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventStore, ISnapshotStore
+from waku.messages import IEvent
+from waku.serialization import rename_field
 from waku.testing import create_test_app
 
 from tests.eventsourcing.domain import Note, NoteCreated, NoteEdited, NoteRepository
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from sqlalchemy.ext.asyncio import AsyncEngine
+
+    from waku.backends.sqlalchemy.event_store.tables import EventStoreTables
 
 
 @dataclass(frozen=True)
@@ -47,6 +56,7 @@ class NoteV2(EventSourcedAggregate):
     def edit(self, content: str) -> None:
         self._raise_event(NoteEdited(content=content))
 
+    @override
     def _apply(self, event: IEvent) -> None:
         match event:
             case NoteCreatedV2(heading=heading):
@@ -59,20 +69,27 @@ class NoteV2Repository(EventSourcedRepository[NoteV2]):
     aggregate_name = 'Note'
 
 
-async def test_postgres_module_wiring_end_to_end(pg_engine: AsyncEngine) -> None:
+@pytest.fixture
+async def event_store_tables(pg_engine: AsyncEngine) -> AsyncIterator[EventStoreTables]:
     metadata = MetaData()
     tables = bind_event_store_tables(metadata)
-
     async with pg_engine.begin() as conn:
         await conn.run_sync(metadata.create_all)
+    yield tables
+    async with pg_engine.begin() as conn:
+        await conn.run_sync(metadata.drop_all)
 
+
+async def test_postgres_module_wiring_end_to_end(
+    pg_engine: AsyncEngine,
+    event_store_tables: EventStoreTables,
+) -> None:
     es_ext = EventSourcingExtension().bind_aggregate(
         repository=NoteRepository,
         event_types=[NoteCreated],
     )
 
     config = EventSourcingConfig(
-        store=make_sqlalchemy_event_store(tables),
         event_serializer=JsonEventSerializer,
     )
 
@@ -88,7 +105,12 @@ async def test_postgres_module_wiring_end_to_end(pg_engine: AsyncEngine) -> None
         session.begin(),
         create_test_app(
             imports=[NoteModule],
-            providers=[contextual(AsyncSession, scope=Scope.APP)],
+            providers=[
+                contextual(AsyncSession, scope=Scope.APP),
+                scoped(ISnapshotStore, InMemorySnapshotStore),
+                scoped(ICheckpointStore, InMemoryCheckpointStore),
+                scoped(IEventStore, make_sqlalchemy_event_store(event_store_tables)),
+            ],
             context={AsyncSession: session},
         ) as app,
         app.container() as container,
@@ -107,24 +129,17 @@ async def test_postgres_module_wiring_end_to_end(pg_engine: AsyncEngine) -> None
         assert loaded.title == 'Hello'
         assert loaded.version == 0
 
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(metadata.drop_all)
 
-
-async def test_upcasting_end_to_end_through_di(pg_engine: AsyncEngine) -> None:
-    metadata = MetaData()
-    tables = bind_event_store_tables(metadata)
-
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(metadata.create_all)
-
+async def test_upcasting_end_to_end_through_di(
+    pg_engine: AsyncEngine,
+    event_store_tables: EventStoreTables,
+) -> None:
     # Phase 1: Write a v1 event using the original schema
     es_ext_v1 = EventSourcingExtension().bind_aggregate(
         repository=NoteRepository,
         event_types=[NoteCreated],
     )
     config_v1 = EventSourcingConfig(
-        store=make_sqlalchemy_event_store(tables),
         event_serializer=JsonEventSerializer,
     )
 
@@ -140,7 +155,12 @@ async def test_upcasting_end_to_end_through_di(pg_engine: AsyncEngine) -> None:
         session.begin(),
         create_test_app(
             imports=[NoteModuleV1],
-            providers=[contextual(AsyncSession, scope=Scope.APP)],
+            providers=[
+                contextual(AsyncSession, scope=Scope.APP),
+                scoped(ISnapshotStore, InMemorySnapshotStore),
+                scoped(ICheckpointStore, InMemoryCheckpointStore),
+                scoped(IEventStore, make_sqlalchemy_event_store(event_store_tables)),
+            ],
             context={AsyncSession: session},
         ) as app,
         app.container() as container,
@@ -164,7 +184,6 @@ async def test_upcasting_end_to_end_through_di(pg_engine: AsyncEngine) -> None:
         ],
     )
     config_v2 = EventSourcingConfig(
-        store=make_sqlalchemy_event_store(tables),
         event_serializer=JsonEventSerializer,
     )
 
@@ -180,7 +199,12 @@ async def test_upcasting_end_to_end_through_di(pg_engine: AsyncEngine) -> None:
         session.begin(),
         create_test_app(
             imports=[NoteModuleV2],
-            providers=[contextual(AsyncSession, scope=Scope.APP)],
+            providers=[
+                contextual(AsyncSession, scope=Scope.APP),
+                scoped(ISnapshotStore, InMemorySnapshotStore),
+                scoped(ICheckpointStore, InMemoryCheckpointStore),
+                scoped(IEventStore, make_sqlalchemy_event_store(event_store_tables)),
+            ],
             context={AsyncSession: session},
         ) as app,
         app.container() as container,
@@ -189,6 +213,3 @@ async def test_upcasting_end_to_end_through_di(pg_engine: AsyncEngine) -> None:
         loaded = await repo.load('note-1')
         assert loaded.heading == 'My Title'
         assert loaded.version == 0
-
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(metadata.drop_all)

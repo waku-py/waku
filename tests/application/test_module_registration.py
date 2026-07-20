@@ -6,7 +6,6 @@ from tests.module_utils import create_basic_module
 
 
 async def test_module_registration_with_dependencies() -> None:
-    """Modules should be properly registered with their dependencies and providers."""
     ModuleA = create_basic_module(
         providers=[scoped(A)],
         exports=[A],

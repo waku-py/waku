@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
-from waku.messaging.contracts.event import IEvent
+from waku.messages import IEvent
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -42,6 +42,10 @@ class EventSourcedAggregate(abc.ABC):
     def version(self) -> int:
         return self._version
 
+    @property
+    def pending_events(self) -> list[IEvent]:
+        return list(self._pending_events)
+
     def collect_events(self) -> list[IEvent]:
         events = list(self._pending_events)
         self._pending_events.clear()
@@ -49,6 +53,7 @@ class EventSourcedAggregate(abc.ABC):
 
     def mark_persisted(self, version: int) -> None:
         self._version = version
+        self._pending_events.clear()
 
     def _raise_event(self, event: IEvent) -> None:
         self._apply(event)

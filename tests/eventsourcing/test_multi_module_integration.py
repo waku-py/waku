@@ -3,15 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from typing_extensions import override
+
+from waku import module
+from waku.backends.memory import MemoryBackend
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule, EventType
 from waku.eventsourcing.projection.interfaces import IProjection
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
-from waku.eventsourcing.store.in_memory import InMemoryEventStore
-from waku.eventsourcing.upcasting import UpcasterChain, rename_field
-from waku.messaging.contracts.event import IEvent
-from waku.modules import module
+from waku.messages import IEvent
+from waku.serialization import UpcasterChain, rename_field
 from waku.testing import create_test_app
 
 if TYPE_CHECKING:
@@ -53,6 +55,7 @@ class Order(EventSourcedAggregate):
     def cancel(self, reason: str) -> None:
         self._raise_event(OrderCancelled(order_id=self.order_id, reason=reason))
 
+    @override
     def _apply(self, event: IEvent) -> None:
         match event:
             case OrderPlaced(order_id=oid, customer_id=cid, total=t):
@@ -81,6 +84,7 @@ class OrderAnalyticsProjection(IProjection):
     def __init__(self) -> None:
         self.state = AnalyticsState()
 
+    @override
     async def project(self, events: Sequence[StoredEvent], /) -> None:
         for event in events:
             match event.data:
@@ -99,7 +103,8 @@ class AnalyticsLog(EventSourcedAggregate):
         super().__init__()
         self.event_count: int = 0
 
-    def _apply(self, event: IEvent) -> None:  # noqa: ARG002
+    @override
+    def _apply(self, event: IEvent) -> None:
         self.event_count += 1
 
 
@@ -119,7 +124,7 @@ def _create_modules() -> tuple[type, type]:
     )
 
     @module(
-        imports=[EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore))], extensions=[orders_ext]
+        imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()], extensions=[orders_ext]
     )
     class OrdersModule:
         pass

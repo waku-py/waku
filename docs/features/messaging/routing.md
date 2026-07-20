@@ -17,7 +17,9 @@ to it. Only `invoke()` is truly inline — it always executes in the caller's DI
 a typed response.
 
 Routing lets you control **which** endpoint a message goes to. You declare endpoints (local queues
-or external transports) and map message types or entire modules to them.
+or external transports) and map message types or entire modules to them. This endpoint model
+follows [Wolverine's architecture](https://wolverine.netlify.app/guide/messaging/transports/)
+where endpoints are the core abstraction for message delivery.
 
 ```mermaid
 graph LR
@@ -48,7 +50,12 @@ synchronous, in-process handling, use `invoke()`.
 
 ---
 
-## Local Queue Endpoints
+## Endpoint Types
+
+waku supports two endpoint types — **local queues** for in-process async processing and
+**external endpoints** for cross-service delivery via the [transactional outbox](outbox.md).
+
+### Local Queue Endpoints
 
 A **local queue** is a buffered, in-process endpoint backed by an anyio memory stream. Messages
 sent to a local queue are enqueued and return immediately. A background worker task drains the
@@ -57,18 +64,81 @@ queue and processes each message in a fresh DI scope.
 `local_queue()` creates an endpoint descriptor that `MessagingModule` uses to construct a live
 `LocalQueueEndpoint` during application initialization:
 
-```python
-from waku.messaging.endpoints.base import local_queue
+```python linenums="1"
+from waku.messaging import local_queue
 
 entry = local_queue('domain-events')
 ```
 
 The string argument is the endpoint **URI** — a logical name you reference in route declarations.
 
+| Parameter        | Type    | Default      | Description                             |
+|------------------|---------|--------------|-----------------------------------------|
+| `uri`            | `str`   | *(required)* | Logical name for route declarations     |
+| `stop_timeout`   | `timedelta` | `timedelta(seconds=5)` | Time to wait for queue drain on stop    |
+| `max_buffer_size`| `float` | `math.inf`   | Maximum number of buffered messages     |
+
 !!! tip "When to use local queues"
     Local queues are useful when you want fire-and-forget semantics without leaving the process.
     Common cases: sending emails, updating projections, recording analytics. They decouple the
     handler's execution time from the caller's response time.
+
+### External Endpoints
+
+An **external endpoint** routes messages through the [transactional outbox](outbox.md) for
+delivery to external systems (message brokers, other services). Messages are first persisted
+to the outbox store, then dispatched by the outbox relay via an `ITransport` implementation.
+
+```python linenums="1"
+from waku.messaging import external_endpoint
+
+entry = external_endpoint('notifications')
+```
+
+!!! warning "Required infrastructure"
+    External endpoints require `outbox` in `MessagingConfig`. waku validates this at startup
+    and raises `ImproperlyConfiguredError` if missing. See [Outbox](outbox.md)
+    for the full setup.
+
+---
+
+## Endpoint Modes
+
+A local queue endpoint runs in one of three **modes**. The mode selects where the handler runs and
+whether the message survives a crash:
+
+| Mode       | Processing                                                                     | Survives crash |
+|------------|--------------------------------------------------------------------------------|----------------|
+| `INLINE`   | Runs in the caller's dispatch — no background worker, like a synchronous local handler | No     |
+| `BUFFERED` | Enqueued to an in-memory anyio queue drained by a background worker (the default) | No           |
+| `DURABLE`  | Persisted to the inbox before processing, then dispatched by a background worker | Yes           |
+
+Set the mode per endpoint with `local_queue(mode=...)`, or set the fallback for every entry that
+leaves `mode` unset with `endpoint_defaults.mode`. A per-endpoint `mode` overrides the default:
+
+```python linenums="1"
+from waku.messaging import EndpointDefaults, EndpointMode, MessagingConfig, local_queue
+
+config = MessagingConfig(
+    endpoint_defaults=EndpointDefaults(mode=EndpointMode.INLINE),  # fallback for unset entries
+    endpoints=[
+        local_queue('audit'),                               # inherits INLINE
+        local_queue('emails', mode=EndpointMode.BUFFERED),  # overrides to BUFFERED
+    ],
+)
+```
+
+The default is `BUFFERED`. Modes apply only to `local_queue` endpoints — `listen(...)` and
+`external_endpoint(...)` are broker endpoints and take no `mode`. Per-group FIFO via `partition_by`
+is honored only on `DURABLE` local queues and broker endpoints; setting it on a `BUFFERED` or
+`INLINE` local queue is a startup error.
+
+!!! warning "DURABLE requires an inbox"
+    A `DURABLE` local queue persists messages before processing, so it needs an `inbox` in
+    `MessagingConfig`. Without one, `MessagingModule.register(...)` raises
+    `ImproperlyConfiguredError`: *EndpointMode.DURABLE on a local_queue entry requires inbox in
+    MessagingConfig*. See [Dedicated Consumer](dedicated-consumer.md) for inbox setup and
+    [Transactions](transactions.md) for the unit of work the durable path commits through.
 
 ---
 
@@ -77,9 +147,7 @@ The string argument is the endpoint **URI** — a logical name you reference in 
 Use `route(MessageType).to('endpoint-uri')` to route a specific message type to an endpoint:
 
 ```python linenums="1"
-from waku.messaging import MessagingConfig, MessagingModule
-from waku.messaging.endpoints.base import local_queue
-from waku.messaging.router import route
+from waku.messaging import MessagingConfig, MessagingModule, local_queue, route
 
 config = MessagingConfig(
     endpoints=[local_queue('domain-events')],
@@ -101,9 +169,7 @@ module to an endpoint. This is more maintainable than per-type routing when a mo
 message types:
 
 ```python linenums="1"
-from waku.messaging import MessagingConfig, MessagingModule
-from waku.messaging.endpoints.base import local_queue
-from waku.messaging.router import route_module
+from waku.messaging import MessagingConfig, MessagingModule, local_queue, route_module
 
 config = MessagingConfig(
     endpoints=[local_queue('domain-events')],
@@ -182,7 +248,7 @@ Each dispatch method interacts with routing differently:
 | Method      | Routable | Behavior                                                          |
 |-------------|----------|-------------------------------------------------------------------|
 | `invoke()`  | No       | Always inline. Returns a typed response.                         |
-| `send()`    | Yes      | Always endpoint-dispatched. Raises `NoRouteError` if no handler registered. |
+| `send()`    | Yes      | Always endpoint-dispatched. Raises `NoRouteError` if message type has no handlers. |
 | `publish()` | Yes      | Always endpoint-dispatched. Silent no-op if no handlers registered. |
 
 !!! info "`invoke()` is never routed"
@@ -192,8 +258,77 @@ Each dispatch method interacts with routing differently:
 
 ---
 
+## Complete Example
+
+A multi-module setup with named local queues and module-level routing:
+
+```python linenums="1"
+from datetime import timedelta
+
+from waku import module
+from waku.messaging import (
+    MessagingConfig,
+    MessagingExtension,
+    MessagingModule,
+    local_queue,
+    route,
+    route_module,
+)
+
+
+@module(
+    extensions=[
+        MessagingExtension()
+            .bind(OrderPlaced, SendConfirmationEmail, UpdateAnalytics),
+    ],
+)
+class OrdersModule:
+    pass
+
+
+@module(
+    extensions=[
+        MessagingExtension().bind(PaymentReceived, RecordPayment),
+    ],
+)
+class PaymentsModule:
+    pass
+
+
+@module(
+    imports=[
+        MessagingModule.register(
+            MessagingConfig(
+                endpoints=[
+                    local_queue('emails', stop_timeout=timedelta(seconds=10)),
+                    local_queue('analytics'),
+                ],
+                routing=[
+                    route(OrderPlaced).to('emails'),         # (1)!
+                    route_module(PaymentsModule).to('analytics'),  # (2)!
+                ],
+            ),
+        ),
+        OrdersModule,
+        PaymentsModule,
+    ],
+)
+class AppModule:
+    pass
+```
+
+1. Both `OrderPlaced` handlers are registered in `OrdersModule`. The per-type route sends
+   them to the `emails` endpoint.
+2. All handlers in `PaymentsModule` go to the `analytics` endpoint.
+
+---
+
 ## Further reading
 
+- **[Delivery Options & Scheduling](delivery-options.md)** — per-call delivery metadata and scheduling
+- **[Error Handling](error-handling.md)** — retry policies and dead letter queues for endpoint workers
+- **[Resilience](resilience.md)** — circuit breaker and backpressure for endpoints
+- **[Outbox](outbox.md)** — transactional outbox and external transports
 - **[Message Bus](index.md)** — setup, interfaces, and dispatch methods
 - **[Message Context](context.md)** — correlation tracking across message chains
 - **[Pipeline Behaviors](pipeline.md)** — cross-cutting middleware for request handling

@@ -1,0 +1,155 @@
+"""Broker-agnostic envelope ⇄ header projection (Wolverine wire format).
+
+Two public functions:
+- ``wire_headers_of`` — project an ``EnvelopeMetadata`` into a flat ``dict[str, str]`` ready for broker headers.
+- ``metadata_from_headers`` — reconstruct ``EnvelopeMetadata`` from incoming broker headers.
+
+The mapping rules follow Wolverine's wire convention:
+- Reserved fields are always projected under their bare names.
+- User-supplied headers are emitted bare (no ``h.`` prefix) and silently dropped when the key collides with a
+  reserved field (reserved wins).
+- ``content-type`` is projected outbound and consumed (not echoed) inbound.
+
+``UnsupportedContentTypeError`` is INTERNAL — not exported from ``waku.messaging``; inbound adapters import it
+directly from this module.
+"""
+
+from __future__ import annotations
+
+from dataclasses import fields
+from datetime import datetime
+from typing import TYPE_CHECKING, Final
+
+from waku.messaging.transport.interfaces import EnvelopeMetadata, MalformedMetadataError
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+__all__ = [
+    'WIRE_CONTENT_TYPE',
+    'metadata_from_headers',
+    'wire_headers_of',
+]
+
+WIRE_CONTENT_TYPE: Final[str] = 'application/json'
+
+# Keys owned by the framework — a user header under any of these names is silently dropped (reserved wins).
+# Derived from EnvelopeMetadata's own fields (the single authority) rather than restated as a literal:
+# every field name except `headers` (the user-header carrier), unioned with the wire-only `content-type`
+# header that has no dataclass field of its own.
+_RESERVED_KEYS: Final[frozenset[str]] = frozenset(
+    {f.name for f in fields(EnvelopeMetadata)} - {'headers'} | {'content-type'},
+)
+
+
+class UnsupportedContentTypeError(Exception):
+    """Raised by ``metadata_from_headers`` when the inbound content-type is not ``application/json``.
+
+    The JSON codec cannot decode a foreign/binary body — the inbound adapter should REJECT the message.
+    Not exported from ``waku.messaging``; import from ``waku.messaging.transport.mapping``.
+    """
+
+    def __init__(self, content_type: str) -> None:
+        self.content_type = content_type
+        super().__init__(f'Unsupported content-type {content_type!r}; expected {WIRE_CONTENT_TYPE!r}')
+
+
+def wire_headers_of(metadata: EnvelopeMetadata) -> dict[str, str]:
+    """Project ``EnvelopeMetadata`` onto broker wire headers (Wolverine two-tier format).
+
+    Tier 1 — always emitted (bare names):
+        ``message_id``, ``correlation_id``, ``causation_id``, ``message_type``, ``message_version``,
+        ``content-type`` (always ``application/json``).
+
+    Tier 2 — emitted only when not ``None``:
+        ``timestamp``, ``scheduled_time``, ``expires_at`` (ISO-8601 strings), ``group_id``, ``tenant_id``.
+
+    User headers — each key copied bare, SKIPPING any key present in ``_RESERVED_KEYS``.
+    The reserved-field projection wins; the user value is silently dropped.
+    """
+    out: dict[str, str] = {
+        'message_id': metadata.message_id,
+        'correlation_id': metadata.correlation_id,
+        'causation_id': metadata.causation_id,
+        'message_type': metadata.message_type,
+        'message_version': str(metadata.message_version),
+        'content-type': WIRE_CONTENT_TYPE,
+    }
+    if metadata.timestamp is not None:
+        out['timestamp'] = metadata.timestamp.isoformat()
+    if metadata.scheduled_time is not None:
+        out['scheduled_time'] = metadata.scheduled_time.isoformat()
+    if metadata.expires_at is not None:
+        out['expires_at'] = metadata.expires_at.isoformat()
+    if metadata.group_id is not None:
+        out['group_id'] = metadata.group_id
+    if metadata.tenant_id is not None:
+        out['tenant_id'] = metadata.tenant_id
+    out.update({key: value for key, value in metadata.headers.items() if key not in _RESERVED_KEYS})
+    return out
+
+
+def _parse_header_dt(headers: Mapping[str, str], key: str) -> datetime | None:
+    raw = headers.get(key)
+    return datetime.fromisoformat(raw) if raw is not None else None
+
+
+def _require_int(raw: str) -> int:
+    try:
+        return int(raw)
+    except ValueError as exc:
+        msg = f'reserved header message_version must be an integer, got {raw!r}'
+        raise MalformedMetadataError(msg) from exc
+
+
+def _require_header(headers: Mapping[str, str], key: str) -> str:
+    value = headers.get(key)
+    if value is None:
+        msg = f'required reserved header {key!r} is absent'
+        raise MalformedMetadataError(msg)
+    return value
+
+
+def metadata_from_headers(headers: Mapping[str, str]) -> EnvelopeMetadata:
+    """Reconstruct ``EnvelopeMetadata`` from inbound broker headers (Wolverine wire format).
+
+    Content-type awareness (tier b):
+    - A foreign (non-JSON) ``content-type`` raises ``UnsupportedContentTypeError`` so the inbound adapter can REJECT.
+    - An absent ``content-type`` is lenient — the JSON codec is assumed.
+    - ``content-type`` is consumed, not echoed into ``metadata.headers``.
+
+    Fail-loud on corrupt reserved fields (the inbound adapter REJECTs the poison message):
+    - A present-but-non-numeric ``message_version`` raises ``MalformedMetadataError`` (an absent one
+      defaults to ``1`` — the truly-absent case stays lenient).
+    - An absent required reserved header (``message_id``, ``correlation_id``, ``causation_id``,
+      ``message_type`` — always emitted by ``wire_headers_of``) raises ``MalformedMetadataError``
+      naming the key, instead of an empty string flowing to ``UUID('')``.
+
+    Raises:
+        UnsupportedContentTypeError: When the inbound ``content-type`` header is present and not
+            ``application/json``.
+        MalformedMetadataError: When ``message_version`` is present but non-numeric, or a required
+            reserved header is absent.
+    """
+    content_type = headers.get('content-type', WIRE_CONTENT_TYPE)
+    if content_type != WIRE_CONTENT_TYPE:
+        raise UnsupportedContentTypeError(content_type)
+
+    raw_version = headers.get('message_version')
+    message_version = 1 if raw_version is None else _require_int(raw_version)
+
+    user_headers = {key: value for key, value in headers.items() if key not in _RESERVED_KEYS}
+
+    return EnvelopeMetadata(
+        message_id=_require_header(headers, 'message_id'),
+        correlation_id=_require_header(headers, 'correlation_id'),
+        causation_id=_require_header(headers, 'causation_id'),
+        message_type=_require_header(headers, 'message_type'),
+        message_version=message_version,
+        timestamp=_parse_header_dt(headers, 'timestamp'),
+        scheduled_time=_parse_header_dt(headers, 'scheduled_time'),
+        expires_at=_parse_header_dt(headers, 'expires_at'),
+        group_id=headers.get('group_id'),
+        tenant_id=headers.get('tenant_id'),
+        headers=user_headers,
+    )

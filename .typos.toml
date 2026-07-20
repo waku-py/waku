@@ -7,3 +7,6 @@ extend-exclude = [
 [default.extend-words]
 AggregateT = "AggregateT"
 brin = "brin"
+mis = "mis"
+optin = "optin"
+requeueing = "requeueing"

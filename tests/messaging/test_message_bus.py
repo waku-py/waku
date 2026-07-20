@@ -1,31 +1,76 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from datetime import timedelta
 
 import pytest
 from typing_extensions import override
 
+from waku.di import is_registered, object_, scoped
+from waku.exceptions import ImproperlyConfiguredError
+from waku.messages import IEvent
 from waku.messaging import (
     CallNext,
+    EndpointDefaults,
+    EndpointMode,
     EventHandler,
-    IEvent,
+    HandlerMap,
     IMessageBus,
+    InboxConfig,
     IPipelineBehavior,
     IRequest,
     MessageT,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
+    OutboxConfig,
     RequestHandler,
     ResponseT,
+    TransactionalBehavior,
 )
+from waku.messaging._internal.maintenance import DurabilityMaintenanceLifecycleExtension
+from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import get_message_context
-from waku.messaging.exceptions import HandlerNotFound, MultipleHandlersRegistered, NoRouteError
+from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore, IOutboxStore
+from waku.messaging.errors.policy import ErrorPolicy
+from waku.messaging.errors.replay import ReplayExecutor
+from waku.messaging.exceptions import (
+    HandlerNotFoundError,
+    MultipleHandlersRegisteredError,
+    NoRouteError,
+)
+from waku.messaging.pipeline._internal.plan import BehaviorPlan
+from waku.messaging.router import external_endpoint, listen, local_queue
+from waku.messaging.sequence import ISequenceAllocator
 from waku.testing import create_test_app
+from waku.uow import IUnitOfWork
 
-if TYPE_CHECKING:
-    from uuid import UUID
+from tests.messaging.helpers import (
+    RecordingAllocator,
+    RecordingDeadLetterStore,
+    RecordingDurabilityStore,
+    RecordingTransport,
+    RecordingUoW,
+    node_registry_providers,
+    order_id_partition,
+)
+from tests.messaging.inbox.fake_store import FakeInboxStore
+from tests.messaging.outbox.fake_store import RecordingOutboxStore
+
+
+def _durability(
+    *,
+    unit_of_work: IUnitOfWork,
+    outbox: IOutboxStore | None = None,
+    inbox: IInboxStore | None = None,
+    dead_letters: IDeadLetterStore | None = None,
+) -> RecordingDurabilityStore:
+    return RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=outbox or RecordingOutboxStore(),
+        inbox=inbox or FakeInboxStore(),
+        dead_letters=dead_letters or RecordingDeadLetterStore(),
+    )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -57,7 +102,7 @@ async def test_invoke_returns_handler_result() -> None:
     async with (
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            extensions=[MessagingExtension().bind(_Command, _CommandHandler)],
+            extensions=[MessagingExtension().bind(_CommandHandler)],
         ) as app,
         app.container() as container,
     ):
@@ -72,10 +117,10 @@ async def test_multiple_request_handlers_rejected_at_startup() -> None:
         async def handle(self, request: _Command, /) -> _Result:  # pragma: no cover
             return _Result(value='other')
 
-    with pytest.raises(MultipleHandlersRegistered, match='_Command'):
+    with pytest.raises(MultipleHandlersRegisteredError, match='_Command'):
         async with create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            extensions=[MessagingExtension().bind(_Command, _CommandHandler).bind(_Command, _AnotherCommandHandler)],
+            extensions=[MessagingExtension().bind(_CommandHandler).bind(_AnotherCommandHandler)],
         ):
             pass  # pragma: no cover
 
@@ -88,7 +133,7 @@ async def test_invoke_raises_for_unregistered_request() -> None:
         app.container() as container,
     ):
         bus = await container.get(IMessageBus)
-        with pytest.raises(HandlerNotFound, match='No handler registered for _UnregisteredCommand'):
+        with pytest.raises(HandlerNotFoundError, match='No handler registered for _UnregisteredCommand'):
             await bus.invoke(_UnregisteredCommand())
 
 
@@ -114,9 +159,9 @@ async def test_publish_runs_global_behaviors_per_handler() -> None:
     async with (
         create_test_app(
             imports=[
-                MessagingModule.register(MessagingConfig(pipeline_behaviors=[TrackingBehavior])),
+                MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[TrackingBehavior])),
             ],
-            extensions=[MessagingExtension().bind(_SomeEvent, HandlerA, HandlerB)],
+            extensions=[MessagingExtension().bind(HandlerA, HandlerB)],
         ) as app,
         app.container() as container,
     ):
@@ -129,7 +174,7 @@ async def test_publish_runs_global_behaviors_per_handler() -> None:
     assert len(called) == 4
 
 
-async def test_publish_runs_scoped_behavior_for_bound_event() -> None:
+async def test_publish_runs_per_handler_behavior_for_bound_event() -> None:
     called: list[str] = []
 
     class ScopedBehavior(IPipelineBehavior[MessageT, ResponseT]):
@@ -139,6 +184,8 @@ async def test_publish_runs_scoped_behavior_for_bound_event() -> None:
             return await call_next()
 
     class Handler(EventHandler[_SomeEvent]):
+        behaviors = (ScopedBehavior,)
+
         @override
         async def handle(self, event: _SomeEvent, /) -> None:
             called.append('handler')
@@ -146,7 +193,7 @@ async def test_publish_runs_scoped_behavior_for_bound_event() -> None:
     async with (
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            extensions=[MessagingExtension().bind(_SomeEvent, Handler, behaviors=[ScopedBehavior])],
+            extensions=[MessagingExtension().bind(Handler)],
         ) as app,
         app.container() as container,
     ):
@@ -156,7 +203,7 @@ async def test_publish_runs_scoped_behavior_for_bound_event() -> None:
     assert called == ['scoped_behavior', 'handler']
 
 
-async def test_publish_runs_global_then_scoped_behaviors() -> None:
+async def test_publish_runs_global_then_per_handler_behaviors() -> None:
     called: list[str] = []
 
     class GlobalBehavior(IPipelineBehavior[MessageT, ResponseT]):
@@ -172,14 +219,16 @@ async def test_publish_runs_global_then_scoped_behaviors() -> None:
             return await call_next()
 
     class Handler(EventHandler[_SomeEvent]):
+        behaviors = (ScopedBehavior,)
+
         @override
         async def handle(self, event: _SomeEvent, /) -> None:
             called.append('handler')
 
     async with (
         create_test_app(
-            imports=[MessagingModule.register(MessagingConfig(pipeline_behaviors=[GlobalBehavior]))],
-            extensions=[MessagingExtension().bind(_SomeEvent, Handler, behaviors=[ScopedBehavior])],
+            imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[GlobalBehavior]))],
+            extensions=[MessagingExtension().bind(Handler)],
         ) as app,
         app.container() as container,
     ):
@@ -189,7 +238,7 @@ async def test_publish_runs_global_then_scoped_behaviors() -> None:
     assert called == ['global', 'scoped', 'handler']
 
 
-async def test_publish_scoped_behavior_does_not_run_for_other_event() -> None:
+async def test_publish_per_handler_behavior_does_not_run_for_other_event() -> None:
     called: list[str] = []
 
     @dataclass(frozen=True)
@@ -203,6 +252,8 @@ async def test_publish_scoped_behavior_does_not_run_for_other_event() -> None:
             return await call_next()
 
     class SomeEventHandler(EventHandler[_SomeEvent]):
+        behaviors = (ScopedBehavior,)
+
         @override
         async def handle(self, event: _SomeEvent, /) -> None:  # pragma: no cover
             called.append('some_handler')
@@ -216,9 +267,7 @@ async def test_publish_scoped_behavior_does_not_run_for_other_event() -> None:
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
             extensions=[
-                MessagingExtension()
-                .bind(_SomeEvent, SomeEventHandler, behaviors=[ScopedBehavior])
-                .bind(OtherEvent, OtherEventHandler),
+                MessagingExtension().bind(SomeEventHandler).bind(OtherEventHandler),
             ],
         ) as app,
         app.container() as container,
@@ -248,8 +297,12 @@ async def test_send_without_route_raises_no_route_error() -> None:
         app.container() as container,
     ):
         bus = await container.get(IMessageBus)
-        with pytest.raises(NoRouteError, match='No route found for _UnregisteredCommand'):
+        with pytest.raises(NoRouteError, match=r"no endpoint routes '_UnregisteredCommand'") as exc_info:
             await bus.send(_UnregisteredCommand())
+        message = str(exc_info.value)
+        assert 'invoke()' in message
+        assert 'publish()' in message
+        assert 'route(' in message
 
 
 async def test_publish_event_handler_failure_does_not_block_other_handlers() -> None:
@@ -270,7 +323,7 @@ async def test_publish_event_handler_failure_does_not_block_other_handlers() -> 
     async with (
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            extensions=[MessagingExtension().bind(_SomeEvent, FailingHandler, SucceedingHandler)],
+            extensions=[MessagingExtension().bind(FailingHandler, SucceedingHandler)],
         ) as app,
         app.container() as container,
     ):
@@ -297,7 +350,7 @@ async def test_send_dispatches_through_default_endpoint() -> None:
     async with (
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
-            extensions=[MessagingExtension().bind(_FireAndForgetCommand, _FireAndForgetHandler)],
+            extensions=[MessagingExtension().bind(_FireAndForgetHandler)],
         ) as app,
         app.container() as container,
     ):
@@ -308,8 +361,8 @@ async def test_send_dispatches_through_default_endpoint() -> None:
 
 
 async def test_publish_propagates_correlation_context_through_queue() -> None:
-    command_context: dict[str, UUID] = {}
-    event_context: dict[str, UUID] = {}
+    command_context: dict[str, object] = {}
+    event_context: dict[str, object] = {}
 
     class PublishingCommandHandler(RequestHandler[_Command, _Result]):
         def __init__(self, bus: IMessageBus) -> None:
@@ -334,7 +387,7 @@ async def test_publish_propagates_correlation_context_through_queue() -> None:
         create_test_app(
             imports=[MessagingModule.register(MessagingConfig())],
             extensions=[
-                MessagingExtension().bind(_Command, PublishingCommandHandler).bind(_SomeEvent, ContextCapturingHandler),
+                MessagingExtension().bind(PublishingCommandHandler).bind(ContextCapturingHandler),
             ],
         ) as app,
         app.container() as container,
@@ -343,4 +396,333 @@ async def test_publish_propagates_correlation_context_through_queue() -> None:
         await bus.invoke(_Command(name='test'))
 
     assert event_context['correlation_id'] == command_context['correlation_id']
-    assert event_context['causation_id'] == command_context['message_id']
+    assert event_context['causation_id'] == str(command_context['message_id'])
+
+
+class TestMessagingConfigValidation:  # noqa: PLR0904 -- cohesive startup validation matrix
+    @staticmethod
+    def test_external_endpoint_without_outbox_raises() -> None:
+        config = MessagingConfig(
+            endpoints=[external_endpoint('ext://bus')],
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='external_endpoint requires outbox'):
+            MessagingModule.register(config)
+
+    @staticmethod
+    async def test_dead_letter_policy_without_dead_letter_store_raises() -> None:
+        config = MessagingConfig(
+            endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='dead_letter'):
+            async with create_test_app(imports=[MessagingModule.register(config)]):
+                pass  # pragma: no cover
+
+    @staticmethod
+    async def test_dead_letter_escalation_without_dead_letter_store_raises() -> None:
+        config = MessagingConfig(
+            endpoint_defaults=EndpointDefaults(
+                error_policies=(ErrorPolicy.on_any_exception().retry(max_attempts=3).then_move_to_dead_letter(),),
+            ),
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='dead_letter'):
+            async with create_test_app(imports=[MessagingModule.register(config)]):
+                pass  # pragma: no cover
+
+    @staticmethod
+    async def test_dead_letter_store_without_uow_raises_at_startup() -> None:
+        config = MessagingConfig(
+            dead_letter=DeadLetterConfig(),
+        )
+        dead_letters = RecordingDeadLetterStore()
+        with pytest.raises(ImproperlyConfiguredError, match='IUnitOfWork'):
+            async with create_test_app(
+                imports=[MessagingModule.register(config)],
+                providers=[
+                    object_(dead_letters, provided_type=IDeadLetterStore),
+                    object_(
+                        _durability(unit_of_work=RecordingUoW(), dead_letters=dead_letters),
+                        provided_type=IDurabilityStore,
+                    ),
+                ],
+            ):
+                pass  # pragma: no cover
+
+    @staticmethod
+    async def test_durable_outbox_without_explicit_transactional_behavior_boots() -> None:
+        outbox = RecordingOutboxStore()
+        unit_of_work = RecordingUoW()
+        config = MessagingConfig(
+            outbox=OutboxConfig(),
+            transports={'test': RecordingTransport},
+        )
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_CommandHandler)],
+            providers=[
+                object_(unit_of_work, provided_type=IUnitOfWork),
+                object_(outbox, provided_type=IOutboxStore),
+                object_(_durability(unit_of_work=unit_of_work, outbox=outbox), provided_type=IDurabilityStore),
+                *node_registry_providers(),
+            ],
+        ) as app:
+            plan = await app.container.get(BehaviorPlan)
+            registry = await app.container.get(HandlerMap)
+            handler_types = registry.handler_types()
+            assert handler_types
+            assert all(TransactionalBehavior in plan.for_handler(handler_type) for handler_type in handler_types)
+
+    @staticmethod
+    def test_dead_letter_config_defaults() -> None:
+        config = DeadLetterConfig()
+        assert config.auto_replay_enabled is False
+        assert config.max_replay_count == 3
+        assert config.retention is None
+
+    @staticmethod
+    async def test_dead_letter_config_registers_store_and_replay_executor() -> None:
+        config = MessagingConfig(dead_letter=DeadLetterConfig())
+        dead_letters = RecordingDeadLetterStore()
+        unit_of_work = RecordingUoW()
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(config)],
+                providers=[
+                    object_(unit_of_work, provided_type=IUnitOfWork),
+                    object_(dead_letters, provided_type=IDeadLetterStore),
+                    object_(
+                        _durability(unit_of_work=unit_of_work, dead_letters=dead_letters),
+                        provided_type=IDurabilityStore,
+                    ),
+                    *node_registry_providers(),
+                ],
+            ) as app,
+            app.container() as scope,
+        ):
+            assert await is_registered(scope, IDeadLetterStore)
+            assert await is_registered(scope, ReplayExecutor)
+
+    @staticmethod
+    async def test_backendless_config_resolves_no_persistence_capability() -> None:
+        async with (
+            create_test_app(imports=[MessagingModule.register(MessagingConfig())]) as app,
+            app.container() as scope,
+        ):
+            assert not await is_registered(scope, IDeadLetterStore)
+            assert not await is_registered(scope, IUnitOfWork)
+            assert not await is_registered(scope, ReplayExecutor)
+
+    @staticmethod
+    @pytest.mark.parametrize('mismatch', ['unit_of_work', 'outbox', 'inbox', 'dead_letters'])
+    async def test_durability_capability_rejects_mismatched_scoped_identity(mismatch: str) -> None:
+        unit_of_work = RecordingUoW()
+        outbox = RecordingOutboxStore()
+        inbox = FakeInboxStore()
+        dead_letters = RecordingDeadLetterStore()
+        durability = RecordingDurabilityStore(
+            unit_of_work=RecordingUoW() if mismatch == 'unit_of_work' else unit_of_work,
+            outbox=RecordingOutboxStore() if mismatch == 'outbox' else outbox,
+            inbox=FakeInboxStore() if mismatch == 'inbox' else inbox,
+            dead_letters=RecordingDeadLetterStore() if mismatch == 'dead_letters' else dead_letters,
+        )
+        config = MessagingConfig(
+            outbox=OutboxConfig(),
+            inbox=InboxConfig(),
+            dead_letter=DeadLetterConfig(),
+        )
+
+        with pytest.raises(ImproperlyConfiguredError, match=mismatch):
+            async with create_test_app(
+                imports=[MessagingModule.register(config)],
+                providers=[
+                    object_(unit_of_work, provided_type=IUnitOfWork),
+                    object_(outbox, provided_type=IOutboxStore),
+                    object_(inbox, provided_type=IInboxStore),
+                    object_(dead_letters, provided_type=IDeadLetterStore),
+                    object_(durability, provided_type=IDurabilityStore),
+                    *node_registry_providers(inbox.nodes),
+                    object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                ],
+            ):
+                pass  # pragma: no cover
+
+    @staticmethod
+    async def test_dead_letter_config_rejects_unrelated_store_and_uow() -> None:
+        config = MessagingConfig(dead_letter=DeadLetterConfig())
+
+        with pytest.raises(ImproperlyConfiguredError, match='IDurabilityStore'):
+            async with create_test_app(
+                imports=[MessagingModule.register(config)],
+                providers=[
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
+                    scoped(IDeadLetterStore, RecordingDeadLetterStore),
+                ],
+            ):
+                pass  # pragma: no cover
+
+    @staticmethod
+    async def test_partition_by_without_allocator_raises_at_startup() -> None:
+        outbox = RecordingOutboxStore()
+        unit_of_work = RecordingUoW()
+        config = MessagingConfig(
+            endpoints=[external_endpoint('ext://orders', partition_by=order_id_partition)],
+            outbox=OutboxConfig(),
+            transports={'ext': RecordingTransport},
+            global_pipeline_behaviors=[TransactionalBehavior],
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='ISequenceAllocator'):
+            async with create_test_app(
+                imports=[MessagingModule.register(config)],
+                providers=[
+                    object_(unit_of_work, provided_type=IUnitOfWork),
+                    object_(outbox, provided_type=IOutboxStore),
+                    object_(_durability(unit_of_work=unit_of_work, outbox=outbox), provided_type=IDurabilityStore),
+                    *node_registry_providers(),
+                ],
+            ):
+                pass  # pragma: no cover
+
+    @staticmethod
+    def test_partition_by_on_buffered_local_queue_raises() -> None:
+        config = MessagingConfig(
+            endpoints=[local_queue('q://orders', mode=EndpointMode.BUFFERED, partition_by=order_id_partition)],
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='partition_by'):
+            MessagingModule.register(config)
+
+    @staticmethod
+    def test_partition_by_on_inline_local_queue_raises() -> None:
+        config = MessagingConfig(
+            endpoints=[local_queue('q://orders', mode=EndpointMode.INLINE, partition_by=order_id_partition)],
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='partition_by'):
+            MessagingModule.register(config)
+
+    @staticmethod
+    async def test_partition_by_on_durable_local_queue_does_not_raise() -> None:
+        inbox = FakeInboxStore()
+        unit_of_work = RecordingUoW()
+        config = MessagingConfig(
+            endpoints=[local_queue('q://orders', mode=EndpointMode.DURABLE, partition_by=order_id_partition)],
+            inbox=InboxConfig(),
+            global_pipeline_behaviors=[TransactionalBehavior],
+        )
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            providers=[
+                object_(unit_of_work, provided_type=IUnitOfWork),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                object_(inbox, provided_type=IInboxStore),
+                object_(_durability(unit_of_work=unit_of_work, inbox=inbox), provided_type=IDurabilityStore),
+                *node_registry_providers(inbox.nodes),
+            ],
+        ):
+            pass
+
+    @staticmethod
+    async def test_partition_by_on_broker_endpoint_does_not_raise_local_reject() -> None:
+        # The local-only reject must not fire for broker endpoints; ISequenceAllocator is registered
+        # so the (separate) allocator-presence guard is satisfied too.
+        outbox = RecordingOutboxStore()
+        unit_of_work = RecordingUoW()
+        config = MessagingConfig(
+            endpoints=[external_endpoint('ext://orders', partition_by=order_id_partition)],
+            outbox=OutboxConfig(),
+            transports={'ext': RecordingTransport},
+            global_pipeline_behaviors=[TransactionalBehavior],
+        )
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            providers=[
+                object_(unit_of_work, provided_type=IUnitOfWork),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                object_(outbox, provided_type=IOutboxStore),
+                object_(_durability(unit_of_work=unit_of_work, outbox=outbox), provided_type=IDurabilityStore),
+                *node_registry_providers(),
+            ],
+        ):
+            pass
+
+    @staticmethod
+    def test_local_broker_uri_collision_raises() -> None:
+        config = MessagingConfig(
+            endpoints=[local_queue('orders'), listen('orders')],
+            inbox=InboxConfig(),
+            transports={'orders': RecordingTransport},
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='must not share a URI'):
+            MessagingModule.register(config)
+
+    @staticmethod
+    def test_duplicate_local_queue_uri_raises() -> None:
+        config = MessagingConfig(
+            endpoints=[local_queue('orders'), local_queue('orders', max_parallel=4)],
+        )
+        with pytest.raises(ImproperlyConfiguredError, match='declared more than once'):
+            MessagingModule.register(config)
+
+    @staticmethod
+    def test_invoke_scheme_endpoint_raises() -> None:
+        config = MessagingConfig(
+            endpoints=[local_queue('invoke://x')],
+        )
+        with pytest.raises(ImproperlyConfiguredError, match="scheme 'invoke' is reserved"):
+            MessagingModule.register(config)
+
+    @staticmethod
+    async def test_local_broker_distinct_uri_namespaces_does_not_raise() -> None:
+        inbox = FakeInboxStore()
+        unit_of_work = RecordingUoW()
+        config = MessagingConfig(
+            endpoints=[local_queue('local://orders'), listen('rabbitmq://orders')],
+            inbox=InboxConfig(),
+            transports={'rabbitmq': RecordingTransport},
+            global_pipeline_behaviors=[TransactionalBehavior],
+        )
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            providers=[
+                object_(unit_of_work, provided_type=IUnitOfWork),
+                object_(inbox, provided_type=IInboxStore),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                object_(_durability(unit_of_work=unit_of_work, inbox=inbox), provided_type=IDurabilityStore),
+                *node_registry_providers(inbox.nodes),
+            ],
+        ):
+            pass
+
+    @staticmethod
+    async def test_dead_letter_worker_starts_when_auto_replay_enabled() -> None:
+        dead_letters = RecordingDeadLetterStore()
+        unit_of_work = RecordingUoW()
+        config = MessagingConfig(
+            dead_letter=DeadLetterConfig(auto_replay_enabled=True),
+        )
+        async with create_test_app(
+            imports=[MessagingModule.register(config)],
+            providers=[
+                object_(unit_of_work, provided_type=IUnitOfWork),
+                object_(dead_letters, provided_type=IDeadLetterStore),
+                object_(
+                    _durability(unit_of_work=unit_of_work, dead_letters=dead_letters),
+                    provided_type=IDurabilityStore,
+                ),
+                *node_registry_providers(),
+            ],
+        ):
+            pass  # the lifecycle hooks start + stop the worker without error
+
+    @staticmethod
+    def test_no_maintenance_owner_when_dead_letter_store_only() -> None:
+        dynamic = MessagingModule.register(
+            MessagingConfig(dead_letter=DeadLetterConfig()),
+        )
+        assert not any(isinstance(ext, DurabilityMaintenanceLifecycleExtension) for ext in dynamic.extensions)
+
+    @staticmethod
+    def test_maintenance_owner_when_dead_letter_retention_set() -> None:
+        dynamic = MessagingModule.register(
+            MessagingConfig(
+                dead_letter=DeadLetterConfig(retention=timedelta(days=30)),
+            ),
+        )
+        assert any(isinstance(ext, DurabilityMaintenanceLifecycleExtension) for ext in dynamic.extensions)

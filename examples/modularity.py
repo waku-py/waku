@@ -146,7 +146,7 @@ async def handler(
 async def lifespan(_: WakuApplication) -> AsyncIterator[None]:
     """Application lifespan context manager for startup and shutdown logging."""
     logger.info('Lifespan startup')
-    yield
+    yield  # noqa: RUF075
     logger.info('Lifespan shutdown')
 
 

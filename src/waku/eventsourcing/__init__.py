@@ -9,10 +9,8 @@ from waku.eventsourcing.contracts.stream import (
     StreamId,
     StreamPosition,
 )
-from waku.eventsourcing.decider import (
-    DeciderCommandHandler,
+from waku.eventsourcing.decider.repository import (
     DeciderRepository,
-    DeciderVoidCommandHandler,
     SnapshotDeciderRepository,
 )
 from waku.eventsourcing.exceptions import (
@@ -22,22 +20,31 @@ from waku.eventsourcing.exceptions import (
     DuplicateAggregateNameError,
     DuplicateEventTypeError,
     DuplicateIdempotencyKeyError,
+    DuplicateProjectionNameError,
     EventSourcingConfigError,
     EventSourcingError,
     PartialDuplicateAppendError,
     ProjectionError,
+    ProjectionLockedError,
     ProjectionStoppedError,
     RegistryFrozenError,
     SnapshotConfigNotFoundError,
     SnapshotMigrationChainError,
     SnapshotTypeMismatchError,
-    StreamDeletedError,
+    StreamArchivedError,
     StreamNotFoundError,
     StreamTooLargeError,
     UnknownEventTypeError,
-    UpcasterChainError,
+    UnknownProjectionError,
 )
-from waku.eventsourcing.handler import EventSourcedCommandHandler, EventSourcedVoidCommandHandler
+from waku.eventsourcing.forwarding import (
+    AppendedEventsCollector,
+    ForwardDescriptor,
+    ForwardingConsumer,
+    ForwardingRegistry,
+    IAppendedEvents,
+    forward,
+)
 from waku.eventsourcing.modules import (
     EventSourcingConfig,
     EventSourcingExtension,
@@ -47,26 +54,21 @@ from waku.eventsourcing.modules import (
     SnapshotOptions,
 )
 from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
-from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, ICheckpointStore, IProjection
+from waku.eventsourcing.projection.interfaces import (
+    ICatchUpProjection,
+    IProjection,
+    ProjectionErrorPolicy,
+)
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.projection.runner import CatchUpProjectionRunner
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.snapshot.repository import SnapshotEventSourcedRepository
-from waku.eventsourcing.upcasting import (
-    FnUpcaster,
-    IEventUpcaster,
-    UpcasterChain,
-    add_field,
-    noop,
-    remove_field,
-    rename_field,
-    upcast,
-)
 
 __all__ = [
     'AggregateNotFoundError',
     'AggregateT',
     'AnyVersion',
+    'AppendedEventsCollector',
     'CatchUpProjectionBinding',
     'CatchUpProjectionRegistry',
     'CatchUpProjectionRunner',
@@ -74,19 +76,15 @@ __all__ = [
     'ConcurrencyConflictError',
     'ConflictingEventTypeError',
     'DataT',
-    'DeciderCommandHandler',
     'DeciderRepository',
-    'DeciderVoidCommandHandler',
     'DuplicateAggregateNameError',
     'DuplicateEventTypeError',
     'DuplicateIdempotencyKeyError',
-    'ErrorPolicy',
+    'DuplicateProjectionNameError',
     'EventEnvelope',
     'EventMetadata',
     'EventSourcedAggregate',
-    'EventSourcedCommandHandler',
     'EventSourcedRepository',
-    'EventSourcedVoidCommandHandler',
     'EventSourcingConfig',
     'EventSourcingConfigError',
     'EventSourcingError',
@@ -97,16 +95,19 @@ __all__ = [
     'EventTypeSpec',
     'Exact',
     'ExpectedVersion',
-    'FnUpcaster',
+    'ForwardDescriptor',
+    'ForwardingConsumer',
+    'ForwardingRegistry',
+    'IAppendedEvents',
     'ICatchUpProjection',
-    'ICheckpointStore',
     'IDecider',
-    'IEventUpcaster',
     'IMetadataEnricher',
     'IProjection',
     'NoStream',
     'PartialDuplicateAppendError',
     'ProjectionError',
+    'ProjectionErrorPolicy',
+    'ProjectionLockedError',
     'ProjectionStoppedError',
     'RegistryFrozenError',
     'SnapshotConfigNotFoundError',
@@ -117,18 +118,13 @@ __all__ = [
     'SnapshotTypeMismatchError',
     'StateT',
     'StoredEvent',
-    'StreamDeletedError',
+    'StreamArchivedError',
     'StreamExists',
     'StreamId',
     'StreamNotFoundError',
     'StreamPosition',
     'StreamTooLargeError',
     'UnknownEventTypeError',
-    'UpcasterChain',
-    'UpcasterChainError',
-    'add_field',
-    'noop',
-    'remove_field',
-    'rename_field',
-    'upcast',
+    'UnknownProjectionError',
+    'forward',
 ]

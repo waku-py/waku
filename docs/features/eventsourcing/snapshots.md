@@ -68,16 +68,21 @@ Both aggregate styles have a snapshot-aware repository variant:
     --8<-- "docs/code/eventsourcing/snapshots/decider_repository.py"
     ```
 
-### Overriding `snapshot_state_type`
+### The `state_type` discriminator
 
-Each snapshot stores a `state_type` string as a type guard — if the stored value doesn't match
-on load, `SnapshotTypeMismatchError` is raised. By default:
+Each snapshot stores a `state_type` string. On load, a stored value outside the repository's
+expected set raises `SnapshotTypeMismatchError`. What gets written depends on the aggregate style:
 
-- **OOP**: `state_type` = `aggregate_name` (the aggregate class name)
-- **Decider**: `state_type` = the state class name (e.g., `CounterState`)
+- **OOP**: the fixed label `aggregate_name` — one aggregate class, one name.
+- **Decider**: the concrete state class name (e.g., `CounterState`). For a union state
+  (`NotCreated | Active`), each snapshot is stamped with the variant live at save time
+  (`'NotCreated'` or `'Active'`), and on load the stored name selects the variant class to
+  deserialize into. The expected set is derived from the declared state type parameter —
+  the members of a union or PEP 695 alias, or the single class itself. Union states also
+  require an explicit `aggregate_name` (see
+  [Aggregate Naming](aggregates.md#aggregate-naming)).
 
-If you rename a state or aggregate class, existing snapshots break. Override `snapshot_state_type`
-to pin the stored name:
+Override `snapshot_state_type` to pin the stored name when it must not follow a class rename:
 
 === "OOP Aggregate"
 
@@ -90,22 +95,34 @@ to pin the stored name:
 === "Functional Decider"
 
     ```python
-    class BankAccountSnapshotRepository(SnapshotDeciderRepository[BankAccountState, BankCommand, IEvent]):
-        snapshot_state_type = 'BankAccountState'  # pinned — survives class renames
+    class CounterSnapshotRepository(SnapshotDeciderRepository[CounterState, Increment, Incremented]):
+        snapshot_state_type = 'Counter'  # single-variant state only
         ...
     ```
 
+For a decider the pin is only valid on a single-variant state. On a union state a scalar
+`snapshot_state_type` raises `EventSourcingConfigError` at construction — one string cannot label
+N variants. Union variant names are always stored as-is (`__name__`), so renaming a variant class
+orphans existing snapshots: delete the affected `es_snapshots` rows and state rebuilds from events
+(snapshots are a cache; events are the source of truth).
+
+!!! warning "Upgrading a snapshot store written before the concrete-variant discriminator"
+    Older decider snapshots carry a single fixed label regardless of the live variant. Those rows
+    no longer resolve — truncate `es_snapshots` on deploy; aggregates rebuild from events and
+    re-snapshot on the next save.
+
 When loading, the snapshot repository first checks for a stored snapshot. If one exists, it
-verifies the `state_type` — raising `SnapshotTypeMismatchError` on mismatch — and checks
+verifies the `state_type` — raising `SnapshotTypeMismatchError` on an unknown name — and checks
 the schema version, applying migrations if needed or falling back to full replay if no
 migration path is available (see [Schema Versioning](#schema-versioning)).
-It then deserializes the state and replays only the events recorded *after* the snapshot version.
+It then deserializes the state (a decider deserializes into the variant class named by
+`state_type`) and replays only the events recorded *after* the snapshot version.
 If no snapshot is found, it falls back to full replay.
 
 ```mermaid
 graph TD
     L[Load aggregate] --> CS{Snapshot exists?}
-    CS -->|Yes| ST{state_type matches?}
+    CS -->|Yes| ST{state_type known?}
     ST -->|No| ERR[SnapshotTypeMismatchError]
     ST -->|Yes| SV{Schema version matches?}
     SV -->|Yes| DS[Deserialize snapshot]
@@ -158,13 +175,13 @@ The `Snapshot` dataclass carries the serialized state:
 | `stream_id` | `StreamId` | Stream identifier (e.g., `StreamId.for_aggregate('BankAccount', 'acc-1')`) |
 | `state` | `dict[str, Any]` | Serialized aggregate state |
 | `version` | `int` | Stream version at snapshot time |
-| `state_type` | `str` | Type guard verified on load (see [`snapshot_state_type`](#overriding-snapshot_state_type)) |
+| `state_type` | `str` | Concrete state class name (decider) or aggregate label (OOP); validated on load (see [the `state_type` discriminator](#the-state_type-discriminator)) |
 | `schema_version` | `int` | Schema version (defaults to `1`) |
 
 Built-in implementations:
 
 - `InMemorySnapshotStore` — dictionary-backed, suitable for testing
-- `SqlAlchemySnapshotStore` — PostgreSQL-backed via SQLAlchemy async session
+- `SqlAlchemySnapshotStore` — PostgreSQL-backed via SQLAlchemy async session (requires `waku[sqla]`)
 
 ## Schema Versioning
 
@@ -268,17 +285,18 @@ applies here.
 
 ## Configuration
 
-Register the snapshot store and serializer through `EventSourcingConfig`:
+The snapshot store comes from the imported
+[durability backend](../../fundamentals/backends.md) (memory: `InMemorySnapshotStore`; SQLAlchemy:
+`SqlAlchemySnapshotStore` over the backend's scoped session). The serializer stays in config:
 
 ```python
 EventSourcingConfig(
-    snapshot_store=SqlAlchemySnapshotStore,  # class or factory callable
     snapshot_state_serializer=JsonSnapshotStateSerializer,
 )
 ```
 
-You can pass a factory callable instead of a class when the store requires
-additional constructor arguments (e.g., `snapshot_store=make_sqlalchemy_snapshot_store(table)`).
+To substitute your own store, register a provider for `ISnapshotStore` (from
+`waku.eventsourcing.store`) — an explicit provider override.
 
 ## Table Schema Reference
 
@@ -289,12 +307,12 @@ additional constructor arguments (e.g., `snapshot_store=make_sqlalchemy_snapshot
 | `stream_id` | `Text` | **PK** | Stream identifier (one snapshot per stream) |
 | `state` | `JSONB` | NOT NULL | Serialized aggregate state |
 | `version` | `Integer` | NOT NULL | Stream version at snapshot time |
-| `state_type` | `Text` | NOT NULL | Type guard checked on load; controlled by `snapshot_state_type` |
+| `state_type` | `Text` | NOT NULL | Discriminator validated on load; the concrete variant name for deciders |
 | `schema_version` | `Integer` | NOT NULL, default `1` | Schema version for snapshot migrations |
 | `created_at` | `TIMESTAMP WITH TIME ZONE` | default `now()` | First snapshot time |
 | `updated_at` | `TIMESTAMP WITH TIME ZONE` | default `now()`, auto-update | Last snapshot update time |
 
-Bind with `bind_snapshot_tables(metadata)` from `waku.eventsourcing.snapshot.sqlalchemy`.
+Bind with `bind_snapshot_tables(metadata)` from `waku.backends.sqlalchemy`.
 
 ## Further reading
 

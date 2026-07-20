@@ -4,15 +4,19 @@ from typing import TYPE_CHECKING, Any, cast
 
 from typing_extensions import override
 
-from waku.eventsourcing.serialization._retort import default_retort, validate_dataclass_instance
+from waku.eventsourcing.serialization._internal.retort import es_default_retort, validate_dataclass_instance
 from waku.eventsourcing.serialization.interfaces import IEventSerializer, ISnapshotStateSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry  # noqa: TC001  # Dishka needs runtime access
 
 if TYPE_CHECKING:
     from waku.eventsourcing.contracts.aggregate import StateT
-    from waku.messaging.contracts.event import IEvent
+    from waku.messages import IEvent
 
 __all__ = ['JsonEventSerializer', 'JsonSnapshotStateSerializer']
+
+# These serializers are pure payload<->dataclass mappers. ES upcasting has exactly one home:
+# `row_to_stored_event` (waku.backends.sqlalchemy._internal.serialization) applies the upcaster
+# chain to the raw row payload before deserialization.
 
 
 class JsonEventSerializer(IEventSerializer):
@@ -22,20 +26,20 @@ class JsonEventSerializer(IEventSerializer):
     @override
     def serialize(self, event: IEvent, /) -> dict[str, Any]:
         validate_dataclass_instance(event)
-        return cast('dict[str, Any]', default_retort.dump(event, type(event)))
+        return cast('dict[str, Any]', es_default_retort.dump(event, type(event)))
 
     @override
     def deserialize(self, data: dict[str, Any], event_type: str, /) -> IEvent:
         cls = self._registry.resolve(event_type)
-        return default_retort.load(data, cls)
+        return es_default_retort.load(data, cls)
 
 
 class JsonSnapshotStateSerializer(ISnapshotStateSerializer):
     @override
     def serialize(self, state: object, /) -> dict[str, Any]:
         validate_dataclass_instance(state)
-        return cast('dict[str, Any]', default_retort.dump(state, type(state)))
+        return cast('dict[str, Any]', es_default_retort.dump(state, type(state)))
 
     @override
     def deserialize(self, data: dict[str, Any], state_type: type[StateT], /) -> StateT:
-        return default_retort.load(data, state_type)
+        return es_default_retort.load(data, state_type)

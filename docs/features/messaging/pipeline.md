@@ -9,9 +9,10 @@ tags:
 
 # Pipeline Behaviors
 
-Pipeline behaviors are cross-cutting middleware that wrap message handling. They form a chain
-similar to HTTP middleware: each behavior can run logic before and after the next handler,
-short-circuit the pipeline, or handle exceptions.
+Pipeline behaviors are cross-cutting middleware that wrap message handling, inspired by
+[Wolverine's middleware](https://wolverine.netlify.app/guide/handlers/middleware.html). They
+form a chain similar to HTTP middleware: each behavior can run logic before and after the next
+handler, short-circuit the pipeline, or handle exceptions.
 
 ```mermaid
 graph LR
@@ -22,6 +23,11 @@ graph LR
     B2 --> B1
     B1 --> Send
 ```
+
+Some behaviors ship with the framework and are auto-wired — you do not author or register them.
+[Cascading messages](events.md#cascading-messages) dispatch the follow-on messages a handler emits,
+and [`TransactionalBehavior`](transactions.md) wraps handling in a unit of work. This page is about
+writing your *own* behaviors.
 
 ---
 
@@ -69,12 +75,17 @@ from waku.messaging import MessagingConfig, MessagingModule
 
 MessagingModule.register(
     MessagingConfig(
-        pipeline_behaviors=[LoggingBehavior, ValidationBehavior],
+        global_pipeline_behaviors=[LoggingBehavior, ValidationBehavior],
     ),
 )
 ```
 
 Global behaviors execute in the order they are listed.
+
+!!! tip "Use global behaviors sparingly"
+    Global behaviors run on **every** message — requests and events alike. Good candidates:
+    logging, metrics, correlation propagation. Business-specific validation or authorization
+    should be [per-request behaviors](#per-request-behaviors) instead.
 
 ---
 
@@ -132,7 +143,7 @@ Each event handler gets its own pipeline invocation — behaviors run independen
 
 Behaviors execute in this order:
 
-1. **Global behaviors** (from `MessagingConfig.pipeline_behaviors`, in order)
+1. **Global behaviors** (from `MessagingConfig.global_pipeline_behaviors`, in order)
 2. **Per-message-type behaviors** (from `bind` `behaviors=[...]`, in order)
 3. **Handler**
 
@@ -143,4 +154,5 @@ The response then unwinds back through the chain in reverse order.
 - **[Requests](requests.md)** — commands, queries, and request handlers
 - **[Events](events.md)** — event definitions, handlers, and publishers
 - **[Routing & Endpoints](routing.md)** — route messages to background endpoints
+- **[Transactions](transactions.md)** — unit of work as a pipeline behavior
 - **[Message Bus](index.md)** — setup, interfaces, and complete example

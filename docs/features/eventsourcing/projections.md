@@ -73,7 +73,7 @@ Catch-up projections poll the event store, process events in batches, and checkp
     `project()` **must** be idempotent.
 
 Error handling is configured per-projection via `bind_catch_up_projection()` (defaults to
-`ErrorPolicy.STOP` with no retries — see [Error Policies](#error-policies)).
+`ProjectionErrorPolicy.STOP` with no retries — see [Error Policies](#error-policies)).
 
 Each catch-up projection also has two optional hooks:
 
@@ -87,7 +87,7 @@ Each catch-up projection also has two optional hooks:
 Register catch-up projections via `bind_catch_up_projection()`:
 
 ```python linenums="1"
-from waku.eventsourcing.projection.interfaces import ErrorPolicy
+from waku.eventsourcing.projection.interfaces import ProjectionErrorPolicy
 
 (
     EventSourcingExtension()
@@ -97,7 +97,7 @@ from waku.eventsourcing.projection.interfaces import ErrorPolicy
     )
     .bind_catch_up_projection(
         AccountSummaryProjection,
-        error_policy=ErrorPolicy.SKIP,
+        error_policy=ProjectionErrorPolicy.SKIP,
         max_retry_attempts=3,
     )
 )
@@ -154,8 +154,8 @@ validated at startup; unregistered types raise `EventSourcingConfigError`.
 
 | Policy | Behavior |
 |--------|----------|
-| `ErrorPolicy.STOP` | Stop the projection (default) |
-| `ErrorPolicy.SKIP` | Skip failed batch and continue; calls `on_skip()` hook before advancing |
+| `ProjectionErrorPolicy.STOP` | Stop the projection (default) |
+| `ProjectionErrorPolicy.SKIP` | Skip failed batch and continue; calls `on_skip()` hook before advancing |
 
 Both policies retry first when `max_retry_attempts > 0`. The policy only applies after
 retries are exhausted.
@@ -173,20 +173,19 @@ catch-up projections. Each projection runs in its own concurrent task.
 Use the `create()` classmethod to build a runner from a DI container:
 
 ```python
-from waku.eventsourcing.projection.config import PollingConfig
-from waku.eventsourcing.projection.lock.in_memory import InMemoryProjectionLock
+from waku.eventsourcing.projection import PollingConfig
 
 runner = await CatchUpProjectionRunner.create(
     container,
-    lock=InMemoryProjectionLock(),
     projections=[AccountSummaryProjection],  # optional filter; None = all registered
     polling=PollingConfig(),                 # optional; defaults to sensible values
 )
 await runner.run()
 ```
 
-`create()` resolves the `CatchUpProjectionRegistry` from the container to discover bindings.
-When `projections` is provided, only those projection classes are included.
+`create()` resolves the `CatchUpProjectionRegistry` from the container to discover bindings, and the
+per-projection lease from the registered [durability backend](#distributed-locking). When
+`projections` is provided, only those projection classes are included.
 
 ```python linenums="1"
 --8<-- "docs/code/eventsourcing/projections/runner.py"
@@ -198,6 +197,12 @@ programmatic shutdown when running inside another async context.
 Use `rebuild(projection_name)` to reprocess all events from the beginning. This calls
 `teardown()` on the projection, resets the checkpoint to `-1` (nothing processed), and
 replays every event through the projection.
+
+!!! note "Gap detection during rebuild"
+    `rebuild()` always runs with gap detection disabled, regardless of the projection's
+    `gap_detection_enabled` setting. A gap in historical events is permanent, not a
+    concurrent writer still committing — holding back the checkpoint for one would stall
+    the rebuild forever, so it processes every committed event past the gap instead.
 
 !!! tip
     Run the projection runner as a separate process (e.g., a dedicated worker or sidecar)
@@ -211,12 +216,12 @@ configured through `bind_catch_up_projection()`:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `projection` | *(required)* | The `ICatchUpProjection` class |
-| `error_policy` | `ErrorPolicy.STOP` | What to do after retries are exhausted |
+| `error_policy` | `ProjectionErrorPolicy.STOP` | What to do after retries are exhausted |
 | `max_retry_attempts` | `0` | Retry count before applying the error policy |
 | `base_retry_delay_seconds` | `10.0` | Initial delay between retries (exponential backoff) |
 | `max_retry_delay_seconds` | `300.0` | Maximum delay cap for retries |
 | `batch_size` | `100` | Maximum events per batch |
-| `gap_detection_enabled` | `False` | Enable contiguity checks (see [Gap Detection](#gap-detection)) |
+| `gap_detection_enabled` | `True` | Contiguity checks against concurrent-writer gaps (see [Gap Detection](#gap-detection)); disable for single-writer/single-partition deployments |
 | `gap_timeout_seconds` | `10.0` | Seconds before a gap is considered permanent and skipped |
 
 The runner's polling interval is configured globally via `PollingConfig` (passed to the runner
@@ -229,13 +234,20 @@ constructor, defaults to sensible values if omitted):
 | `poll_interval_step_seconds` | `1.0` | Increment per idle cycle |
 | `poll_interval_jitter_factor` | `0.1` | Random jitter factor applied to the interval |
 
+All four values must be finite. The minimum must be `> 0`, the maximum must be greater than or
+equal to the minimum, the step must be `>= 0`, and jitter must be in `[0, 1)`. Equal min/max, a zero
+step, and zero jitter are valid boundaries when the complete domain remains representable. The
+derived jittered minimum must remain `> 0` and the derived jittered maximum must remain finite under
+runtime float arithmetic. Invalid values raise `ImproperlyConfiguredError` when `PollingConfig` is
+created.
+
 ## Gap Detection
 
 When multiple writers append to the event store concurrently, a projection may read events
 with non-contiguous global positions — a gap appears when a concurrent transaction has not
 yet committed. Advancing the checkpoint past a gap would permanently skip that event.
 
-Enable gap detection per-projection via `bind_catch_up_projection()`:
+Gap detection is on by default; tune the timeout via `bind_catch_up_projection()`:
 
 ```python
 (
@@ -243,7 +255,6 @@ Enable gap detection per-projection via `bind_catch_up_projection()`:
     .bind_aggregate(...)
     .bind_catch_up_projection(
         AccountSummaryProjection,
-        gap_detection_enabled=True,
         gap_timeout_seconds=10.0,
     )
 )
@@ -255,98 +266,58 @@ persists beyond `gap_timeout_seconds`, it is assumed permanent (e.g., a rolled-b
 transaction) and skipped.
 
 !!! info "Single-writer deployments"
-    If your event store has a single writer process, gaps cannot occur and gap detection
-    adds unnecessary overhead. Leave it disabled (the default).
+    If your event store has a single writer process (or a projection reads a single partition),
+    gaps cannot occur and gap detection adds unnecessary overhead. Pass
+    `gap_detection_enabled=False` to `bind_catch_up_projection()` to opt out.
 
 ## Distributed Locking
 
-`IProjectionLock` ensures only one instance of each catch-up projection runs at a time
-across multiple processes. This prevents duplicate processing and checkpoint conflicts.
+Each catch-up projection runs under a lease, so only one instance processes it at a time across a
+multi-process deployment — preventing duplicate processing and checkpoint conflicts. The lease is
+owned by the [durability backend](../../fundamentals/backends.md) registered in the container:
+`create()` resolves it automatically, there is nothing to construct or pass.
 
-```python
-class IProjectionLock(abc.ABC):
-    @contextlib.asynccontextmanager
-    async def acquire(self, projection_name: str) -> AsyncIterator[bool]:
-        """Yields True if the lock was acquired, False if held by another instance."""
-```
+| Backend | Lease | Coordination |
+|---------|-------|-------------|
+| `MemoryBackend` | in-process | Single process — examples, quickstarts, tests; no PostgreSQL required |
+| `SqlAlchemyBackend` | `waku_leases` table with TTL heartbeats | Multi-process; requires `engine=` |
 
-### Choosing a Lock
+If no backend provides a lease, `CatchUpProjectionRunner.create()` fails loud and names the fix.
 
-```mermaid
-graph TD
-    Q1{Single process?}
-    Q1 -->|Yes| IM[InMemoryProjectionLock]
-    Q1 -->|No| Q2{Using PgBouncer<br/>in transaction mode?}
-    Q2 -->|Yes| LB[PostgresLeaseProjectionLock]
-    Q2 -->|No| Q3{Long-running projections<br/>with many connections?}
-    Q3 -->|Yes| LB
-    Q3 -->|No| ADV[PostgresAdvisoryProjectionLock]
-```
+### PostgreSQL lease
 
-| | `InMemoryProjectionLock` | `PostgresLeaseProjectionLock` | `PostgresAdvisoryProjectionLock` |
-|---|---|---|---|
-| **Use case** | Single process, testing | Multi-process production | Multi-process, simple setups |
-| **Connection held** | None | Only during heartbeats | Entire lock duration |
-| **PgBouncer compatible** | N/A | Yes | No (session-bound) |
-| **Extra table required** | No | Yes (`es_projection_leases`) | No |
-| **Lock granularity** | Per process | Per lease TTL | Per DB session |
-| **Failure detection** | Instant | Heartbeat interval | Connection drop |
+`SqlAlchemyBackend` leases each projection through the `waku_leases` table. A background heartbeat
+renews the lease on a short AUTOCOMMIT statement; if a renew finds the lease was stolen (another
+instance reclaimed it after TTL expiry), it cancels that projection's task. By default the lease is
+valid for 30 seconds and renews every 10 — tune both with
+`SqlAlchemyBackend.register(lease_config=LeaseConfig(...))` (from `waku`). Failover is bounded by
+`ttl_seconds`: a crashed holder's lease becomes reclaimable once it expires.
 
-### InMemoryProjectionLock
-
-Always acquires the lock immediately. Tracks held lock names for testing. Use this for
-single-process deployments and in tests.
-
-### PostgresLeaseProjectionLock
-
-Uses a database table with TTL-based leases for multi-process coordination. A background
-heartbeat task renews the lease periodically. If the heartbeat detects the lease was stolen
-(e.g., by another instance after TTL expiry), it cancels the projection task.
-
-```python
-from waku.eventsourcing.projection.config import LeaseConfig
-from waku.eventsourcing.projection.lock.sqlalchemy import PostgresLeaseProjectionLock
-
-lock = PostgresLeaseProjectionLock(engine=engine, config=LeaseConfig())
-```
-
-Configured via `LeaseConfig`:
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| `ttl_seconds` | `30.0` | How long the lease is valid before expiring |
-| `renew_interval_factor` | `1/3` | Fraction of TTL at which the lease is renewed |
-| `renew_interval_seconds` | *(derived)* | `ttl_seconds * renew_interval_factor` — read-only property |
-
-With the defaults, the lease renews every 10 seconds and expires after 30 seconds of silence.
+Because each heartbeat holds no connection between renewals, this lease is safe behind PgBouncer in
+transaction-pooling mode — the pooler-compatible default.
 
 !!! note "Consistency guarantees"
-    There is no fencing token mechanism — a stalled holder (e.g., GC pause) can briefly overlap
+    There is no fencing token mechanism — a stalled holder (e.g., a GC pause) can briefly overlap
     with a new holder until its next heartbeat fires.
 
     In practice this is safe because the runner resolves the projection, event reader, and
-    checkpoint store from a single DI scope. When using `SqlAlchemyCheckpointStore` with a
-    scoped `AsyncSession`, the projection writes and checkpoint save share the same transaction
-    (the checkpoint store calls `flush()`, not `commit()`). This means either both succeed
-    atomically or both roll back — duplicate processing from a brief overlap will not corrupt
-    the read model.
+    checkpoint store from a single DI scope. With `SqlAlchemyCheckpointStore` over a scoped
+    `AsyncSession`, the projection writes and checkpoint save share the same transaction (the
+    checkpoint store calls `flush()`, not `commit()`). Either both succeed atomically or both roll
+    back — duplicate processing from a brief overlap will not corrupt the read model.
 
-### PostgresAdvisoryProjectionLock
+### Custom coordination
 
-Uses PostgreSQL [advisory locks](https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS)
-via `pg_try_advisory_lock(hashtext(name))`. The lock is session-bound — it holds a database
-connection for the entire duration.
+The lease is part of the backend boundary, not a user-facing knob: to coordinate differently, compose
+your own durability backend and register its `ILease` provider.
 
-```python
-from waku.eventsourcing.projection.lock.sqlalchemy import PostgresAdvisoryProjectionLock
-
-lock = PostgresAdvisoryProjectionLock(engine=engine)
-```
-
-!!! warning
-    Advisory locks are **not compatible** with PgBouncer in transaction-pooling mode because
-    the lock is tied to the database session, not the transaction. Releasing the connection
-    back to the pool releases the lock. Use `PostgresLeaseProjectionLock` instead.
+The one first-party alternative is `PostgresAdvisoryLease` (`waku.backends.sqlalchemy`), a session-level
+`pg_advisory_lock` — the mechanism Marten's daemon uses. It holds one connection for the whole lease, so
+a crashed holder releases the lock instantly with no TTL wait, at the cost of being incompatible with
+PgBouncer transaction-mode pooling. A background probe checks the held connection on the lease's renew
+interval and cancels the protected work the moment the session drops, so a lost lock never leaves a
+holder running. See [swapping the lease](../../fundamentals/backends.md#swapping-the-lease) for the
+recipe.
 
 ## Checkpoint Store
 
@@ -364,22 +335,13 @@ The `Checkpoint` dataclass carries the projection name, last processed global po
 Built-in implementations:
 
 - `InMemoryCheckpointStore` — dictionary-backed, suitable for single-process deployments and testing
-- `SqlAlchemyCheckpointStore` — PostgreSQL-backed via SQLAlchemy async session
+- `SqlAlchemyCheckpointStore` — PostgreSQL-backed via SQLAlchemy async session (requires `waku[sqla]`)
 
-Configure the checkpoint store through `EventSourcingConfig`:
-
-```python linenums="1"
-from waku.eventsourcing import EventSourcingConfig
-from waku.eventsourcing.projection.sqlalchemy import make_sqlalchemy_checkpoint_store
-
-es_config = EventSourcingConfig(
-    checkpoint_store=make_sqlalchemy_checkpoint_store(checkpoints_table),
-)
-```
-
-`make_sqlalchemy_checkpoint_store()` works the same way as `make_sqlalchemy_event_store()` — it
-returns a factory that dishka uses to construct the store with its `AsyncSession` dependency
-injected automatically.
+The checkpoint store comes from the imported
+[durability backend](../../fundamentals/backends.md): the memory backend provides
+`InMemoryCheckpointStore`, the SQLAlchemy backend provides `SqlAlchemyCheckpointStore` over its
+scoped `AsyncSession`. To substitute your own, register a provider for `ICheckpointStore` (from
+`waku.eventsourcing.store`) — an explicit provider override.
 
 ## Table Schema Reference
 
@@ -392,21 +354,24 @@ injected automatically.
 | `updated_at` | `TIMESTAMP WITH TIME ZONE` | NOT NULL | Last checkpoint update time |
 | `created_at` | `TIMESTAMP WITH TIME ZONE` | default `now()` | First checkpoint time |
 
-Bind with `bind_checkpoint_tables(metadata)` from `waku.eventsourcing.projection.sqlalchemy`.
+Bind with `bind_checkpoint_tables(metadata)` from `waku.backends.sqlalchemy`.
 
-### `es_projection_leases`
+### `waku_leases`
 
-Only required when using `PostgresLeaseProjectionLock`.
+Only required when using `PostgresLease`.
 
 | Column | Type | Constraints | Description |
 |--------|------|------------|-------------|
-| `projection_name` | `Text` | **PK** | Projection being locked |
-| `holder_id` | `Text` | NOT NULL | UUID of the lock holder instance |
+| `name` | `Text` | **PK** | Lease key — the projection name being locked |
+| `holder_id` | `Text` | NOT NULL | UUID of the lease holder instance |
 | `acquired_at` | `TIMESTAMP WITH TIME ZONE` | default `now()` | When the lease was first acquired |
 | `renewed_at` | `TIMESTAMP WITH TIME ZONE` | default `now()` | Last heartbeat renewal time |
 | `expires_at` | `TIMESTAMP WITH TIME ZONE` | NOT NULL | When the lease expires if not renewed |
 
-Bind with `bind_lease_tables(metadata)` from `waku.eventsourcing.projection.lock.sqlalchemy`.
+The `waku:` name prefix is reserved for framework-owned lease roles; projection lease names are
+user-chosen.
+
+Bind with `bind_lease_tables(metadata)` from `waku.backends.sqlalchemy`.
 
 ## Live Projections
 

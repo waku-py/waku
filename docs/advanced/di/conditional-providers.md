@@ -206,13 +206,16 @@ async def main() -> None:
         assert isinstance(consumer.a, FeatureA)
 ```
 
-If `FeatureA` is removed from the providers list, the container fails to build with
-`GraphMissingFactoryError` during graph validation.
+If `FeatureA` is removed from the providers list, `FeatureAConsumer` is not activated — its
+`Has(FeatureA)` condition is unmet, so the container builds without it and resolving
+`FeatureAConsumer` raises `NoActiveFactoryError` at request time.
 
-!!! warning
-    Unlike `Marker`-based activation, `Has(Type)` is evaluated during container graph validation.
-    If the referenced type is missing, the container fails to build rather than silently skipping
-    the provider. This makes `Has` a good choice for hard dependencies between features.
+!!! note
+    `Has(Type)` is resolved during container build: when the referenced type is absent, the provider
+    is silently deactivated rather than failing the build, which makes `Has` suited to **optional**,
+    feature-flag-style wiring. For a **hard** dependency that must always be present, use a plain
+    provider (e.g. `scoped(Consumer)`) so dishka raises `GraphMissingFactoryError` at build time when
+    it is missing.
 
 ## Marker composition
 

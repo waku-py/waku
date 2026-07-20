@@ -91,15 +91,6 @@ class GetUserQuery(IRequest[UserResponse]):
     user_id: str
 
 
-class GetUserQueryHandler(RequestHandler[GetUserQuery, UserResponse]):
-    """Handler for the GetUserQuery."""
-
-    async def handle(self, request: GetUserQuery, /) -> UserResponse:
-        if request.user_id == '1':
-            return UserResponse(id='1', name='John Doe', email='john@example.com')
-        return UserResponse(id=request.user_id, name=f'User {request.user_id}')
-
-
 class UserQueryValidationBehavior(ValidationBehavior[GetUserQuery, UserResponse]):
     """Specific validation behavior for user queries."""
 
@@ -112,16 +103,19 @@ class UserQueryValidationBehavior(ValidationBehavior[GetUserQuery, UserResponse]
         return errors
 
 
+class GetUserQueryHandler(RequestHandler[GetUserQuery, UserResponse]):
+    """Handler for the GetUserQuery."""
+
+    additional_behaviors = (UserQueryValidationBehavior,)
+
+    async def handle(self, request: GetUserQuery, /) -> UserResponse:
+        if request.user_id == '1':
+            return UserResponse(id='1', name='John Doe', email='john@example.com')
+        return UserResponse(id=request.user_id, name=f'User {request.user_id}')
+
+
 @module(
-    extensions=[
-        (
-            MessagingExtension().bind(
-                GetUserQuery,
-                GetUserQueryHandler,
-                behaviors=[UserQueryValidationBehavior],
-            )
-        ),
-    ],
+    extensions=[MessagingExtension().bind(GetUserQuery, GetUserQueryHandler)],
 )
 class UserModule:
     """Module for user-related functionality."""
@@ -132,7 +126,7 @@ class UserModule:
         UserModule,
         MessagingModule.register(
             MessagingConfig(
-                pipeline_behaviors=[LoggingBehavior],
+                global_pipeline_behaviors=[LoggingBehavior],
             ),
         ),
     ],

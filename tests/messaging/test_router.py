@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from waku.messaging.contracts.message import IMessage
+from typing_extensions import override
+
+from waku.messages import IMessage
 from waku.messaging.endpoints.base import Endpoint
+from waku.messaging.observability.observer import MessageObservers
 from waku.messaging.router import (
     MessageRouter,
     ModuleRouteDescriptor,
@@ -15,14 +18,17 @@ from waku.messaging.router import (
 
 class _StubEndpoint(Endpoint):
     def __init__(self, uri: str = 'stub://default') -> None:
-        super().__init__(uri=uri)
+        super().__init__(uri, MessageObservers([]))
 
+    @override
     async def dispatch(self, envelope: Any, scope: Any) -> None:  # pragma: no cover
         pass
 
+    @override
     async def start(self) -> None:  # pragma: no cover
         pass
 
+    @override
     async def stop(self) -> None:  # pragma: no cover
         pass
 
@@ -80,3 +86,16 @@ class TestRouteHelpers:
         descriptor = route_module(_SomeModule).to('queue://events')
 
         assert descriptor == ModuleRouteDescriptor(module_type=_SomeModule, endpoint_uri='queue://events')
+
+
+class TestMessageRouterEndpointFor:
+    @staticmethod
+    def test_endpoint_for_returns_endpoint_by_uri() -> None:
+        ep = _StubEndpoint(uri='local://orders')
+        router = MessageRouter(routes={}, endpoints=[ep])
+        assert router.endpoint_for('local://orders') is ep
+
+    @staticmethod
+    def test_endpoint_for_returns_none_for_unknown_uri() -> None:
+        router = MessageRouter(routes={}, endpoints=[])
+        assert router.endpoint_for('local://missing') is None

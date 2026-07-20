@@ -16,7 +16,7 @@ and swap providers on the fly:
 
 - **`create_test_app()`** — an async context manager that builds a fully initialized `WakuApplication`
   from minimal configuration.
-- **`override()`** — a sync context manager that temporarily replaces providers (or context values)
+- **`override()`** — an async context manager that temporarily replaces providers (or context values)
   inside a live container.
 
 Together they cover the two most common testing scenarios: creating a throwaway app with fakes,
@@ -132,16 +132,17 @@ from waku.testing import override
 ### Signature
 
 ```python
-@contextmanager
-def override(
+@asynccontextmanager
+async def override(
     container: AsyncContainer,
     *providers: BaseProvider,
     context: dict[Any, Any] | None = None,
-) -> Iterator[None]: ...
+) -> AsyncIterator[None]: ...
 ```
 
-`override()` is a **sync** context manager that temporarily swaps providers and/or context values
-in a live `AsyncContainer`. When the `with` block exits, the original container state is restored.
+`override()` is an **async** context manager that temporarily swaps providers and/or context values
+in a live `AsyncContainer`. When the `async with` block exits, the original container state is restored
+and resources created by replacement providers are finalized.
 
 | Parameter | Description |
 |---|---|
@@ -151,7 +152,7 @@ in a live `AsyncContainer`. When the `with` block exits, the original container 
 
 !!! warning
     `override()` only works on the root (`APP` scope) container. Passing a request-scoped container
-    raises `ValueError`. Always use `application.container`, not a container obtained from
+    raises `ImproperlyConfiguredError`. Always use `application.container`, not a container obtained from
     `async with application.container()`.
 
 ### Replacing a provider
@@ -173,7 +174,7 @@ class FakeMailer(IMailer):
 
 
 async def test_override_mailer(application: WakuApplication) -> None:
-    with override(application.container, singleton(IMailer, FakeMailer)):
+    async with override(application.container, singleton(IMailer, FakeMailer)):
         mailer = await application.container.get(IMailer)
         assert isinstance(mailer, FakeMailer)
 
@@ -194,7 +195,7 @@ from waku.testing import override
 
 
 async def test_override_context(application: WakuApplication) -> None:
-    with override(application.container, context={int: 42}):
+    async with override(application.container, context={int: 42}):
         val = await application.container.get(int)
         assert val == 42
 ```
@@ -233,7 +234,7 @@ from waku.testing import override
 
 
 async def test_user_creation(application: WakuApplication) -> None:
-    with override(application.container, singleton(IUserRepo, FakeUserRepo)):
+    async with override(application.container, singleton(IUserRepo, FakeUserRepo)):
         async with application.container() as request_container:
             repo = await request_container.get(IUserRepo)
             assert isinstance(repo, FakeUserRepo)

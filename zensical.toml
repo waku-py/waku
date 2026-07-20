@@ -11,54 +11,70 @@ copyright = """
 """
 docs_dir = "docs"
 nav = [
-  { "Overview" = "index.md" },
-  { "Getting Started" = "getting-started.md" },
-  { "Fundamentals" = [
-    "fundamentals/application.md",
-    "fundamentals/modules.md",
-    "fundamentals/providers.md",
-    "fundamentals/integrations.md",
-    "fundamentals/testing.md",
+  { "Start" = [
+    { "Overview" = "index.md" },
+    { "Getting started" = "getting-started.md" },
+    { "waku as in-process mediator" = "mediator.md" },
   ] },
-  { "Advanced" = [
-    { "Dependency Injection" = [
-      "advanced/di/index.md",
-      { "Conditional Providers" = "advanced/di/conditional-providers.md" },
-      { "Multi-bindings" = "advanced/di/multi-bindings.md" },
-      { "Advanced DI Patterns" = "advanced/di/di-patterns.md" },
-    ] },
-    { "Extension System" = [
-      "advanced/extensions/index.md",
-      { "Custom Extensions" = "advanced/extensions/custom-extensions.md" },
-    ] },
+  { "Foundation" = [
+    { "Application & lifecycle" = "fundamentals/application.md" },
+    { "Modules" = "fundamentals/modules.md" },
+    { "Providers & injection" = "fundamentals/providers.md" },
+    { "Conditional providers" = "advanced/di/conditional-providers.md" },
+    { "Multi-bindings" = "advanced/di/multi-bindings.md" },
+    { "dishka patterns" = "advanced/di/di-patterns.md" },
+    { "Extension system" = "advanced/extensions/index.md" },
+    { "Custom extensions" = "advanced/extensions/custom-extensions.md" },
+    { "Startup validation" = "features/validation.md" },
+    { "Durability backends" = "fundamentals/backends.md" },
+    { "Framework integrations" = "fundamentals/integrations.md" },
+    { "Testing applications" = "fundamentals/testing.md" },
   ] },
-  { "Features" = [
-    { "Validation" = "features/validation.md" },
-    { "Messaging" = [
-      "features/messaging/index.md",
-      { "Requests" = "features/messaging/requests.md" },
-      { "Events" = "features/messaging/events.md" },
-      { "Pipeline Behaviors" = "features/messaging/pipeline.md" },
-      { "Routing & Endpoints" = "features/messaging/routing.md" },
-      { "Message Context" = "features/messaging/context.md" },
-      { "Transactions" = "features/messaging/transactions.md" },
-    ] },
-    { "Event Sourcing" = [
-      "features/eventsourcing/index.md",
-      { "Aggregates" = "features/eventsourcing/aggregates.md" },
-      { "Event Store" = "features/eventsourcing/event-store.md" },
-      { "Projections" = "features/eventsourcing/projections.md" },
-      { "Snapshots" = "features/eventsourcing/snapshots.md" },
-      { "Schema Evolution" = "features/eventsourcing/schema-evolution.md" },
-      { "Testing" = "features/eventsourcing/testing.md" },
-    ] },
+  { "Messages & Handlers" = [
+    "features/messaging/index.md",
+    { "Messages & contracts" = "features/messaging/contracts.md" },
+    { "Handlers & registration" = "features/messaging/handlers.md" },
+    { "Requests" = "features/messaging/requests.md" },
+    { "Events & cascading" = "features/messaging/events.md" },
+    { "Pipeline behaviors & policies" = "features/messaging/pipeline.md" },
+    { "Message context & correlation" = "features/messaging/context.md" },
+    { "Delivery options & scheduling" = "features/messaging/delivery-options.md" },
+    { "Error handling" = "features/messaging/error-handling.md" },
+    { "Transactions & UoW" = "features/messaging/transactions.md" },
   ] },
-  { "API" = "reference.md" },
-  { "Contributing" = [
-    { "Contributing Guide" = "contributing/contributing.md" },
-    { "Documentation" = "contributing/docs.md" }
+  { "Messaging Runtime & Transports" = [
+    { "Runtime & delivery semantics" = "features/messaging/runtime.md" },
+    { "Routing & endpoints" = "features/messaging/routing.md" },
+    { "Outbox" = "features/messaging/outbox.md" },
+    { "Durable inbox & ordering" = "features/messaging/inbox.md" },
+    { "Resilience" = "features/messaging/resilience.md" },
+    { "Transport: RabbitMQ" = "features/messaging/transports/rabbitmq.md" },
+    { "Transport: Kafka" = "features/messaging/transports/kafka.md" },
+    { "Envelope mapper" = "features/messaging/envelope-mapper.md" },
+    { "Observability" = "features/messaging/observability.md" },
+    { "Dedicated consumer node" = "features/messaging/dedicated-consumer.md" },
   ] },
-  { "Changelog" = "changelog.md" },
+  { "Event Sourcing" = [
+    "features/eventsourcing/index.md",
+    { "Why event sourcing" = "features/eventsourcing/concepts.md" },
+    { "Aggregates & command handlers" = "features/eventsourcing/aggregates.md" },
+    { "Event store & streams" = "features/eventsourcing/event-store.md" },
+    { "Projections" = "features/eventsourcing/projections.md" },
+    { "Snapshots" = "features/eventsourcing/snapshots.md" },
+    { "Schema evolution" = "features/eventsourcing/schema-evolution.md" },
+    { "Messaging integration" = "features/eventsourcing/forwarding.md" },
+    { "Testing" = "features/eventsourcing/testing.md" },
+  ] },
+  { "Reference" = [
+    { "API" = "reference.md" },
+    { "Configuration" = "reference/configuration.md" },
+    { "Extension SPI" = "reference/extension-spi.md" },
+  ] },
+  { "Project" = [
+    { "Contributing" = "contributing/contributing.md" },
+    { "Contributing to docs" = "contributing/docs.md" },
+    { "Changelog" = "changelog.md" },
+  ] },
 ]
 
 [project.extra.analytics]

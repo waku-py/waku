@@ -7,17 +7,16 @@ import pytest
 from typing_extensions import override
 
 from waku import module
+from waku.exceptions import ImproperlyConfiguredError
+from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
-    IEvent,
     IMessageBus,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
 )
-from waku.messaging.endpoints.base import local_queue
-from waku.messaging.exceptions import ImproperlyConfiguredError
-from waku.messaging.router import route, route_module
+from waku.messaging.router import local_queue, route, route_module
 from waku.testing import create_test_app
 
 
@@ -66,7 +65,7 @@ class TestModuleRouting:
         with pytest.raises(ImproperlyConfiguredError, match='nonexistent'):
             async with create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_OrderPlaced, _QueuedOrderHandler)],
+                extensions=[MessagingExtension().bind(_QueuedOrderHandler)],
             ):
                 pass  # pragma: no cover
 
@@ -82,7 +81,7 @@ class TestModuleRouting:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_OrderPlaced, _QueuedOrderHandler)],
+                extensions=[MessagingExtension().bind(_QueuedOrderHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -98,9 +97,7 @@ class TestModuleRouting:
 
         @module(
             extensions=[
-                MessagingExtension()
-                .bind(_OrderPlaced, _QueuedOrderHandler)
-                .bind(_PaymentReceived, _QueuedPaymentHandler),
+                MessagingExtension().bind(_QueuedOrderHandler).bind(_QueuedPaymentHandler),
             ],
         )
         class DomainModule:
@@ -140,7 +137,7 @@ class TestModuleRouting:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_OrderPlaced, InlineHandler)],
+                extensions=[MessagingExtension().bind(InlineHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -155,13 +152,13 @@ class TestModuleRouting:
         _DefaultQueueOrderHandler.received.clear()
 
         @module(
-            extensions=[MessagingExtension().bind(_OrderPlaced, _QueuedOrderHandler)],
+            extensions=[MessagingExtension().bind(_QueuedOrderHandler)],
         )
         class QueuedModule:
             pass
 
         @module(
-            extensions=[MessagingExtension().bind(_OrderPlaced, _DefaultQueueOrderHandler)],
+            extensions=[MessagingExtension().bind(_DefaultQueueOrderHandler)],
         )
         class DefaultQueueModule:
             pass

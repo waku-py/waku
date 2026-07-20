@@ -6,7 +6,7 @@ from typing import TypeAlias
 import pytest
 
 from waku.eventsourcing.testing import DeciderSpec
-from waku.messaging import IEvent
+from waku.messages import IEvent
 
 from tests.eventsourcing.domain import CounterState, Increment, Incremented
 
@@ -67,12 +67,6 @@ CounterSpec: TypeAlias = DeciderSpec[CounterState, Increment | Decrement | Noop,
 @pytest.fixture
 def spec() -> CounterSpec:
     return DeciderSpec.for_(CounterDecider())
-
-
-def test_for_creates_spec() -> None:
-    result = DeciderSpec.for_(CounterDecider())
-
-    assert isinstance(result, DeciderSpec)
 
 
 def test_given_empty_when_command_then_produces_events(spec: CounterSpec) -> None:

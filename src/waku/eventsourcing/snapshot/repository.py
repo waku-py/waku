@@ -4,20 +4,24 @@ import abc
 import logging
 from typing import TYPE_CHECKING, ClassVar, Generic
 
-from waku.eventsourcing._stream_helpers import read_aggregate_stream
+from typing_extensions import override
+
+from waku.eventsourcing._internal.stream_helpers import read_aggregate_stream
 from waku.eventsourcing.contracts.aggregate import AggregateT
 from waku.eventsourcing.repository import EventSourcedRepository
 from waku.eventsourcing.serialization.interfaces import (
     ISnapshotStateSerializer,  # noqa: TC001  # Dishka needs runtime access
 )
-from waku.eventsourcing.snapshot.interfaces import ISnapshotStore  # noqa: TC001  # Dishka needs runtime access
-from waku.eventsourcing.snapshot.manager import SnapshotManager
+from waku.eventsourcing.snapshot._internal.manager import SnapshotManager
 from waku.eventsourcing.snapshot.registry import SnapshotConfigRegistry  # noqa: TC001  # Dishka needs runtime access
-from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Dishka needs runtime access
+from waku.eventsourcing.store.interfaces import (
+    IEventStore,  # noqa: TC001  # Dishka needs runtime access
+    ISnapshotStore,  # noqa: TC001  # Dishka needs runtime access
+)
 
 if TYPE_CHECKING:
     from waku.eventsourcing.snapshot.interfaces import Snapshot
-    from waku.messaging.contracts.event import IEvent
+    from waku.messages import IEvent
 
 __all__ = ['SnapshotEventSourcedRepository']
 
@@ -35,14 +39,16 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
         state_serializer: ISnapshotStateSerializer,
     ) -> None:
         super().__init__(event_store)
-        self._state_serializer = state_serializer
+        self._state_type_name: str = self.snapshot_state_type or self.aggregate_name
         config = snapshot_config_registry.get(self.aggregate_name)
         self._snapshot_manager = SnapshotManager(
             store=snapshot_store,
             config=config,
-            state_type_name=self.snapshot_state_type or self.aggregate_name,
+            valid_state_types=frozenset({self._state_type_name}),
+            serializer=state_serializer,
         )
 
+    @override
     async def load(self, aggregate_id: str) -> AggregateT:
         stream_id = self._stream_id(aggregate_id)
         snapshot = await self._snapshot_manager.load_snapshot(stream_id, aggregate_id)
@@ -67,6 +73,7 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
         logger.debug('No snapshot for %s/%s, loading from events', self.aggregate_name, aggregate_id)
         return await super().load(aggregate_id)
 
+    @override
     async def save(
         self,
         aggregate_id: str,
@@ -78,9 +85,13 @@ class SnapshotEventSourcedRepository(EventSourcedRepository[AggregateT], abc.ABC
 
         if events and self._snapshot_manager.should_save(aggregate_id, new_version):
             stream_id = self._stream_id(aggregate_id)
-            state_obj = self._snapshot_state(aggregate)
-            state_data = self._state_serializer.serialize(state_obj)
-            await self._snapshot_manager.save_snapshot(stream_id, aggregate_id, state_data, new_version)
+            await self._snapshot_manager.save_snapshot(
+                stream_id,
+                aggregate_id,
+                lambda: self._snapshot_state(aggregate),
+                new_version,
+                state_type_name=self._state_type_name,
+            )
 
         return new_version, events
 

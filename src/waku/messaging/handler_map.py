@@ -2,18 +2,20 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
-from waku.messaging.exceptions import HandlerAlreadyRegistered, MapFrozenError
+from waku.messaging.exceptions import HandlerAlreadyRegisteredError, MapFrozenError
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
+    from waku.messages import IMessage
     from waku.messaging.contracts.handler import HandlerType
-    from waku.messaging.contracts.message import IMessage
 
 __all__ = ['HandlerMap']
 
 
 class HandlerMap:
+    """Unified registry mapping each message type to its handler types; freezes after wiring."""
+
     __slots__ = ('_frozen', '_registry')
 
     def __init__(self) -> None:
@@ -28,7 +30,7 @@ class HandlerMap:
             raise MapFrozenError
         existing = self._registry.setdefault(message_type, [])
         if handler_type in existing:
-            raise HandlerAlreadyRegistered(message_type, handler_type)
+            raise HandlerAlreadyRegisteredError(message_type, handler_type)
         existing.append(handler_type)
         return self
 
@@ -41,11 +43,14 @@ class HandlerMap:
         return self
 
     def get_handler_types(self, message_type: type[IMessage]) -> Sequence[HandlerType]:
-        return self._registry.get(message_type, ())
+        return tuple(self._registry.get(message_type, ()))
 
     def handler_types(self) -> Iterator[HandlerType]:
         for handlers in self._registry.values():
             yield from handlers
+
+    def message_types(self) -> Iterator[type[IMessage]]:
+        yield from self._registry
 
     def items(self) -> Iterator[tuple[type[IMessage], tuple[HandlerType, ...]]]:
         for msg_type, handlers in self._registry.items():

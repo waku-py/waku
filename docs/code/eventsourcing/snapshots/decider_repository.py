@@ -1,4 +1,4 @@
-from waku.messaging import IEvent
+from waku.messages import IEvent
 from waku.eventsourcing import SnapshotDeciderRepository
 
 from app.decider import BankCommand

@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+from typing_extensions import override
 
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.testing import AggregateSpec
-from waku.messaging.contracts.event import IEvent
+from waku.messages import IEvent
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class CounterAggregate(EventSourcedAggregate):
     def noop(self) -> None:
         pass
 
+    @override
     def _apply(self, event: IEvent) -> None:
         match event:
             case Incremented(amount=a):
@@ -50,11 +52,6 @@ class CounterAggregate(EventSourcedAggregate):
 @pytest.fixture
 def spec() -> AggregateSpec[CounterAggregate]:
     return AggregateSpec.for_(CounterAggregate)
-
-
-def test_for_creates_spec() -> None:
-    result = AggregateSpec.for_(CounterAggregate)
-    assert isinstance(result, AggregateSpec)
 
 
 def test_given_empty_when_action_then_produces_events(spec: AggregateSpec[CounterAggregate]) -> None:

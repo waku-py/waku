@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from waku.eventsourcing.projection.gap_detection import GapTracker
+from waku.eventsourcing.projection._internal.gap_tracker import GapTracker
 
 
 def test_no_gaps_returns_max_position() -> None:

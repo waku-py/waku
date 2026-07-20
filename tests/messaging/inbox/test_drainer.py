@@ -1,0 +1,659 @@
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, replace
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, ClassVar
+from uuid import uuid4
+
+import anyio.lowlevel
+import pytest
+from dishka import Provider, Scope, make_async_container, provide
+from typing_extensions import override
+
+from waku._internal.clock import utc_now
+from waku._internal.node import NodeId, NodeIdentity
+from waku._internal.transaction import AfterCommitError, RollbackFailedError, TransactionExecutionError
+from waku.di import object_
+from waku.messages import IEvent
+from waku.messaging import EndpointDefaults, MessagingConfig, MessagingExtension, MessagingModule
+from waku.messaging._internal.identity import MessageTypeRegistry
+from waku.messaging.durability import IDurabilityStore, IInboxStore
+from waku.messaging.endpoints._internal.execution import (
+    IEndpointExecution,
+    TerminalIntent,
+    TerminalIntentKind,
+)
+from waku.messaging.endpoints.outcome import ExecutionOutcome
+from waku.messaging.handler import EventHandler
+from waku.messaging.inbox import EndpointUri, HandlerDestination
+from waku.messaging.inbox._internal.drainer import InboxDrainer, build_inbox_drainer
+from waku.messaging.inbox.config import InboxConfig
+from waku.messaging.inbox.destination import handler_destination
+from waku.messaging.inbox.models import InboxEntry, InboxStatus
+from waku.messaging.sequence import ISequenceAllocator
+from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
+from waku.serialization.codec import PayloadCodec
+from waku.testing import create_test_app
+from waku.uow import IUnitOfWork
+
+from tests.messaging.helpers import (
+    RecordingAllocator,
+    RecordingDeadLetterStore,
+    RecordingDurabilityStore,
+    RecordingUoW,
+    StubEndpointExecution,
+    make_codec,
+    make_envelope,
+    node_registry_providers,
+)
+from tests.messaging.inbox.fake_store import FakeInboxStore
+from tests.messaging.outbox.fake_store import RecordingOutboxStore
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from uuid import UUID
+
+    from waku.messaging.contracts.envelope import MessageEnvelope
+    from waku.messaging.contracts.handler import HandlerType
+
+
+@dataclass(frozen=True, kw_only=True)
+class _OrderPlaced(IEvent):
+    order_id: str
+
+
+class _RecordingHandler(EventHandler[_OrderPlaced]):
+    invocations: ClassVar[list[str]] = []
+
+    @override
+    async def handle(self, message: _OrderPlaced, /) -> None:  # pragma: no cover - not run via stub executor
+        self.invocations.append(message.order_id)
+
+
+def _intent(outcome: ExecutionOutcome) -> TerminalIntent:
+    kinds = {
+        ExecutionOutcome.SUCCESS: TerminalIntentKind.SUCCESS,
+        ExecutionOutcome.FAILED_NO_POLICY: TerminalIntentKind.FAILED_NO_POLICY,
+        ExecutionOutcome.DISCARDED: TerminalIntentKind.DISCARD,
+        ExecutionOutcome.DEAD_LETTERED: TerminalIntentKind.DEAD_LETTER,
+        ExecutionOutcome.REQUEUED: TerminalIntentKind.REQUEUE,
+        ExecutionOutcome.PAUSED: TerminalIntentKind.PAUSE,
+    }
+    error = RuntimeError('handler failed') if outcome is ExecutionOutcome.DEAD_LETTERED else None
+    return TerminalIntent(kinds[outcome], error=error, attempt=1)
+
+
+class _StubExecutor(StubEndpointExecution):
+    def __init__(self, *, return_value: ExecutionOutcome) -> None:
+        self.return_value = return_value
+        self.calls: list[tuple[str, HandlerType]] = []
+
+    @override
+    async def execute(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+    ) -> TerminalIntent:
+        self.calls.append((envelope.message_type, handler_type))
+        return _intent(self.return_value)
+
+
+class _Deps(Provider):
+    scope = Scope.REQUEST
+
+    def __init__(self, inbox: IInboxStore, uow: IUnitOfWork) -> None:
+        super().__init__()
+        self._inbox = inbox
+        self._uow = uow
+
+    @provide
+    def inbox(self) -> IInboxStore:
+        return self._inbox
+
+    @provide
+    def uow(self) -> IUnitOfWork:
+        return self._uow
+
+
+_DESTINATION = handler_destination(_RecordingHandler)
+_CODEC = make_codec()
+_TYPE_REGISTRY = MessageTypeRegistry(identities={}, known_types=[_OrderPlaced])
+
+
+def _abandoned_entry(
+    inbox: FakeInboxStore,
+    *,
+    destination: str = _DESTINATION,
+    source_uri: str = 'local://orders',
+    attempts: int = 0,
+) -> InboxEntry:
+    envelope = make_envelope(_OrderPlaced(order_id='o-1'))
+    entry = InboxEntry(
+        id=envelope.message_id,
+        payload=encode_payload(envelope, _CODEC),
+        message_type=envelope.message_type,
+        source_uri=EndpointUri(source_uri),
+        destination=HandlerDestination(destination),
+        owner_id=None,
+        status=InboxStatus.INCOMING,
+        attempts=attempts,
+        correlation_id=envelope.correlation_id,
+        causation_id=envelope.causation_id,
+        metadata=encode_metadata(envelope),
+    )
+    inbox.entries[entry.id, entry.destination] = entry
+    return entry
+
+
+def _drainer(container: Any, executor: IEndpointExecution, *, max_attempts: int = 5) -> InboxDrainer:
+    return InboxDrainer(
+        container=container,
+        codec=_CODEC,
+        type_registry=_TYPE_REGISTRY,
+        handler_by_fqn={_DESTINATION: _RecordingHandler},
+        executor_factory=lambda _source_uri: executor,
+        owner_id=NodeId('node-a:1'),
+        now=utc_now,
+        keep_after_handled=timedelta(minutes=5),
+        batch_size=100,
+        max_attempts=max_attempts,
+    )
+
+
+class _CapturingExecutor(_StubExecutor):
+    def __init__(self) -> None:
+        self.envelopes: list[MessageEnvelope[Any]] = []
+
+    @override
+    async def execute(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+    ) -> TerminalIntent:
+        self.envelopes.append(envelope)
+        return _intent(ExecutionOutcome.SUCCESS)
+
+
+class _FatalRollbackExecutor(StubEndpointExecution):
+    def __init__(self, rollback_error: Exception, primary_error: Exception) -> None:
+        self.calls = 0
+        self.rollback_error = rollback_error
+        self.primary_error = primary_error
+
+    @override
+    async def execute(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+    ) -> TerminalIntent:
+        self.calls += 1
+        raise RollbackFailedError(
+            self.rollback_error,
+            self.primary_error,
+        )
+
+
+class _FatalAfterCommitExecutor(StubEndpointExecution):
+    def __init__(self, teardown_error: Exception) -> None:
+        self.calls = 0
+        self.teardown_error = teardown_error
+
+    @override
+    async def execute(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+    ) -> TerminalIntent:
+        self.calls += 1
+        raise AfterCommitError(self.teardown_error)
+
+
+async def _drain_good_and_poison(inbox: FakeInboxStore) -> tuple[InboxEntry, InboxEntry, int]:
+    good = _abandoned_entry(inbox)
+    poison = _abandoned_entry(inbox, destination='tests.GoneHandler')
+    executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        processed = await _drainer(container, executor, max_attempts=3).drain_once()
+    return good, poison, processed
+
+
+async def _drain_and_expect_dead_lettered(inbox: FakeInboxStore, entry: InboxEntry) -> None:
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
+    assert (entry.id, entry.destination) not in inbox.entries
+    assert len(inbox.dead_letters.entries) == 1
+    assert next(iter(inbox.dead_letters.entries.values())).message_type == entry.message_type
+
+
+async def test_drain_crash_recovery_rebuilds_envelope_from_decomposed_row() -> None:
+    # Verifies that the drainer reconstructs the full envelope from the decomposed inbox row
+    # (encoded payload + metadata + typed correlation_id/causation_id columns) without using
+    # serializer.deserialize. A real PayloadCodec + MessageTypeRegistry are used — no mocks.
+    inbox = FakeInboxStore()
+    envelope = make_envelope(_OrderPlaced(order_id='o-99'))
+    entry = InboxEntry(
+        id=envelope.message_id,
+        payload=encode_payload(envelope, _CODEC),
+        message_type=envelope.message_type,
+        source_uri=EndpointUri('local://orders'),
+        destination=HandlerDestination(_DESTINATION),
+        owner_id=None,
+        status=InboxStatus.INCOMING,
+        correlation_id=envelope.correlation_id,
+        causation_id=envelope.causation_id,
+        metadata=encode_metadata(envelope),
+    )
+    inbox.entries[entry.id, entry.destination] = entry
+
+    executor = _CapturingExecutor()
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        processed = await _drainer(container, executor).drain_once()
+
+    assert processed == 1
+    assert len(executor.envelopes) == 1
+    rebuilt = executor.envelopes[0]
+    assert rebuilt.message_id == envelope.message_id
+    assert rebuilt.correlation_id == envelope.correlation_id
+    assert rebuilt.causation_id == envelope.causation_id
+    assert rebuilt.message_type == envelope.message_type
+    assert rebuilt.payload.order_id == 'o-99'
+
+
+async def test_drain_executes_and_marks_handled_on_success() -> None:
+    inbox = FakeInboxStore()
+    entry = _abandoned_entry(inbox)
+    executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        processed = await _drainer(container, executor).drain_once()
+    assert processed == 1
+    assert executor.calls == [(entry.message_type, _RecordingHandler)]
+    assert inbox.entries[entry.id, entry.destination].status is InboxStatus.HANDLED
+
+
+async def test_drain_stops_batch_when_handler_rollback_fails_fatally() -> None:
+    inbox = FakeInboxStore()
+    _abandoned_entry(inbox)
+    _abandoned_entry(inbox)
+    rollback_error = RuntimeError('rollback failed')
+    primary_error = RuntimeError('handler failed')
+    executor = _FatalRollbackExecutor(rollback_error, primary_error)
+
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        with pytest.raises(TransactionExecutionError) as raised:
+            await _drainer(container, executor).drain_once()
+
+    assert isinstance(raised.value, RollbackFailedError)
+    assert raised.value.error is rollback_error
+    assert raised.value.primary_error is primary_error
+    assert executor.calls == 1  # the fatal signal stops the drain before the second entry
+
+
+async def test_drain_stops_batch_after_committed_handler_scope_teardown_fails() -> None:
+    inbox = FakeInboxStore()
+    _abandoned_entry(inbox)
+    _abandoned_entry(inbox)
+    teardown_error = RuntimeError('request scope teardown failed')
+    executor = _FatalAfterCommitExecutor(teardown_error)
+
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        with pytest.raises(TransactionExecutionError) as raised:
+            await _drainer(container, executor).drain_once()
+
+    assert isinstance(raised.value, AfterCommitError)
+    assert raised.value.error is teardown_error
+    assert executor.calls == 1
+
+
+async def test_drain_deletes_row_on_dead_letter() -> None:
+    inbox = FakeInboxStore()
+    entry = _abandoned_entry(inbox)
+    executor = _StubExecutor(return_value=ExecutionOutcome.DEAD_LETTERED)
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        await _drainer(container, executor).drain_once()
+    # delete must be the outcome of execution, not a bypass that skips the handler
+    assert executor.calls == [(entry.message_type, _RecordingHandler)]
+    assert (entry.id, entry.destination) not in inbox.entries
+
+
+async def test_drain_poison_unknown_handler_under_cap_bumps_attempts_and_leaves_claimed() -> None:
+    inbox = FakeInboxStore()
+    entry = _abandoned_entry(inbox, destination='tests.GoneHandler')
+    executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        processed = await _drainer(container, executor, max_attempts=3).drain_once()
+    assert processed == 0
+    assert executor.calls == []
+    stored = inbox.entries[entry.id, entry.destination]
+    assert stored.status is InboxStatus.INCOMING
+    assert stored.attempts == 1
+
+
+async def test_drain_poison_unrebuildable_payload_bumps_attempts() -> None:
+    # A row with metadata=None causes wire_metadata_from_entry to return timestamp=None,
+    # which makes rebuild_envelope raise ValueError — poison path, not deserialized.
+    inbox = FakeInboxStore()
+    entry = _abandoned_entry(inbox)
+    inbox.entries[entry.id, entry.destination] = replace(entry, metadata=None)
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        processed = await _drainer(
+            container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3
+        ).drain_once()
+    assert processed == 0
+    assert inbox.entries[entry.id, entry.destination].attempts == 1
+
+
+async def test_drain_poison_at_cap_dead_letters_and_deletes() -> None:
+    inbox = FakeInboxStore()
+    entry = _abandoned_entry(inbox, destination='tests.GoneHandler', attempts=2)
+    await _drain_and_expect_dead_lettered(inbox, entry)
+
+
+async def test_drain_poison_corrupt_metadata_blob_at_cap_dead_letters() -> None:
+    # A row with a corrupt metadata blob (non-integer message_version, valid timestamp) makes
+    # wire_metadata_from_entry raise MalformedMetadataError — the drainer's broad poison net catches
+    # it, bounds by max_attempts, and dead-letters + deletes at the cap. The raise never aborts drain.
+    inbox = FakeInboxStore()
+    entry = _abandoned_entry(inbox, attempts=2)
+    inbox.entries[entry.id, entry.destination] = replace(
+        entry,
+        metadata={'message_version': 'abc', 'timestamp': '2026-06-29T10:00:00+00:00', 'headers': {}},
+    )
+    await _drain_and_expect_dead_lettered(inbox, entry)
+
+
+async def test_drain_poison_at_cap_moves_without_standalone_dlq(caplog: pytest.LogCaptureFixture) -> None:
+    inbox = FakeInboxStore()
+    entry = _abandoned_entry(inbox, destination='tests.GoneHandler', attempts=2)
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        with caplog.at_level(logging.ERROR, logger='waku.messaging.inbox._internal.drainer'):
+            await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
+    assert (entry.id, entry.destination) not in inbox.entries
+    assert len(inbox.dead_letters.entries) == 1
+    assert 'Unhandled error draining inbox entry' not in caplog.text
+
+
+async def test_drain_isolates_poison_from_healthy_entries_in_a_batch() -> None:
+    inbox = FakeInboxStore()
+    good, poison, processed = await _drain_good_and_poison(inbox)
+    assert processed == 1
+    assert inbox.entries[good.id, good.destination].status is InboxStatus.HANDLED
+    assert inbox.entries[poison.id, poison.destination].attempts == 1
+
+
+async def test_drain_skips_already_owned_incoming() -> None:
+    inbox = FakeInboxStore()
+    entry = _abandoned_entry(inbox)
+    # Already claimed by another node -> the drain's owner_id IS NULL filter must skip it (no re-claim,
+    # no re-execution). Empty-inbox alone can't distinguish "skips owned" from "nothing to claim".
+    inbox.entries[entry.id, entry.destination] = replace(entry, owner_id=NodeId('other-node:1'))
+    executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        processed = await _drainer(container, executor).drain_once()
+    assert processed == 0
+    assert executor.calls == []
+    assert inbox.entries[entry.id, entry.destination].owner_id == 'other-node:1'
+
+
+class _IncrementRaisesStore(FakeInboxStore):
+    @override
+    async def increment_attempts(self, entry_id: UUID, destination: HandlerDestination, *, owner_id: NodeId) -> bool:
+        msg = 'increment_attempts unavailable'
+        raise ConnectionError(msg)
+
+
+async def test_drain_logs_and_continues_when_an_entry_raises() -> None:
+    inbox = _IncrementRaisesStore()
+    good, poison, processed = await _drain_good_and_poison(inbox)
+    assert processed == 1
+    assert inbox.entries[good.id, good.destination].status is InboxStatus.HANDLED
+    assert inbox.entries[poison.id, poison.destination].status is InboxStatus.INCOMING
+
+
+async def test_drain_claim_scope_failed_rollback_is_fatal() -> None:
+    # The claim transaction fails and its rollback also fails: uniformly fatal, never a recoverable
+    # empty batch — the drain must surface TransactionExecutionError before iterating any entry.
+    inbox = FakeInboxStore()
+    inbox.fetch_pending_error = RuntimeError('fetch failed')
+    rollback_error = RuntimeError('rollback failed')
+    executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+
+    async with make_async_container(_Deps(inbox, RecordingUoW(rollback_error=rollback_error))) as container:
+        with pytest.raises(TransactionExecutionError) as raised:
+            await _drainer(container, executor).drain_once()
+
+    assert isinstance(raised.value, RollbackFailedError)
+    assert raised.value.error is rollback_error
+    assert executor.calls == []
+
+
+async def test_drain_poison_increment_failed_rollback_is_fatal() -> None:
+    # A poison row bumps attempts under a fresh transaction; if that transaction's rollback fails it is
+    # fatal (not log-and-continue), so a broken cleanup stops the drain instead of masquerading as an
+    # isolated per-entry error.
+    inbox = _IncrementRaisesStore()
+    _abandoned_entry(inbox, destination='tests.GoneHandler')
+    rollback_error = RuntimeError('rollback failed')
+    executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+
+    async with make_async_container(_Deps(inbox, RecordingUoW(rollback_error=rollback_error))) as container:
+        with pytest.raises(TransactionExecutionError) as raised:
+            await _drainer(container, executor, max_attempts=3).drain_once()
+
+    assert isinstance(raised.value, RollbackFailedError)
+    assert raised.value.error is rollback_error
+    assert isinstance(raised.value.primary_error, ConnectionError)
+    assert executor.calls == []
+
+
+async def test_drain_requeue_outcome_under_cap_bumps_attempts_and_leaves_claimed() -> None:
+    # A REQUEUE/PAUSE outcome can't be enacted on the recovery path (no live listener), so it is bounded
+    # like poison: under the cap the row is left INCOMING with attempts bumped — never an endless oscillation.
+    inbox = FakeInboxStore()
+    entry = _abandoned_entry(inbox)
+    executor = _StubExecutor(return_value=ExecutionOutcome.REQUEUED)
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        processed = await _drainer(container, executor, max_attempts=3).drain_once()
+    assert processed == 0
+    assert executor.calls == [(entry.message_type, _RecordingHandler)]  # the handler DID run
+    stored = inbox.entries[entry.id, entry.destination]
+    assert stored.status is InboxStatus.INCOMING
+    assert stored.attempts == 1
+
+
+async def test_drain_requeue_outcome_at_cap_dead_letters() -> None:
+    inbox = FakeInboxStore()
+    entry = _abandoned_entry(inbox, attempts=2)
+    executor = _StubExecutor(return_value=ExecutionOutcome.PAUSED)
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        await _drainer(container, executor, max_attempts=3).drain_once()
+    assert (entry.id, entry.destination) not in inbox.entries  # bounded -> dead-lettered + deleted at the cap
+    assert len(inbox.dead_letters.entries) == 1
+
+
+async def test_drain_poison_at_cap_reads_correlation_from_typed_columns_not_payload() -> None:
+    # NON-VACUOUS poison test: the payload is a real encoded dict (which never contains
+    # correlation_id / causation_id keys). Proves _poison_dead_letter reads the typed
+    # columns, not the payload blob — if it still read entry.payload.get('correlation_id')
+    # it would fall back to entry.id, not the real UUIDs.
+    inbox = FakeInboxStore()
+    expected_correlation = str(uuid4())
+    expected_causation = str(uuid4())
+    entry = _abandoned_entry(inbox, destination='tests.GoneHandler', attempts=2)
+    # Real encoded payload — contains only the message's own fields, NOT correlation/causation.
+    real_payload = encode_payload(make_envelope(_OrderPlaced(order_id='o-1')), _CODEC)
+    assert 'correlation_id' not in real_payload
+    assert 'causation_id' not in real_payload
+    inbox.entries[entry.id, entry.destination] = replace(
+        entry,
+        payload=real_payload,
+        correlation_id=expected_correlation,
+        causation_id=expected_causation,
+    )
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        await _drainer(container, _StubExecutor(return_value=ExecutionOutcome.SUCCESS), max_attempts=3).drain_once()
+    assert len(inbox.dead_letters.entries) == 1
+    dead_letter = next(iter(inbox.dead_letters.entries.values()))
+    assert dead_letter.correlation_id == expected_correlation
+    assert dead_letter.causation_id == expected_causation
+
+
+async def test_drain_crash_recovery_keyed_on_scheme_qualified_source_uri() -> None:
+    # An inbox row persisted by the inbound listener carries a real scheme'd source_uri
+    # (e.g. 'rabbitmq://orders').  The drainer must pass that exact value to executor_factory
+    # so the crash-recovery executor is correctly keyed; the handler must still be resolved
+    # from destination (FQN), not from the URI.
+    inbox = FakeInboxStore()
+    entry = _abandoned_entry(inbox, source_uri='rabbitmq://orders')
+
+    executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+    factory_calls: list[str] = []
+
+    def capturing_factory(source_uri: str) -> IEndpointExecution:
+        factory_calls.append(source_uri)
+        return executor
+
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        drainer = InboxDrainer(
+            container=container,
+            codec=_CODEC,
+            type_registry=_TYPE_REGISTRY,
+            handler_by_fqn={_DESTINATION: _RecordingHandler},
+            executor_factory=capturing_factory,
+            owner_id=NodeId('node-a:1'),
+            now=utc_now,
+            keep_after_handled=timedelta(minutes=5),
+            batch_size=100,
+            max_attempts=5,
+        )
+        processed = await drainer.drain_once()
+
+    assert processed == 1
+    assert factory_calls == ['rabbitmq://orders']
+    assert executor.calls == [(entry.message_type, _RecordingHandler)]
+    assert inbox.entries[entry.id, entry.destination].status is InboxStatus.HANDLED
+
+
+@dataclass(frozen=True, kw_only=True)
+class _DrainSignal(IEvent):
+    ref: str
+
+
+class _DrainCheckpointHandler(EventHandler[_DrainSignal]):
+    # execution_timeout unset (MISSING) → inherits the 0s endpoint_defaults deadline the factory captures.
+    completed: ClassVar[list[str]] = []
+
+    @override
+    async def handle(self, message: _DrainSignal, /) -> None:
+        await anyio.lowlevel.checkpoint()
+        _DrainCheckpointHandler.completed.append(message.ref)
+
+
+async def test_build_inbox_drainer_executor_enforces_config_deadline() -> None:
+    fake_inbox = FakeInboxStore()
+    unit_of_work = RecordingUoW()
+    inbox_config = InboxConfig()
+    config = MessagingConfig(
+        endpoint_defaults=EndpointDefaults(execution_timeout=timedelta()),
+        inbox=inbox_config,
+    )
+    durability = RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=RecordingOutboxStore(),
+        inbox=fake_inbox,
+        dead_letters=RecordingDeadLetterStore(),
+    )
+    async with create_test_app(
+        imports=[MessagingModule.register(config)],
+        extensions=[MessagingExtension().bind(_DrainCheckpointHandler)],
+        providers=[
+            object_(unit_of_work, provided_type=IUnitOfWork),
+            object_(fake_inbox, provided_type=IInboxStore),
+            object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+            object_(durability, provided_type=IDurabilityStore),
+            *node_registry_providers(),
+        ],
+    ) as app:
+        codec = await app.container.get(PayloadCodec)
+        envelope = make_envelope(_DrainSignal(ref='r-1'))
+        entry = InboxEntry(
+            id=envelope.message_id,
+            payload=encode_payload(envelope, codec),
+            message_type=envelope.message_type,
+            source_uri=EndpointUri('rabbitmq://orders'),
+            destination=handler_destination(_DrainCheckpointHandler),
+            owner_id=None,
+            status=InboxStatus.INCOMING,
+            correlation_id=envelope.correlation_id,
+            causation_id=envelope.causation_id,
+            metadata=encode_metadata(envelope),
+        )
+        fake_inbox.entries[entry.id, entry.destination] = entry
+
+        drainer = await build_inbox_drainer(app.container, inbox_config)
+        await drainer.drain_once()
+
+    # Robust outcome regardless of whether the manual drain or the background recovery worker acted first:
+    # both share the factory-built executor, so the 0s deadline cancels the handler and the row is deleted.
+    assert _DrainCheckpointHandler.completed == []  # cancelled at the checkpoint before it could record
+    assert (entry.id, entry.destination) not in fake_inbox.entries  # FAILED_NO_POLICY → delete
+
+
+async def test_build_inbox_drainer_claims_with_the_process_node_identity() -> None:
+    fake_inbox = FakeInboxStore()
+    unit_of_work = RecordingUoW()
+    inbox_config = InboxConfig()
+    config = MessagingConfig(inbox=inbox_config)
+    durability = RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=RecordingOutboxStore(),
+        inbox=fake_inbox,
+        dead_letters=RecordingDeadLetterStore(),
+    )
+    async with create_test_app(
+        imports=[MessagingModule.register(config)],
+        extensions=[MessagingExtension().bind(_DrainCheckpointHandler)],
+        providers=[
+            object_(unit_of_work, provided_type=IUnitOfWork),
+            object_(fake_inbox, provided_type=IInboxStore),
+            object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+            object_(durability, provided_type=IDurabilityStore),
+            *node_registry_providers(),
+        ],
+    ) as app:
+        identity = await app.container.get(NodeIdentity)
+        fake_inbox.claim_owners.clear()
+        drainer = await build_inbox_drainer(app.container, inbox_config)
+        await drainer.drain_once()
+
+    # The background recovery worker claims on the same token, so assert the token, not the tick count.
+    assert fake_inbox.claim_owners
+    assert set(fake_inbox.claim_owners) == {identity.node_id}
+
+
+async def test_drain_abandons_a_row_whose_ownership_was_lost_mid_flight() -> None:
+    # Recovery released the row to a live successor after the drainer claimed it. The finalize is
+    # refused, the row is left untouched for its new owner, and the batch keeps going.
+    inbox = _OwnershipStolenInbox()
+    entry = _abandoned_entry(inbox)
+    healthy = _abandoned_entry(inbox, destination=_DESTINATION)
+    executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        processed = await _drainer(container, executor).drain_once()
+
+    assert processed == 1  # only the healthy row counted
+    assert inbox.entries[entry.id, entry.destination].status is InboxStatus.INCOMING
+    assert inbox.entries[healthy.id, healthy.destination].status is InboxStatus.HANDLED
+
+
+class _OwnershipStolenInbox(FakeInboxStore):
+    """Hands the FIRST claimed row to a successor node right after the claim commits."""
+
+    @override
+    async def fetch_pending_partitioned(self, batch_size: int, owner_id: NodeId) -> Sequence[InboxEntry]:
+        claimed = await super().fetch_pending_partitioned(batch_size, owner_id)
+        stolen = claimed[0]
+        key = (stolen.id, stolen.destination)
+        self.entries[key] = replace(self.entries[key], owner_id=NodeId('successor-node'))
+        return claimed

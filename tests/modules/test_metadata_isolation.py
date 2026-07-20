@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
+import pytest
 from typing_extensions import override
 
 from waku import WakuFactory, module
 from waku.di import object_
-from waku.extensions import OnModuleRegistration
+from waku.exceptions import ImproperlyConfiguredError
+from waku.extensions import OnModuleConfigure, OnModuleRegistration
+from waku.modules._internal.metadata import DynamicModule, ModuleCompiler
 
 from tests.data import A
 
@@ -14,7 +17,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from waku.modules import HasModuleMetadata, ModuleMetadata, ModuleType
-    from waku.modules._metadata_registry import ModuleMetadataRegistry
+    from waku.modules._internal.metadata_registry import ModuleMetadataRegistry
 
 
 class _AddProviderOnRegistration(OnModuleRegistration):
@@ -58,3 +61,68 @@ def test_repeated_factory_create_keeps_original_metadata_clean() -> None:
     factory.create()
 
     assert len(original_metadata.providers) == original_provider_count
+
+
+class _CountingConfigure(OnModuleConfigure):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    @override
+    def on_module_configure(self, metadata: ModuleMetadata) -> None:
+        self.calls += 1
+
+
+def _dynamic_with_counter() -> tuple[DynamicModule, _CountingConfigure]:
+    ext = _CountingConfigure()
+    return DynamicModule(parent_module=_ChildModule, extensions=[ext]), ext
+
+
+def test_extract_metadata_does_not_leak_across_compilers() -> None:
+    dynamic, ext = _dynamic_with_counter()
+
+    ModuleCompiler().extract_metadata(dynamic)
+    ModuleCompiler().extract_metadata(dynamic)
+
+    # Each compiler owns its memo: a fresh compiler re-runs configure instead of hitting
+    # a process-global cache that would pin every DynamicModule forever.
+    assert ext.calls == 2
+    assert not hasattr(ModuleCompiler._extract_metadata, 'cache_clear')  # noqa: SLF001
+
+
+def test_extract_metadata_idempotent_configure_within_compiler() -> None:
+    dynamic, ext = _dynamic_with_counter()
+    compiler = ModuleCompiler()
+
+    first = compiler.extract_metadata(dynamic)
+    second = compiler.extract_metadata(dynamic)
+
+    assert ext.calls == 1
+    assert first[1] is second[1]
+
+
+class _BoomConfigure(OnModuleConfigure):
+    @override
+    def on_module_configure(self, metadata: ModuleMetadata) -> None:
+        msg = 'boom'
+        raise AttributeError(msg)
+
+
+def test_hook_attribute_error_propagates_instead_of_being_relabeled_not_a_module() -> None:
+    # A real AttributeError raised inside an on_module_configure hook must surface with its own
+    # message/traceback, not be swallowed and relabeled as a misleading "is not a module" ImproperlyConfiguredError.
+    dynamic = DynamicModule(parent_module=_ChildModule, extensions=[_BoomConfigure()])
+
+    with pytest.raises(AttributeError, match='boom'):
+        ModuleCompiler().extract_metadata(dynamic)
+
+
+class _PlainClass:
+    pass
+
+
+def test_source_without_module_metadata_raises_improperly_configured() -> None:
+    # A source that was never decorated with @module carries no attached metadata, so
+    # _require_module_metadata surfaces it as an ImproperlyConfiguredError ("is not a module"),
+    # not a bare builtin exception.
+    with pytest.raises(ImproperlyConfiguredError, match='is not a module'):
+        ModuleCompiler().extract_metadata(_PlainClass)

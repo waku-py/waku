@@ -4,14 +4,14 @@ from typing import Any, cast
 from adaptix import dumper, loader
 from typing_extensions import override
 
-from waku.messaging import IEvent
-from waku.eventsourcing.serialization import EventTypeRegistry, IEventSerializer, default_retort
+from waku.messages import IEvent
+from waku.eventsourcing.serialization import EventTypeRegistry, IEventSerializer, es_default_retort
 
 
 class UnixTimestampEventSerializer(IEventSerializer):
     def __init__(self, registry: EventTypeRegistry) -> None:
         self._registry = registry
-        self._retort = default_retort.extend(
+        self._retort = es_default_retort.extend(
             recipe=[
                 loader(datetime, lambda v: datetime.fromtimestamp(v, tz=UTC)),
                 dumper(datetime, lambda v: int(v.timestamp())),

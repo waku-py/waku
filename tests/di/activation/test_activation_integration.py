@@ -3,7 +3,7 @@ from typing import Protocol
 
 import pytest
 from dishka import Marker, Scope
-from dishka.exceptions import GraphMissingFactoryError, NoActiveFactoryError
+from dishka.exceptions import NoActiveFactoryError
 
 from waku import WakuFactory
 from waku.di import Has, activator, contextual, scoped, singleton
@@ -183,7 +183,7 @@ async def test_has_marker_activates_when_type_registered() -> None:
         assert isinstance(b.a, A)
 
 
-def test_has_marker_fails_validation_when_type_not_registered() -> None:
+async def test_has_marker_deactivates_provider_when_type_not_registered() -> None:
     AppModule = create_basic_module(
         providers=[
             scoped(B, when=Has(A)),
@@ -191,8 +191,13 @@ def test_has_marker_fails_validation_when_type_not_registered() -> None:
         name='AppModule',
     )
 
-    with pytest.raises(GraphMissingFactoryError):
-        WakuFactory(AppModule).create()
+    # dishka 1.10+ statically deactivates the `Has(A)` provider when `A` is absent, so the container
+    # builds cleanly; resolving the deactivated provider then fails at request time.
+    app = WakuFactory(AppModule).create()
+
+    async with app, app.container() as container:
+        with pytest.raises(NoActiveFactoryError):
+            await container.get(B)
 
 
 async def test_always_true_activator() -> None:

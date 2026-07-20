@@ -19,21 +19,21 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 from typing_extensions import override
 
 from waku import WakuFactory, module
-from waku.di import object_, scoped
+from waku.backends.sqlalchemy import SqlAlchemyBackend
+from waku.di import object_
 from waku.eventsourcing import (
     EventSourcedAggregate,
-    EventSourcedCommandHandler,
     EventSourcedRepository,
     EventSourcingConfig,
     EventSourcingExtension,
     EventSourcingModule,
+    forward,
 )
 from waku.eventsourcing.serialization.json import JsonEventSerializer
-from waku.eventsourcing.store.sqlalchemy.store import make_sqlalchemy_event_store
-from waku.eventsourcing.store.sqlalchemy.tables import bind_event_store_tables
+from waku.integrations.eventsourcing_messaging import EventSourcedCommandHandler, EventSourcingMessagingModule
+from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
-    IEvent,
     IMessageBus,
     IRequest,
     MessagingExtension,
@@ -186,18 +186,22 @@ class MoneyDepositedHandler(EventHandler[MoneyDeposited]):
 # ── PostgreSQL Wiring ──────────────────────────────────────────────
 
 metadata = MetaData()
-tables = bind_event_store_tables(metadata)
 engine = create_async_engine(DATABASE_URL, echo=False)
 
 
 async def create_session(engine_: AsyncEngine) -> AsyncIterator[AsyncSession]:
     async with AsyncSession(engine_, expire_on_commit=False) as session:
-        yield session
+        yield session  # noqa: ASYNC119
 
 
 es_config = EventSourcingConfig(
-    store=make_sqlalchemy_event_store(tables),
     event_serializer=JsonEventSerializer,
+    # Recording store + bridge: appended events forward inline (same transaction) via invoke, so the
+    # bound read-side handlers below actually fire.
+    forwarding=[
+        forward(AccountOpened).same_transaction(),
+        forward(MoneyDeposited).same_transaction(),
+    ],
 )
 
 
@@ -225,11 +229,12 @@ class BankModule:
     imports=[
         BankModule,
         EventSourcingModule.register(es_config),
+        EventSourcingMessagingModule.register(),
         MessagingModule.register(),
+        SqlAlchemyBackend.register(session_factory=create_session, metadata=metadata),
     ],
     providers=[
         object_(engine, provided_type=AsyncEngine),
-        scoped(AsyncSession, create_session),
     ],
 )
 class AppModule:

@@ -112,7 +112,7 @@ es_ext.bind_aggregate(
 | `name`       | `str | None`               | `None` (uses class name) | Custom serialization name                         |
 | `aliases`    | `Sequence[str]`            | `()`                     | Alternative names accepted during deserialization |
 | `version`    | `int`                      | `1`                      | Current schema version                            |
-| `upcasters`  | `Sequence[IEventUpcaster]` | `()`                     | Upcasters for migrating old versions              |
+| `upcasters`  | `Sequence[IPayloadUpcaster]` | `()`                   | Upcasters for migrating old versions              |
 
 ## Type Aliases
 
@@ -142,6 +142,14 @@ version it upgrades.
 When reading an event stored at version *N*, the `UpcasterChain` applies every upcaster whose
 `from_version >= N` in order, producing data compatible with the current version.
 
+!!! warning "Register an upcaster for every shape change"
+    The chain is sparse and keyed only by `from_version` — a version with no upcaster
+    legitimately means "no shape change here", so waku **cannot** detect a *missing* one. If
+    you add, rename, or remove a field without registering a matching upcaster (and bumping
+    `version`), old stored events are read against the new schema with no transformation:
+    a silent read-time misbehavior, not a startup error. Bump `version` and add an upcaster
+    for every real change; use `noop` only when the payload genuinely did not change.
+
 ### Built-in Helpers
 
 | Helper         | Signature                                   | Description                                              |
@@ -152,7 +160,7 @@ When reading an event stored at version *N*, the `UpcasterChain` applies every u
 | `noop`         | `noop(from_version)`                        | No-op placeholder for version bumps without data changes |
 | `upcast`       | `upcast(from_version, fn)`                  | Custom function `(dict) -> dict`                         |
 
-All helpers return an `IEventUpcaster` instance and are imported from `waku.eventsourcing`.
+All helpers return an `IPayloadUpcaster` instance and are imported from `waku.serialization`.
 
 ### Upcasting Pipeline
 

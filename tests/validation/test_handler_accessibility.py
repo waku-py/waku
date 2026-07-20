@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from typing_extensions import override
 
 from waku import WakuFactory, module
 from waku.di import scoped
+from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
-    IEvent,
     IRequest,
+    MessageHandler,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
@@ -42,11 +44,11 @@ class EventHandlerWithDep(EventHandler[SomeEvent]):
         pass  # pragma: no cover
 
 
-async def test_event_handler_deps_validated_against_originating_module() -> None:
+async def assert_handler_dependencies_accessible(handler: type[MessageHandler[Any, Any]]) -> None:
     @module(
         providers=[scoped(IRepository, ConcreteRepository)],
         exports=[IRepository],
-        extensions=[MessagingExtension().bind(SomeEvent, EventHandlerWithDep)],
+        extensions=[MessagingExtension().bind(handler)],
     )
     class DomainModule:
         pass
@@ -65,7 +67,12 @@ async def test_event_handler_deps_validated_against_originating_module() -> None
         extensions=[ValidationExtension([DependenciesAccessibleRule()], strict=True)],
     ).create()
 
-    await app.initialize()
+    async with app:
+        pass
+
+
+async def test_event_handler_deps_validated_against_originating_module() -> None:
+    await assert_handler_dependencies_accessible(EventHandlerWithDep)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -102,32 +109,7 @@ class ValidationBehavior(IPipelineBehavior[ProcessCommand, ProcessResult]):
 
 
 async def test_pipeline_behavior_deps_validated_against_originating_module() -> None:
-    @module(
-        providers=[scoped(IRepository, ConcreteRepository)],
-        exports=[IRepository],
-        extensions=[
-            MessagingExtension().bind(
-                ProcessCommand,
-                ProcessCommandHandler,
-                behaviors=[ValidationBehavior],
-            ),
-        ],
-    )
-    class DomainModule:
-        pass
+    class ValidatingHandler(ProcessCommandHandler):
+        behaviors = (ValidationBehavior,)
 
-    @module(
-        imports=[
-            MessagingModule.register(MessagingConfig()),
-            DomainModule,
-        ],
-    )
-    class AppModule:
-        pass
-
-    app = WakuFactory(
-        AppModule,
-        extensions=[ValidationExtension([DependenciesAccessibleRule()], strict=True)],
-    ).create()
-
-    await app.initialize()
+    await assert_handler_dependencies_accessible(ValidatingHandler)

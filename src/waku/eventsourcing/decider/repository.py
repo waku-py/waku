@@ -2,29 +2,34 @@ from __future__ import annotations
 
 import abc
 import logging
+import types
 import typing
-import uuid
 from typing import ClassVar, Final, Generic, cast
 
-from typing_extensions import TypeAliasType
+from typing_extensions import override
 
-from waku.eventsourcing._introspection import is_abstract, resolve_generic_args
-from waku.eventsourcing._stream_helpers import read_aggregate_stream
+from waku.eventsourcing._internal.introspection import is_abstract, is_type_alias, resolve_generic_args
+from waku.eventsourcing._internal.stream_helpers import build_append, read_aggregate_stream
 from waku.eventsourcing.contracts.aggregate import (  # Dishka needs runtime access
     CommandT,
     EventT,
     IDecider,
     StateT,
 )
-from waku.eventsourcing.contracts.event import EventEnvelope, StoredEvent
-from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
+from waku.eventsourcing.contracts.stream import StreamId
+from waku.eventsourcing.exceptions import EventSourcingConfigError
 from waku.eventsourcing.serialization.interfaces import (
     ISnapshotStateSerializer,  # noqa: TC001  # Dishka needs runtime access
 )
-from waku.eventsourcing.snapshot.interfaces import ISnapshotStore  # noqa: TC001  # Dishka needs runtime access
-from waku.eventsourcing.snapshot.manager import SnapshotManager
+from waku.eventsourcing.snapshot._internal.manager import SnapshotManager
 from waku.eventsourcing.snapshot.registry import SnapshotConfigRegistry  # noqa: TC001  # Dishka needs runtime access
-from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Dishka needs runtime access
+from waku.eventsourcing.store.interfaces import (
+    IEventStore,  # noqa: TC001  # Dishka needs runtime access
+    ISnapshotStore,  # noqa: TC001  # Dishka needs runtime access
+)
+
+if typing.TYPE_CHECKING:
+    from waku.eventsourcing.contracts.event import StoredEvent
 
 __all__ = [
     'DeciderRepository',
@@ -49,7 +54,7 @@ class DeciderRepository(abc.ABC, Generic[StateT, CommandT, EventT]):
             if state_cls is None:
                 msg = f'{cls.__name__} must define aggregate_name or parametrize Generic with a concrete state type'
                 raise TypeError(msg)
-            if not isinstance(state_cls, (type, TypeAliasType)):
+            if not (isinstance(state_cls, type) or is_type_alias(state_cls)):
                 msg = (
                     f'{cls.__name__}: cannot infer aggregate_name from state type {state_cls!r}. '
                     f'Define aggregate_name explicitly when using Union or complex state types.'
@@ -99,14 +104,11 @@ class DeciderRepository(abc.ABC, Generic[StateT, CommandT, EventT]):
         if not events:
             return expected_version
         stream_id = self._stream_id(aggregate_id)
-        envelopes = [
-            EventEnvelope(
-                domain_event=e,
-                idempotency_key=f'{idempotency_key}:{i}' if idempotency_key else str(uuid.uuid4()),
-            )
-            for i, e in enumerate(events)
-        ]
-        expected = Exact(version=expected_version) if expected_version >= 0 else NoStream()
+        envelopes, expected = build_append(
+            events,
+            expected_version=expected_version,
+            idempotency_key=idempotency_key,
+        )
         new_version = await self._event_store.append_to_stream(stream_id, envelopes, expected_version=expected)
         logger.debug(
             'Saved %d events to %s/%s, version %d',
@@ -134,21 +136,63 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
     ) -> None:
         super().__init__(decider, event_store)
         self._state_serializer = state_serializer
-        self._state_type: type[StateT] = type(self._decider.initial_state())
+        self._variants_by_name: dict[str, type[StateT]] = self._resolve_state_variants()
+        self._names_by_variant: dict[type[StateT], str] = {
+            variant: name for name, variant in self._variants_by_name.items()
+        }
         config = snapshot_config_registry.get(self.aggregate_name)
         self._snapshot_manager = SnapshotManager(
             store=snapshot_store,
             config=config,
-            state_type_name=self.snapshot_state_type or self._state_type.__name__,
+            valid_state_types=frozenset(self._variants_by_name),
+            serializer=state_serializer,
         )
 
+    def _resolve_state_variants(self) -> dict[str, type[StateT]]:
+        members = self._resolve_state_variant_members()
+        if self.snapshot_state_type is not None:
+            if len(members) > 1:
+                msg = (
+                    f'{type(self).__name__}: a scalar snapshot_state_type cannot label a union state; '
+                    f'each variant is discriminated by its own type name'
+                )
+                raise EventSourcingConfigError(msg)
+            return {self.snapshot_state_type: members[0]}
+        variants = {member.__name__: member for member in members}
+        if len(variants) != len(members):
+            duplicates = sorted({m.__name__ for m in members if sum(m.__name__ == o.__name__ for o in members) > 1})
+            msg = (
+                f'{type(self).__name__}: state union members share the same class name '
+                f'({", ".join(duplicates)}); the snapshot discriminator cannot distinguish them'
+            )
+            raise EventSourcingConfigError(msg)
+        return variants
+
+    def _resolve_state_variant_members(self) -> tuple[type[StateT], ...]:
+        declared = self._resolve_state_type()
+        while is_type_alias(declared):
+            declared = declared.__value__
+        origin = typing.get_origin(declared)
+        if origin is types.UnionType or origin is typing.Union:
+            members = typing.get_args(declared)
+            for member in members:
+                if not isinstance(member, type):
+                    msg = f'{type(self).__name__}: state union member {member!r} is not a concrete class'
+                    raise EventSourcingConfigError(msg)
+            return cast('tuple[type[StateT], ...]', members)
+        if isinstance(declared, type):
+            return (cast('type[StateT]', declared),)
+        initial_state = self._decider.initial_state()
+        return (type(initial_state),)
+
+    @override
     async def load(self, aggregate_id: str) -> tuple[StateT, int]:
         stream_id = self._stream_id(aggregate_id)
         snapshot = await self._snapshot_manager.load_snapshot(stream_id, aggregate_id)
 
         if snapshot is not None:
             logger.debug('Loaded snapshot for %s/%s at version %d', self.aggregate_name, aggregate_id, snapshot.version)
-            state = self._state_serializer.deserialize(snapshot.state, self._state_type)
+            state = self._state_serializer.deserialize(snapshot.state, self._variants_by_name[snapshot.state_type])
             stored_events = await read_aggregate_stream(
                 self._event_store,
                 stream_id,
@@ -163,6 +207,7 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
         logger.debug('No snapshot for %s/%s, loading from events', self.aggregate_name, aggregate_id)
         return await super().load(aggregate_id)
 
+    @override
     async def save(
         self,
         aggregate_id: str,
@@ -185,8 +230,21 @@ class SnapshotDeciderRepository(DeciderRepository[StateT, CommandT, EventT], abc
                 state = current_state
             else:
                 state, _ = await self.load(aggregate_id)
-            state_data = self._state_serializer.serialize(state)
+            state_type_name = self._names_by_variant.get(type(state))
+            if state_type_name is None:
+                known = ' | '.join(sorted(self._variants_by_name))
+                msg = (
+                    f'{type(self).__name__}: cannot snapshot state of type {type(state).__name__!r}; '
+                    f'it is not a declared state variant ({known})'
+                )
+                raise EventSourcingConfigError(msg)
             stream_id = self._stream_id(aggregate_id)
-            await self._snapshot_manager.save_snapshot(stream_id, aggregate_id, state_data, new_version)
+            await self._snapshot_manager.save_snapshot(
+                stream_id,
+                aggregate_id,
+                lambda: state,
+                new_version,
+                state_type_name=state_type_name,
+            )
 
         return new_version

@@ -1,11 +1,14 @@
 from typing import NewType, Protocol
 
-from dishka import Has
+import pytest
+from dishka import Marker
+from typing_extensions import override
 
-from waku import module
+from waku import Module, module
 from waku.di import Scope, contextual, scoped, singleton
+from waku.exceptions import ImproperlyConfiguredError
 from waku.extensions import OnModuleConfigure, OnModuleDestroy, OnModuleInit
-from waku.modules import Module, ModuleMetadata
+from waku.modules import ModuleMetadata
 from waku.testing import create_test_app
 
 TestValue = NewType('TestValue', str)
@@ -49,6 +52,7 @@ async def test_create_test_app_with_extension() -> None:
         def __init__(self) -> None:
             self.configured = False
 
+        @override
         def on_module_configure(self, metadata: ModuleMetadata) -> None:
             self.configured = True
             metadata.providers.append(singleton(IService, FakeService))
@@ -76,7 +80,8 @@ async def test_create_test_app_combined() -> None:
         def __init__(self) -> None:
             self.call_count = 0
 
-        def on_module_configure(self, metadata: ModuleMetadata) -> None:  # noqa: ARG002
+        @override
+        def on_module_configure(self, metadata: ModuleMetadata) -> None:
             self.call_count += 1
 
     extension = CountingExtension()
@@ -95,13 +100,16 @@ async def test_create_test_app_lifecycle_hooks() -> None:
     lifecycle_events: list[str] = []
 
     class LifecycleExtension(OnModuleConfigure, OnModuleInit, OnModuleDestroy):
-        def on_module_configure(self, metadata: ModuleMetadata) -> None:  # noqa: ARG002, PLR6301
+        @override
+        def on_module_configure(self, metadata: ModuleMetadata) -> None:
             lifecycle_events.append('configure')
 
-        async def on_module_init(self, module: Module) -> None:  # noqa: ARG002, PLR6301
+        @override
+        async def on_module_init(self, module: Module) -> None:
             lifecycle_events.append('init')
 
-        async def on_module_destroy(self, module: Module) -> None:  # noqa: ARG002, PLR6301
+        @override
+        async def on_module_destroy(self, module: Module) -> None:
             lifecycle_events.append('destroy')
 
     extension = LifecycleExtension()
@@ -125,17 +133,30 @@ async def test_create_test_app_with_base_module() -> None:
         assert service.get_value() == 'fake'
 
 
-async def test_create_test_app_with_base_module_and_conditional_provider() -> None:
+async def test_create_test_app_rejects_conditional_override() -> None:
     @module(providers=[singleton(IService, RealService)])
     class BaseModule:
         pass
 
-    conditional_provider = singleton(IService, FakeService, when=Has(IService))
+    conditional_override = singleton(IService, FakeService, when=Marker('feature'))
 
-    async with create_test_app(
-        base=BaseModule,
-        providers=[conditional_provider],
-    ) as app:
+    with pytest.raises(ImproperlyConfiguredError):
+        async with create_test_app(base=BaseModule, providers=[conditional_override]):
+            pass
+
+
+async def test_create_test_app_override_leaves_provider_reusable_as_plain_provider() -> None:
+    shared = singleton(IService, FakeService)
+
+    @module(providers=[singleton(IService, RealService)])
+    class BaseModule:
+        pass
+
+    async with create_test_app(base=BaseModule, providers=[shared]) as app:
+        service = await app.container.get(IService)
+        assert service.get_value() == 'fake'
+
+    async with create_test_app(providers=[shared]) as app:
         service = await app.container.get(IService)
         assert service.get_value() == 'fake'
 
@@ -201,7 +222,8 @@ async def test_create_test_app_base_with_extensions() -> None:
         def __init__(self) -> None:
             self.configured = False
 
-        def on_module_configure(self, metadata: ModuleMetadata) -> None:  # noqa: ARG002
+        @override
+        def on_module_configure(self, metadata: ModuleMetadata) -> None:
             self.configured = True
 
     extension = TestExtension()

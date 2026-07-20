@@ -1,0 +1,290 @@
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, ClassVar
+
+import pytest
+from typing_extensions import override
+
+from waku._internal.node import INodeRegistry, NodeId, NodeIdentity, NodeRegistryConfig
+from waku.backends.testing._internal.contract import BackendContract
+from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
+from waku.eventsourcing.contracts.event import EventEnvelope
+from waku.eventsourcing.contracts.stream import NoStream, StreamId
+from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
+from waku.eventsourcing.repository import EventSourcedRepository
+from waku.eventsourcing.serialization.json import JsonEventSerializer
+from waku.eventsourcing.store.interfaces import ICheckpointStore, IEventStore, ISnapshotStore
+from waku.messages import IEvent
+from waku.messaging.config import MessagingConfig
+from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore, IOutboxStore
+from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
+from waku.messaging.modules import MessagingModule
+from waku.messaging.outbox.models import OutboxMessage
+from waku.messaging.sequence import ISequenceAllocator
+from waku.modules._internal.metadata import DynamicModule, module
+from waku.testing import create_test_app
+from waku.uow import IUnitOfWork
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from waku.application import WakuApplication
+
+__all__ = ['BackendAssemblyContract']
+
+_RELAY = NodeId('relay-1')
+
+
+@dataclass(frozen=True)
+class ConformanceNoteCreated(IEvent):
+    title: str
+
+
+class ConformanceNote(EventSourcedAggregate):
+    def __init__(self) -> None:
+        super().__init__()
+        self.title: str = ''
+
+    def create(self, title: str) -> None:
+        self._raise_event(ConformanceNoteCreated(title=title))
+
+    @override
+    def _apply(self, event: IEvent) -> None:
+        match event:
+            case ConformanceNoteCreated(title=title):
+                self.title = title
+
+
+class ConformanceNoteRepository(EventSourcedRepository[ConformanceNote]):
+    aggregate_name = 'ConformanceNote'
+
+
+def _outbox_message() -> OutboxMessage:
+    return OutboxMessage(
+        id=uuid.uuid4(),
+        idempotency_key=str(uuid.uuid4()),
+        message_type='conformance.Note',
+        payload={'title': 'assembled'},
+        destination='test://conformance',
+        correlation_id=str(uuid.uuid4()),
+        causation_id=str(uuid.uuid4()),
+    )
+
+
+def _dead_letter_for(message: OutboxMessage) -> DeadLetterEntry:
+    return DeadLetterEntry.from_failure(
+        message_type=message.message_type,
+        payload=message.payload,
+        destination=message.destination,
+        destination_kind=DeadLetterDestinationKind.ENDPOINT,
+        correlation_id=message.correlation_id,
+        causation_id=message.causation_id,
+        exc=RuntimeError('exhausted'),
+        attempt=message.attempts + 1,
+    )
+
+
+class BackendAssemblyContract(BackendContract):
+    """Whole-backend assembly contract: both store objects over ONE resource, atomic sibling seam.
+
+    Subclass in your backend's test suite and override the ``backend_module`` fixture to return
+    your registered backend (plus any resource setup/teardown around the yield). Backends whose
+    ``IUnitOfWork`` cannot stage-and-commit/roll-back real writes opt out of the atomicity
+    assertions (commit-together and roll-back-together) with ``supports_rollback = False``.
+    """
+
+    supports_rollback: ClassVar[bool] = True
+
+    @pytest.fixture
+    async def app(self, backend_module: DynamicModule) -> AsyncIterator[WakuApplication]:
+        es_ext = EventSourcingExtension().bind_aggregate(
+            repository=ConformanceNoteRepository,
+            event_types=[ConformanceNoteCreated],
+        )
+
+        @module(extensions=[es_ext])
+        class ConformanceDomainModule:
+            pass
+
+        async with create_test_app(
+            imports=[
+                # A bare MessagingConfig wires the store PORTS (the backend provides them
+                # unconditionally) without starting the outbox relay / inbox drainer, whose
+                # background polling would race the atomicity assertions' cross-scope read-back.
+                # The assembly contract proves store assembly over one resource, not worker lifecycle.
+                MessagingModule.register(MessagingConfig()),
+                EventSourcingModule.register(EventSourcingConfig(event_serializer=JsonEventSerializer)),
+                backend_module,
+                ConformanceDomainModule,
+            ],
+        ) as app:
+            yield app
+
+    async def test_composites_expose_the_scope_facet_ports(self, app: WakuApplication) -> None:
+        async with app.container() as scope:
+            durability = await scope.get(IDurabilityStore)
+            event_store = await scope.get(IEventStore)
+
+            assert durability.outbox is await scope.get(IOutboxStore)
+            assert durability.inbox is await scope.get(IInboxStore)
+            assert durability.dead_letters is await scope.get(IDeadLetterStore)
+            assert durability.unit_of_work is await scope.get(IUnitOfWork)
+            assert event_store.snapshots is await scope.get(ISnapshotStore)
+            assert event_store.checkpoints is await scope.get(ICheckpointStore)
+
+    async def test_sequence_allocator_resolves_in_scope(self, app: WakuApplication) -> None:
+        # Presence is part of assembly: the allocator is REQUIRED backend equipment for the inbox
+        # subsystem (resolved unconditionally by the promotion worker once inbox is active).
+        async with app.container() as scope:
+            assert isinstance(await scope.get(ISequenceAllocator), ISequenceAllocator)
+
+    async def test_node_registry_and_config_resolve_in_scope(self, app: WakuApplication) -> None:
+        # Membership ships as a PAIR, exactly as the lease does: an oracle without its timing config
+        # cannot be heartbeat-driven, so a backend publishing only one of them is misassembled.
+        async with app.container() as scope:
+            assert isinstance(await scope.get(INodeRegistry), INodeRegistry)
+            assert isinstance(await scope.get(NodeRegistryConfig), NodeRegistryConfig)
+
+    async def test_registration_commits_with_the_scope_owner(self, app: WakuApplication) -> None:
+        if not self.supports_rollback:
+            pytest.skip('backend opts out: its IUnitOfWork does not stage-and-commit real writes')
+        identity = NodeIdentity.create('assembly-node')
+
+        async with app.container() as scope:
+            await (await scope.get(INodeRegistry)).register(identity, capabilities=frozenset({'durability'}))
+            # The registry never commits on its own — the scope owner does, on the SAME resource as
+            # the durability facets, which is what lets a later slice fence rows against membership
+            # inside a single statement.
+            await (await scope.get(IUnitOfWork)).commit()
+
+        async with app.container() as scope:
+            registered = await (await scope.get(INodeRegistry)).load_all()
+
+        assert [r.node_id for r in registered] == [identity.node_id]
+        assert registered[0].capabilities == frozenset({'durability'})
+
+    async def test_rolled_back_registration_leaves_no_member(self, app: WakuApplication) -> None:
+        if not self.supports_rollback:
+            pytest.skip('backend opts out: its IUnitOfWork does not stage-and-roll-back real writes')
+        identity = NodeIdentity.create('assembly-node')
+
+        async with app.container() as scope:
+            await (await scope.get(INodeRegistry)).register(identity, capabilities=frozenset())
+            await (await scope.get(IUnitOfWork)).rollback()
+
+        async with app.container() as scope:
+            assert await (await scope.get(INodeRegistry)).load_all() == []
+
+    async def test_append_and_forward_roll_back_together(self, app: WakuApplication) -> None:
+        if not self.supports_rollback:
+            pytest.skip('backend opts out: its IUnitOfWork does not stage-and-roll-back real writes')
+        stream_id = StreamId.for_aggregate('ConformanceNote', str(uuid.uuid4()))
+        message = _outbox_message()
+
+        async with app.container() as scope:
+            event_store = await scope.get(IEventStore)
+            outbox = await scope.get(IOutboxStore)
+            uow = await scope.get(IUnitOfWork)
+
+            await event_store.append_to_stream(
+                stream_id,
+                [EventEnvelope(domain_event=ConformanceNoteCreated(title='atomic'), idempotency_key=str(uuid.uuid4()))],
+                expected_version=NoStream(),
+            )
+            await outbox.save_batch([message])
+            await uow.rollback()
+
+        async with app.container() as scope:
+            event_store = await scope.get(IEventStore)
+            outbox = await scope.get(IOutboxStore)
+
+            assert await event_store.stream_exists(stream_id) is False
+            assert await outbox.fetch_head_of_queue(batch_size=10, owner_id=_RELAY) == []
+
+    async def test_append_and_forward_commit_together(self, app: WakuApplication) -> None:
+        if not self.supports_rollback:
+            pytest.skip('backend opts out: its IUnitOfWork does not stage-and-commit real writes')
+        stream_id = StreamId.for_aggregate('ConformanceNote', str(uuid.uuid4()))
+        message = _outbox_message()
+
+        async with app.container() as scope:
+            event_store = await scope.get(IEventStore)
+            outbox = await scope.get(IOutboxStore)
+            uow = await scope.get(IUnitOfWork)
+
+            await event_store.append_to_stream(
+                stream_id,
+                [EventEnvelope(domain_event=ConformanceNoteCreated(title='atomic'), idempotency_key=str(uuid.uuid4()))],
+                expected_version=NoStream(),
+            )
+            await outbox.save_batch([message])
+            await uow.commit()
+
+        async with app.container() as scope:
+            event_store = await scope.get(IEventStore)
+            outbox = await scope.get(IOutboxStore)
+
+            assert await event_store.stream_exists(stream_id) is True
+            assert [m.id for m in await outbox.fetch_head_of_queue(batch_size=10, owner_id=_RELAY)] == [message.id]
+
+    async def test_outbox_dead_letter_move_rolls_back_source_and_destination_together(
+        self,
+        app: WakuApplication,
+    ) -> None:
+        if not self.supports_rollback:
+            pytest.skip('backend opts out: its IUnitOfWork does not stage-and-roll-back real writes')
+        message = _outbox_message()
+        dead_letter = _dead_letter_for(message)
+
+        async with app.container() as scope:
+            outbox = await scope.get(IOutboxStore)
+            await outbox.save_batch([message])
+            await (await scope.get(IUnitOfWork)).commit()
+
+        async with app.container() as scope:
+            outbox = await scope.get(IOutboxStore)
+            claimed = await outbox.fetch_head_of_queue(batch_size=10, owner_id=_RELAY)
+            await outbox.move_to_dead_letter(claimed[0].id, dead_letter, owner_id=_RELAY)
+            await (await scope.get(IUnitOfWork)).rollback()
+
+        async with app.container() as scope:
+            outbox = await scope.get(IOutboxStore)
+            dead_letters = await scope.get(IDeadLetterStore)
+
+            assert [entry.id for entry in await outbox.fetch_head_of_queue(batch_size=10, owner_id=_RELAY)] == [
+                message.id
+            ]
+            with pytest.raises(KeyError, match=str(dead_letter.id)):
+                await dead_letters.fetch_one(dead_letter.id)
+
+    async def test_outbox_dead_letter_move_commits_source_and_destination_together(
+        self,
+        app: WakuApplication,
+    ) -> None:
+        if not self.supports_rollback:
+            pytest.skip('backend opts out: its IUnitOfWork does not stage-and-commit real writes')
+        message = _outbox_message()
+        dead_letter = _dead_letter_for(message)
+
+        async with app.container() as scope:
+            outbox = await scope.get(IOutboxStore)
+            await outbox.save_batch([message])
+            await (await scope.get(IUnitOfWork)).commit()
+
+        async with app.container() as scope:
+            outbox = await scope.get(IOutboxStore)
+            claimed = await outbox.fetch_head_of_queue(batch_size=10, owner_id=_RELAY)
+            await outbox.move_to_dead_letter(claimed[0].id, dead_letter, owner_id=_RELAY)
+            await (await scope.get(IUnitOfWork)).commit()
+
+        async with app.container() as scope:
+            outbox = await scope.get(IOutboxStore)
+            dead_letters = await scope.get(IDeadLetterStore)
+
+            assert await outbox.fetch_head_of_queue(batch_size=10, owner_id=_RELAY) == []
+            persisted = await dead_letters.fetch_one(dead_letter.id)
+            assert persisted.id == dead_letter.id
+            assert persisted.payload == dead_letter.payload
+            assert persisted.destination == dead_letter.destination

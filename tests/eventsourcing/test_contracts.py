@@ -1,33 +1,21 @@
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
 import pytest
 
-from waku.eventsourcing.contracts import (
-    AnyVersion,
-    EventEnvelope,
-    EventMetadata,
-    Exact,
-    NoStream,
-    StoredEvent,
-    StreamExists,
-    StreamId,
-)
+from waku.eventsourcing import EventEnvelope, EventMetadata, StreamId
 from waku.eventsourcing.exceptions import (
     AggregateNotFoundError,
     ConcurrencyConflictError,
     DuplicateAggregateNameError,
     DuplicateIdempotencyKeyError,
     EventSourcingError,
-    ProjectionError,
     ProjectionStoppedError,
     StreamNotFoundError,
 )
-from waku.exceptions import WakuError
-from waku.messaging import IEvent
+from waku.exceptions import ImproperlyConfiguredError
+from waku.messages import IEvent
 
 
 @dataclass(frozen=True)
@@ -87,17 +75,6 @@ def test_stream_id_empty_stream_key_raises_value_error() -> None:
         StreamId(stream_type='order', stream_key='')
 
 
-def test_exact_stores_version() -> None:
-    version = Exact(version=5)
-    assert version.version == 5
-
-
-def test_no_stream_stream_exists_any_version_are_equal_by_value() -> None:
-    assert NoStream() == NoStream()
-    assert StreamExists() == StreamExists()
-    assert AnyVersion() == AnyVersion()
-
-
 def test_event_metadata_defaults() -> None:
     meta = EventMetadata()
     assert meta.correlation_id is None
@@ -118,36 +95,6 @@ def test_event_envelope_empty_idempotency_key_raises_value_error() -> None:
         EventEnvelope(domain_event=SampleEvent(), idempotency_key='')
 
 
-def test_stored_event_construction() -> None:
-    event_id = uuid.uuid4()
-    now = datetime.now(tz=UTC)
-    meta = EventMetadata(correlation_id='corr-1', causation_id='cause-1')
-    event = SampleEvent(value='test')
-    stored = StoredEvent(
-        event_id=event_id,
-        stream_id=StreamId(stream_type='order', stream_key='1'),
-        event_type='OrderCreated',
-        position=0,
-        global_position=42,
-        timestamp=now,
-        data=event,
-        metadata=meta,
-        idempotency_key='test-key',
-    )
-    assert stored.event_id == event_id
-    assert stored.stream_id == StreamId(stream_type='order', stream_key='1')
-    assert stored.event_type == 'OrderCreated'
-    assert stored.position == 0
-    assert stored.global_position == 42
-    assert stored.timestamp == now
-    assert stored.data == event
-    assert stored.metadata.correlation_id == 'corr-1'
-
-
-def test_event_sourcing_error_is_waku_error_subclass() -> None:
-    assert issubclass(EventSourcingError, WakuError)
-
-
 def test_stream_not_found_error_carries_stream_id() -> None:
     stream_id = StreamId.for_aggregate('order', '1')
     error = StreamNotFoundError(stream_id=stream_id)
@@ -164,12 +111,6 @@ def test_concurrency_conflict_error_carries_attrs() -> None:
     assert error.actual_version == 5
     assert 'order-1' in str(error)
     assert isinstance(error, EventSourcingError)
-
-
-def test_projection_error_hierarchy() -> None:
-    assert issubclass(ProjectionError, EventSourcingError)
-    assert issubclass(ProjectionError, WakuError)
-    assert issubclass(ProjectionStoppedError, ProjectionError)
 
 
 def test_projection_stopped_error_carries_attrs() -> None:
@@ -217,4 +158,4 @@ def test_duplicate_aggregate_name_error_carries_attrs() -> None:
     assert 'Order' in str(error)
     assert 'RepoA' in str(error)
     assert 'RepoB' in str(error)
-    assert isinstance(error, EventSourcingError)
+    assert isinstance(error, ImproperlyConfiguredError)

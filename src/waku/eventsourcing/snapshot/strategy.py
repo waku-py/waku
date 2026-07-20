@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing_extensions import override
+
 from waku.eventsourcing.snapshot.interfaces import ISnapshotStrategy
 
 __all__ = ['EventCountStrategy']
@@ -12,5 +14,6 @@ class EventCountStrategy(ISnapshotStrategy):
             raise ValueError(msg)
         self._threshold = threshold
 
-    def should_snapshot(self, version: int, events_since_snapshot: int) -> bool:  # noqa: ARG002
+    @override
+    def should_snapshot(self, version: int, events_since_snapshot: int) -> bool:
         return events_since_snapshot >= self._threshold

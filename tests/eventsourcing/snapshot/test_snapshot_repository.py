@@ -6,22 +6,29 @@ import pytest
 from typing_extensions import override
 
 if TYPE_CHECKING:
-    from unittest.mock import AsyncMock
-
     from pytest_mock import MockerFixture
 
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import AggregateNotFoundError, SnapshotTypeMismatchError
 from waku.eventsourcing.serialization.json import JsonSnapshotStateSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
-from waku.eventsourcing.snapshot.interfaces import ISnapshotStore, Snapshot
+from waku.eventsourcing.snapshot.in_memory import InMemorySnapshotStore
+from waku.eventsourcing.snapshot.interfaces import Snapshot
 from waku.eventsourcing.snapshot.migration import ISnapshotMigration, SnapshotMigrationChain
 from waku.eventsourcing.snapshot.registry import SnapshotConfig, SnapshotConfigRegistry
 from waku.eventsourcing.snapshot.repository import SnapshotEventSourcedRepository
 from waku.eventsourcing.snapshot.strategy import EventCountStrategy
 from waku.eventsourcing.store.in_memory import InMemoryEventStore
+from waku.eventsourcing.store.interfaces import ISnapshotStore
 
 from tests.eventsourcing.domain import AccountOpened, AccountState, BankAccount, MoneyDeposited
+
+
+class _FailingSnapshotStore(InMemorySnapshotStore):
+    @override
+    async def save(self, snapshot: Snapshot, /) -> None:
+        msg = 'snapshot store unavailable'
+        raise RuntimeError(msg)
 
 
 class BankAccountRepository(SnapshotEventSourcedRepository[BankAccount]):
@@ -46,10 +53,8 @@ def event_store() -> InMemoryEventStore:
 
 
 @pytest.fixture
-def snapshot_store(mocker: MockerFixture) -> AsyncMock:
-    mock: AsyncMock = mocker.AsyncMock(spec=ISnapshotStore)
-    mock.load.return_value = None
-    return mock
+def snapshot_store() -> InMemorySnapshotStore:
+    return InMemorySnapshotStore()
 
 
 @pytest.fixture
@@ -60,13 +65,28 @@ def state_serializer() -> JsonSnapshotStateSerializer:
 @pytest.fixture
 def repository(
     event_store: InMemoryEventStore,
-    snapshot_store: AsyncMock,
+    snapshot_store: InMemorySnapshotStore,
     state_serializer: JsonSnapshotStateSerializer,
 ) -> BankAccountRepository:
     config_registry = SnapshotConfigRegistry({
         'BankAccount': SnapshotConfig(strategy=EventCountStrategy(threshold=3)),
     })
     return BankAccountRepository(event_store, snapshot_store, config_registry, state_serializer)
+
+
+@pytest.fixture
+def threshold_100_registry() -> SnapshotConfigRegistry:
+    return SnapshotConfigRegistry({
+        'BankAccount': SnapshotConfig(strategy=EventCountStrategy(threshold=100)),
+    })
+
+
+def _account_with_two_deposits() -> BankAccount:
+    account = BankAccount()
+    account.open('Alice')
+    account.deposit(100)
+    account.deposit(200)
+    return account
 
 
 async def test_load_without_snapshot_full_replay(
@@ -85,28 +105,33 @@ async def test_load_without_snapshot_full_replay(
 
 
 async def test_load_with_snapshot_partial_replay(
-    repository: BankAccountRepository,
-    event_store: InMemoryEventStore,  # noqa: ARG001
-    snapshot_store: AsyncMock,
+    event_store: InMemoryEventStore,
+    state_serializer: JsonSnapshotStateSerializer,
+    snapshot_store: InMemorySnapshotStore,
+    threshold_100_registry: SnapshotConfigRegistry,
 ) -> None:
+    repo = BankAccountRepository(event_store, snapshot_store, threshold_100_registry, state_serializer)
+
     account = BankAccount()
     account.open('Alice')
     account.deposit(100)
-    await repository.save('acc-1', account)
-
+    await repo.save('acc-1', account)
     account.deposit(50)
-    await repository.save('acc-1', account)
+    await repo.save('acc-1', account)
 
-    snapshot_store.load.return_value = Snapshot(
-        stream_id=StreamId.for_aggregate('BankAccount', 'acc-1'),
-        state={'name': 'Alice', 'balance': 100},
-        version=1,
-        state_type='BankAccount',
+    # Divergent base: 999 can only come from the snapshot, never from replay (replay to v1 == 100).
+    await snapshot_store.save(
+        Snapshot(
+            stream_id=StreamId.for_aggregate('BankAccount', 'acc-1'),
+            state={'name': 'Alice', 'balance': 999},
+            version=1,
+            state_type='BankAccount',
+        )
     )
 
-    loaded = await repository.load('acc-1')
+    loaded = await repo.load('acc-1')
     assert loaded.name == 'Alice'
-    assert loaded.balance == 150
+    assert loaded.balance == 1049  # 999 (snapshot base) + 50 (v2 tail); full replay would yield 150
     assert loaded.version == 2
 
 
@@ -117,63 +142,61 @@ async def test_load_nonexistent_raises_aggregate_not_found_error(repository: Ban
 
 async def test_save_triggers_snapshot_at_threshold(
     repository: BankAccountRepository,
-    snapshot_store: AsyncMock,
+    snapshot_store: InMemorySnapshotStore,
 ) -> None:
-    account = BankAccount()
-    account.open('Alice')
-    account.deposit(100)
-    account.deposit(200)
+    account = _account_with_two_deposits()
     await repository.save('acc-1', account)
 
-    snapshot_store.save.assert_called_once()
-    saved_snapshot: Snapshot = snapshot_store.save.call_args[0][0]
-    assert saved_snapshot.stream_id == StreamId.for_aggregate('BankAccount', 'acc-1')
-    assert saved_snapshot.state == {'name': 'Alice', 'balance': 300}
-    assert saved_snapshot.version == 2
+    saved = await snapshot_store.load(StreamId.for_aggregate('BankAccount', 'acc-1'))
+    assert saved is not None
+    assert saved.state == {'name': 'Alice', 'balance': 300}
+    assert saved.version == 2
 
 
 async def test_save_skips_snapshot_below_threshold(
     repository: BankAccountRepository,
-    snapshot_store: AsyncMock,
+    snapshot_store: InMemorySnapshotStore,
 ) -> None:
     account = BankAccount()
     account.open('Alice')
     account.deposit(100)
     await repository.save('acc-1', account)
 
-    snapshot_store.save.assert_not_called()
+    assert await snapshot_store.load(StreamId.for_aggregate('BankAccount', 'acc-1')) is None
 
 
 async def test_multiple_saves_without_reload_triggers_snapshot_at_cumulative_threshold(
     repository: BankAccountRepository,
-    snapshot_store: AsyncMock,
+    snapshot_store: InMemorySnapshotStore,
 ) -> None:
+    sid = StreamId.for_aggregate('BankAccount', 'acc-1')
     account = BankAccount()
     account.open('Alice')
     account.deposit(100)
     await repository.save('acc-1', account)
 
-    snapshot_store.save.assert_not_called()
+    assert await snapshot_store.load(sid) is None
 
     account.deposit(200)
     await repository.save('acc-1', account)
 
-    snapshot_store.save.assert_called_once()
-    saved_snapshot: Snapshot = snapshot_store.save.call_args[0][0]
-    assert saved_snapshot.stream_id == StreamId.for_aggregate('BankAccount', 'acc-1')
-    assert saved_snapshot.state == {'name': 'Alice', 'balance': 300}
-    assert saved_snapshot.version == 2
+    saved = await snapshot_store.load(sid)
+    assert saved is not None
+    assert saved.state == {'name': 'Alice', 'balance': 300}
+    assert saved.version == 2
 
 
 async def test_load_with_mismatched_snapshot_type_raises(
     repository: BankAccountRepository,
-    snapshot_store: AsyncMock,
+    snapshot_store: InMemorySnapshotStore,
 ) -> None:
-    snapshot_store.load.return_value = Snapshot(
-        stream_id=StreamId.for_aggregate('BankAccount', 'acc-1'),
-        state={'name': 'Alice', 'balance': 100},
-        version=1,
-        state_type='WrongType',
+    await snapshot_store.save(
+        Snapshot(
+            stream_id=StreamId.for_aggregate('BankAccount', 'acc-1'),
+            state={'name': 'Alice', 'balance': 100},
+            version=1,
+            state_type='WrongType',
+        )
     )
 
     with pytest.raises(SnapshotTypeMismatchError, match='WrongType'):
@@ -182,7 +205,7 @@ async def test_load_with_mismatched_snapshot_type_raises(
 
 async def test_save_with_no_events_returns_current_version(
     repository: BankAccountRepository,
-    snapshot_store: AsyncMock,  # noqa: ARG001
+    snapshot_store: InMemorySnapshotStore,  # noqa: ARG001
 ) -> None:
     account = BankAccount()
     account.open('Alice')
@@ -240,26 +263,21 @@ async def test_snapshot_state_type_matches_aggregate_name(
 
 
 async def test_snapshot_save_writes_aggregate_name_as_state_type(
-    mocker: MockerFixture,
     event_store: InMemoryEventStore,
     state_serializer: JsonSnapshotStateSerializer,
 ) -> None:
-    snapshot_store = mocker.AsyncMock(spec=ISnapshotStore)
-    snapshot_store.load.return_value = None
+    snapshot_store = InMemorySnapshotStore()
     config_registry = SnapshotConfigRegistry({
         'Account': SnapshotConfig(strategy=EventCountStrategy(threshold=3)),
     })
     repo = RenamedBankAccountRepo(event_store, snapshot_store, config_registry, state_serializer)
 
-    account = BankAccount()
-    account.open('Alice')
-    account.deposit(100)
-    account.deposit(200)
+    account = _account_with_two_deposits()
     await repo.save('acc-1', account)
 
-    snapshot_store.save.assert_called_once()
-    saved_snapshot: Snapshot = snapshot_store.save.call_args[0][0]
-    assert saved_snapshot.state_type == 'Account'
+    saved = await snapshot_store.load(StreamId.for_aggregate('Account', 'acc-1'))
+    assert saved is not None
+    assert saved.state_type == 'Account'
 
 
 class AddBalanceFieldMigration(ISnapshotMigration):
@@ -275,12 +293,10 @@ async def test_load_with_matching_schema_version_uses_snapshot(
     mocker: MockerFixture,
     event_store: InMemoryEventStore,
     state_serializer: JsonSnapshotStateSerializer,
+    threshold_100_registry: SnapshotConfigRegistry,
 ) -> None:
     snapshot_store = mocker.AsyncMock(spec=ISnapshotStore)
-    config_registry = SnapshotConfigRegistry({
-        'BankAccount': SnapshotConfig(strategy=EventCountStrategy(threshold=100)),
-    })
-    repo = BankAccountRepository(event_store, snapshot_store, config_registry, state_serializer)
+    repo = BankAccountRepository(event_store, snapshot_store, threshold_100_registry, state_serializer)
 
     account = BankAccount()
     account.open('Alice')
@@ -301,7 +317,17 @@ async def test_load_with_matching_schema_version_uses_snapshot(
     assert loaded.balance == 100
 
 
-async def test_load_with_old_schema_version_applies_migration(
+@pytest.mark.parametrize(
+    ('schema_version', 'deposit', 'expected_balance'),
+    [
+        pytest.param(2, 50, 0, id='reachable_chain_applies_migration'),
+        pytest.param(3, 200, 200, id='unreachable_chain_replays_from_events'),
+    ],
+)
+async def test_old_schema_version_snapshot_migrates_or_replays(
+    schema_version: int,
+    deposit: int,
+    expected_balance: int,
     mocker: MockerFixture,
     event_store: InMemoryEventStore,
     state_serializer: JsonSnapshotStateSerializer,
@@ -310,7 +336,7 @@ async def test_load_with_old_schema_version_applies_migration(
     config_registry = SnapshotConfigRegistry({
         'BankAccount': SnapshotConfig(
             strategy=EventCountStrategy(threshold=100),
-            schema_version=2,
+            schema_version=schema_version,
             migration_chain=SnapshotMigrationChain([AddBalanceFieldMigration()]),
         ),
     })
@@ -318,7 +344,7 @@ async def test_load_with_old_schema_version_applies_migration(
 
     account = BankAccount()
     account.open('Alice')
-    account.deposit(50)
+    account.deposit(deposit)
     await repo.save('acc-1', account)
 
     snapshot_store.load.return_value = Snapshot(
@@ -332,50 +358,14 @@ async def test_load_with_old_schema_version_applies_migration(
     loaded = await repo.load('acc-1')
 
     assert loaded.name == 'Alice'
-    assert loaded.balance == 0
-
-
-async def test_load_with_old_schema_version_no_migration_replays_from_events(
-    mocker: MockerFixture,
-    event_store: InMemoryEventStore,
-    state_serializer: JsonSnapshotStateSerializer,
-) -> None:
-    snapshot_store = mocker.AsyncMock(spec=ISnapshotStore)
-    config_registry = SnapshotConfigRegistry({
-        'BankAccount': SnapshotConfig(
-            strategy=EventCountStrategy(threshold=100),
-            schema_version=3,
-            migration_chain=SnapshotMigrationChain([AddBalanceFieldMigration()]),
-        ),
-    })
-    repo = BankAccountRepository(event_store, snapshot_store, config_registry, state_serializer)
-
-    account = BankAccount()
-    account.open('Alice')
-    account.deposit(200)
-    await repo.save('acc-1', account)
-
-    snapshot_store.load.return_value = Snapshot(
-        stream_id=StreamId.for_aggregate('BankAccount', 'acc-1'),
-        state={'name': 'Alice'},
-        version=1,
-        state_type='BankAccount',
-        schema_version=1,
-    )
-
-    loaded = await repo.load('acc-1')
-
-    assert loaded.name == 'Alice'
-    assert loaded.balance == 200
+    assert loaded.balance == expected_balance
 
 
 async def test_save_writes_current_schema_version(
-    mocker: MockerFixture,
     event_store: InMemoryEventStore,
     state_serializer: JsonSnapshotStateSerializer,
 ) -> None:
-    snapshot_store = mocker.AsyncMock(spec=ISnapshotStore)
-    snapshot_store.load.return_value = None
+    snapshot_store = InMemorySnapshotStore()
     config_registry = SnapshotConfigRegistry({
         'BankAccount': SnapshotConfig(
             strategy=EventCountStrategy(threshold=3),
@@ -385,33 +375,70 @@ async def test_save_writes_current_schema_version(
     })
     repo = BankAccountRepository(event_store, snapshot_store, config_registry, state_serializer)
 
-    account = BankAccount()
-    account.open('Alice')
-    account.deposit(100)
-    account.deposit(200)
+    account = _account_with_two_deposits()
     await repo.save('acc-1', account)
 
-    snapshot_store.save.assert_called_once()
-    saved_snapshot: Snapshot = snapshot_store.save.call_args[0][0]
-    assert saved_snapshot.schema_version == 2
+    saved = await snapshot_store.load(StreamId.for_aggregate('BankAccount', 'acc-1'))
+    assert saved is not None
+    assert saved.schema_version == 2
 
 
 async def test_snapshot_save_failure_does_not_prevent_aggregate_save(
-    repository: BankAccountRepository,
     event_store: InMemoryEventStore,
-    snapshot_store: AsyncMock,
+    state_serializer: JsonSnapshotStateSerializer,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    snapshot_store.save.side_effect = RuntimeError('snapshot store unavailable')
+    config_registry = SnapshotConfigRegistry({
+        'BankAccount': SnapshotConfig(strategy=EventCountStrategy(threshold=3)),
+    })
+    repository = BankAccountRepository(event_store, _FailingSnapshotStore(), config_registry, state_serializer)
 
-    account = BankAccount()
-    account.open('Alice')
-    account.deposit(100)
-    account.deposit(200)
+    account = _account_with_two_deposits()
     version, events = await repository.save('acc-1', account)
 
     assert version == 2
     assert len(events) == 3
     stored = await event_store.read_stream(StreamId.for_aggregate('BankAccount', 'acc-1'))
     assert len(stored) == 3
+    assert 'Failed to save snapshot' in caplog.text
+
+
+class _NotADataclassState:
+    pass
+
+
+class _BrokenStateRepository(BankAccountRepository):
+    @override
+    def _snapshot_state(self, aggregate: BankAccount) -> object:
+        return _NotADataclassState()
+
+
+class _RaisingStateHookRepository(BankAccountRepository):
+    @override
+    def _snapshot_state(self, aggregate: BankAccount) -> object:
+        msg = 'state hook exploded'
+        raise RuntimeError(msg)
+
+
+@pytest.mark.parametrize('repository_type', [_BrokenStateRepository, _RaisingStateHookRepository])
+async def test_snapshot_side_failure_does_not_fail_save(
+    event_store: InMemoryEventStore,
+    snapshot_store: InMemorySnapshotStore,
+    state_serializer: JsonSnapshotStateSerializer,
+    caplog: pytest.LogCaptureFixture,
+    repository_type: type[BankAccountRepository],
+) -> None:
+    config_registry = SnapshotConfigRegistry({
+        'BankAccount': SnapshotConfig(strategy=EventCountStrategy(threshold=3)),
+    })
+    repository = repository_type(event_store, snapshot_store, config_registry, state_serializer)
+
+    account = _account_with_two_deposits()
+    version, events = await repository.save('acc-1', account)
+
+    assert version == 2
+    assert len(events) == 3
+    stored = await event_store.read_stream(StreamId.for_aggregate('BankAccount', 'acc-1'))
+    assert len(stored) == 3
+    assert await snapshot_store.load(StreamId.for_aggregate('BankAccount', 'acc-1')) is None
     assert 'Failed to save snapshot' in caplog.text

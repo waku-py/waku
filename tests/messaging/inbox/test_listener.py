@@ -1,0 +1,308 @@
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any, ClassVar
+
+from dishka import AsyncContainer, make_async_container
+from typing_extensions import override
+
+from waku._internal.clock import utc_now
+from waku._internal.node import NodeId
+from waku._internal.retort import default_retort
+from waku.messages import IEvent
+from waku.messaging import HandlerMap
+from waku.messaging._internal.identity import MessageTypeRegistry
+from waku.messaging.endpoints._internal.durable_inbox_receiver import DurableInboxReceiver
+from waku.messaging.endpoints._internal.execution import (
+    IEndpointExecution,
+    TerminalIntent,
+    TerminalIntentKind,
+)
+from waku.messaging.endpoints.outcome import ExecutionOutcome
+from waku.messaging.handler import EventHandler
+from waku.messaging.inbox._internal.backpressure import ListenerBackpressure
+from waku.messaging.inbox._internal.listener import InboundListener
+from waku.messaging.inbox.backpressure import BufferingLimits
+from waku.messaging.transport._internal.wire import encode_payload, envelope_metadata_of
+from waku.messaging.transport.inbound import ConsumeDisposition
+from waku.messaging.transport.interfaces import EnvelopeMetadata, Subscription
+from waku.serialization import UpcasterChain
+from waku.serialization.codec import PayloadCodec
+
+from tests._wait import wait_until
+from tests.messaging.helpers import (
+    EndpointDepsProvider,
+    RecordingDeadLetterStore,
+    StubEndpointExecution,
+    make_envelope,
+)
+from tests.messaging.inbox.fake_store import FakeInboxStore
+
+if TYPE_CHECKING:
+    from waku.messaging.contracts.envelope import MessageEnvelope
+    from waku.messaging.contracts.handler import HandlerType
+
+
+@dataclass
+class _Event(IEvent):
+    kind: str
+
+
+class _Handler(EventHandler[_Event]):
+    invocations: ClassVar[list[str]] = []
+
+    @override
+    async def handle(self, message: _Event, /) -> None:
+        self.invocations.append(message.kind)
+
+
+def _make_codec() -> PayloadCodec:
+    return PayloadCodec(default_retort, UpcasterChain({}))
+
+
+def _make_type_registry(*types: type[IEvent]) -> MessageTypeRegistry:
+    return MessageTypeRegistry(identities={}, known_types=list(types))
+
+
+def _intent(outcome: ExecutionOutcome) -> TerminalIntent:
+    kinds = {
+        ExecutionOutcome.SUCCESS: TerminalIntentKind.SUCCESS,
+        ExecutionOutcome.FAILED_NO_POLICY: TerminalIntentKind.FAILED_NO_POLICY,
+        ExecutionOutcome.DISCARDED: TerminalIntentKind.DISCARD,
+        ExecutionOutcome.DEAD_LETTERED: TerminalIntentKind.DEAD_LETTER,
+        ExecutionOutcome.REQUEUED: TerminalIntentKind.REQUEUE,
+        ExecutionOutcome.PAUSED: TerminalIntentKind.PAUSE,
+    }
+    return TerminalIntent(kinds[outcome])
+
+
+class _StubExecutor(StubEndpointExecution):
+    def __init__(self, *, return_value: ExecutionOutcome) -> None:
+        self.return_value = return_value
+        self.calls = 0
+
+    @override
+    async def execute(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+    ) -> TerminalIntent:
+        self.calls += 1
+        return _intent(self.return_value)
+
+
+def _receiver(container: AsyncContainer, executor: IEndpointExecution) -> DurableInboxReceiver:
+    return DurableInboxReceiver(
+        uri='local://test',
+        container=container,
+        executor=executor,
+        inbox_owner_id=NodeId('node-a:1'),
+        now=utc_now,
+        keep_after_handled=timedelta(seconds=300),
+        max_requeue_attempts=5,
+        max_buffer_size=100,
+        stop_timeout=timedelta(seconds=1.0),
+    )
+
+
+def _listener(container: AsyncContainer) -> tuple[InboundListener, DurableInboxReceiver]:
+    codec = _make_codec()
+    type_registry = _make_type_registry(_Event)
+    registry = HandlerMap()
+    registry.bind(_Event, _Handler)
+    executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+    receiver = _receiver(container, executor)
+    return InboundListener(
+        codec=codec,
+        type_registry=type_registry,
+        handler_map=registry,
+        receiver=receiver,
+    ), receiver
+
+
+async def test_valid_message_persists_and_acks() -> None:
+    inbox = FakeInboxStore()
+    async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        listener, receiver = _listener(container)
+        codec = _make_codec()
+        envelope = make_envelope(_Event(kind='OrderPlaced'))
+        payload, metadata = encode_payload(envelope, codec), envelope_metadata_of(envelope)
+
+        await receiver.start()
+        result = await listener.consume(payload, metadata)
+        await receiver.stop()
+
+    assert result is ConsumeDisposition.ACK
+    assert len(inbox.entries) == 1
+    # P2 decomposition: listener must populate the typed columns from envelope metadata.
+    stored = next(iter(inbox.entries.values()))
+    assert stored.correlation_id == envelope.correlation_id
+    assert stored.causation_id == envelope.causation_id
+    assert stored.metadata is not None
+    assert stored.metadata.get('message_version') == envelope.message_version
+    assert 'headers' in stored.metadata
+
+
+async def test_redelivery_acks_without_double_process() -> None:
+    inbox = FakeInboxStore()
+    async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        listener, receiver = _listener(container)
+        codec = _make_codec()
+        envelope = make_envelope(_Event(kind='Shipped'))
+        payload, metadata = encode_payload(envelope, codec), envelope_metadata_of(envelope)
+
+        await receiver.start()
+        first = await listener.consume(payload, metadata)
+        second = await listener.consume(payload, metadata)
+        await receiver.stop()
+
+    assert first is ConsumeDisposition.ACK
+    assert second is ConsumeDisposition.ACK
+    assert len(inbox.entries) == 1
+
+
+async def test_foreign_message_type_rejects() -> None:
+    # A foreign/unknown message_type in metadata (no registered type) → REJECT, no crash.
+    inbox = FakeInboxStore()
+    async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        listener, _ = _listener(container)
+        # Use a real payload shape but a type name that is not in the type_registry.
+        foreign_metadata = EnvelopeMetadata(
+            message_id='11111111-1111-1111-1111-111111111111',
+            correlation_id='22222222-2222-2222-2222-222222222222',
+            causation_id='33333333-3333-3333-3333-333333333333',
+            message_type='some.unknown.ForeignEvent',
+            timestamp=datetime.now(tz=UTC),
+        )
+        result = await listener.consume({'kind': 'ping'}, foreign_metadata)
+
+    assert result is ConsumeDisposition.REJECT
+    assert len(inbox.entries) == 0
+
+
+async def test_foreign_non_uuid_correlation_survives_inbound_persist() -> None:
+    # A registered type carrying a foreign non-UUID correlation id (e.g. an upstream trace id) must
+    # rebuild and persist verbatim — no ValueError, no quarantine.
+    inbox = FakeInboxStore()
+    async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        listener, receiver = _listener(container)
+        codec = _make_codec()
+        envelope = make_envelope(_Event(kind='OrderPlaced'))
+        payload = encode_payload(envelope, codec)
+        metadata = replace(envelope_metadata_of(envelope), correlation_id='trace-abc-123')
+
+        await receiver.start()
+        result = await listener.consume(payload, metadata)
+        await receiver.stop()
+
+    assert result is ConsumeDisposition.ACK
+    stored = next(iter(inbox.entries.values()))
+    assert stored.correlation_id == 'trace-abc-123'
+
+
+async def test_unknown_type_with_no_handler_acks() -> None:
+    @dataclass
+    class _OtherEvent(IEvent):
+        kind: str
+
+    inbox = FakeInboxStore()
+    async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        codec = _make_codec()
+        # type_registry knows both types; handler registry only has _Event
+        type_registry = _make_type_registry(_Event, _OtherEvent)
+        registry = HandlerMap()
+        registry.bind(_Event, _Handler)
+        executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+        listener = InboundListener(
+            codec=codec,
+            type_registry=type_registry,
+            handler_map=registry,
+            receiver=_receiver(container, executor),
+        )
+
+        envelope = make_envelope(_OtherEvent(kind='Unknown'))
+        payload, metadata = encode_payload(envelope, codec), envelope_metadata_of(envelope)
+        result = await listener.consume(payload, metadata)
+
+    assert result is ConsumeDisposition.ACK
+    assert len(inbox.entries) == 0
+    assert executor.calls == 0
+
+
+async def test_transient_persist_failure_nacks_requeue() -> None:
+    inbox = FakeInboxStore()
+    inbox.store_incoming_error = RuntimeError('DB down')
+    async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        listener, _ = _listener(container)
+        codec = _make_codec()
+        envelope = make_envelope(_Event(kind='Failed'))
+        payload, metadata = encode_payload(envelope, codec), envelope_metadata_of(envelope)
+        result = await listener.consume(payload, metadata)
+
+    assert result is ConsumeDisposition.NACK_REQUEUE
+    assert len(inbox.entries) == 0
+
+
+class _FakeSub(Subscription):
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    @override
+    async def pause(self) -> None:
+        self.events.append('pause')
+
+    @override
+    async def resume(self) -> None:
+        self.events.append('resume')
+
+
+class _BlockingExecutor(_StubExecutor):
+    def __init__(self, *, release: asyncio.Event) -> None:
+        self._release = release
+
+    @override
+    async def execute(
+        self,
+        envelope: MessageEnvelope[Any],
+        handler_type: HandlerType,
+    ) -> TerminalIntent:
+        await self._release.wait()
+        return _intent(ExecutionOutcome.SUCCESS)
+
+
+async def test_consume_pauses_listener_when_buffer_crosses_high_watermark() -> None:
+    inbox = FakeInboxStore()
+    release = asyncio.Event()
+    async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
+        codec = _make_codec()
+        type_registry = _make_type_registry(_Event)
+        registry = HandlerMap()
+        registry.bind(_Event, _Handler)
+        receiver = DurableInboxReceiver(
+            uri='local://test',
+            container=container,
+            executor=_BlockingExecutor(release=release),
+            inbox_owner_id=NodeId('node-a:1'),
+            now=utc_now,
+            keep_after_handled=timedelta(seconds=300),
+            max_buffer_size=10,
+            stop_timeout=timedelta(seconds=1.0),
+        )
+        listener = InboundListener(codec=codec, type_registry=type_registry, handler_map=registry, receiver=receiver)
+        sub = _FakeSub()
+        listener.attach_backpressure(ListenerBackpressure(subscription=sub, limits=BufferingLimits(high=1, low=0)))
+
+        await receiver.start()
+        # First item parks in the blocking handler; the second stays buffered → depth crosses high=1.
+        env_a = make_envelope(_Event(kind='a'))
+        env_b = make_envelope(_Event(kind='b'))
+        await listener.consume(encode_payload(env_a, codec), envelope_metadata_of(env_a))
+        await listener.consume(encode_payload(env_b, codec), envelope_metadata_of(env_b))
+        await wait_until(lambda: sub.events == ['pause'])
+
+        release.set()
+        await receiver.stop()
+
+    assert sub.events == ['pause']

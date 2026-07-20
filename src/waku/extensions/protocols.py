@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, runtime_checkable
+from typing import TYPE_CHECKING, Any, Final, Protocol, TypeAlias, runtime_checkable
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from waku.application import WakuApplication
-    from waku.modules import Module, ModuleMetadata, ModuleMetadataRegistry, ModuleType
+    from waku.modules import ModuleMetadata, ModuleMetadataRegistry, ModuleType
+    from waku.modules._internal.module import Module
 
 __all__ = [
     'AfterApplicationInit',
@@ -16,6 +17,7 @@ __all__ = [
     'ModuleExtension',
     'OnApplicationInit',
     'OnApplicationShutdown',
+    'OnContainerBuilt',
     'OnModuleConfigure',
     'OnModuleDestroy',
     'OnModuleInit',
@@ -30,6 +32,19 @@ class OnApplicationInit(Protocol):
     __slots__ = ()
 
     async def on_app_init(self, app: WakuApplication) -> None: ...
+
+
+@runtime_checkable
+class OnContainerBuilt(Protocol):
+    """Extension hook fired after the DI container is built and before ``AfterApplicationInit``.
+
+    Use for fail-fast validation that needs container introspection (e.g. ``is_registered``) but must
+    run before side-effecting worker startup. Runs once, in application-extension order.
+    """
+
+    __slots__ = ()
+
+    async def on_container_built(self, app: WakuApplication) -> None: ...
 
 
 @runtime_checkable
@@ -120,14 +135,24 @@ class OnModuleDestroy(Protocol):
     async def on_module_destroy(self, module: Module) -> None: ...
 
 
+APP_LIFECYCLE_EXTENSIONS: Final = (OnApplicationInit, OnContainerBuilt, AfterApplicationInit, OnApplicationShutdown)
+"""The runtime application-lifecycle hook protocols — the single authority for "is this a runtime app
+hook?".
+
+Deliberately excludes ``OnModuleRegistration`` (a registration-phase hook, not a runtime lifecycle one),
+so promoting a module extension to an application extension never mistakes a registration hook for a
+runtime one. Used as the ``isinstance`` tuple by the factory's module-extension promotion guard.
+"""
+
 ApplicationExtension: TypeAlias = (
-    OnApplicationInit | AfterApplicationInit | OnApplicationShutdown | OnModuleRegistration
+    OnApplicationInit | OnContainerBuilt | AfterApplicationInit | OnApplicationShutdown | OnModuleRegistration
 )
 ModuleExtension: TypeAlias = (
     OnModuleConfigure
     | OnModuleInit
     | OnModuleDestroy
     | OnModuleRegistration
+    | OnContainerBuilt
     | AfterApplicationInit
     | OnApplicationShutdown
 )

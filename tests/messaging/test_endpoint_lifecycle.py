@@ -5,16 +5,15 @@ from typing import ClassVar
 
 from typing_extensions import override
 
+from waku.messages import IEvent
 from waku.messaging import (
     EventHandler,
-    IEvent,
     IMessageBus,
     MessagingConfig,
     MessagingExtension,
     MessagingModule,
 )
-from waku.messaging.endpoints.base import local_queue
-from waku.messaging.router import route
+from waku.messaging.router import local_queue, route
 from waku.testing import create_test_app
 
 
@@ -44,7 +43,7 @@ class TestEndpointLifecycle:
         async with (
             create_test_app(
                 imports=[MessagingModule.register(config)],
-                extensions=[MessagingExtension().bind(_TaskCreated, _TaskHandler)],
+                extensions=[MessagingExtension().bind(_TaskHandler)],
             ) as app,
             app.container() as container,
         ):

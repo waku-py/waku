@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing_extensions import override
 
 from waku.messaging import IRequest
-from waku.eventsourcing import EventSourcedCommandHandler
+from waku.integrations.eventsourcing_messaging import EventSourcedCommandHandler
 
 from app.aggregate import BankAccount
 

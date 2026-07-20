@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from waku.extensions.aggregator import RegistryAggregator
 from waku.extensions.protocols import (
     AfterApplicationInit,
     ApplicationExtension,
     ModuleExtension,
     OnApplicationInit,
     OnApplicationShutdown,
+    OnContainerBuilt,
     OnModuleConfigure,
     OnModuleDestroy,
     OnModuleInit,
@@ -28,10 +30,12 @@ __all__ = [
     'ModuleExtension',
     'OnApplicationInit',
     'OnApplicationShutdown',
+    'OnContainerBuilt',
     'OnModuleConfigure',
     'OnModuleDestroy',
     'OnModuleInit',
     'OnModuleRegistration',
+    'RegistryAggregator',
 ]
 
 

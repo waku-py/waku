@@ -6,14 +6,14 @@ from typing import TYPE_CHECKING
 import pytest
 from sqlalchemy import MetaData, select
 
+from waku.backends.sqlalchemy.event_store.store import SqlAlchemyEventStore
+from waku.backends.sqlalchemy.event_store.tables import EventStoreTables, bind_event_store_tables
 from waku.eventsourcing.contracts.event import EventEnvelope
 from waku.eventsourcing.contracts.stream import NoStream, StreamId
 from waku.eventsourcing.serialization.json import JsonEventSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
-from waku.eventsourcing.store.sqlalchemy.store import SqlAlchemyEventStore
-from waku.eventsourcing.store.sqlalchemy.tables import EventStoreTables, bind_event_store_tables
-from waku.eventsourcing.upcasting import UpcasterChain, rename_field
-from waku.messaging import IEvent
+from waku.messages import IEvent
+from waku.serialization import UpcasterChain, rename_field
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession

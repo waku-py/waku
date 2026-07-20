@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from waku.eventsourcing.exceptions import DuplicateProjectionNameError, UnknownProjectionError
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 
 from tests.eventsourcing.projection.helpers import RecordingProjection, StopProjection, make_binding
@@ -17,7 +18,7 @@ def test_get_returns_binding_by_name() -> None:
 def test_get_unknown_name_raises() -> None:
     registry = CatchUpProjectionRegistry(())
 
-    with pytest.raises(ValueError, match="Projection 'nonexistent' not found"):
+    with pytest.raises(UnknownProjectionError, match="Projection 'nonexistent' not found"):
         registry.get('nonexistent')
 
 
@@ -46,5 +47,5 @@ def test_duplicate_projection_name_raises() -> None:
     b1 = make_binding(RecordingProjection)
     b2 = make_binding(RecordingProjection)
 
-    with pytest.raises(ValueError, match="Duplicate projection name 'recording'"):
+    with pytest.raises(DuplicateProjectionNameError, match="Duplicate projection name 'recording'"):
         CatchUpProjectionRegistry((b1, b2))

@@ -18,18 +18,17 @@ from dataclasses import dataclass
 from typing_extensions import override
 
 from waku import WakuFactory, module
+from waku.backends.memory import MemoryBackend
 from waku.eventsourcing import (
     EventSourcedAggregate,
-    EventSourcedCommandHandler,
     EventSourcedRepository,
     EventSourcingConfig,
     EventSourcingExtension,
     EventSourcingModule,
 )
-from waku.eventsourcing.store.in_memory import InMemoryEventStore
+from waku.integrations.eventsourcing_messaging import EventSourcedCommandHandler, EventSourcingMessagingModule
+from waku.messages import IEvent
 from waku.messaging import (
-    EventHandler,
-    IEvent,
     IMessageBus,
     IRequest,
     MessagingExtension,
@@ -162,22 +161,11 @@ class DepositHandler(EventSourcedCommandHandler[DepositCommand, BankAccount, Dep
         return DepositResult(balance=aggregate.balance)
 
 
-# ── Event Handlers (read-side / reactions) ─────────────────────────
-
-
-class AccountOpenedHandler(EventHandler[AccountOpened]):
-    @override
-    async def handle(self, event: AccountOpened, /) -> None:
-        logger.info('[READ] Account %s opened for %s', event.account_id, event.owner)
-
-
-class MoneyDepositedHandler(EventHandler[MoneyDeposited]):
-    @override
-    async def handle(self, event: MoneyDeposited, /) -> None:
-        logger.info('[READ] Deposited %d to %s', event.amount, event.account_id)
-
-
 # ── Module Wiring ──────────────────────────────────────────────────
+
+# The in-memory store does not record appended events, so it cannot forward them to read-side
+# handlers — pairing forwarding here would be rejected at startup. See postgres/main.py for a
+# recording store that demonstrates forwarding into read-side handlers.
 
 
 @module(
@@ -186,11 +174,7 @@ class MoneyDepositedHandler(EventHandler[MoneyDeposited]):
             repository=BankAccountRepository,
             event_types=[AccountOpened, MoneyDeposited, MoneyWithdrawn],
         ),
-        MessagingExtension()
-        .bind(OpenAccountCommand, OpenAccountHandler)
-        .bind(DepositCommand, DepositHandler)
-        .bind(AccountOpened, AccountOpenedHandler)
-        .bind(MoneyDeposited, MoneyDepositedHandler),
+        MessagingExtension().bind(OpenAccountCommand, OpenAccountHandler).bind(DepositCommand, DepositHandler),
     ],
 )
 class BankModule:
@@ -200,7 +184,9 @@ class BankModule:
 @module(
     imports=[
         BankModule,
-        EventSourcingModule.register(EventSourcingConfig(store=InMemoryEventStore)),
+        EventSourcingModule.register(EventSourcingConfig()),
+        MemoryBackend.register(),
+        EventSourcingMessagingModule.register(),
         MessagingModule.register(),
     ],
 )

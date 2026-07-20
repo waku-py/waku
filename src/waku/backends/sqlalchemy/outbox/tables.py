@@ -1,0 +1,77 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Final
+
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    Index,
+    Integer,
+    MetaData,
+    Table,
+    Text,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, UUID
+
+from waku.backends.sqlalchemy._internal.tables import bind_or_reuse
+from waku.backends.sqlalchemy.column_types import EnumFromValues
+from waku.messaging.outbox.models import OutboxStatus
+
+__all__ = [
+    'OutboxTables',
+    'bind_outbox_tables',
+]
+
+OUTBOX_IDEMPOTENCY_CONSTRAINT: Final = 'uq_outbox_idempotency_destination'
+
+_internal_metadata = MetaData()
+
+outbox_messages_table = Table(
+    'outbox_messages',
+    _internal_metadata,
+    Column('id', UUID(as_uuid=True), primary_key=True),
+    Column('idempotency_key', Text, nullable=False),
+    Column('message_type', Text, nullable=False),
+    Column('payload', JSONB, nullable=False),
+    Column('destination', Text, nullable=False),
+    Column('correlation_id', Text, nullable=False),
+    Column('causation_id', Text, nullable=False),
+    Column('group_id', Text, nullable=True),
+    Column('sequence_number', BigInteger, nullable=True),
+    Column(
+        'status',
+        EnumFromValues(OutboxStatus),
+        nullable=False,
+        server_default=OutboxStatus.PENDING.value,
+    ),
+    Column('owner_id', Text, nullable=True),
+    Column('attempts', Integer, nullable=False, server_default='0'),
+    Column('last_error', Text, nullable=True),
+    Column('metadata', JSONB, nullable=True),
+    Column('created_at', TIMESTAMP(timezone=True), server_default=func.now()),
+    Column('processing_started_at', TIMESTAMP(timezone=True), nullable=True),
+    Column('dispatched_at', TIMESTAMP(timezone=True), nullable=True),
+    Column('next_retry_at', TIMESTAMP(timezone=True), nullable=True),
+    UniqueConstraint(
+        'idempotency_key',
+        'destination',
+        name=OUTBOX_IDEMPOTENCY_CONSTRAINT,
+    ),
+    Index('ix_outbox_status_created', 'status', 'created_at'),
+    Index('ix_outbox_status_owner', 'status', 'owner_id'),
+    Index('ix_outbox_status_next_retry', 'status', 'next_retry_at'),
+    Index('ix_outbox_group_sequence', 'group_id', 'sequence_number'),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class OutboxTables:
+    messages: Table
+
+
+def bind_outbox_tables(metadata: MetaData) -> OutboxTables:
+    """Bind the outbox table onto ``metadata``, returning the bound-table wrapper (idempotent)."""
+    return OutboxTables(messages=bind_or_reuse(metadata, outbox_messages_table))

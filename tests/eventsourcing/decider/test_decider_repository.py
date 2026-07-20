@@ -5,7 +5,7 @@ import pytest
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.decider.repository import DeciderRepository
 from waku.eventsourcing.exceptions import ConcurrencyConflictError, StreamTooLargeError
-from waku.eventsourcing.store.in_memory import InMemoryEventStore  # noqa: TC001  # needed for fixture type
+from waku.eventsourcing.store.in_memory import InMemoryEventStore  # needed for fixture type
 
 from tests.eventsourcing.decider.conftest import (  # noqa: TC002  # needed for fixture type
     CounterRepository,

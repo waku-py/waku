@@ -2,19 +2,17 @@ from __future__ import annotations
 
 import abc
 import logging
-import uuid
-from typing import TYPE_CHECKING, ClassVar, Generic
+from typing import TYPE_CHECKING, ClassVar, Generic, cast
 
-from waku.eventsourcing._introspection import is_abstract, resolve_generic_args
-from waku.eventsourcing._stream_helpers import read_aggregate_stream
+from waku.eventsourcing._internal.introspection import is_abstract, resolve_generic_args
+from waku.eventsourcing._internal.stream_helpers import build_append, read_aggregate_stream
 from waku.eventsourcing.contracts.aggregate import AggregateT
-from waku.eventsourcing.contracts.event import EventEnvelope
-from waku.eventsourcing.contracts.stream import Exact, NoStream, StreamId
+from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.exceptions import AggregateNotFoundError
 from waku.eventsourcing.store.interfaces import IEventStore  # noqa: TC001  # Dishka needs runtime access
 
 if TYPE_CHECKING:
-    from waku.messaging.contracts.event import IEvent
+    from waku.messages import IEvent
 
 __all__ = ['EventSourcedRepository']
 
@@ -40,7 +38,7 @@ class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
     @classmethod
     def _resolve_aggregate_type(cls) -> type[AggregateT] | None:
         args = resolve_generic_args(cls, EventSourcedRepository)
-        return args[0] if args else None  # type: ignore[return-value]
+        return cast('type[AggregateT]', args[0]) if args else None
 
     def __init__(self, event_store: IEventStore) -> None:
         self._event_store = event_store
@@ -72,18 +70,17 @@ class EventSourcedRepository(abc.ABC, Generic[AggregateT]):
         idempotency_key: str | None = None,
     ) -> tuple[int, list[IEvent]]:
         stream_id = self._stream_id(aggregate_id)
-        events = aggregate.collect_events()
+        # Peek without draining: events leave the aggregate only once the append succeeded
+        # (mark_persisted), so a retried save() after a transient failure still sees them.
+        events = aggregate.pending_events
         if not events:
             return aggregate.version, []
 
-        envelopes = [
-            EventEnvelope(
-                domain_event=event,
-                idempotency_key=f'{idempotency_key}:{i}' if idempotency_key else str(uuid.uuid4()),
-            )
-            for i, event in enumerate(events)
-        ]
-        expected = Exact(version=aggregate.version) if aggregate.version >= 0 else NoStream()
+        envelopes, expected = build_append(
+            events,
+            expected_version=aggregate.version,
+            idempotency_key=idempotency_key,
+        )
         new_version = await self._event_store.append_to_stream(stream_id, envelopes, expected_version=expected)
         aggregate.mark_persisted(new_version)
         logger.debug(

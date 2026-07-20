@@ -26,7 +26,7 @@ repos:
       - id: check-case-conflict
 
   - repo: https://github.com/python-jsonschema/check-jsonschema
-    rev: 0.37.1
+    rev: 0.37.4
     hooks:
       - id: check-github-workflows
         files: '^\.github/workflows/.*\.ya?ml$'
@@ -37,12 +37,12 @@ repos:
         files: '^Taskfile\.yml$'
 
   - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.11
+    rev: v1.7.12
     hooks:
       - id: actionlint
 
   - repo: https://github.com/crate-ci/typos
-    rev: v1.44.0
+    rev: v1.48.0
     hooks:
       - id: typos
         args: [ "--force-exclude" ]
@@ -67,6 +67,15 @@ repos:
       - id: lint
         name: Run code linting
         entry: task lint -- --output-format=concise
+        types: [ python ]
+        language: system
+        pass_filenames: false
+        fail_fast: true
+        stages: [ pre-commit, pre-push, manual ]
+
+      - id: visibility
+        name: Check module visibility
+        entry: task visibility
         types: [ python ]
         language: system
         pass_filenames: false

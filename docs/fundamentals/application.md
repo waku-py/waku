@@ -69,7 +69,7 @@ from app.settings import Settings
 @module(
     imports=[
         MessagingModule.register(
-            MessagingConfig(pipeline_behaviors=[...]),
+            MessagingConfig(global_pipeline_behaviors=[...]),
         ),
         SettingsModule,
         InfraModule,

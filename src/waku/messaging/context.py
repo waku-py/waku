@@ -11,19 +11,35 @@ if TYPE_CHECKING:
 
     from waku.messaging.contracts.envelope import MessageEnvelope
 
+__all__ = [
+    'MessageContext',
+    'get_message_context',
+    'try_get_message_context',
+]
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MessageContext:
-    correlation_id: UUID
-    causation_id: UUID
+    correlation_id: str
+    causation_id: str
     message_id: UUID
     headers: Mapping[str, str]
+    group_id: str | None = None
+    tenant_id: str | None = None
 
 
 _message_context: ContextVar[MessageContext | None] = ContextVar('_message_context', default=None)
 
 
 def get_message_context() -> MessageContext:
+    """Return the active message context.
+
+    Returns:
+        The correlation/causation context for the in-flight message.
+
+    Raises:
+        RuntimeError: Called outside an active ``MessageBus`` operation.
+    """
     ctx = _message_context.get()
     if ctx is None:
         msg = 'No active message context. This function must be called within a MessageBus operation.'
@@ -32,14 +48,15 @@ def get_message_context() -> MessageContext:
 
 
 def try_get_message_context() -> MessageContext | None:
+    """Return the active message context, or ``None`` when no message is in flight."""
     return _message_context.get()
 
 
-def set_message_context(ctx: MessageContext) -> Token[MessageContext | None]:
+def _set_message_context(ctx: MessageContext) -> Token[MessageContext | None]:
     return _message_context.set(ctx)
 
 
-def reset_message_context(token: Token[MessageContext | None]) -> None:
+def _reset_message_context(token: Token[MessageContext | None]) -> None:
     _message_context.reset(token)
 
 
@@ -50,9 +67,11 @@ def message_context_scope(envelope: MessageEnvelope[Any]) -> Generator[None]:
         causation_id=envelope.causation_id,
         message_id=envelope.message_id,
         headers=envelope.headers,
+        group_id=envelope.group_id,
+        tenant_id=envelope.tenant_id,
     )
-    token = set_message_context(ctx)
+    token = _set_message_context(ctx)
     try:
         yield
     finally:
-        reset_message_context(token)
+        _reset_message_context(token)

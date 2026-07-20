@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from waku.eventsourcing.contracts.aggregate import StateT
-    from waku.messaging.contracts.event import IEvent
+    from waku.messages import IEvent
 
 __all__ = ['IEventSerializer', 'ISnapshotStateSerializer']
 

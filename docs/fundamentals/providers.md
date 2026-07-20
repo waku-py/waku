@@ -23,6 +23,11 @@ At bootstrap, waku collects providers from all modules, resolves the module depe
 and hands the result to the [dishka](https://github.com/reagento/dishka/) IoC container,
 which handles dependency resolution and lifecycle management.
 
+!!! note "Production composition, not provider overrides"
+    The public primitives in `waku.di` deliberately do not expose dishka's `override=` flag.
+    Compose production implementations through module imports and exports; use
+    [`waku.testing.override()`](testing.md#override) only for temporary test replacements.
+
 
 ??? note "What is Dependency Injection?"
     Dependency Injection (DI) is a design pattern that addresses the issue of tightly coupled code by decoupling the

@@ -3,20 +3,31 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Generic, TypeVar
 
+from waku.messages import IMessage
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from datetime import datetime
     from uuid import UUID
 
-T = TypeVar('T')
+__all__ = [
+    'MessageEnvelope',
+]
+
+_MessageT = TypeVar('_MessageT', bound=IMessage)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class MessageEnvelope(Generic[T]):
+class MessageEnvelope(Generic[_MessageT]):
     message_id: UUID
-    correlation_id: UUID
-    causation_id: UUID
+    correlation_id: str
+    causation_id: str
     message_type: str
     timestamp: datetime
-    payload: T
+    payload: _MessageT
+    message_version: int = 1
     headers: Mapping[str, str] = field(default_factory=dict)
+    group_id: str | None = None
+    tenant_id: str | None = None
+    scheduled_time: datetime | None = None
+    expires_at: datetime | None = None

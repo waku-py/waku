@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import NewType
 
 from dishka import Provider
+from typing_extensions import override
 
 from waku import Module
 from waku.extensions import OnModuleConfigure, OnModuleDestroy, OnModuleInit
@@ -83,6 +84,7 @@ class OnInitExt(OnModuleInit):
     def __init__(self, calls: list[tuple[type, type]]) -> None:
         self.calls = calls
 
+    @override
     async def on_module_init(self, module: Module) -> None:
         self.calls.append((module.target, type(self)))
 
@@ -93,6 +95,7 @@ class OnDestroyExt(OnModuleDestroy):
     def __init__(self, calls: list[tuple[type, type]]) -> None:
         self.calls = calls
 
+    @override
     async def on_module_destroy(self, module: Module) -> None:
         self.calls.append((module.target, type(self)))
 
@@ -103,5 +106,6 @@ class AddDepOnConfigure(OnModuleConfigure):
     def __init__(self, provider: Provider) -> None:
         self.provider = provider
 
+    @override
     def on_module_configure(self, metadata: ModuleMetadata) -> None:
         metadata.providers.append(self.provider)

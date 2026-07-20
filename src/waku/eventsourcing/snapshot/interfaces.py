@@ -8,7 +8,6 @@ if TYPE_CHECKING:
     from waku.eventsourcing.contracts.stream import StreamId
 
 __all__ = [
-    'ISnapshotStore',
     'ISnapshotStrategy',
     'Snapshot',
 ]
@@ -21,14 +20,6 @@ class Snapshot:
     version: int
     state_type: str
     schema_version: int = 1
-
-
-class ISnapshotStore(abc.ABC):
-    @abc.abstractmethod
-    async def load(self, stream_id: StreamId, /) -> Snapshot | None: ...
-
-    @abc.abstractmethod
-    async def save(self, snapshot: Snapshot, /) -> None: ...
 
 
 class ISnapshotStrategy(abc.ABC):

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+import abc
 from collections.abc import Awaitable, Callable
 from typing import Generic, TypeAlias
 
@@ -14,8 +14,8 @@ __all__ = [
 CallNext: TypeAlias = Callable[[], Awaitable[ResponseT]]
 
 
-class IPipelineBehavior(ABC, Generic[MessageT, ResponseT]):
-    @abstractmethod
+class IPipelineBehavior(abc.ABC, Generic[MessageT, ResponseT]):
+    @abc.abstractmethod
     async def handle(
         self,
         message: MessageT,

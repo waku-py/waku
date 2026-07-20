@@ -5,21 +5,19 @@ import enum
 from abc import ABC
 from typing import TYPE_CHECKING
 
-from waku.eventsourcing._introspection import is_abstract
+from waku.eventsourcing._internal.introspection import is_abstract
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import ClassVar
 
     from waku.eventsourcing.contracts.event import StoredEvent
-    from waku.eventsourcing.projection.checkpoint import Checkpoint
-    from waku.messaging.contracts.event import IEvent
+    from waku.messages import IEvent
 
 __all__ = [
-    'ErrorPolicy',
     'ICatchUpProjection',
-    'ICheckpointStore',
     'IProjection',
+    'ProjectionErrorPolicy',
 ]
 
 
@@ -39,7 +37,7 @@ class IProjection(abc.ABC):
 
 
 @enum.unique
-class ErrorPolicy(enum.StrEnum):
+class ProjectionErrorPolicy(enum.StrEnum):
     SKIP = enum.auto()
     STOP = enum.auto()
 
@@ -52,7 +50,9 @@ class ICatchUpProjection(IProjection, ABC):
     ``project()`` must be idempotent.
 
     Set ``event_types`` to filter which event types this projection receives.
-    When ``None`` (default), all events are delivered.
+    ``None`` (default) delivers every event. A non-empty sequence delivers exactly those types,
+    alias-expanded to include historical names. An empty sequence is rejected with
+    ``EventSourcingConfigError`` at module registration.
     """
 
     event_types: ClassVar[Sequence[type[IEvent]] | None] = None
@@ -62,11 +62,3 @@ class ICatchUpProjection(IProjection, ABC):
 
     async def teardown(self) -> None:
         pass
-
-
-class ICheckpointStore(abc.ABC):
-    @abc.abstractmethod
-    async def load(self, projection_name: str, /) -> Checkpoint | None: ...
-
-    @abc.abstractmethod
-    async def save(self, checkpoint: Checkpoint, /) -> None: ...

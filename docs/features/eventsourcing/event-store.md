@@ -27,7 +27,7 @@ The store interface is split into two protocols:
 **`IEventWriter`** — write-side operations:
 
 - `append_to_stream(stream_id, events, *, expected_version)` — append events with optimistic concurrency
-- `delete_stream(stream_id)` — soft-delete a stream (see [Stream Deletion](#stream-deletion))
+- `archive_stream(stream_id)` — archive a stream (see [Stream Archiving](#stream-archiving))
 
 `IEventStore` combines both:
 
@@ -76,7 +76,7 @@ class IEventWriter(abc.ABC):
         expected_version: ExpectedVersion,
     ) -> int: ...
 
-    async def delete_stream(self, stream_id: StreamId, /) -> None: ...
+    async def archive_stream(self, stream_id: StreamId, /) -> None: ...
 
 
 class IEventStore(IEventReader, IEventWriter, abc.ABC):
@@ -93,19 +93,22 @@ class IEventStore(IEventReader, IEventWriter, abc.ABC):
 Suitable for development and testing.
 
 ```python
-from waku.eventsourcing.store.in_memory import InMemoryEventStore
+from waku.backends.memory import MemoryBackend
 
-config = EventSourcingConfig(store=InMemoryEventStore)
+# imports=[EventSourcingModule.register(EventSourcingConfig()), MemoryBackend.register()]
 ```
+
+The [memory backend](../../fundamentals/backends.md#memory-backend) provides `InMemoryEventStore`
+(plus in-memory snapshot/checkpoint stores and a no-op unit of work).
 
 !!! warning
     In-memory data is lost when the process exits. Do not use this in production.
 
 ## EventSourcingConfig Reference
 
-`EventSourcingConfig` controls which implementations are used for event persistence,
-serialization, snapshots, checkpoints, and metadata enrichment. All fields except `store`
-are optional.
+`EventSourcingConfig` controls serialization and metadata enrichment. Persistence comes from the
+imported [durability backend](../../fundamentals/backends.md), which provides the event store with
+its snapshot/checkpoint facets over one scoped resource.
 
 ```python
 from waku.eventsourcing import EventSourcingConfig
@@ -113,42 +116,18 @@ from waku.eventsourcing import EventSourcingConfig
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `store` | `type[IEventStore] \| Callable[..., IEventStore]` | *(required)* | Event store implementation (class or factory) |
 | `event_serializer` | `type[IEventSerializer] \| Callable[..., IEventSerializer] \| None` | `None` | Event serializer; required for PostgreSQL |
-| `snapshot_store` | `type[ISnapshotStore] \| Callable[..., ISnapshotStore] \| None` | `None` | Snapshot persistence; required when using snapshot repositories |
 | `snapshot_state_serializer` | `type[ISnapshotStateSerializer] \| Callable[..., ISnapshotStateSerializer] \| None` | `None` | Snapshot state serializer; required when using snapshot repositories |
-| `checkpoint_store` | `type[ICheckpointStore] \| Callable[..., ICheckpointStore] \| None` | `None` | Checkpoint persistence; required when using catch-up projections |
 | `enrichers` | `Sequence[type[IMetadataEnricher]]` | `()` | Metadata enrichers applied to every event before persistence |
-
-!!! warning
-    When using `SqlAlchemyEventStore` (or any SQLAlchemy-based store, checkpoint store, or
-    snapshot store), you **must** register an `AsyncSession` provider in your DI container.
-    The SQLAlchemy stores depend on `AsyncSession` injected by dishka — without it, store
-    resolution fails at runtime.
-
-    ```python
-    from collections.abc import AsyncIterator
-
-    from dishka import Provider, Scope, provide
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-    class DbProvider(Provider):
-        @provide(scope=Scope.REQUEST)
-        async def session(
-            self, session_factory: async_sessionmaker[AsyncSession],
-        ) -> AsyncIterator[AsyncSession]:
-            async with session_factory() as session:
-                yield session
-    ```
 
 ## PostgreSQL with SQLAlchemy
 
 ### Prerequisites
 
-Install the required extras:
+Install the SQLAlchemy extra:
 
 ```bash
-uv add waku --extra eventsourcing --extra eventsourcing-sqla
+uv add waku --extra sqla
 ```
 
 You also need a running PostgreSQL instance.
@@ -161,15 +140,24 @@ You also need a running PostgreSQL instance.
 
 `bind_event_store_tables()` binds the event store table definitions to your metadata instance.
 
-### Step 2: Configure Event Sourcing
+### Step 2: Configure Event Sourcing and the Backend
 
 ```python linenums="1"
 --8<-- "docs/code/eventsourcing/postgres_config.py"
 ```
 
-`make_sqlalchemy_event_store()` is a factory that binds the tables to `SqlAlchemyEventStore`.
-It returns a callable that dishka uses to construct the store with its remaining dependencies
-(session, serializer, registry, upcaster chain) injected automatically.
+```python
+from waku.backends.sqlalchemy import SqlAlchemyBackend
+
+# imports=[
+#     EventSourcingModule.register(es_config),
+#     SqlAlchemyBackend.register(session_factory=create_session, metadata=metadata),
+# ]
+```
+
+The backend builds `SqlAlchemyEventStore` over its scoped `AsyncSession`, with the serializer,
+registry, and upcaster chain injected automatically — see
+[Durability backends](../../fundamentals/backends.md).
 
 ### Step 3: Create Tables
 
@@ -191,7 +179,7 @@ This creates two tables:
 | `version` | `Integer` | NOT NULL, default `0` | Current stream version (incremented on each append) |
 | `created_at` | `TIMESTAMP WITH TIME ZONE` | default `now()` | Stream creation time |
 | `updated_at` | `TIMESTAMP WITH TIME ZONE` | default `now()`, auto-update | Last modification time |
-| `deleted_at` | `TIMESTAMP WITH TIME ZONE` | nullable | Soft-delete timestamp (see [Stream Deletion](#stream-deletion)) |
+| `deleted_at` | `TIMESTAMP WITH TIME ZONE` | nullable | Archive timestamp (see [Stream Archiving](#stream-archiving)) |
 
 #### `es_events`
 
@@ -220,12 +208,12 @@ This creates two tables:
 
 !!! tip
     For production, use [Alembic](https://alembic.sqlalchemy.org/) migrations instead of `create_all`.
-    The table definitions in `waku.eventsourcing.store.sqlalchemy.tables` are standard SQLAlchemy
+    The table definitions in `waku.backends.sqlalchemy` are standard SQLAlchemy
     `Table` objects that work with Alembic's [autogenerate](https://alembic.sqlalchemy.org/en/latest/autogenerate.html).
 
     ```python
     # alembic/env.py
-    from waku.eventsourcing.store.sqlalchemy import bind_event_store_tables
+    from waku.backends.sqlalchemy import bind_event_store_tables
 
     target_metadata = MetaData()
     bind_event_store_tables(target_metadata)
@@ -285,33 +273,34 @@ The SQLAlchemy store persists idempotency keys in a dedicated column on `es_even
 composite unique constraint `(stream_id, idempotency_key)`. The in-memory store tracks keys
 per stream in a dictionary with an async lock for thread safety.
 
-## Stream Deletion
+## Stream Archiving
 
-`delete_stream()` performs a **soft delete** — the stream is marked as deleted but its events
-are preserved for audit purposes.
+`archive_stream()` marks a stream as archived — the stream is excluded from read paths but its
+events are preserved for audit purposes.
 
 ```python
-await store.delete_stream(stream_id)
+await store.archive_stream(stream_id)
 ```
 
 | Operation | Behavior |
 |-----------|----------|
 | `stream_exists(stream_id)` | Returns `False` |
-| `read_all()` | Excludes events from deleted streams |
-| `read_positions()` | Excludes positions from deleted streams |
-| `append_to_stream(stream_id, ...)` | Raises `StreamDeletedError` |
+| `read_all()` | Excludes events from archived streams |
+| `read_positions()` | Excludes positions from archived streams |
+| `append_to_stream(stream_id, ...)` | Raises `StreamArchivedError` |
 | `read_stream(stream_id)` | Still returns events (audit trail) |
 
-Calling `delete_stream()` on a nonexistent stream raises `StreamNotFoundError`.
-Calling it on an already-deleted stream is a no-op.
+The `stream_exists` exclusion and the append block are intentionally stricter than Marten's
+archive semantics. Calling `archive_stream()` on a nonexistent stream raises
+`StreamNotFoundError`. Calling it on an already-archived stream is a no-op.
 
 !!! note
-    Repositories (`EventSourcedRepository`, `DeciderRepository`) can still `load()` a deleted
-    aggregate for read-only audit. Only `save()` will fail with `StreamDeletedError`.
+    Repositories (`EventSourcedRepository`, `DeciderRepository`) can still `load()` an archived
+    aggregate for read-only audit. Only `save()` will fail with `StreamArchivedError`.
 
 The SQLAlchemy store sets a `deleted_at` timestamp on the `es_streams` row and uses a JOIN
-filter to exclude deleted streams from `read_all` and `read_positions` queries. The in-memory
-store tracks deleted stream keys in a separate set.
+filter to exclude archived streams from `read_all` and `read_positions` queries. The in-memory
+store tracks archived stream keys in a separate set.
 
 ## Metadata Enrichment
 
@@ -369,16 +358,18 @@ All tables created by waku's event sourcing module:
 | `es_streams` | `bind_event_store_tables(metadata)` | [Event Store](#postgresql-with-sqlalchemy) |
 | `es_events` | `bind_event_store_tables(metadata)` | [Event Store](#postgresql-with-sqlalchemy) |
 | `es_checkpoints` | `bind_checkpoint_tables(metadata)` | [Projections](projections.md#table-schema-reference) |
-| `es_projection_leases` | `bind_lease_tables(metadata)` | [Projections](projections.md#es_projection_leases) |
+| `waku_leases` | `bind_lease_tables(metadata)` | [Projections](projections.md#waku_leases) |
 | `es_snapshots` | `bind_snapshot_tables(metadata)` | [Snapshots](snapshots.md#table-schema-reference) |
 
 ```python
 from sqlalchemy import MetaData
 
-from waku.eventsourcing.projection.lock.sqlalchemy import bind_lease_tables
-from waku.eventsourcing.projection.sqlalchemy import bind_checkpoint_tables
-from waku.eventsourcing.snapshot.sqlalchemy import bind_snapshot_tables
-from waku.eventsourcing.store.sqlalchemy import bind_event_store_tables
+from waku.backends.sqlalchemy import (
+    bind_checkpoint_tables,
+    bind_event_store_tables,
+    bind_lease_tables,
+    bind_snapshot_tables,
+)
 
 metadata = MetaData()
 es_tables = bind_event_store_tables(metadata)

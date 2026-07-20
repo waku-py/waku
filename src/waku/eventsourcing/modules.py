@@ -6,8 +6,10 @@ from typing import TYPE_CHECKING, Any, Self, TypeAlias
 
 from typing_extensions import override
 
-from waku.di import Provider, WithParents, many, object_, scoped
-from waku.eventsourcing._introspection import resolve_generic_args
+from waku._internal.provider_scan import provided_type_hints
+from waku._internal.sentinel import MISSING
+from waku.di import Provider, WithParents, is_registered, many, object_, scoped
+from waku.eventsourcing._internal.introspection import resolve_generic_args
 from waku.eventsourcing.contracts.aggregate import IDecider
 from waku.eventsourcing.contracts.event import IMetadataEnricher
 from waku.eventsourcing.decider.repository import DeciderRepository
@@ -17,30 +19,45 @@ from waku.eventsourcing.exceptions import (
     RegistryFrozenError,
     SnapshotMigrationChainError,
     UnknownEventTypeError,
-    UpcasterChainError,
+)
+from waku.eventsourcing.forwarding import (
+    AppendedEventsCollector,
+    ForwardingConsumer,
+    ForwardingRegistry,
+    IAppendedEvents,
 )
 from waku.eventsourcing.projection.binding import CatchUpProjectionBinding
-from waku.eventsourcing.projection.interfaces import ErrorPolicy, ICatchUpProjection, ICheckpointStore, IProjection
+from waku.eventsourcing.projection.interfaces import (
+    ICatchUpProjection,
+    IProjection,
+    ProjectionErrorPolicy,
+)
 from waku.eventsourcing.projection.registry import CatchUpProjectionRegistry
 from waku.eventsourcing.serialization.interfaces import IEventSerializer, ISnapshotStateSerializer
+from waku.eventsourcing.serialization.json import JsonEventSerializer, JsonSnapshotStateSerializer
 from waku.eventsourcing.serialization.registry import EventTypeRegistry
-from waku.eventsourcing.snapshot.interfaces import ISnapshotStore
 from waku.eventsourcing.snapshot.migration import SnapshotMigrationChain
 from waku.eventsourcing.snapshot.registry import SnapshotConfig, SnapshotConfigRegistry
 from waku.eventsourcing.store.interfaces import IEventStore
-from waku.eventsourcing.upcasting.chain import UpcasterChain
-from waku.extensions import OnModuleConfigure, OnModuleRegistration
-from waku.modules import DynamicModule, ModuleMetadataRegistry, module
+from waku.exceptions import ImproperlyConfiguredError
+from waku.extensions import OnContainerBuilt, OnModuleConfigure, RegistryAggregator
+from waku.modules._internal.metadata import DynamicModule, module
+from waku.serialization.exceptions import UpcasterChainError
+from waku.serialization.upcasting.chain import UpcasterChain
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Mapping, Sequence
+    from collections.abc import Callable, Iterator, Sequence
 
+    from dishka import Provider as DishkaProvider
+
+    from waku.application import WakuApplication
+    from waku.eventsourcing.forwarding import ForwardDescriptor
     from waku.eventsourcing.repository import EventSourcedRepository
     from waku.eventsourcing.snapshot.interfaces import ISnapshotStrategy
     from waku.eventsourcing.snapshot.migration import ISnapshotMigration
-    from waku.eventsourcing.upcasting.interfaces import IEventUpcaster
-    from waku.messaging.contracts.event import IEvent
-    from waku.modules import ModuleMetadata, ModuleType
+    from waku.messages import IEvent
+    from waku.modules import ModuleMetadata, ModuleMetadataRegistry, ModuleType
+    from waku.serialization.upcasting.interfaces import IPayloadUpcaster
 
 
 __all__ = [
@@ -59,7 +76,7 @@ class EventType:
     name: str | None = field(default=None, kw_only=True)
     aliases: Sequence[str] = field(default=(), kw_only=True)
     version: int = field(default=1, kw_only=True)
-    upcasters: Sequence[IEventUpcaster] = field(default=(), kw_only=True)
+    upcasters: Sequence[IPayloadUpcaster] = field(default=(), kw_only=True)
 
 
 EventTypeSpec: TypeAlias = 'type[IEvent] | EventType'
@@ -91,12 +108,10 @@ class DeciderBinding:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EventSourcingConfig:
-    store: type[IEventStore] | Callable[..., IEventStore]
     event_serializer: type[IEventSerializer] | Callable[..., IEventSerializer] | None = None
-    snapshot_store: type[ISnapshotStore] | Callable[..., ISnapshotStore] | None = None
     snapshot_state_serializer: type[ISnapshotStateSerializer] | Callable[..., ISnapshotStateSerializer] | None = None
-    checkpoint_store: type[ICheckpointStore] | Callable[..., ICheckpointStore] | None = None
     enrichers: Sequence[type[IMetadataEnricher]] = ()
+    forwarding: Sequence[ForwardDescriptor] = ()
 
 
 @dataclass(slots=True)
@@ -131,25 +146,76 @@ class EventSourcingRegistry:
             raise RegistryFrozenError
 
 
+class _ForwardingValidationExtension(OnContainerBuilt):
+    """Fail fast when ``forwarding`` is configured but cannot actually forward.
+
+    Two silent traps, both owned by ES core (the only code guaranteed to run whenever ``forwarding`` is
+    configured, bridge present or not):
+
+    - **No consumer.** ``forward(...)`` rules only take effect through the ES<->messaging bridge; without
+      it the rules silently no-op. This proves a consumer is wired via a neutral ``ForwardingConsumer``
+      presence marker (registered by the bridge) — no messaging import crosses into ES.
+    - **Non-recording store.** Only a store that records appended events into ``IAppendedEvents`` can
+      forward; a non-recording store (e.g. ``InMemoryEventStore``) silently drops every event. This
+      dispatches on the store's ``records_appended_events`` trait, never a concrete type.
+
+    The marker is checked before the store is resolved, so the no-consumer path never needs the store's
+    DB dependencies.
+    """
+
+    __slots__ = ('_forwarding_configured',)
+
+    def __init__(self, *, forwarding_configured: bool) -> None:
+        self._forwarding_configured = forwarding_configured
+
+    @override
+    async def on_container_built(self, app: WakuApplication) -> None:
+        if not self._forwarding_configured:
+            return
+        async with app.container() as scope:  # is_registered is a pure presence check; the store is scoped
+            if not await is_registered(scope, ForwardingConsumer):
+                msg = (
+                    'forwarding=[...] is configured but no forwarding consumer is installed, so appended '
+                    'events are silently dropped. Import EventSourcingMessagingModule.register() to wire '
+                    'the ES<->messaging bridge that forwards appended events to the message bus.'
+                )
+                raise ImproperlyConfiguredError(msg)
+            store = await scope.get(IEventStore)
+            if not store.records_appended_events:
+                msg = (
+                    'forwarding=[...] is configured against a non-recording event store, which does not record '
+                    'appended events, so every forwarded event is silently dropped. Use a recording event '
+                    'store (e.g. SqlAlchemyEventStore via make_sqlalchemy_event_store).'
+                )
+                raise ImproperlyConfiguredError(msg)
+
+
 @module()
 class EventSourcingModule:
+    """Event-sourcing module: ``register(config)`` wires the event store, projections, and snapshots."""
+
     @classmethod
     def register(cls, config: EventSourcingConfig, /) -> DynamicModule:
-        providers: list[Provider] = [
-            scoped(IEventStore, config.store),
+        providers: list[DishkaProvider] = [
+            # Anchor type for backend gating (`when=Has(EventSourcingConfig)`) and registration-time scans;
+            # symmetric with MessagingModule's object_(config_, provided_type=MessagingConfig).
+            object_(config, provided_type=EventSourcingConfig),
+            # Scoped per command: the event store records appended events into it, EventForwardingBehavior
+            # drains them. Always registered (cheap holder) — the store factory injects it by keyword.
+            scoped(IAppendedEvents, AppendedEventsCollector),
+            # Opt-in internal->integration translation rules consumed by EventForwardingBehavior.
+            object_(ForwardingRegistry(config.forwarding), provided_type=ForwardingRegistry),
         ]
 
         if config.event_serializer is not None:
             providers.append(scoped(IEventSerializer, config.event_serializer))
-
-        if config.snapshot_store is not None:
-            providers.append(scoped(ISnapshotStore, config.snapshot_store))
+        else:
+            providers.append(scoped(IEventSerializer, JsonEventSerializer))
 
         if config.snapshot_state_serializer is not None:
             providers.append(scoped(ISnapshotStateSerializer, config.snapshot_state_serializer))
-
-        if config.checkpoint_store is not None:
-            providers.append(scoped(ICheckpointStore, config.checkpoint_store))
+        else:
+            providers.append(scoped(ISnapshotStateSerializer, JsonSnapshotStateSerializer))
 
         providers.append(many(IMetadataEnricher, *config.enrichers))
 
@@ -158,12 +224,13 @@ class EventSourcingModule:
             providers=providers,
             extensions=[
                 EventSourcingRegistryAggregator(has_serializer=config.event_serializer is not None),
+                _ForwardingValidationExtension(forwarding_configured=bool(config.forwarding)),
             ],
             is_global=True,
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class EventSourcingExtension(OnModuleConfigure):
     _bindings: list[AggregateBinding] = field(default_factory=list, init=False)
     _decider_bindings: list[DeciderBinding] = field(default_factory=list, init=False)
@@ -214,27 +281,32 @@ class EventSourcingExtension(OnModuleConfigure):
         self,
         projection: type[ICatchUpProjection],
         *,
-        error_policy: ErrorPolicy = ErrorPolicy.STOP,
-        max_retry_attempts: int = 0,
-        base_retry_delay_seconds: float = 10.0,
-        max_retry_delay_seconds: float = 300.0,
-        batch_size: int = 100,
-        gap_detection_enabled: bool = False,
-        gap_timeout_seconds: float = 10.0,
+        error_policy: ProjectionErrorPolicy | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+        max_retry_attempts: int | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+        base_retry_delay_seconds: float | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+        max_retry_delay_seconds: float | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+        batch_size: int | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+        gap_detection_enabled: bool | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
+        gap_timeout_seconds: float | MISSING = MISSING,  # type: ignore[valid-type]  # mypy lacks PEP 661 sentinel support; pyrefly narrows
     ) -> Self:
+        # MISSING-passthrough: forward only explicitly-set kwargs so CatchUpProjectionBinding stays the
+        # single source of default values (no duplicated defaults to drift). The builder path still runs
+        # the VO's __post_init__ validation.
+        overrides: dict[str, Any] = {
+            key: value
+            for key, value in {
+                'error_policy': error_policy,
+                'max_retry_attempts': max_retry_attempts,
+                'base_retry_delay_seconds': base_retry_delay_seconds,
+                'max_retry_delay_seconds': max_retry_delay_seconds,
+                'batch_size': batch_size,
+                'gap_detection_enabled': gap_detection_enabled,
+                'gap_timeout_seconds': gap_timeout_seconds,
+            }.items()
+            if value is not MISSING
+        }
         self._registry.catch_up_projection_types.append(projection)
-        self._catch_up_bindings.append(
-            CatchUpProjectionBinding(
-                projection=projection,
-                error_policy=error_policy,
-                max_retry_attempts=max_retry_attempts,
-                base_retry_delay_seconds=base_retry_delay_seconds,
-                max_retry_delay_seconds=max_retry_delay_seconds,
-                batch_size=batch_size,
-                gap_detection_enabled=gap_detection_enabled,
-                gap_timeout_seconds=gap_timeout_seconds,
-            )
-        )
+        self._catch_up_bindings.append(CatchUpProjectionBinding(projection=projection, **overrides))
         return self
 
     @property
@@ -259,6 +331,7 @@ class EventSourcingExtension(OnModuleConfigure):
             if binding.snapshot is not None:
                 yield binding.repository.aggregate_name, binding.snapshot
 
+    @override
     def on_module_configure(self, metadata: ModuleMetadata) -> None:
         for binding in self._bindings:
             repo_type = binding.repository
@@ -278,32 +351,56 @@ class EventSourcingExtension(OnModuleConfigure):
         return IDecider  # pragma: no cover
 
 
-class EventSourcingRegistryAggregator(OnModuleRegistration):
+class EventSourcingRegistryAggregator(RegistryAggregator['EventSourcingExtension', EventSourcingRegistry]):
     def __init__(self, *, has_serializer: bool = False) -> None:
         self._has_serializer = has_serializer
+        self._aggregate_names: defaultdict[str, list[str]] = defaultdict(list)
+        self._catch_up_bindings: list[CatchUpProjectionBinding] = []
 
     @override
-    def on_module_registration(
+    def _extension_type(self) -> type[EventSourcingExtension]:
+        return EventSourcingExtension
+
+    @override
+    def _new_registry(self) -> EventSourcingRegistry:
+        return EventSourcingRegistry()
+
+    @override
+    def _merge(
         self,
+        aggregated: EventSourcingRegistry,
+        ext: EventSourcingExtension,
+        module_type: ModuleType,
+    ) -> None:
+        aggregated.merge(ext.registry)
+        self._catch_up_bindings.extend(ext.catch_up_bindings)
+        for name, repo_type in ext.aggregate_names():
+            self._aggregate_names[name].append(repo_type.__qualname__)
+
+    @override
+    def _extension_providers(self, ext: EventSourcingExtension) -> Iterator[Provider]:
+        return ext.registry.handler_providers()
+
+    @override
+    def _finalize(
+        self,
+        aggregated: EventSourcingRegistry,
         registry: ModuleMetadataRegistry,
         owning_module: ModuleType,
-        context: Mapping[Any, Any] | None,
     ) -> None:
-        aggregated = EventSourcingRegistry()
-        all_aggregate_names: defaultdict[str, list[str]] = defaultdict(list)
-        all_catch_up_bindings: list[CatchUpProjectionBinding] = []
-
-        for module_type, ext in registry.find_extensions(EventSourcingExtension):
-            aggregated.merge(ext.registry)
-            all_catch_up_bindings.extend(ext.catch_up_bindings)
-            for provider in ext.registry.handler_providers():
-                registry.add_provider(module_type, provider)
-            for name, repo_type in ext.aggregate_names():
-                all_aggregate_names[name].append(repo_type.__qualname__)
-
-        for name, repo_names in all_aggregate_names.items():
+        for name, repo_names in self._aggregate_names.items():
             if len(repo_names) > 1:
                 raise DuplicateAggregateNameError(name, repo_names)
+
+        # Fail-loud BEFORE container build: the event store is backend-provided (or an explicit
+        # provider override); dishka's eager GraphMissingFactoryError is only the backstop.
+        if IEventStore not in provided_type_hints(registry):
+            msg = (
+                'EventSourcingModule is registered but no module provides IEventStore. '
+                'Import a durability backend, e.g. SqlAlchemyBackend.register(session_factory=...) '
+                'from waku.backends.sqlalchemy, in your root module imports.'
+            )
+            raise ImproperlyConfiguredError(msg)
 
         for provider in aggregated.collector_providers():
             registry.add_provider(owning_module, provider)
@@ -312,7 +409,7 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
         registry.add_provider(owning_module, object_(event_type_registry))
         registry.add_provider(owning_module, object_(upcaster_chain))
 
-        resolved_bindings = self._resolve_catch_up_bindings(all_catch_up_bindings, event_type_registry)
+        resolved_bindings = self._resolve_catch_up_bindings(self._catch_up_bindings, event_type_registry)
         registry.add_provider(
             owning_module,
             object_(CatchUpProjectionRegistry(resolved_bindings)),
@@ -340,13 +437,22 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
     ) -> tuple[CatchUpProjectionBinding, ...]:
         resolved: list[CatchUpProjectionBinding] = []
         for binding in bindings:
-            if binding.projection.event_types is None:
+            event_types = binding.projection.event_types
+            if event_types is None:  # None is the sole 'subscribe to all' spelling.
                 resolved.append(binding)
                 continue
-            names: list[str] = []
-            for et in binding.projection.event_types:
+            if not event_types:
+                msg = (
+                    f'Projection {binding.projection.__name__!r} declares an empty event_types; '
+                    f'set event_types = None to subscribe to all events.'
+                )
+                raise EventSourcingConfigError(msg)
+            names: set[str] = set()
+            for et in event_types:
                 try:
-                    names.append(event_type_registry.get_name(et))
+                    # Alias-expand to every persisted name (canonical + aliases) so a rebuild sees
+                    # historical rows stored under an older name now registered as an alias.
+                    names.update(event_type_registry.names_for(et))
                 except UnknownEventTypeError:
                     msg = (
                         f'Projection {binding.projection.__name__!r} declares event type '
@@ -354,7 +460,7 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
                         f'via bind_aggregate(event_types=[...]).'
                     )
                     raise EventSourcingConfigError(msg) from None
-            resolved.append(replace(binding, event_type_names=tuple(names)))
+            resolved.append(replace(binding, event_type_names=tuple(sorted(names))))
         return tuple(resolved)
 
     @staticmethod
@@ -376,7 +482,7 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
     @classmethod
     def _build_type_registry(cls, aggregated: EventSourcingRegistry) -> tuple[EventTypeRegistry, UpcasterChain]:
         registry = EventTypeRegistry()
-        upcasters: dict[str, Sequence[IEventUpcaster]] = {}
+        upcasters: dict[str, Sequence[IPayloadUpcaster]] = {}
 
         for spec in cls._deduplicate(aggregated.event_type_bindings):
             item = spec if isinstance(spec, EventType) else EventType(spec)
@@ -388,7 +494,7 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
             if item.upcasters:
                 type_name = item.name or item.event_type.__name__
                 cls._validate_upcaster_versions(item.upcasters, type_name, item.version)
-                if type_name in upcasters and upcasters[type_name] is not item.upcasters:
+                if type_name in upcasters and list(upcasters[type_name]) != list(item.upcasters):
                     msg = f'Conflicting upcaster definitions for event type {type_name!r}'
                     raise UpcasterChainError(msg)
                 upcasters[type_name] = item.upcasters
@@ -406,7 +512,7 @@ class EventSourcingRegistryAggregator(OnModuleRegistration):
                 yield item
 
     @staticmethod
-    def _validate_upcaster_versions(upcasters: Sequence[IEventUpcaster], type_name: str, version: int) -> None:
+    def _validate_upcaster_versions(upcasters: Sequence[IPayloadUpcaster], type_name: str, version: int) -> None:
         for u in upcasters:
             if u.from_version >= version:
                 msg = (

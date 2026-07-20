@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import sys
+import typing
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 import pytest
 from typing_extensions import TypeAliasType
 
-from waku.eventsourcing._introspection import resolve_generic_args  # noqa: PLC2701
+from waku.eventsourcing._internal.introspection import resolve_generic_args
 from waku.eventsourcing.decider.repository import DeciderRepository
-from waku.messaging import IEvent
+from waku.messages import IEvent
 
 S = TypeVar('S')
 C = TypeVar('C')
@@ -117,6 +119,22 @@ def test_type_alias_state_infers_aggregate_name() -> None:
         pass
 
     assert _AliasRepo.aggregate_name == 'Aliased'
+
+
+# A native `type X = ...` yields a stdlib ``typing.TypeAliasType`` (distinct from the te backport on
+# te >= 4.16); resolve the constructor dynamically to keep this module importable on 3.11, where
+# ``typing.TypeAliasType`` does not exist and native ``type`` syntax is a SyntaxError.
+_native_type_alias_factory: typing.Any = vars(typing).get('TypeAliasType')
+
+
+@pytest.mark.skipif(sys.version_info < (3, 12), reason='PEP 695 type aliases require Python 3.12+')
+def test_native_type_alias_state_infers_aggregate_name() -> None:
+    native_aliased_state: typing.Any = _native_type_alias_factory('AliasedState', StateA | StateB)
+
+    class _NativeAliasRepo(DeciderRepository[native_aliased_state, Command, Event]):
+        pass
+
+    assert _NativeAliasRepo.aggregate_name == 'Aliased'
 
 
 def test_unparameterized_repository_raises() -> None:

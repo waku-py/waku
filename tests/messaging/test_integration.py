@@ -7,10 +7,10 @@ from uuid import UUID
 import pytest
 from typing_extensions import override
 
+from waku.messages import IEvent
 from waku.messaging import (
     CallNext,
     EventHandler,
-    IEvent,
     IMessageBus,
     IPipelineBehavior,
     IRequest,
@@ -70,7 +70,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind(_SayHello, _ContextCapturingHandler)],
+                extensions=[MessagingExtension().bind(_ContextCapturingHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -81,8 +81,8 @@ class TestMessagingIntegration:
         assert len(_ContextCapturingHandler.captured) == 1
 
         ctx = _ContextCapturingHandler.captured[0]
-        assert isinstance(ctx.correlation_id, UUID)
-        assert isinstance(ctx.causation_id, UUID)
+        assert isinstance(ctx.correlation_id, str)
+        assert isinstance(ctx.causation_id, str)
         assert isinstance(ctx.message_id, UUID)
 
     @staticmethod
@@ -92,7 +92,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind(_SayHello, _ContextCapturingHandler)],
+                extensions=[MessagingExtension().bind(_ContextCapturingHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -107,7 +107,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind(_SayHello, _ContextCapturingHandler)],
+                extensions=[MessagingExtension().bind(_ContextCapturingHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -115,7 +115,7 @@ class TestMessagingIntegration:
             await bus.invoke(_SayHello(name='test'))
 
         ctx = _ContextCapturingHandler.captured[0]
-        assert ctx.causation_id == ctx.message_id
+        assert ctx.causation_id == str(ctx.message_id)
 
     @staticmethod
     async def test_send_sets_message_context_during_handler() -> None:
@@ -124,7 +124,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind(_FireAndForget, _FireAndForgetHandler)],
+                extensions=[MessagingExtension().bind(_FireAndForgetHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -152,7 +152,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind(_SomethingHappened, HandlerA, HandlerB)],
+                extensions=[MessagingExtension().bind(HandlerA, HandlerB)],
             ) as app,
             app.container() as container,
         ):
@@ -162,7 +162,7 @@ class TestMessagingIntegration:
         assert len(captured_contexts) == 2
         for ctx in captured_contexts:
             assert isinstance(ctx.message_id, UUID)
-            assert isinstance(ctx.correlation_id, UUID)
+            assert isinstance(ctx.correlation_id, str)
 
     @staticmethod
     async def test_distinct_invocations_produce_distinct_message_ids() -> None:
@@ -171,7 +171,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind(_SayHello, _ContextCapturingHandler)],
+                extensions=[MessagingExtension().bind(_ContextCapturingHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -200,8 +200,8 @@ class TestMessagingIntegration:
 
         async with (
             create_test_app(
-                imports=[MessagingModule.register(MessagingConfig(pipeline_behaviors=[ContextReadingBehavior]))],
-                extensions=[MessagingExtension().bind(_SayHello, SimpleHandler)],
+                imports=[MessagingModule.register(MessagingConfig(global_pipeline_behaviors=[ContextReadingBehavior]))],
+                extensions=[MessagingExtension().bind(SimpleHandler)],
             ) as app,
             app.container() as container,
         ):
@@ -239,7 +239,7 @@ class TestMessagingIntegration:
             create_test_app(
                 imports=[MessagingModule.register()],
                 extensions=[
-                    MessagingExtension().bind(_SayHello, OuterHandler).bind(_InnerRequest, InnerHandler),
+                    MessagingExtension().bind(OuterHandler).bind(InnerHandler),
                 ],
             ) as app,
             app.container() as container,
@@ -254,7 +254,7 @@ class TestMessagingIntegration:
         inner_ctx = inner_contexts[0]
 
         assert inner_ctx.correlation_id == outer_ctx.correlation_id
-        assert inner_ctx.causation_id == outer_ctx.message_id
+        assert inner_ctx.causation_id == str(outer_ctx.message_id)
         assert inner_ctx.message_id != outer_ctx.message_id
 
     @staticmethod
@@ -274,7 +274,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind(_SomethingHappened, HandlerA, HandlerB)],
+                extensions=[MessagingExtension().bind(HandlerA, HandlerB)],
             ) as app,
             app.container() as container,
         ):
@@ -300,7 +300,7 @@ class TestMessagingIntegration:
         async with (
             create_test_app(
                 imports=[MessagingModule.register()],
-                extensions=[MessagingExtension().bind(_FailingRequest, FailingHandler)],
+                extensions=[MessagingExtension().bind(FailingHandler)],
             ) as app,
             app.container() as container,
         ):

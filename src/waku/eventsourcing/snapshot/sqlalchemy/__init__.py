@@ -1,8 +1,0 @@
-from waku.eventsourcing.snapshot.sqlalchemy.store import SqlAlchemySnapshotStore, make_sqlalchemy_snapshot_store
-from waku.eventsourcing.snapshot.sqlalchemy.tables import bind_snapshot_tables
-
-__all__ = [
-    'SqlAlchemySnapshotStore',
-    'bind_snapshot_tables',
-    'make_sqlalchemy_snapshot_store',
-]
