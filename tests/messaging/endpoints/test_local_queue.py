@@ -48,6 +48,7 @@ from tests.messaging.helpers import (
     RecordingDurabilityStore,
     RecordingUoW,
     make_envelope,
+    node_registry_providers,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
@@ -108,6 +109,7 @@ def _configured_dead_letter_providers(dead_letters: IDeadLetterStore) -> list[Pr
         object_(RecordingUoW(), provided_type=IUnitOfWork),
         object_(dead_letters, provided_type=IDeadLetterStore),
         scoped(IDurabilityStore, _build_dead_letter_durability),
+        *node_registry_providers(),
     ]
 
 

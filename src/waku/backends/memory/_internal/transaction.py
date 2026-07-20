@@ -10,6 +10,7 @@ import anyio
 
 from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterState
 from waku.backends.memory._internal.inbox import InMemoryInboxState
+from waku.backends.memory._internal.nodes import InMemoryNodeRegistryState
 from waku.backends.memory._internal.outbox import InMemoryOutboxState
 from waku.backends.memory._internal.sequence import InMemorySequenceState
 from waku.eventsourcing.projection.in_memory import InMemoryCheckpointState
@@ -30,6 +31,7 @@ class _InMemoryBackendState:
     outbox: InMemoryOutboxState = field(default_factory=InMemoryOutboxState)
     inbox: InMemoryInboxState = field(default_factory=InMemoryInboxState)
     dead_letters: InMemoryDeadLetterState = field(default_factory=InMemoryDeadLetterState)
+    nodes: InMemoryNodeRegistryState = field(default_factory=InMemoryNodeRegistryState)
     sequence: InMemorySequenceState = field(default_factory=InMemorySequenceState)
     events: InMemoryEventStoreState = field(default_factory=InMemoryEventStoreState)
     snapshots: InMemorySnapshotState = field(default_factory=InMemorySnapshotState)

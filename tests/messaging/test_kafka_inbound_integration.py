@@ -32,7 +32,13 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import RecordingAllocator, RecordingUoW, durability_for_inbox, make_envelope
+from tests.messaging.helpers import (
+    RecordingAllocator,
+    RecordingUoW,
+    durability_for_inbox,
+    make_envelope,
+    node_registry_providers,
+)
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -78,6 +84,7 @@ class TestKafkaInboundIntegration:
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     scoped(IDurabilityStore, durability_for_inbox),
+                    *node_registry_providers(),
                 ],
             ),
         ):

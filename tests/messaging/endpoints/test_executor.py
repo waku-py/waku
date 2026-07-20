@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import AsyncIterator  # noqa: TC003 -- Dishka resolves provider annotations at runtime
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, ClassVar
@@ -58,12 +58,13 @@ from tests.messaging.helpers import (
     RecordingDurabilityStore,
     RecordingUoW,
     make_envelope,
+    node_registry_providers,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Awaitable, Callable
+    from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
     from typing import Any
 
     from waku.application import WakuApplication
@@ -179,6 +180,12 @@ class _ActionRecordingDeadLetterStore(RecordingDeadLetterStore):
 
 
 class _ActionRecordingUoW(IUnitOfWork):
+    """Inert until ``arm()``, so only the scenario under test is recorded.
+
+    A durability-configured application commits this process's node-registry row while it boots;
+    that startup write shares the app's unit of work but belongs to no scenario here.
+    """
+
     def __init__(
         self,
         actions: list[str],
@@ -191,9 +198,25 @@ class _ActionRecordingUoW(IUnitOfWork):
         self._commit_error = commit_error
         self._rollback_error = rollback_error
         self._cancel_scope = cancel_scope
+        self._armed = False
+
+    @contextmanager
+    def recording(self) -> Generator[None]:
+        """Record only what happens inside this block, and prove the block was not silently inert."""
+        before = len(self._actions)
+        self._armed = True
+        try:
+            yield
+        finally:
+            self._armed = False
+        assert len(self._actions) > before, (
+            'recording window captured nothing — an unarmed double makes absence vacuous'
+        )
 
     @override
     async def commit(self) -> None:
+        if not self._armed:
+            return
         self._actions.append('commit')
         if self._cancel_scope is not None:
             self._cancel_scope.cancel()
@@ -203,10 +226,26 @@ class _ActionRecordingUoW(IUnitOfWork):
 
     @override
     async def rollback(self) -> None:
+        if not self._armed:
+            return
         await anyio.lowlevel.checkpoint()
         self._actions.append('rollback')
         if self._rollback_error is not None:
             raise self._rollback_error
+
+
+@contextmanager
+def _recording(unit_of_work: IUnitOfWork) -> Generator[None]:
+    """Scope a recording double to the act, if it is one.
+
+    A durability-configured application commits this node's registry row while it boots and deletes it
+    while it shuts down, both through the application's unit of work; neither belongs to a scenario here.
+    """
+    if isinstance(unit_of_work, _ActionRecordingUoW):
+        with unit_of_work.recording():
+            yield
+    else:
+        yield
 
 
 def _durability(dead_letters: IDeadLetterStore, unit_of_work: IUnitOfWork) -> RecordingDurabilityStore:
@@ -223,6 +262,7 @@ def _durability_providers(uow: IUnitOfWork, dead_letters: IDeadLetterStore) -> l
         object_(uow, provided_type=IUnitOfWork),
         object_(dead_letters, provided_type=IDeadLetterStore),
         object_(_durability(dead_letters, uow), provided_type=IDurabilityStore),
+        *node_registry_providers(),
     ]
 
 
@@ -292,15 +332,16 @@ async def _materialize_dead_letter(
         extensions=[MessagingExtension().bind(handler)],
         providers=_durability_providers(uow, dead_letters),
     ) as app:
-        envelope = make_envelope(_FailingCommand(value=value))
-        return (
-            await materialize_standalone_dead_letter(
-                app.container,
-                envelope=envelope,
-                endpoint_uri='test://q',
-                intent=_dead_letter_intent(),
-            )
-        ).outcome
+        with _recording(uow):
+            envelope = make_envelope(_FailingCommand(value=value))
+            return (
+                await materialize_standalone_dead_letter(
+                    app.container,
+                    envelope=envelope,
+                    endpoint_uri='test://q',
+                    intent=_dead_letter_intent(),
+                )
+            ).outcome
 
 
 async def test_executor_transient_retried() -> None:
@@ -524,7 +565,7 @@ class TestEndpointExecutorTransactionCleanup:
         ) as app:
             executor = await _make_executor(app, await app.container.get(ErrorPolicyEvaluator))
             envelope = make_envelope(_FailingCommand(value='timeout-rollback-fail'))
-            with pytest.raises(TransactionExecutionError) as raised:
+            with uow.recording(), pytest.raises(TransactionExecutionError) as raised:
                 await executor.execute(envelope, _BlockingHandler, on_result=observer)
 
         assert isinstance(raised.value, RollbackFailedError)
@@ -824,7 +865,7 @@ class TestEndpointExecutorDeadLetter:
             providers=_durability_providers(uow, dl_store),
         ) as app:
             envelope = make_envelope(_FailingCommand(value='dlq-rollback-fail'))
-            with pytest.raises(TransactionExecutionError) as caught:
+            with uow.recording(), pytest.raises(TransactionExecutionError) as caught:
                 await materialize_standalone_dead_letter(
                     app.container,
                     envelope=envelope,
@@ -856,7 +897,7 @@ class TestEndpointExecutorDeadLetter:
             providers=_durability_providers(uow, dl_store),
         ) as app:
             envelope = make_envelope(_FailingCommand(value='dlq-commit-cancelled'))
-            with cancel_scope:
+            with uow.recording(), cancel_scope:
                 await materialize_standalone_dead_letter(
                     app.container,
                     envelope=envelope,

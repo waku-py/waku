@@ -36,6 +36,7 @@ from tests.messaging.helpers import (
     RecordingDurabilityStore,
     RecordingTransport,
     RecordingUoW,
+    node_registry_providers,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
@@ -168,6 +169,7 @@ def _outbox_providers(uow: RecordingUoW, store: IOutboxStore, sink: _SentSink) -
         object_(store, provided_type=IOutboxStore),
         object_(sink, provided_type=_SentSink),
         scoped(IDurabilityStore, _durability),
+        *node_registry_providers(),
     ]
 
 
@@ -366,6 +368,7 @@ class TestDirectSendOwnership:
                 object_(outbox, provided_type=IOutboxStore),
                 object_(sink, provided_type=_SentSink),
                 scoped(IDurabilityStore, _durability),
+                *node_registry_providers(),
             ],
             handlers=MessagingExtension().bind(_SendThenRaiseHandler).bind(_ExternalRoutedHandler),
         ) as bus:
@@ -398,6 +401,7 @@ class TestDirectSendOwnership:
                     scoped(IUnitOfWork, _uow_from_blocking_store),
                     object_(sink, provided_type=_SentSink),
                     scoped(IDurabilityStore, _durability),
+                    *node_registry_providers(),
                 ],
                 handlers=MessagingExtension().bind(_ExternalRoutedHandler),
             ) as bus,

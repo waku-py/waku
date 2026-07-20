@@ -32,7 +32,12 @@ from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMappe
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import RecordingTransport, RecordingUoW, durability_for_outbox_and_inbox
+from tests.messaging.helpers import (
+    RecordingTransport,
+    RecordingUoW,
+    durability_for_outbox_and_inbox,
+    node_registry_providers,
+)
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
@@ -53,6 +58,7 @@ def _store_providers() -> tuple[Provider, ...]:
         scoped(IOutboxStore, RecordingOutboxStore),
         scoped(IInboxStore, FakeInboxStore),
         scoped(IDurabilityStore, durability_for_outbox_and_inbox),
+        *node_registry_providers(),
     )
 
 

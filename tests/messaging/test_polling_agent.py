@@ -156,6 +156,27 @@ class _FailingAgent(PollingAgent):
         raise self._error
 
 
+class _RetryingAgent(PollingAgent):
+    """Subclass that opts out of the terminal-on-fatal default, as the membership heartbeat does."""
+
+    placement = Placement.PER_POD
+    retries_after_fatal = True
+
+    def __init__(self, error: BaseException) -> None:
+        self._error = error
+        self.ticks = 0
+        super().__init__(stop_timeout=timedelta(seconds=1))
+
+    @override
+    def _make_pace(self) -> FixedPace:
+        return FixedPace(seconds=0.01)
+
+    @override
+    async def _tick(self) -> int:
+        self.ticks += 1
+        raise self._error
+
+
 async def test_polling_agent_runs_ticks_until_stopped() -> None:
     agent = _FakeAgent()
     await agent.start()
@@ -266,6 +287,41 @@ async def test_polling_agent_fatal_group_unwrapping_preserves_identity_without_c
     assert raised.value is fatal
     assert fatal.__cause__ is None
     assert fatal.__context__ is None
+
+
+@pytest.mark.parametrize(
+    'wrap',
+    [
+        pytest.param(False, id='bare_fatal'),
+        pytest.param(True, id='group_wrapped_fatal'),
+    ],
+)
+async def test_polling_agent_retrying_subclass_keeps_looping_after_a_fatal(wrap: bool) -> None:
+    fatal = RollbackFailedError(RuntimeError('rollback failed'), RuntimeError('handler failed'))
+    error: BaseException = BaseExceptionGroup('fatal failure', [fatal]) if wrap else fatal
+    agent = _RetryingAgent(error)
+
+    await agent.start()
+    await wait_until(lambda: agent.ticks >= 3)
+    await agent.stop()
+
+    assert agent.ticks >= 3
+
+
+async def test_polling_agent_retrying_subclass_still_propagates_a_cancellation_carrying_group() -> None:
+    # The retry policy covers store failure, never control flow: a fatal that surfaced alongside a
+    # cancellation must still end the loop, or the override would silently demote cancellation.
+    cancelled = asyncio.CancelledError()
+    fatal = RollbackFailedError(RuntimeError('rollback failed'), RuntimeError('handler failed'))
+    agent = _RetryingAgent(BaseExceptionGroup('mixed failure', [cancelled, fatal]))
+
+    await agent.start()
+    await wait_until(lambda: agent.ticks >= 1)
+
+    with pytest.raises(BaseExceptionGroup) as raised:
+        await agent.stop()
+
+    assert _exception_group_leaves(raised.value) == (cancelled, fatal)
 
 
 async def test_polling_agent_stop_is_idempotent_when_never_started() -> None:

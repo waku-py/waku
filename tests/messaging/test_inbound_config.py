@@ -26,6 +26,7 @@ from tests.messaging.helpers import (
     RecordingDurabilityStore,
     RecordingUoW,
     StubSubscription,
+    node_registry_providers,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
@@ -122,6 +123,7 @@ async def test_consumer_boots_with_backpressure_and_circuit_breaker() -> None:
             object_(RecordingAllocator(), provided_type=ISequenceAllocator),
             object_(inbox, provided_type=IInboxStore),
             object_(_durability(inbox, unit_of_work), provided_type=IDurabilityStore),
+            *node_registry_providers(),
         ],
     ):
         pass  # wiring builds the listener gate + inbound breaker without error
@@ -142,6 +144,7 @@ async def test_inbound_partition_by_without_allocator_raises_at_startup() -> Non
                 object_(unit_of_work, provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(_durability(inbox, unit_of_work), provided_type=IDurabilityStore),
+                *node_registry_providers(),
             ],
         ):
             pass  # pragma: no cover

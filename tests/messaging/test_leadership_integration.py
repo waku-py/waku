@@ -15,12 +15,11 @@ from uuid import uuid4
 
 import anyio
 import pytest
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
 from waku._internal.lease import ILease, InMemoryLease, LeaseConfig
-from waku.backends.sqlalchemy import SqlAlchemyBackend
 from waku.di import object_
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging import LeadershipConfig, MessagingConfig, MessagingModule, OutboxConfig
@@ -35,7 +34,7 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import RecordingAllocator, RecordingUoW
+from tests.messaging.helpers import RecordingAllocator, RecordingUoW, durability_providers
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 if TYPE_CHECKING:
@@ -104,21 +103,16 @@ def _lease_providers(lease: ILease, lease_config: LeaseConfig, *extra: Provider)
 class TestFailLoud:
     @staticmethod
     async def test_leadership_without_lease_provider_fails_loud() -> None:
-        # sqla backend registered WITHOUT engine= ⇒ no ILease provider; leadership configured ⇒ the
-        # coordinator fails loud at after_app_init, naming the engine remedy.
-        engine = create_async_engine('postgresql+psycopg://localhost/waku_leadership_test')
+        # A backend publishing durability stores but no ILease, with leadership configured ⇒ assembling
+        # the app fails loud at after_app_init, naming the engine remedy. In-memory durability keeps the
+        # node's own membership registration off any database while still exercising real assembly.
         config = MessagingConfig(outbox=OutboxConfig(), leadership=LeadershipConfig())
-        try:
-            with pytest.raises(ImproperlyConfiguredError, match='engine'):
-                async with create_test_app(
-                    imports=[
-                        MessagingModule.register(config),
-                        SqlAlchemyBackend.register(session_factory=_session_factory_over(engine)),
-                    ],
-                ):
-                    pass  # pragma: no cover -- after_app_init raises before the body runs
-        finally:
-            await engine.dispose()
+        with pytest.raises(ImproperlyConfiguredError, match='engine'):
+            async with create_test_app(
+                imports=[MessagingModule.register(config)],
+                providers=durability_providers(),
+            ):
+                pass  # pragma: no cover -- assembly raises before the body runs
 
     @staticmethod
     async def test_leadership_with_lease_but_no_lease_config_fails_loud() -> None:

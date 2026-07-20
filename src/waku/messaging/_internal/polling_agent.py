@@ -29,6 +29,7 @@ __all__ = [
     'IPaceStrategy',
     'Placement',
     'PollingAgent',
+    'Throttle',
     'log_fatal_task_death',
 ]
 
@@ -120,6 +121,27 @@ class FixedPace(IPaceStrategy):
         return self._seconds * random.uniform(1 - self._jitter_factor, 1 + self._jitter_factor)  # noqa: S311
 
 
+class Throttle:
+    """Monotonic time-gate: admits an action at most once per ``interval`` seconds.
+
+    Tracks the last pass on the ``time.monotonic()`` clock; ``ready`` returns True and resets the
+    window only once at least ``interval`` seconds have elapsed since the previous pass. Shared by
+    every agent whose tick carries a slower secondary duty than its poll cadence.
+    """
+
+    __slots__ = ('_interval', '_last_run')
+
+    def __init__(self, interval: float) -> None:
+        self._interval = interval
+        self._last_run = 0.0
+
+    def ready(self, now: float) -> bool:
+        if now - self._last_run < self._interval:
+            return False
+        self._last_run = now
+        return True
+
+
 class Placement(enum.Enum):
     """Deployment-topology marker. Documentation/wiring hook only — runtime never branches on it."""
 
@@ -137,6 +159,15 @@ class PollingAgent(abc.ABC):
     __slots__ = ('_pace', '_shutdown_event', '_stop_timeout', '_worker_task')
 
     placement: ClassVar[Placement]
+
+    retries_after_fatal: ClassVar[bool] = False
+    """Whether a fatal transaction signal is retried on the next tick instead of ending the loop.
+
+    Default False: an agent that cannot commit stops, and ``_on_worker_done`` reports the death at
+    CRITICAL — for a maintenance duty a visible stall beats a silently degraded loop. An agent whose
+    silence is itself harmful sets this True. It is never honoured for a fatal that surfaced alongside
+    a control-flow ``BaseException``, so retrying can never demote cancellation.
+    """
 
     def __init__(self, *, stop_timeout: timedelta) -> None:
         self._stop_timeout = stop_timeout
@@ -194,7 +225,18 @@ class PollingAgent(abc.ABC):
                 processed = await self._tick()
             except BaseException as error:
                 if fatal := extract_transaction_execution_error(error):
-                    if can_defer_transaction_fatal(error, fatal):
+                    deferrable = can_defer_transaction_fatal(error, fatal)
+                    # `deferrable or fatal is error` is exactly "no control-flow leaf rode along with
+                    # the fatal" — the only case a retrying agent may swallow.
+                    if (deferrable or fatal is error) and self.retries_after_fatal:
+                        # ERROR, not CRITICAL: the loop survives, so this is a degraded tick and not the
+                        # unrecovered death `_on_worker_done` reports.
+                        logger.exception(
+                            '%s tick failed with an unrecoverable transaction error, retrying next tick',
+                            type(self).__name__,
+                        )
+                        processed = 0
+                    elif deferrable:
                         fatal_to_raise = fatal
                     else:
                         raise

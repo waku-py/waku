@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import anyio.lowlevel
@@ -8,9 +8,11 @@ import pytest
 from typing_extensions import override
 
 from waku._internal.lease import ILease, InMemoryLease, LeaseConfig
+from waku._internal.node import INodeRegistry, NodeIdentity
 from waku.backends.memory import MemoryBackend
 from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.backends.memory._internal.inbox import InMemoryInboxStore
+from waku.backends.memory._internal.nodes import InMemoryNodeRegistry, InMemoryNodeRegistryState
 from waku.backends.memory._internal.outbox import InMemoryOutboxStore
 from waku.backends.memory._internal.sequence import InMemorySequenceAllocator
 from waku.backends.testing import (
@@ -21,6 +23,8 @@ from waku.backends.testing import (
     InboxStoreContract,
     LeaseBackend,
     LeaseContract,
+    NodeRegistryBackend,
+    NodeRegistryContract,
     OutboxStoreContract,
     SequenceAllocatorContract,
     SnapshotStoreContract,
@@ -78,6 +82,54 @@ class TestMemoryLeaseConformance(LeaseContract):
             store[name] = (holder, fixed_now)
 
         return LeaseBackend(make=make, expire=expire)
+
+
+class TestMemoryNodeRegistryConformance(NodeRegistryContract):
+    @pytest.fixture
+    @override
+    def node_registry_backend(self) -> NodeRegistryBackend:
+        state = InMemoryNodeRegistryState()
+        clock = _MovableClock(datetime(2026, 1, 1, tzinfo=UTC))
+
+        def make() -> INodeRegistry:
+            return InMemoryNodeRegistry(state=state, now=clock)
+
+        async def advance(by: timedelta) -> None:
+            await anyio.lowlevel.checkpoint()
+            clock.advance(by)
+
+        return NodeRegistryBackend(make=make, advance=advance)
+
+
+class _MovableClock:
+    __slots__ = ('_instant',)
+
+    def __init__(self, instant: datetime) -> None:
+        self._instant = instant
+
+    def __call__(self) -> datetime:
+        return self._instant
+
+    def advance(self, by: timedelta) -> None:
+        self._instant += by
+
+
+async def test_staleness_uses_store_clock_not_caller_clock() -> None:
+    # The store's clock sits decades away from the wall clock. Registration stamps the row from THAT
+    # clock, and the staleness predicate reads it from THAT clock too, so the row is brand new. Any
+    # implementation that sampled the caller's clock on either side would find the row decades stale
+    # and evict it — the cross-node skew defect this port's no-`now`-parameter contract forbids.
+    skewed = _MovableClock(datetime(2000, 1, 1, tzinfo=UTC))
+    registry = InMemoryNodeRegistry(now=skewed)
+    silent = NodeIdentity.create('node-a')
+    keeper = NodeIdentity.create('node-b')
+    await registry.register(silent, capabilities=frozenset())
+    await registry.register(keeper, capabilities=frozenset())
+
+    removed = await registry.evict_stale(stale_after=timedelta(seconds=60), keep=keeper.node_id)
+
+    assert removed == 0
+    assert len(await registry.load_all()) == 2
 
 
 class TestMemoryOutboxConformance(OutboxStoreContract):

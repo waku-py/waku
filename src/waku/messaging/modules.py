@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Final, Self, TypeAlias, assert_never, cas
 from typing_extensions import override
 
 from waku._internal.clock import Now, utc_now
+from waku._internal.node import INodeRegistry, NodeIdentity, NodeRegistryConfig
 from waku._internal.provider_scan import provided_type_hints
 from waku._internal.retort import default_retort
 from waku._internal.sentinel import MISSING
@@ -37,6 +38,7 @@ from waku.messaging._internal.dispatcher import MessageDispatcher
 from waku.messaging._internal.envelope_factory import EnvelopeFactory
 from waku.messaging._internal.identity import MessageTypeRegistry
 from waku.messaging._internal.maintenance import DurabilityMaintenanceLifecycleExtension, LeadershipCoordinator
+from waku.messaging._internal.node_membership import NodeMembershipLifecycleExtension
 from waku.messaging._internal.outbox_cascading import DeferredCascadeFlusher
 from waku.messaging._internal.ownership import AppScopeSource
 from waku.messaging._internal.routing_builder import RoutingTableBuilder
@@ -143,6 +145,9 @@ class MessagingModule:
             scoped(DeferredCascadeFlusher),
             object_(config_, provided_type=MessagingConfig),
             object_(utc_now, provided_type=Now),
+            # Always registered: ONE identity per process, so every durable-row owner and the
+            # membership agent stamp the same token regardless of which durability facets are on.
+            singleton(NodeIdentity, _build_node_identity),
             singleton(MessageTypeRegistry, _build_message_type_registry),
             singleton(PayloadCodec, _build_envelope_codec),
             singleton(EnvelopeFactory),
@@ -156,7 +161,13 @@ class MessagingModule:
             transient(MessageContext, get_message_context),
             *cls._infrastructure_providers(config_),
         ]
+        # Unconditional per node — never leader-gated and never gated on leadership being set: a node
+        # registers because it exists. First in the list so LIFO shutdown deregisters it last, once
+        # every claimer has stopped, which is also why it is registered here rather than switched on
+        # later: whether this process must be a member depends on the aggregated handler map, so
+        # HandlerMapAggregator arms it once that answer exists.
         extensions: list[ModuleExtension] = [
+            NodeMembershipLifecycleExtension(),
             HandlerMapAggregator(config_),
             EndpointLifecycleExtension(),
             _UnitOfWorkValidationExtension(config_),
@@ -292,8 +303,13 @@ def _requires_dead_letter_store(handler_map: HandlerMap, config: MessagingConfig
     return any(policies_need_dead_letter(handler_type.error_policies) for handler_type in handler_map.handler_types())
 
 
+def _durability_configured(config: MessagingConfig) -> bool:
+    """Whether this configuration can write durable rows, and therefore needs a node owning them."""
+    return any((config.outbox, config.inbox, config.dead_letter))
+
+
 def _durability_required(handler_map: HandlerMap, config: MessagingConfig) -> bool:
-    return any((config.outbox, config.inbox, config.dead_letter)) or _requires_dead_letter_store(handler_map, config)
+    return _durability_configured(config) or _requires_dead_letter_store(handler_map, config)
 
 
 def _resolve_mode(entry: LocalQueueEntry, config: MessagingConfig) -> EndpointMode:
@@ -513,6 +529,10 @@ def _build_audited_member_resolver(config: MessagingConfig) -> AuditedMemberReso
     for message_type in config.audited_members:
         resolver.resolve(message_type)  # startup fail-fast on a config typo (ImproperlyConfiguredError)
     return resolver
+
+
+def _build_node_identity(config: MessagingConfig) -> NodeIdentity:
+    return NodeIdentity.create(config.node_description)
 
 
 def _endpoint_observer_types(config: MessagingConfig) -> tuple[type[IMessageObserver], ...]:
@@ -754,7 +774,9 @@ class HandlerMapAggregator(RegistryAggregator['MessagingExtension', HandlerMap])
 
         provided = provided_type_hints(registry)
         self._require_store_providers(provided, aggregated)
+        self._require_node_registry_when_durable(provided, aggregated)
         self._require_sequence_allocator_when_active(provided)
+        self._arm_node_membership(registry, aggregated)
 
         handler_policies = {
             handler_type: handler_type.error_policies
@@ -808,6 +830,35 @@ class HandlerMapAggregator(RegistryAggregator['MessagingExtension', HandlerMap])
                 'in your root module imports.'
             )
             raise ImproperlyConfiguredError(msg)
+
+    def _require_node_registry_when_durable(self, provided: 'frozenset[Any]', handler_map: HandlerMap) -> None:
+        # No degraded mode: every durable row is owned by a node, and membership is the only evidence
+        # that owner is still alive. An app that can write such rows without an oracle would have to
+        # fall back on row age, which is precisely the predicate that reclaims healthy work. The
+        # predicate is the sibling store gate's, not the narrower config-only one: a handler whose
+        # error_policies move to dead letter writes durable rows with no durable sub-config declared.
+        # Both shipped backends publish the pair, so only manual assembly reaches this.
+        if not _durability_required(handler_map, self._config):
+            return
+        for port in (INodeRegistry, NodeRegistryConfig):
+            if port in provided:
+                continue
+            msg = (
+                f'durability is configured but no module provides {port.__name__}. A backend must publish '
+                'INodeRegistry and NodeRegistryConfig together, the way it publishes ILease and LeaseConfig. '
+                'Import a durability backend, e.g. SqlAlchemyBackend.register(session_factory=...) '
+                'from waku.backends.sqlalchemy, in your root module imports.'
+            )
+            raise ImproperlyConfiguredError(msg)
+
+    def _arm_node_membership(self, registry: ModuleMetadataRegistry, handler_map: HandlerMap) -> None:
+        # The extension is registered before any handler map exists, because its shutdown position is
+        # load-bearing (deregister last). Here — the one phase where the aggregated map is known and
+        # the same authority that just required the registry — it learns whether this process must
+        # actually be a member.
+        required = _durability_required(handler_map, self._config)
+        for _module_type, membership in registry.find_extensions(NodeMembershipLifecycleExtension):
+            membership.set_required(required=required)
 
     def _require_sequence_allocator_when_active(self, provided: 'frozenset[Any]') -> None:
         # The allocator's CONSUMER activation condition, not just the user's partition intent: the

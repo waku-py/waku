@@ -43,6 +43,7 @@ from tests.messaging.helpers import (
     StubEndpointExecution,
     make_codec,
     make_envelope,
+    node_registry_providers,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
@@ -565,6 +566,7 @@ async def test_build_inbox_drainer_executor_enforces_config_deadline() -> None:
             object_(fake_inbox, provided_type=IInboxStore),
             object_(RecordingAllocator(), provided_type=ISequenceAllocator),
             object_(durability, provided_type=IDurabilityStore),
+            *node_registry_providers(),
         ],
     ) as app:
         codec = await app.container.get(PayloadCodec)

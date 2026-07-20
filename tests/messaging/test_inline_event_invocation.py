@@ -31,7 +31,12 @@ from waku.messaging.exceptions import HandlerNotFoundError
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.messaging.helpers import RecordingDeadLetterStore, RecordingDurabilityStore, RecordingUoW
+from tests.messaging.helpers import (
+    RecordingDeadLetterStore,
+    RecordingDurabilityStore,
+    RecordingUoW,
+    node_registry_providers,
+)
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
@@ -95,6 +100,7 @@ def _cascading_app(extension: MessagingExtension) -> AbstractAsyncContextManager
             scoped(IUnitOfWork, _fresh_uow),
             object_(outbox, provided_type=IOutboxStore),
             scoped(IDurabilityStore, _cascading_durability),
+            *node_registry_providers(),
         ],
         imports=[MessagingModule.register(config)],
         extensions=[extension],

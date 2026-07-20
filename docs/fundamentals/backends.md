@@ -266,6 +266,7 @@ A backend is an `is_global=True` module (no exports) with a classmethod `registe
 | Committer port | `waku.uow` | `IUnitOfWork` |
 | Sequencing port | `waku.messaging.sequence` | `ISequenceAllocator` |
 | Coordination lease | `waku` | `ILease`, `LeaseConfig` |
+| Cluster membership | `waku` | `INodeRegistry`, `NodeRegistryConfig` |
 | First-party SQLAlchemy parts | `waku.backends.sqlalchemy` | the store classes, `SqlAlchemySequenceAllocator`, `SqlAlchemyUnitOfWork`, `*Tables` + `bind_*_tables`, `make_sqlalchemy_*`, `EnumFromValues` |
 | Module + DI machinery | `waku`, `waku.di` | `module`, `DynamicModule`; `scoped`, `singleton`, `Has` |
 | Gating configs | `waku.messaging`, `waku.eventsourcing.modules` | `MessagingConfig`, `EventSourcingConfig` |
@@ -293,10 +294,17 @@ The contract a backend implements:
    publish both an `ILease` provider and the `LeaseConfig` it was built from — the one lease-timing
    authority both the leadership coordinator and the projection daemon resolve. A leadership- or
    projection-active app whose backend publishes only one of the pair fails loud at startup.
-6. **Module shape.** `is_global=True`, no exports.
-7. **Exactly one backend per app.** Say so in your docstring; a second backend fails the container
+6. **Membership publication.** A backend that supports messaging durability MUST publish both an
+   `INodeRegistry` provider and the `NodeRegistryConfig` it was built from, registered independently of
+   `IDurabilityStore` exactly as the lease is. Membership records which node instances exist and which
+   are proving liveness; it is the port durability recovery will consult. An app configuring `outbox`,
+   `inbox`, or `dead_letter` whose backend publishes neither or only one of the pair fails loud at
+   startup — there is no time-based fallback. The registry's staleness arithmetic must use the store's
+   clock on both sides of every comparison.
+7. **Module shape.** `is_global=True`, no exports.
+8. **Exactly one backend per app.** Say so in your docstring; a second backend fails the container
    build ([above](#one-backend-per-app)).
-8. **Conformance.** Your test suite subclasses `BackendAssemblyContract` (overriding
+9. **Conformance.** Your test suite subclasses `BackendAssemblyContract` (overriding
    `backend_module`) plus the per-store contracts for every subsystem you support. Passing the kit
    is what "is a waku backend" means.
 

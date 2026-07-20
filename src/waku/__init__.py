@@ -1,4 +1,5 @@
 from waku._internal.lease import ILease, LeaseConfig
+from waku._internal.node import INodeRegistry, NodeId, NodeIdentity, NodeRegistration, NodeRegistryConfig
 from waku.application import WakuApplication
 from waku.exceptions import ImproperlyConfiguredError, UnexpectedRollbackError, WakuError
 from waku.factory import ContainerConfig, WakuFactory
@@ -11,12 +12,17 @@ __all__ = [
     'ContainerConfig',
     'DynamicModule',
     'ILease',
+    'INodeRegistry',
     'IUnitOfWork',
     'ImproperlyConfiguredError',
     'LeaseConfig',
     'LifespanFunc',
     'LifespanWrapper',
     'Module',
+    'NodeId',
+    'NodeIdentity',
+    'NodeRegistration',
+    'NodeRegistryConfig',
     'UnexpectedRollbackError',
     'WakuApplication',
     'WakuError',

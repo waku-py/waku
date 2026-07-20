@@ -30,6 +30,7 @@ and `MessagingModule.register(MessagingConfig())` are equivalent.
 | `outbox` | `OutboxConfig \| None` | `None` | Outbox relay tuning (see [Outbox](../features/messaging/outbox.md)) |
 | `inbox` | `InboxConfig \| None` | `None` | Durable inbox knobs for external listeners (see [Durable inbox](../features/messaging/inbox.md)) |
 | `leadership` | `LeadershipConfig \| None` | `None` | Opt-in cluster leader election gating durability maintenance to one node (see below) |
+| `node_description` | `str` | `''` | Diagnostics label for this process's node-registry row; blank derives `'<hostname>:<pid>'` (see [Node registry](#node-registry)) |
 | `message_identities` | `Mapping[type[IMessage], str \| MessageIdentity]` | `{}` | Third-party type-name overrides for types you can't annotate; default path is the ClassVar |
 | `audited_members` | `Mapping[type[IMessage], Sequence[str]]` | `{}` | Third-party audit-member overrides; names must be annotated fields (see [Observability](../features/messaging/observability.md)) |
 | `observers` | `Sequence[type[IMessageObserver]]` | `()` | Global message observers (fire on every message incl. `invoke()`), DI-constructed at app scope |
@@ -73,6 +74,34 @@ with `SqlAlchemyBackend.register(lease_config=LeaseConfig(...))` / `MemoryBacken
 |---|---|---|---|
 | `role` | `str` | `'waku:leader'` | The lease key; the `waku:` prefix is reserved for framework-owned roles |
 | `stop_timeout` | `timedelta` | `timedelta(seconds=10)` | Strictly positive grace period before maintenance cancellation |
+
+### Node registry
+
+Every node of a durability-configured app registers itself in the cluster's membership table while it
+boots, heartbeats for as long as it runs, and deregisters on clean shutdown. Registration is
+unconditional and per node — it is not gated on `leadership`: a node registers because it exists, not
+because it won anything. An app that can write durable rows without a backend publishing
+`INodeRegistry` and `NodeRegistryConfig` (from `waku`) fails at startup with
+`ImproperlyConfiguredError` — there is no time-based fallback. "Can write durable rows" is the same
+condition that requires the durability stores themselves: `outbox`, `inbox`, or `dead_letter`
+configured, *or* a handler whose `error_policies` move a message to the dead-letter store.
+
+A membership transaction that fails is logged at `ERROR` and retried on the next heartbeat; the loop
+is never torn down and the process is never shut down for it. A node that cannot reach the store goes
+stale on the store's own clock, which is what its peers act on.
+
+Timing is owned by the durability backend, like lease timing: tune it with
+`SqlAlchemyBackend.register(node_registry_config=NodeRegistryConfig(...))` / `MemoryBackend.register(...)`.
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `heartbeat_interval` | `timedelta` | `timedelta(seconds=10)` | How often this node proves it is alive |
+| `stale_after` | `timedelta` | `timedelta(seconds=60)` | Silence beyond which a node is declared dead; must be at least 3x `heartbeat_interval`, so a merely-slow node does not flap in and out of the cluster |
+| `evict_interval` | `timedelta` | `timedelta(seconds=60)` | How often this node sweeps the registry for dead peers |
+| `stop_timeout` | `timedelta` | `timedelta(seconds=5)` | Grace period for the membership loop to finish its tick on shutdown |
+
+All four must be strictly positive; staleness is always evaluated with the store's clock, never the
+caller's, so clock skew between nodes cannot declare a healthy node dead.
 
 ---
 

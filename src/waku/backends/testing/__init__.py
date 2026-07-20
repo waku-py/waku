@@ -11,6 +11,7 @@ from waku.backends.testing.event_store import (
 )
 from waku.backends.testing.inbox import InboxStoreContract
 from waku.backends.testing.lease import LeaseBackend, LeaseContract
+from waku.backends.testing.nodes import NodeRegistryBackend, NodeRegistryContract
 from waku.backends.testing.outbox import OutboxStoreContract, make_outbox_message
 from waku.backends.testing.sequence import SequenceAllocatorContract
 from waku.backends.testing.snapshot import SnapshotStoreContract
@@ -25,6 +26,8 @@ __all__ = [
     'ItemAdded',
     'LeaseBackend',
     'LeaseContract',
+    'NodeRegistryBackend',
+    'NodeRegistryContract',
     'OrderCreated',
     'OrderShipped',
     'OutboxStoreContract',

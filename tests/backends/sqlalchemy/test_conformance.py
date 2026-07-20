@@ -17,6 +17,7 @@ from waku.backends.sqlalchemy import (
     SqlAlchemyDeadLetterStore,
     SqlAlchemyEventStore,
     SqlAlchemyInboxStore,
+    SqlAlchemyNodeRegistry,
     SqlAlchemyOutboxStore,
     SqlAlchemySnapshotStore,
     bind_checkpoint_tables,
@@ -24,6 +25,7 @@ from waku.backends.sqlalchemy import (
     bind_event_store_tables,
     bind_inbox_tables,
     bind_lease_tables,
+    bind_node_tables,
     bind_outbox_tables,
     bind_sequence_tables,
     bind_snapshot_tables,
@@ -36,6 +38,8 @@ from waku.backends.testing import (
     InboxStoreContract,
     LeaseBackend,
     LeaseContract,
+    NodeRegistryBackend,
+    NodeRegistryContract,
     OutboxStoreContract,
     SequenceAllocatorContract,
     SnapshotStoreContract,
@@ -47,10 +51,12 @@ from tests.backends.sqlalchemy.conftest import pg_session_for
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Sequence
+    from datetime import timedelta
 
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from waku import DynamicModule
+    from waku._internal.node import INodeRegistry
     from waku.backends.testing import EventStoreFactory
     from waku.eventsourcing.contracts.event import IMetadataEnricher
     from waku.eventsourcing.projection.interfaces import IProjection
@@ -104,6 +110,7 @@ class TestSqlAlchemyBackendAssembly(BackendAssemblyContract):
         bind_event_store_tables(metadata)
         bind_snapshot_tables(metadata)
         bind_checkpoint_tables(metadata)
+        bind_node_tables(metadata)
         async with pg_engine.begin() as conn:
             await conn.run_sync(metadata.create_all)
         yield
@@ -168,6 +175,27 @@ class TestSqlAlchemyAdvisoryLeaseConformance(LeaseContract):
             raise NotImplementedError
 
         return LeaseBackend(make=make, expire=expire)
+
+
+class TestSqlAlchemyNodeRegistryConformance(NodeRegistryContract):
+    @pytest.fixture
+    @override
+    async def node_registry_backend(self, pg_engine: AsyncEngine) -> AsyncIterator[NodeRegistryBackend]:
+        async with pg_session_for(pg_engine, bind_node_tables) as session:
+
+            def make() -> INodeRegistry:
+                return SqlAlchemyNodeRegistry(session)
+
+            async def advance(by: timedelta) -> None:
+                # The store's clock is the database's and cannot be moved, so age the rows instead:
+                # shifting every stored timestamp back by `by` is observationally identical to the
+                # server clock jumping forward, and needs no sleep.
+                await session.execute(
+                    text('UPDATE waku_nodes SET started_at = started_at - :by, last_heartbeat = last_heartbeat - :by'),
+                    {'by': by},
+                )
+
+            yield NodeRegistryBackend(make=make, advance=advance)
 
 
 class TestSqlAlchemyOutboxConformance(OutboxStoreContract):

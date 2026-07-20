@@ -44,6 +44,7 @@ from tests.messaging.helpers import (
     durability_for_inbox_and_dead_letters,
     make_envelope,
     make_inbox_entry,
+    node_registry_providers,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
@@ -122,6 +123,7 @@ class TestDurableInboxIntegration:
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     scoped(IDurabilityStore, durability_for_inbox),
+                    *node_registry_providers(),
                 ],
             ) as app,
             app.container() as container,
@@ -148,6 +150,7 @@ class TestDurableInboxIntegration:
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     scoped(IDurabilityStore, durability_for_inbox),
+                    *node_registry_providers(),
                 ],
             ) as app,
             app.container() as container,
@@ -179,6 +182,7 @@ class TestDurableInboxIntegration:
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     scoped(IDurabilityStore, durability_for_inbox),
+                    *node_registry_providers(),
                 ],
             ) as app,
             app.container() as container,
@@ -213,6 +217,7 @@ class TestDurableInboxIntegration:
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     object_(standalone_dlq, provided_type=IDeadLetterStore),
                     scoped(IDurabilityStore, durability_for_inbox_and_dead_letters),
+                    *node_registry_providers(),
                 ],
             ) as app,
             app.container() as container,
@@ -247,6 +252,7 @@ class TestDurableInboxIntegration:
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     scoped(IDurabilityStore, durability_for_inbox),
+                    *node_registry_providers(),
                 ],
             ) as app,
             app.container() as container,
@@ -280,6 +286,7 @@ class TestDurableInboxIntegration:
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     scoped(IDurabilityStore, durability_for_inbox),
+                    *node_registry_providers(),
                 ],
             ) as app,
             app.container() as container,
@@ -378,6 +385,7 @@ class TestDurableInboxIntegration:
                 object_(standalone_dlq, provided_type=IDeadLetterStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IDurabilityStore, durability_for_inbox_and_dead_letters),
+                *node_registry_providers(),
             ],
         ) as app:
             codec = await app.container.get(PayloadCodec)
@@ -412,6 +420,7 @@ class TestDurableInboxIntegration:
                 object_(dlq, provided_type=IDeadLetterStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IDurabilityStore, durability_for_inbox_and_dead_letters),
+                *node_registry_providers(),
             ],
         ) as app:
             codec = await app.container.get(PayloadCodec)
@@ -454,6 +463,7 @@ class TestDurableInboxIntegration:
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IDurabilityStore, durability_for_inbox),
+                *node_registry_providers(),
                 singleton(EndpointSink),
             ],
         ) as app:
@@ -491,6 +501,7 @@ class TestDurableInboxIntegration:
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IDurabilityStore, durability_for_inbox),
+                *node_registry_providers(),
             ],
         ) as app:
             codec = await app.container.get(PayloadCodec)
@@ -532,6 +543,7 @@ class TestDurableInboxIntegration:
                 object_(inbox, provided_type=IInboxStore),
                 object_(allocator, provided_type=ISequenceAllocator),
                 scoped(IDurabilityStore, durability_for_inbox),
+                *node_registry_providers(),
             ],
         ) as app:
             codec = await app.container.get(PayloadCodec)

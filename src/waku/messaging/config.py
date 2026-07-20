@@ -134,6 +134,10 @@ class MessagingConfig:
     leadership: LeadershipConfig | None = None
     """Opt-in cluster leader election gating the durability maintenance agent (see :class:`LeadershipConfig`).
     Default ``None`` = every node runs maintenance unconditionally."""
+    node_description: str = ''
+    """Diagnostics label for this process's node-registry row; blank derives ``'<hostname>:<pid>'``.
+    Never an identity — ownership is compared on the per-process ``NodeId`` alone, so two nodes may
+    safely share a label."""
     # The three Mapping fields default to MappingProxyType({}) for deep immutability (no stdlib mapping is
     # both deeply-immutable and picklable). Tradeoff: a default-constructed MessagingConfig is not
     # copy.deepcopy/pickle-able (mappingproxy cannot pickle); dataclasses.replace passes it through fine.

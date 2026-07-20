@@ -36,7 +36,12 @@ from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
 from tests._wait import wait_until
-from tests.messaging.helpers import RecordingAllocator, RecordingUoW, durability_for_outbox_and_inbox
+from tests.messaging.helpers import (
+    RecordingAllocator,
+    RecordingUoW,
+    durability_for_outbox_and_inbox,
+    node_registry_providers,
+)
 from tests.messaging.inbox.fake_store import FakeInboxStore
 
 
@@ -82,6 +87,7 @@ class TestTransportCollectionIntegration:
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     scoped(IDurabilityStore, durability_for_outbox_and_inbox),
+                    *node_registry_providers(),
                 ],
             ) as app,
             app.container() as c,

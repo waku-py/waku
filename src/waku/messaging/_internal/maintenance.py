@@ -28,6 +28,7 @@ from waku.messaging._internal.polling_agent import (
     FixedPace,
     Placement,
     PollingAgent,
+    Throttle,
     log_fatal_task_death,
 )
 from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
@@ -59,29 +60,9 @@ logger = logging.getLogger(__name__)
 _PROMOTION_JITTER_FACTOR: Final[float] = 0.1
 
 
-class _Throttle:
-    """Monotonic time-gate: admits an action at most once per ``interval`` seconds.
-
-    Tracks the last pass on the ``time.monotonic()`` clock; ``ready`` returns True and resets the
-    window only once at least ``interval`` seconds have elapsed since the previous pass.
-    """
-
-    __slots__ = ('_interval', '_last_run')
-
-    def __init__(self, interval: float) -> None:
-        self._interval = interval
-        self._last_run = 0.0
-
-    def ready(self, now: float) -> bool:
-        if now - self._last_run < self._interval:
-            return False
-        self._last_run = now
-        return True
-
-
 async def _run_retention_cleanup(
     container: AsyncContainer,
-    throttle: _Throttle,
+    throttle: Throttle,
     retention: timedelta | None,
     now_fn: Now,
     delete_fn: Callable[[AsyncContainer, timedelta, datetime], Awaitable[int]],
@@ -127,8 +108,8 @@ class _OutboxMaintenancePoller(PollingAgent):
         self._container = container
         self._config = config
         self._now = now
-        self._recovery_throttle = _Throttle(config.recovery_interval.total_seconds())
-        self._cleanup_throttle = _Throttle(config.cleanup_interval.total_seconds())
+        self._recovery_throttle = Throttle(config.recovery_interval.total_seconds())
+        self._cleanup_throttle = Throttle(config.cleanup_interval.total_seconds())
         super().__init__(stop_timeout=config.stop_timeout)
 
     @override
@@ -178,7 +159,7 @@ class _DlqMaintenancePoller(PollingAgent):
         self._now = now
         self._owner = ReplayClaimOwner(container=container, config=config, now=now)
         self._execution = _ScopedReplayExecution(container)
-        self._cleanup_throttle = _Throttle(config.cleanup_interval.total_seconds())
+        self._cleanup_throttle = Throttle(config.cleanup_interval.total_seconds())
         super().__init__(stop_timeout=config.stop_timeout)
 
     @override

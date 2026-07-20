@@ -23,6 +23,7 @@ from waku.backends.sqlalchemy import (
     SqlAlchemyBackend,
     bind_dead_letter_tables,
     bind_inbox_tables,
+    bind_node_tables,
     bind_outbox_tables,
     bind_sequence_tables,
 )
@@ -73,6 +74,7 @@ from tests.messaging.helpers import (
     RecordingUoW,
     StubSubscription,
     make_envelope,
+    node_registry_providers,
 )
 
 if TYPE_CHECKING:
@@ -273,6 +275,7 @@ def _durability_providers(
         object_(inbox if inbox is not None else InMemoryInboxStore(dlq), provided_type=IInboxStore),
         object_(dlq, provided_type=IDeadLetterStore),
         scoped(IDurabilityStore, _durability),
+        *node_registry_providers(),
     ]
     if with_allocator:
         providers.append(object_(RecordingAllocator(), provided_type=ISequenceAllocator))
@@ -503,6 +506,8 @@ class _SqlReplayLivenessHarness:
         bind_inbox_tables(self.metadata)
         bind_dead_letter_tables(self.metadata)
         bind_sequence_tables(self.metadata)
+        # Membership is part of the durability schema now: the app registers this node while it boots.
+        bind_node_tables(self.metadata)
         self.trace = _SqlReplayTrace()
         self.control = _SqlReplayControl(self.trace)
         self.clock = _StepClock()
@@ -1085,6 +1090,7 @@ async def test_replay_of_handler_entry_does_not_commit_worker_claim_tx() -> None
                 object_(InMemoryInboxStore(dlq), provided_type=IInboxStore),
                 object_(dlq, provided_type=IDeadLetterStore),
                 scoped(IDurabilityStore, _durability),
+                *node_registry_providers(),
             ],
         ) as app,
         app.container() as scope,

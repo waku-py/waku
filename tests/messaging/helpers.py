@@ -8,10 +8,16 @@ import anyio
 from dishka import Provider, Scope, provide
 from typing_extensions import override
 
+from waku._internal.node import INodeRegistry, NodeRegistryConfig
 from waku._internal.retort import default_retort
 from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
+from waku.backends.memory._internal.nodes import InMemoryNodeRegistry
 from waku.backends.memory._internal.outbox import InMemoryOutboxStore
-from waku.di import object_, scoped
+from waku.di import (
+    Provider as WakuProvider,
+    object_,
+    scoped,
+)
 from waku.messaging.contracts.envelope import MessageEnvelope
 from waku.messaging.durability import (
     DefaultDurabilityStore,
@@ -301,19 +307,35 @@ def durability_for_dead_letters(
     )
 
 
+def node_registry_providers() -> list[WakuProvider]:
+    """Membership pair every durability-configured app must publish, as the wiring gate requires.
+
+    One shared registry object rather than a scoped one: real backends keep membership in committed
+    rows, so it must outlive the request scope that wrote it.
+    """
+    return [
+        object_(InMemoryNodeRegistry(), provided_type=INodeRegistry),
+        object_(NodeRegistryConfig(), provided_type=NodeRegistryConfig),
+    ]
+
+
 def durability_providers(
     inbox: IInboxStore | None = None,
     *,
+    with_node_registry: bool = True,
     extra: Sequence[Provider] = (),
 ) -> list[Provider]:
     """In-memory durability provider set for messaging integration apps.
 
     A shared ``inbox`` instance is supplied via ``object_`` when given; otherwise a fresh
-    ``FakeInboxStore`` is request-scoped. ``extra`` appends call-site-specific providers.
+    ``FakeInboxStore`` is request-scoped. The node registry is shared as one object so membership
+    survives across request scopes the way a real backend's rows do; ``with_node_registry=False``
+    reproduces the misassembly the wiring gate rejects. ``extra`` appends call-site-specific providers.
     """
     inbox_provider = (
         object_(inbox, provided_type=IInboxStore) if inbox is not None else scoped(IInboxStore, FakeInboxStore)
     )
+    registry_providers = node_registry_providers() if with_node_registry else []
     return [
         object_(RecordingUoW(), provided_type=IUnitOfWork),
         inbox_provider,
@@ -321,6 +343,7 @@ def durability_providers(
         scoped(IDeadLetterStore, InMemoryDeadLetterStore),
         scoped(IOutboxStore, InMemoryOutboxStore),
         scoped(IDurabilityStore, DefaultDurabilityStore),
+        *registry_providers,
         *extra,
     ]
 

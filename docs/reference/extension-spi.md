@@ -199,6 +199,7 @@ SQLAlchemy durability backend: entry point, store adapters, tables.
 `EventStoreTables` ·
 `InboxTables` ·
 `LeaseTables` ·
+`NodeTables` ·
 `OutboxTables` ·
 `PostgresAdvisoryLease` ·
 `PostgresLease` ·
@@ -209,6 +210,7 @@ SQLAlchemy durability backend: entry point, store adapters, tables.
 `SqlAlchemyDeadLetterStore` ·
 `SqlAlchemyEventStore` ·
 `SqlAlchemyInboxStore` ·
+`SqlAlchemyNodeRegistry` ·
 `SqlAlchemyOutboxStore` ·
 `SqlAlchemySequenceAllocator` ·
 `SqlAlchemySnapshotStore` ·
@@ -218,6 +220,7 @@ SQLAlchemy durability backend: entry point, store adapters, tables.
 `bind_event_store_tables` ·
 `bind_inbox_tables` ·
 `bind_lease_tables` ·
+`bind_node_tables` ·
 `bind_outbox_tables` ·
 `bind_sequence_tables` ·
 `bind_snapshot_tables` ·
@@ -242,6 +245,8 @@ Backend-author conformance kit: assembly and facet contract suites.
 `ItemAdded` ·
 `LeaseBackend` ·
 `LeaseContract` ·
+`NodeRegistryBackend` ·
+`NodeRegistryContract` ·
 `OrderCreated` ·
 `OrderShipped` ·
 `OutboxStoreContract` ·

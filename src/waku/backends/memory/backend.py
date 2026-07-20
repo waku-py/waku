@@ -8,6 +8,7 @@ from typing_extensions import override
 
 from waku._internal.clock import Now
 from waku._internal.lease import DEFAULT_LEASE_CONFIG, ILease, InMemoryLease, LeaseConfig
+from waku._internal.node import DEFAULT_NODE_REGISTRY_CONFIG, INodeRegistry, NodeRegistryConfig
 from waku._internal.provider_scan import provided_type_hints
 from waku.backends.memory._internal.dead_letter import WorkspaceDeadLetterStore
 from waku.backends.memory._internal.eventsourcing import (
@@ -16,6 +17,7 @@ from waku.backends.memory._internal.eventsourcing import (
     WorkspaceSnapshotStore,
 )
 from waku.backends.memory._internal.inbox import WorkspaceInboxStore
+from waku.backends.memory._internal.nodes import WorkspaceNodeRegistry
 from waku.backends.memory._internal.outbox import WorkspaceOutboxStore
 from waku.backends.memory._internal.sequence import WorkspaceSequenceAllocator
 from waku.backends.memory._internal.transaction import (
@@ -142,6 +144,13 @@ def _build_in_memory_inbox_store(
     return WorkspaceInboxStore(dead_letters, workspace.accessor)
 
 
+def _build_in_memory_node_registry(workspace: InMemoryTransactionWorkspace) -> INodeRegistry:
+    # Deliberately on the default clock, unlike the lease: membership is published unconditionally, and
+    # the registration-time gate that requires it reads only statically declared providers, so it cannot
+    # move to the wiring extension where the messaging/ES-only clock split is decided.
+    return WorkspaceNodeRegistry(workspace.accessor)
+
+
 def _build_in_memory_sequence_allocator(workspace: InMemoryTransactionWorkspace) -> ISequenceAllocator:
     return WorkspaceSequenceAllocator(workspace.accessor)
 
@@ -167,7 +176,12 @@ class MemoryBackend:
     """
 
     @classmethod
-    def register(cls, *, lease_config: LeaseConfig = DEFAULT_LEASE_CONFIG) -> DynamicModule:
+    def register(
+        cls,
+        *,
+        lease_config: LeaseConfig = DEFAULT_LEASE_CONFIG,
+        node_registry_config: NodeRegistryConfig = DEFAULT_NODE_REGISTRY_CONFIG,
+    ) -> DynamicModule:
         return DynamicModule(
             parent_module=cls,
             providers=[
@@ -178,6 +192,10 @@ class MemoryBackend:
                 scoped(IInboxStore, _build_in_memory_inbox_store),
                 scoped(IDeadLetterStore, _build_in_memory_dead_letter_store),
                 scoped(ISequenceAllocator, _build_in_memory_sequence_allocator),
+                # Membership is registered independently of IDurabilityStore, exactly as the lease is:
+                # it is not a durability facet, and future non-messaging consumers read the same rows.
+                scoped(INodeRegistry, _build_in_memory_node_registry),
+                object_(node_registry_config, provided_type=NodeRegistryConfig),
                 scoped(ISnapshotStore, _build_in_memory_snapshot_store),
                 scoped(ICheckpointStore, _build_in_memory_checkpoint_store),
                 # The two composites are the only gated providers (gate budget = 2).

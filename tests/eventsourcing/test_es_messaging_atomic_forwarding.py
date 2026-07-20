@@ -19,6 +19,7 @@ from waku.eventsourcing import ForwardDescriptor, forward
 from waku.eventsourcing.contracts.stream import StreamId
 from waku.eventsourcing.modules import EventSourcingConfig, EventSourcingExtension, EventSourcingModule
 from waku.eventsourcing.store.interfaces import IEventStore
+from waku.factory import WakuFactory
 from waku.integrations.eventsourcing_messaging import EventSourcedVoidCommandHandler, EventSourcingMessagingModule
 from waku.messages import IEvent
 from waku.messaging import (
@@ -34,7 +35,6 @@ from waku.messaging import (
 )
 from waku.messaging.durability import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage
-from waku.testing import create_test_app
 
 from tests.eventsourcing.domain import Note, NoteCreated, NoteEdited, NoteRepository
 from tests.integrations.eventsourcing_messaging.domain import CreateNote, CreateNoteHandler
@@ -164,12 +164,14 @@ async def _forwarding_app(
     class _AppModule:
         pass
 
+    # Built, not entered: registration binds the tables onto ``metadata``, and the schema must exist
+    # before initialization, which commits this node's registry row.
+    app = WakuFactory(_AppModule).create()
     try:
-        async with create_test_app(imports=[_AppModule]) as app:
-            async with pg_engine.begin() as conn:
-                await conn.run_sync(metadata.create_all)
-            async with app.container() as container:
-                yield container
+        async with pg_engine.begin() as conn:
+            await conn.run_sync(metadata.create_all)
+        async with app, app.container() as container:
+            yield container
     finally:
         async with pg_engine.begin() as conn:
             await conn.run_sync(metadata.drop_all)

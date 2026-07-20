@@ -51,6 +51,7 @@ from tests.messaging.helpers import (
     RecordingUoW,
     make_codec,
     make_envelope,
+    node_registry_providers,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
@@ -441,6 +442,7 @@ async def test_replay_bidirectional_endpoint_dispatches() -> None:
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IOutboxStore, RecordingOutboxStore),
                 scoped(IDurabilityStore, _durability),
+                *node_registry_providers(),
             ],
         ) as app,
         app.container() as scope,
@@ -488,6 +490,7 @@ async def test_replay_handler_kind_dispatches_resolved_handler() -> None:
                 scoped(IInboxStore, FakeInboxStore),
                 object_(dlq_store, provided_type=IDeadLetterStore),
                 scoped(IDurabilityStore, _durability),
+                *node_registry_providers(),
             ],
         ) as app,
         app.container() as scope,
@@ -532,6 +535,7 @@ async def test_replay_handler_rollback_failure_escapes_instead_of_marking_replay
                 scoped(IInboxStore, FakeInboxStore),
                 object_(dlq_store, provided_type=IDeadLetterStore),
                 scoped(IDurabilityStore, _durability),
+                *node_registry_providers(),
             ],
         ) as app,
         app.container() as scope,
@@ -577,18 +581,23 @@ async def test_replay_post_dispatch_mark_failure_is_not_reported_as_handler_fail
                 scoped(IInboxStore, FakeInboxStore),
                 object_(dlq_store, provided_type=IDeadLetterStore),
                 scoped(IDurabilityStore, _durability),
+                *node_registry_providers(),
             ],
         ) as app,
         app.container() as scope,
     ):
         await dlq_store.save(entry)
         replayer = await scope.get(ReplayExecutor)
+        # Startup already committed this node's registry row through the same shared double, and
+        # shutdown will delete it; only the replay's own transactions are under test.
+        commits_before_replay = uow.commit_count
         with pytest.raises(RuntimeError) as raised:
             await replayer.replay(entry)
+        replay_commits = uow.commit_count - commits_before_replay
 
     assert raised.value is mark_error
     assert calls == ['post-commit-mark-failure']
-    assert uow.commit_count == 2
+    assert replay_commits == 2
     assert uow.rollback_count == 1
     assert dlq_store.mark_calls == 1
     assert dlq_store.replayed == []
@@ -981,6 +990,7 @@ async def test_endpoint_replay_rolls_back_and_fires_no_sent_on_stage_failure() -
                 object_(sink, provided_type=_SentSink),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IDurabilityStore, _durability),
+                *node_registry_providers(),
             ],
         ) as app,
         app.container() as scope,
@@ -1023,6 +1033,7 @@ async def test_endpoint_replay_owner_scope_is_isolated_from_ambient_reprocess_sc
                 object_(sink, provided_type=_SentSink),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IDurabilityStore, _durability),
+                *node_registry_providers(),
             ],
         ) as app,
         app.container() as scope,

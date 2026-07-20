@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from typing_extensions import override
 
 from waku._internal.lease import DEFAULT_LEASE_CONFIG, ILease, LeaseConfig
+from waku._internal.node import DEFAULT_NODE_REGISTRY_CONFIG, INodeRegistry, NodeRegistryConfig
 from waku._internal.provider_scan import provided_type_hints
 from waku.backends.sqlalchemy.checkpoint.store import SqlAlchemyCheckpointStore
 from waku.backends.sqlalchemy.checkpoint.tables import CheckpointTables, bind_checkpoint_tables
@@ -20,6 +21,8 @@ from waku.backends.sqlalchemy.inbox.store import SqlAlchemyInboxStore
 from waku.backends.sqlalchemy.inbox.tables import bind_inbox_tables
 from waku.backends.sqlalchemy.lease.store import PostgresLease
 from waku.backends.sqlalchemy.lease.tables import bind_lease_tables
+from waku.backends.sqlalchemy.nodes.store import SqlAlchemyNodeRegistry
+from waku.backends.sqlalchemy.nodes.tables import bind_node_tables
 from waku.backends.sqlalchemy.outbox.store import SqlAlchemyOutboxStore
 from waku.backends.sqlalchemy.outbox.tables import bind_outbox_tables
 from waku.backends.sqlalchemy.sequence.allocator import SqlAlchemySequenceAllocator
@@ -114,6 +117,9 @@ class _SqlAlchemyBackendWiring(OnModuleRegistration):
             bind_inbox_tables(self._metadata)
             bind_dead_letter_tables(self._metadata)
             bind_sequence_tables(self._metadata)
+            # Membership shares the durability metadata so the owner-liveness predicate can
+            # subquery it in the same statement that reclaims a row.
+            bind_node_tables(self._metadata)
         if has_es:
             self._event_tables = bind_event_store_tables(self._metadata)
             self._snapshots_table = bind_snapshot_tables(self._metadata)
@@ -204,6 +210,7 @@ class SqlAlchemyBackend:
         metadata: MetaData | None = None,
         engine: AsyncEngine | None = None,
         lease_config: LeaseConfig = DEFAULT_LEASE_CONFIG,
+        node_registry_config: NodeRegistryConfig = DEFAULT_NODE_REGISTRY_CONFIG,
     ) -> DynamicModule:
         """Register the backend.
 
@@ -222,6 +229,9 @@ class SqlAlchemyBackend:
                 :class:`PostgresLease`; the single authority for both the projection daemon lease and
                 the leadership lease. ``ttl_seconds`` bounds leadership failover. Defaults to
                 ``DEFAULT_LEASE_CONFIG``.
+            node_registry_config: Heartbeat and eviction timing for the backend-owned
+                :class:`INodeRegistry` — the cluster's single liveness oracle. ``stale_after``
+                bounds how long a crashed node's durable rows stay unreclaimable.
         """
         wiring = _SqlAlchemyBackendWiring(
             metadata if metadata is not None else MetaData(),
@@ -239,6 +249,10 @@ class SqlAlchemyBackend:
                 scoped(IInboxStore, SqlAlchemyInboxStore),
                 scoped(IDeadLetterStore, SqlAlchemyDeadLetterStore),
                 scoped(ISequenceAllocator, SqlAlchemySequenceAllocator),
+                # Membership is registered independently of IDurabilityStore, exactly as the lease is:
+                # it is not a durability facet, and future non-messaging consumers read the same rows.
+                scoped(INodeRegistry, SqlAlchemyNodeRegistry),
+                object_(node_registry_config, provided_type=NodeRegistryConfig),
                 # The two composites are the only gated providers (gate budget = 2).
                 scoped(IDurabilityStore, DefaultDurabilityStore, when=Has(MessagingConfig)),
                 scoped(IEventStore, wiring.build_event_store, when=Has(EventSourcingConfig)),

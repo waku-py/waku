@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, ClassVar
 import pytest
 from typing_extensions import override
 
+from waku._internal.node import INodeRegistry, NodeIdentity, NodeRegistryConfig
 from waku.backends.testing._internal.contract import BackendContract
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.event import EventEnvelope
@@ -136,6 +137,43 @@ class BackendAssemblyContract(BackendContract):
         # subsystem (resolved unconditionally by the promotion worker once inbox is active).
         async with app.container() as scope:
             assert isinstance(await scope.get(ISequenceAllocator), ISequenceAllocator)
+
+    async def test_node_registry_and_config_resolve_in_scope(self, app: WakuApplication) -> None:
+        # Membership ships as a PAIR, exactly as the lease does: an oracle without its timing config
+        # cannot be heartbeat-driven, so a backend publishing only one of them is misassembled.
+        async with app.container() as scope:
+            assert isinstance(await scope.get(INodeRegistry), INodeRegistry)
+            assert isinstance(await scope.get(NodeRegistryConfig), NodeRegistryConfig)
+
+    async def test_registration_commits_with_the_scope_owner(self, app: WakuApplication) -> None:
+        if not self.supports_rollback:
+            pytest.skip('backend opts out: its IUnitOfWork does not stage-and-commit real writes')
+        identity = NodeIdentity.create('assembly-node')
+
+        async with app.container() as scope:
+            await (await scope.get(INodeRegistry)).register(identity, capabilities=frozenset({'durability'}))
+            # The registry never commits on its own — the scope owner does, on the SAME resource as
+            # the durability facets, which is what lets a later slice fence rows against membership
+            # inside a single statement.
+            await (await scope.get(IUnitOfWork)).commit()
+
+        async with app.container() as scope:
+            registered = await (await scope.get(INodeRegistry)).load_all()
+
+        assert [r.node_id for r in registered] == [identity.node_id]
+        assert registered[0].capabilities == frozenset({'durability'})
+
+    async def test_rolled_back_registration_leaves_no_member(self, app: WakuApplication) -> None:
+        if not self.supports_rollback:
+            pytest.skip('backend opts out: its IUnitOfWork does not stage-and-roll-back real writes')
+        identity = NodeIdentity.create('assembly-node')
+
+        async with app.container() as scope:
+            await (await scope.get(INodeRegistry)).register(identity, capabilities=frozenset())
+            await (await scope.get(IUnitOfWork)).rollback()
+
+        async with app.container() as scope:
+            assert await (await scope.get(INodeRegistry)).load_all() == []
 
     async def test_append_and_forward_roll_back_together(self, app: WakuApplication) -> None:
         if not self.supports_rollback:

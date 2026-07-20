@@ -51,6 +51,7 @@ from tests.messaging.helpers import (
     RecordingDurabilityStore,
     RecordingTransport,
     RecordingUoW,
+    node_registry_providers,
     order_id_partition,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
@@ -461,6 +462,7 @@ class TestMessagingConfigValidation:  # noqa: PLR0904 -- cohesive startup valida
                 object_(unit_of_work, provided_type=IUnitOfWork),
                 object_(outbox, provided_type=IOutboxStore),
                 object_(_durability(unit_of_work=unit_of_work, outbox=outbox), provided_type=IDurabilityStore),
+                *node_registry_providers(),
             ],
         ) as app:
             plan = await app.container.get(BehaviorPlan)
@@ -491,6 +493,7 @@ class TestMessagingConfigValidation:  # noqa: PLR0904 -- cohesive startup valida
                         _durability(unit_of_work=unit_of_work, dead_letters=dead_letters),
                         provided_type=IDurabilityStore,
                     ),
+                    *node_registry_providers(),
                 ],
             ) as app,
             app.container() as scope,
@@ -536,6 +539,7 @@ class TestMessagingConfigValidation:  # noqa: PLR0904 -- cohesive startup valida
                     object_(inbox, provided_type=IInboxStore),
                     object_(dead_letters, provided_type=IDeadLetterStore),
                     object_(durability, provided_type=IDurabilityStore),
+                    *node_registry_providers(),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 ],
             ):
@@ -572,6 +576,7 @@ class TestMessagingConfigValidation:  # noqa: PLR0904 -- cohesive startup valida
                     object_(unit_of_work, provided_type=IUnitOfWork),
                     object_(outbox, provided_type=IOutboxStore),
                     object_(_durability(unit_of_work=unit_of_work, outbox=outbox), provided_type=IDurabilityStore),
+                    *node_registry_providers(),
                 ],
             ):
                 pass  # pragma: no cover
@@ -608,6 +613,7 @@ class TestMessagingConfigValidation:  # noqa: PLR0904 -- cohesive startup valida
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 object_(inbox, provided_type=IInboxStore),
                 object_(_durability(unit_of_work=unit_of_work, inbox=inbox), provided_type=IDurabilityStore),
+                *node_registry_providers(),
             ],
         ):
             pass
@@ -631,6 +637,7 @@ class TestMessagingConfigValidation:  # noqa: PLR0904 -- cohesive startup valida
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 object_(outbox, provided_type=IOutboxStore),
                 object_(_durability(unit_of_work=unit_of_work, outbox=outbox), provided_type=IDurabilityStore),
+                *node_registry_providers(),
             ],
         ):
             pass
@@ -678,6 +685,7 @@ class TestMessagingConfigValidation:  # noqa: PLR0904 -- cohesive startup valida
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 object_(_durability(unit_of_work=unit_of_work, inbox=inbox), provided_type=IDurabilityStore),
+                *node_registry_providers(),
             ],
         ):
             pass
@@ -698,6 +706,7 @@ class TestMessagingConfigValidation:  # noqa: PLR0904 -- cohesive startup valida
                     _durability(unit_of_work=unit_of_work, dead_letters=dead_letters),
                     provided_type=IDurabilityStore,
                 ),
+                *node_registry_providers(),
             ],
         ):
             pass  # the lifecycle hooks start + stop the worker without error
