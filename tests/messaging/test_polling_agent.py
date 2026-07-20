@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import math
+from collections.abc import Callable
 from datetime import timedelta
 
 import anyio
@@ -8,7 +9,7 @@ import pytest
 from typing_extensions import override
 
 from waku import ImproperlyConfiguredError
-from waku._internal.transaction import RollbackFailedError, TransactionExecutionError
+from waku._internal.transaction import AfterCommitError, RollbackFailedError, TransactionExecutionError
 from waku.messaging import PollingConfig
 from waku.messaging._internal.polling_agent import (
     AdaptivePace,
@@ -289,6 +290,18 @@ async def test_polling_agent_fatal_group_unwrapping_preserves_identity_without_c
     assert fatal.__context__ is None
 
 
+def _rollback_failure_fatal() -> TransactionExecutionError:
+    return RollbackFailedError(RuntimeError('rollback failed'), RuntimeError('handler failed'))
+
+
+def _after_commit_failure_fatal() -> TransactionExecutionError:
+    return AfterCommitError(RuntimeError('after commit failed'))
+
+
+def _after_commit_cancellation_fatal() -> TransactionExecutionError:
+    return AfterCommitError(asyncio.CancelledError())
+
+
 @pytest.mark.parametrize(
     'wrap',
     [
@@ -296,8 +309,18 @@ async def test_polling_agent_fatal_group_unwrapping_preserves_identity_without_c
         pytest.param(True, id='group_wrapped_fatal'),
     ],
 )
-async def test_polling_agent_retrying_subclass_keeps_looping_after_a_fatal(wrap: bool) -> None:
-    fatal = RollbackFailedError(RuntimeError('rollback failed'), RuntimeError('handler failed'))
+@pytest.mark.parametrize(
+    'make_fatal',
+    [
+        pytest.param(_rollback_failure_fatal, id='rollback_failure'),
+        pytest.param(_after_commit_failure_fatal, id='after_commit_failure'),
+    ],
+)
+async def test_polling_agent_retrying_subclass_keeps_looping_after_a_fatal(
+    make_fatal: Callable[[], TransactionExecutionError],
+    wrap: bool,
+) -> None:
+    fatal = make_fatal()
     error: BaseException = BaseExceptionGroup('fatal failure', [fatal]) if wrap else fatal
     agent = _RetryingAgent(error)
 
@@ -306,6 +329,64 @@ async def test_polling_agent_retrying_subclass_keeps_looping_after_a_fatal(wrap:
     await agent.stop()
 
     assert agent.ticks >= 3
+
+
+@pytest.mark.parametrize(
+    'wrap',
+    [
+        pytest.param(False, id='bare_fatal_wrapping_cancellation'),
+        pytest.param(True, id='deferrable_group_around_fatal_wrapping_cancellation'),
+    ],
+)
+async def test_polling_agent_retrying_subclass_stops_when_the_fatal_wraps_cancellation(wrap: bool) -> None:
+    # The exact shape a committed transaction produces when cancellation lands during child-scope
+    # teardown: the control flow rides *inside* the fatal's payload rather than beside it in a group.
+    fatal = _after_commit_cancellation_fatal()
+    error: BaseException = BaseExceptionGroup('fatal failure', [fatal]) if wrap else fatal
+    agent = _RetryingAgent(error)
+
+    await agent.start()
+    await wait_until(lambda: agent.ticks >= 1)
+
+    with pytest.raises(TransactionExecutionError) as raised:
+        await agent.stop()
+
+    assert raised.value is fatal
+    assert agent.ticks == 1
+
+
+async def test_polling_agent_retrying_subclass_still_propagates_a_bare_cancellation() -> None:
+    agent = _RetryingAgent(asyncio.CancelledError())
+
+    await agent.start()
+    await wait_until(lambda: agent.ticks >= 1)
+
+    with pytest.raises(asyncio.CancelledError):
+        await agent.stop()
+
+    assert agent.ticks == 1
+
+
+@pytest.mark.parametrize(
+    'wrap',
+    [
+        pytest.param(False, id='bare_fatal_wrapping_cancellation'),
+        pytest.param(True, id='deferrable_group_around_fatal_wrapping_cancellation'),
+    ],
+)
+async def test_polling_agent_default_ends_the_loop_when_the_fatal_wraps_cancellation(wrap: bool) -> None:
+    fatal = _after_commit_cancellation_fatal()
+    error: BaseException = BaseExceptionGroup('fatal failure', [fatal]) if wrap else fatal
+    agent = _FailingAgent(error)
+
+    await agent.start()
+    with anyio.fail_after(5):
+        await agent.tick_started.wait()
+
+    with pytest.raises(TransactionExecutionError) as raised:
+        await agent.stop()
+
+    assert raised.value is fatal
 
 
 async def test_polling_agent_retrying_subclass_still_propagates_a_cancellation_carrying_group() -> None:

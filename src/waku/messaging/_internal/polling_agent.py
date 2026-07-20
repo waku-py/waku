@@ -17,6 +17,7 @@ from waku._internal.transaction import (
     TransactionExecutionError,
     can_defer_transaction_fatal,
     extract_transaction_execution_error,
+    fatal_carries_control_flow,
 )
 
 if TYPE_CHECKING:
@@ -165,8 +166,8 @@ class PollingAgent(abc.ABC):
 
     Default False: an agent that cannot commit stops, and ``_on_worker_done`` reports the death at
     CRITICAL — for a maintenance duty a visible stall beats a silently degraded loop. An agent whose
-    silence is itself harmful sets this True. It is never honoured for a fatal that surfaced alongside
-    a control-flow ``BaseException``, so retrying can never demote cancellation.
+    silence is itself harmful sets this True. It is never honoured for a fatal that wraps or surfaced
+    alongside a control-flow ``BaseException``, so retrying can never demote cancellation.
     """
 
     def __init__(self, *, stop_timeout: timedelta) -> None:
@@ -226,9 +227,11 @@ class PollingAgent(abc.ABC):
             except BaseException as error:
                 if fatal := extract_transaction_execution_error(error):
                     deferrable = can_defer_transaction_fatal(error, fatal)
-                    # `deferrable or fatal is error` is exactly "no control-flow leaf rode along with
-                    # the fatal" — the only case a retrying agent may swallow.
-                    if (deferrable or fatal is error) and self.retries_after_fatal:
+                    # A retrying agent may swallow a fatal only when no control-flow `BaseException`
+                    # reached it — neither beside the fatal in a group (`deferrable or fatal is error`)
+                    # nor inside the fatal's own payload (`fatal_carries_control_flow`).
+                    retryable = self.retries_after_fatal and not fatal_carries_control_flow(fatal)
+                    if (deferrable or fatal is error) and retryable:
                         # ERROR, not CRITICAL: the loop survives, so this is a degraded tick and not the
                         # unrecovered death `_on_worker_done` reports.
                         logger.exception(

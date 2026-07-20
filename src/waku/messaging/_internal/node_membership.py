@@ -40,7 +40,9 @@ class NodeMembershipAgent(PollingAgent):
     agent only supplies the configured thresholds and its own identity.
 
     **Failure policy — a failed membership transaction is logged at ERROR and retried on the next tick;
-    the loop never dies.** Consumers may rely on this. A stopped heartbeat loop is harmful in the wrong
+    the loop never dies on a transaction failure.** Consumers may rely on this. Control flow still ends
+    it by design: a cancellation reaching the tick, however it is carried, stops the agent like any
+    other task. A stopped heartbeat loop is harmful in the wrong
     direction: the process keeps running and keeps owning durable rows while ``last_heartbeat`` freezes,
     so a fencing peer reclaims a *healthy* node's in-flight work — the exact failure this substrate
     exists to prevent — and the ``heartbeat() is False -> re-register`` self-healing below becomes

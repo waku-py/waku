@@ -28,6 +28,7 @@ __all__ = [
     'can_defer_transaction_fatal',
     'execute_in_uow_scope',
     'extract_transaction_execution_error',
+    'fatal_carries_control_flow',
     'require_committed',
     'reraise_transaction_fatal',
     'run_committed',
@@ -174,6 +175,18 @@ def _has_control_flow_leaf(error: BaseException) -> bool:
     if isinstance(error, BaseExceptionGroup):
         return any(_has_control_flow_leaf(nested) for nested in error.exceptions)
     return not isinstance(error, TransactionExecutionError | Exception)
+
+
+def fatal_carries_control_flow(fatal: TransactionExecutionError) -> bool:
+    """Whether a fatal's payload carries a control-flow ``BaseException``, so it must never be retried.
+
+    Complements ``can_defer_transaction_fatal``, which only sees control flow that surfaced *beside* the
+    fatal in a group. A commit that succeeds before cancellation lands in teardown wraps the cancellation
+    *inside* the fatal instead, where a group split cannot reach it.
+    """
+    return _has_control_flow_leaf(fatal.error) or (
+        fatal.primary_error is not None and _has_control_flow_leaf(fatal.primary_error)
+    )
 
 
 def extract_transaction_execution_error(error: BaseException) -> TransactionExecutionError | None:

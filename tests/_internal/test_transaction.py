@@ -25,6 +25,7 @@ from waku._internal.transaction import (
     TransactionResult,
     execute_in_uow_scope,
     extract_transaction_execution_error,
+    fatal_carries_control_flow,
     reraise_transaction_fatal,
 )
 from waku.di import provider
@@ -811,6 +812,35 @@ def test_extract_transaction_execution_error_returns_none_without_fatal() -> Non
     error = BaseExceptionGroup('ordinary', [ValueError('first'), ExceptionGroup('nested', [RuntimeError('second')])])
 
     assert extract_transaction_execution_error(error) is None
+
+
+@pytest.mark.parametrize(
+    ('fatal', 'carries'),
+    [
+        pytest.param(AfterCommitError(RuntimeError('after commit')), False, id='ordinary_error_without_primary'),
+        pytest.param(
+            RollbackFailedError(RuntimeError('rollback failed'), ValueError('handler failed')),
+            False,
+            id='ordinary_error_and_ordinary_primary',
+        ),
+        pytest.param(AfterCommitError(KeyboardInterrupt()), True, id='control_flow_error'),
+        pytest.param(
+            AfterCommitError(BaseExceptionGroup('teardown', [RuntimeError('first'), KeyboardInterrupt()])),
+            True,
+            id='control_flow_leaf_nested_in_error_group',
+        ),
+        pytest.param(
+            RollbackFailedError(RuntimeError('rollback failed'), KeyboardInterrupt()),
+            True,
+            id='control_flow_primary_error',
+        ),
+    ],
+)
+def test_fatal_carries_control_flow_inspects_both_payload_fields(
+    fatal: TransactionExecutionError,
+    carries: bool,
+) -> None:
+    assert fatal_carries_control_flow(fatal) is carries
 
 
 def test_reraise_transaction_fatal_unwraps_bare_fatal_to_underlying_error() -> None:
