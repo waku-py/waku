@@ -99,8 +99,9 @@ async def run_in_transaction(
 ) -> _ResultT:
     """Run *call_next* inside a single physical transaction owned by the outermost frame.
 
-    Shared by ``TransactionalBehavior`` (wraps one handler) and ``MessageDispatcher.invoke_event``
-    (wraps the whole N-handler fan-out, so the N per-handler frames join one transaction). Only
+    Shared by ``TransactionalBehavior`` (wraps one handler) and ``MessageDispatcher``'s transactional
+    lifecycle policy, which wraps every inline body it owns — one handler for a request or a targeted
+    redispatch, or a whole N-handler fan-out, so those per-handler frames join one transaction. Only
     the frame that takes depth 0 -> 1 commits/rolls back; nested frames join and return their
     result. On any inner failure the frame records the first rollback cause so the owner rolls back
     even if an outer handler swallows the exception (Spring-strict). A normal outer return from a

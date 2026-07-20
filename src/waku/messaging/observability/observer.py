@@ -61,7 +61,12 @@ class IMessageObserver(abc.ABC):  # noqa: B024 -- intentionally no abstract meth
         exc: Exception | None,
         duration: timedelta,
     ) -> None:
-        """Default no-op; override to observe a handler's terminal outcome on ``destination``."""
+        """Default no-op; override to observe a handler's terminal outcome on ``destination``.
+
+        ``duration`` measures the handler's own pipeline execution. It excludes the owning
+        transaction's commit: a commit happens once for the whole frame and belongs to no single
+        handler, since an inline fan-out shares one transaction across N handlers.
+        """
 
 
 class MessageObservers:
