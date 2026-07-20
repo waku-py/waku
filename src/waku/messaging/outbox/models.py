@@ -9,6 +9,8 @@ if TYPE_CHECKING:
     from datetime import datetime
     from typing import Any
 
+    from waku.messaging.sequence import GroupId
+
 __all__ = [
     'OutboxMessage',
     'OutboxStatus',
@@ -39,7 +41,7 @@ class OutboxMessage:
     destination: str
     correlation_id: str
     causation_id: str
-    group_id: str | None = None
+    group_id: GroupId | None = None
     sequence_number: int | None = None
     status: OutboxStatus = OutboxStatus.PENDING
     attempts: int = 0

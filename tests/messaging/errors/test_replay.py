@@ -38,7 +38,7 @@ from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.observability.observer import IMessageObserver, MessageObservers
 from waku.messaging.router import MessageRouter, external_endpoint, listen
-from waku.messaging.sequence import ISequenceAllocator
+from waku.messaging.sequence import GroupId, ISequenceAllocator
 from waku.messaging.transport import MalformedMetadataError
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.testing import create_test_app
@@ -365,7 +365,7 @@ def _entry_for(
         retry_count=3,
         message_id=envelope.message_id,
         metadata=encode_metadata(envelope),
-        group_id=envelope.group_id,
+        group_id=GroupId(envelope.group_id) if envelope.group_id is not None else None,
     )
 
 
@@ -879,7 +879,7 @@ async def test_replay_reconstruct_and_compare_all_metadata_fields() -> None:
         retry_count=5,
         message_id=envelope.message_id,
         metadata=encode_metadata(envelope),
-        group_id=envelope.group_id,
+        group_id=GroupId(envelope.group_id) if envelope.group_id is not None else None,
     )
 
     endpoint = _RecordingEndpoint('local://dlq')

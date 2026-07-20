@@ -27,6 +27,7 @@ from waku.messaging.inbox import EndpointUri
 from waku.messaging.inbox._internal.finalize import apply_inbox_outcome
 from waku.messaging.inbox.destination import handler_destination
 from waku.messaging.inbox.models import InboxEntry
+from waku.messaging.sequence import GroupId
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
 
@@ -243,7 +244,7 @@ class DurableInboxReceiver:
             attempt=intent.attempt,
             message_id=envelope.message_id,
             metadata=encode_metadata(envelope),
-            group_id=envelope.group_id,
+            group_id=GroupId(envelope.group_id) if envelope.group_id is not None else None,
         )
 
     async def _emit_terminal(

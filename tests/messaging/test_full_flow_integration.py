@@ -40,7 +40,7 @@ from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig
-from waku.messaging.sequence import ISequenceAllocator
+from waku.messaging.sequence import GroupId, ISequenceAllocator
 from waku.messaging.transport._internal.wire import encode_payload
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper
 from waku.testing import create_test_app
@@ -346,7 +346,7 @@ class TestMessageIdentityPropagation:
 
 def _partitioned_outbox_row(
     *,
-    group_id: str,
+    group_id: GroupId,
     sequence_number: int,
     order_id: str,
 ) -> OutboxMessage:
@@ -373,9 +373,9 @@ class TestRelayPartitionOrdering:
         # the head (lowest pending sequence) of the group each poll — not whatever was inserted first.
         # If the relay used FIFO fetch this would dispatch A-2, A-1, A-3 and the assert would fail.
         store.messages.extend([
-            _partitioned_outbox_row(group_id='A', sequence_number=2, order_id='A-2'),
-            _partitioned_outbox_row(group_id='A', sequence_number=1, order_id='A-1'),
-            _partitioned_outbox_row(group_id='A', sequence_number=3, order_id='A-3'),
+            _partitioned_outbox_row(group_id=GroupId('A'), sequence_number=2, order_id='A-2'),
+            _partitioned_outbox_row(group_id=GroupId('A'), sequence_number=1, order_id='A-1'),
+            _partitioned_outbox_row(group_id=GroupId('A'), sequence_number=3, order_id='A-3'),
         ])
 
         relay_config = OutboxRelayConfig(

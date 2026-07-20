@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from waku.backends.sqlalchemy.dead_letter.tables import dead_letter_insert_values, dead_letter_table
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry, DeadLetterStatus
+from waku.messaging.sequence import GroupId
 
 
 def test_dead_letter_insert_values_carries_wire_fields() -> None:
@@ -23,7 +24,7 @@ def test_dead_letter_insert_values_carries_wire_fields() -> None:
         error_message='boom',
         retry_count=3,
         message_id=uuid4(),
-        group_id='partition-7',
+        group_id=GroupId('partition-7'),
         metadata={'trace': 'abc'},
     )
 

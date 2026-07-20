@@ -17,6 +17,7 @@ from waku.messaging.errors.dead_letter import (
     DeadLetterStatus,
     validate_requested_lease,
 )
+from waku.messaging.sequence import GroupId
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -241,7 +242,7 @@ def _row_to_model(row: Any) -> DeadLetterEntry:
         status=DeadLetterStatus(row.status),
         replay_count=row.replay_count,
         message_id=row.message_id,
-        group_id=row.group_id,
+        group_id=GroupId(row.group_id) if row.group_id is not None else None,
         metadata=row.metadata,
         created_at=row.created_at,
         replay_owner_id=row.replay_owner_id,

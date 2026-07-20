@@ -11,6 +11,8 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
+    from waku.messaging.sequence import GroupId
+
 __all__ = [
     'DeadLetterDestinationKind',
     'DeadLetterEntry',
@@ -77,7 +79,7 @@ class DeadLetterEntry:
     status: DeadLetterStatus = DeadLetterStatus.PENDING
     replay_count: int = 0
     message_id: UUID | None = None
-    group_id: str | None = None
+    group_id: GroupId | None = None
     metadata: dict[str, Any] | None = None
     created_at: datetime | None = None
     replay_owner_id: str | None = None
@@ -102,7 +104,7 @@ class DeadLetterEntry:
         attempt: int,
         message_id: UUID | None = None,
         metadata: dict[str, Any] | None = None,
-        group_id: str | None = None,
+        group_id: GroupId | None = None,
     ) -> DeadLetterEntry:
         return cls(
             id=uuid4(),

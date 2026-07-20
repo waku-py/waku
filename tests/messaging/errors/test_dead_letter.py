@@ -14,6 +14,7 @@ from waku.messaging.errors.dead_letter import (
     DeadLetterStatus,
     validate_requested_lease,
 )
+from waku.messaging.sequence import GroupId
 
 
 def _from_failure() -> DeadLetterEntry:
@@ -104,7 +105,7 @@ class TestDeadLetterEntry:
             causation_id=str(uuid4()),
             exc=RuntimeError('boom'),
             attempt=3,
-            group_id='partition-42',
+            group_id=GroupId('partition-42'),
             message_id=original_id,
         )
         assert entry.group_id == 'partition-42'

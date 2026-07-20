@@ -11,6 +11,7 @@ from waku.backends.sqlalchemy.dead_letter.tables import dead_letter_insert_value
 from waku.backends.sqlalchemy.outbox.tables import OUTBOX_IDEMPOTENCY_CONSTRAINT, outbox_messages_table
 from waku.messaging.durability import IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
+from waku.messaging.sequence import GroupId
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -186,7 +187,7 @@ def _row_to_model(row: Any) -> OutboxMessage:
         destination=row.destination,
         correlation_id=row.correlation_id,
         causation_id=row.causation_id,
-        group_id=row.group_id,
+        group_id=GroupId(row.group_id) if row.group_id is not None else None,
         sequence_number=row.sequence_number,
         status=OutboxStatus(row.status),
         attempts=row.attempts,

@@ -26,6 +26,7 @@ from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.outbox.models import OutboxMessage
 from waku.messaging.outbox.relay import OutboxRelay, OutboxRelayConfig, build_relay_default_policy
 from waku.messaging.sending import SendingFailureEvaluator, SendingFailurePolicy, SendingFailurePolicyRegistry
+from waku.messaging.sequence import GroupId
 from waku.messaging.transport._internal.registry import TransportRegistry
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload, wire_metadata_from_entry
 from waku.messaging.transport.interfaces import EnvelopeMetadata, IEnvelopeMapper, ITransport, Subscription
@@ -292,7 +293,7 @@ class _PhaseDepsProvider(Provider):
         return self._registry
 
 
-def _make_outbox_message(envelope: MessageEnvelope[Any], *, group_id: str | None = None) -> OutboxMessage:
+def _make_outbox_message(envelope: MessageEnvelope[Any], *, group_id: GroupId | None = None) -> OutboxMessage:
     return OutboxMessage(
         id=uuid4(),
         idempotency_key=str(envelope.message_id),
@@ -306,7 +307,7 @@ def _make_outbox_message(envelope: MessageEnvelope[Any], *, group_id: str | None
     )
 
 
-def _make_pending_store(*, group_id: str | None = None) -> tuple[_RecordingOutboxStore, OutboxMessage]:
+def _make_pending_store(*, group_id: GroupId | None = None) -> tuple[_RecordingOutboxStore, OutboxMessage]:
     store = _RecordingOutboxStore()
     envelope = make_envelope(_TestEvent(value='test'))
     msg = _make_outbox_message(envelope, group_id=group_id)
@@ -445,7 +446,7 @@ class TestOutboxRelay:
     async def test_passes_group_id_to_transport_as_wire_metadata() -> None:
         # The relay sources the partition-routing key off the OutboxMessage column — the transport (Kafka)
         # reads it as the message key; nothing parses the wire body for it.
-        store, msg = _make_pending_store(group_id='order-1')
+        store, msg = _make_pending_store(group_id=GroupId('order-1'))
         transport = RecordingTransport()
         async with _run_relay(RelayDepsProvider(store, transport)):
             await wait_until(lambda: msg.id in store.dispatched_ids)
@@ -635,7 +636,7 @@ class TestOutboxRelayOperations:
 
     @staticmethod
     async def test_exhausted_relay_dead_letter_entry_carries_metadata_and_group_id() -> None:
-        store, msg = _make_pending_store(group_id='order-77')
+        store, msg = _make_pending_store(group_id=GroupId('order-77'))
 
         async with _run_relay(
             RelayDepsProvider(store, _FailingTransport()),

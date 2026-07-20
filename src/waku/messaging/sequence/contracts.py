@@ -6,6 +6,7 @@ __all__ = [
     'ISequenceAllocator',
 ]
 
+# Follows the persisted-identity NewType guard convention (see waku.messaging.inbox.identifiers).
 GroupId = NewType('GroupId', str)
 
 

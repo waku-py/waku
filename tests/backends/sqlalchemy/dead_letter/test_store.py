@@ -26,6 +26,7 @@ from waku.messaging.errors.dead_letter import (
 from waku.messaging.inbox import EndpointUri, HandlerDestination
 from waku.messaging.inbox.models import InboxEntry
 from waku.messaging.outbox.models import OutboxMessage
+from waku.messaging.sequence import GroupId
 from waku.messaging.transport._internal.wire import (
     encode_metadata,
     encode_payload,
@@ -432,7 +433,7 @@ class TestMoveToDeadLetterRowsAreReplayable:
             destination='rabbitmq://orders',
             correlation_id=envelope.correlation_id,
             causation_id=envelope.causation_id,
-            group_id=envelope.group_id,
+            group_id=GroupId(envelope.group_id) if envelope.group_id is not None else None,
             metadata=encode_metadata(envelope),
         )
         outbox = SqlAlchemyOutboxStore(durability_pg_session)

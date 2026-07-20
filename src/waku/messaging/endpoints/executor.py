@@ -19,6 +19,7 @@ from waku.messaging.endpoints._internal.execution import (
 )
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
+from waku.messaging.sequence import GroupId
 from waku.messaging.transport._internal.wire import encode_metadata, encode_payload
 from waku.serialization.codec import PayloadCodec
 
@@ -98,7 +99,7 @@ async def materialize_standalone_dead_letter(
             attempt=intent.attempt,
             message_id=envelope.message_id,
             metadata=encode_metadata(envelope),
-            group_id=envelope.group_id,
+            group_id=GroupId(envelope.group_id) if envelope.group_id is not None else None,
         )
         await durability.dead_letters.save(entry)
         return Commit(value=None)
