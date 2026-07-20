@@ -53,7 +53,7 @@ Every module under `src/waku` is in exactly one of four states — a facade `__i
 a structural `__init__` (empty), an `_internal/` module, or a leaf whose `__all__` names are re-exported
 by an ancestor facade. `scripts/check_visibility.py` (run by `task check`) enforces this plus single-home
 exports (one facade per symbol; the dual-home allowlist in `scripts/check_visibility.py` is authoritative —
-currently `PollingConfig` and `LeaseConfig`) and zero underscore
+currently `PollingConfig` only) and zero underscore
 filenames/import-targets outside `_internal/`. Privacy boundary is the DOMAIN: sibling subpackages may
 reach into each other's `_internal`; import-linter `protected` contracts stop everyone else. Tests may
 import `_internal` freely (PLC2701 is per-file-ignored for `tests/**`).
