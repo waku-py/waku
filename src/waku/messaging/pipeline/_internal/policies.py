@@ -26,7 +26,7 @@ __all__ = [
 ]
 
 
-def config_requires_uow(config: MessagingConfig) -> bool:
+def _config_requires_uow(config: MessagingConfig) -> bool:
     # Durable infra means inner outbox/inbox behaviors write inside the handler's transaction and need
     # its commit, so EVERY handler under such config gets the frame — even pure-read handlers that never
     # inject a UoW. A TransactionalBehavior listed globally is an explicit request for it everywhere.
@@ -43,7 +43,7 @@ def _handler_requires_uow(handler: HandlerType, config: MessagingConfig) -> bool
     # an explicit per-handler TransactionalBehavior, or a DEAD_LETTER policy whose row must persist
     # atomically. Bias is over-attach (a spurious frame is a harmless no-op commit; a missing one is a
     # silent atomicity loss).
-    if config_requires_uow(config):
+    if _config_requires_uow(config):
         return True
     if any(issubclass(behavior, TransactionalBehavior) for behavior in handler.behaviors):
         return True

@@ -51,10 +51,7 @@ class HandlerPipelineInvoker:
         async def execute_pipeline() -> Any:
             return await PipelineExecutor.execute(message=message, handler=handler, behaviors=behaviors)
 
-        async def execute() -> Any:
-            return await execution_wrapper(execute_pipeline)
-
-        return await execute()
+        return await execution_wrapper(execute_pipeline)
 
     async def invoke_transactional(
         self,
