@@ -13,10 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import override
 
 from waku._internal.lease import LeaseConfig
+from waku._internal.node import NodeId, NodeIdentity
 from waku._internal.transaction import TransactionExecutionError
 from waku.backends.memory import MemoryBackend
 from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.backends.memory._internal.inbox import InMemoryInboxStore
+from waku.backends.memory._internal.nodes import InMemoryNodeRegistry
 from waku.backends.memory._internal.outbox import InMemoryOutboxStore
 from waku.backends.memory._internal.transaction import InMemoryCommittedState
 from waku.backends.sqlalchemy import (
@@ -48,12 +50,13 @@ from waku.messaging.config import DeadLetterConfig
 from waku.messaging.context import get_message_context
 from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore, IOutboxStore
 from waku.messaging.endpoints.base import EndpointMode
-from waku.messaging.errors._internal.replay import IReplayExecution, ReplayClaimOwner
+from waku.messaging.errors._internal.replay import IReplayExecution, ReplayClaim, ReplayClaimOwner
 from waku.messaging.errors.dead_letter import (
     DeadLetterDestinationKind,
     DeadLetterEntry,
     DeadLetterQuery,
     DeadLetterStatus,
+    ReplayClaimId,
 )
 from waku.messaging.errors.policy import ErrorPolicy
 from waku.messaging.errors.replay import ReplayExecutor
@@ -84,6 +87,7 @@ if TYPE_CHECKING:
     from dishka import AsyncContainer
     from sqlalchemy.ext.asyncio import AsyncEngine
 
+    from waku._internal.node import INodeRegistry
     from waku.application import WakuApplication
     from waku.di import Provider
     from waku.messaging.transport.inbound import ConsumeCallback
@@ -109,6 +113,7 @@ class _ChargeHandler(RequestHandler[_Charge, None]):
 class _DictDeadLetterStore(IDeadLetterStore):
     def __init__(self) -> None:
         self.rows: dict[UUID, DeadLetterEntry] = {}
+        self.claim_owners: list[str] = []
 
     @override
     async def save(self, entry: DeadLetterEntry) -> None:
@@ -119,15 +124,16 @@ class _DictDeadLetterStore(IDeadLetterStore):
         return self.rows[entry_id]
 
     @override
-    async def mark_replayed(self, entry_id: UUID, *, owner_id: str, now: datetime) -> bool:
+    async def mark_replayed(self, entry_id: UUID, *, claim_id: ReplayClaimId, now: datetime) -> bool:
         entry = self.rows.get(entry_id)
-        if not self._owned(entry, owner_id, now):
+        if not self._claim_is_live(entry, claim_id, now):
             return False
         self.rows[entry_id] = replace(
             entry,
             status=DeadLetterStatus.REPLAYED,
             replay_owner_id=None,
             replay_lease_expires_at=None,
+            replay_claim_id=None,
         )
         return True
 
@@ -137,11 +143,11 @@ class _DictDeadLetterStore(IDeadLetterStore):
         entry_id: UUID,
         error: str,
         *,
-        owner_id: str,
+        claim_id: ReplayClaimId,
         now: datetime,
     ) -> bool:  # pragma: no cover
         entry = self.rows.get(entry_id)
-        if not self._owned(entry, owner_id, now):
+        if not self._claim_is_live(entry, claim_id, now):
             return False
         self.rows[entry_id] = replace(
             entry,
@@ -150,6 +156,7 @@ class _DictDeadLetterStore(IDeadLetterStore):
             error_message=error,
             replay_owner_id=None,
             replay_lease_expires_at=None,
+            replay_claim_id=None,
         )
         return True
 
@@ -162,7 +169,8 @@ class _DictDeadLetterStore(IDeadLetterStore):
         self,
         max_replay_count: int,
         *,
-        owner_id: str,
+        owner_id: NodeId,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> DeadLetterEntry | None:  # pragma: no cover
@@ -174,7 +182,12 @@ class _DictDeadLetterStore(IDeadLetterStore):
                 continue
             if not self._claimable(entry, now):
                 continue
-            claimed = replace(entry, replay_owner_id=owner_id, replay_lease_expires_at=lease_expires_at)
+            claimed = replace(
+                entry,
+                replay_owner_id=owner_id,
+                replay_lease_expires_at=lease_expires_at,
+                replay_claim_id=claim_id,
+            )
             self.rows[entry.id] = claimed
             return claimed
         return None
@@ -184,15 +197,22 @@ class _DictDeadLetterStore(IDeadLetterStore):
         self,
         entry_id: UUID,
         *,
-        owner_id: str,
+        owner_id: NodeId,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> DeadLetterEntry | None:
         self._validate_expiry(now, lease_expires_at)
+        self.claim_owners.append(owner_id)
         entry = self.rows.get(entry_id)
         if entry is None or entry.status is DeadLetterStatus.REPLAYED or not self._claimable(entry, now):
             return None
-        claimed = replace(entry, replay_owner_id=owner_id, replay_lease_expires_at=lease_expires_at)
+        claimed = replace(
+            entry,
+            replay_owner_id=owner_id,
+            replay_lease_expires_at=lease_expires_at,
+            replay_claim_id=claim_id,
+        )
         self.rows[entry.id] = claimed
         return claimed
 
@@ -201,13 +221,13 @@ class _DictDeadLetterStore(IDeadLetterStore):
         self,
         entry_id: UUID,
         *,
-        owner_id: str,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> bool:  # pragma: no cover
         self._validate_expiry(now, lease_expires_at)
         entry = self.rows.get(entry_id)
-        if not self._owned(entry, owner_id, now):
+        if not self._claim_is_live(entry, claim_id, now):
             return False
         self.rows[entry_id] = replace(entry, replay_lease_expires_at=lease_expires_at)
         return True
@@ -235,10 +255,14 @@ class _DictDeadLetterStore(IDeadLetterStore):
         return entry.replay_lease_expires_at is None or entry.replay_lease_expires_at <= now
 
     @staticmethod
-    def _owned(entry: DeadLetterEntry | None, owner_id: str, now: datetime) -> TypeGuard[DeadLetterEntry]:
+    def _claim_is_live(
+        entry: DeadLetterEntry | None,
+        claim_id: ReplayClaimId,
+        now: datetime,
+    ) -> TypeGuard[DeadLetterEntry]:
         return (
             entry is not None
-            and entry.replay_owner_id == owner_id
+            and entry.replay_claim_id == claim_id
             and entry.replay_lease_expires_at is not None
             and entry.replay_lease_expires_at > now
         )
@@ -263,19 +287,23 @@ def _durability_providers(
     *,
     outbox: IOutboxStore | None = None,
     inbox: IInboxStore | None = None,
+    nodes: INodeRegistry | None = None,
     with_allocator: bool = False,
 ) -> list[Provider]:
     """Memory-backend durability providers over a shared ``dlq`` store (outbox/inbox default to fresh ones).
 
     ``with_allocator`` adds the sequence allocator that durable local-queue endpoints require.
     """
+    # One registry for the app and its inbox/outbox stores: a real backend keeps membership in the
+    # same resource the fence reads, and a split view would let recovery reclaim this node's own rows.
+    registry = nodes if nodes is not None else InMemoryNodeRegistry()
     providers = [
         object_(RecordingUoW(), provided_type=IUnitOfWork),
-        object_(outbox if outbox is not None else InMemoryOutboxStore(dlq), provided_type=IOutboxStore),
-        object_(inbox if inbox is not None else InMemoryInboxStore(dlq), provided_type=IInboxStore),
+        object_(outbox if outbox is not None else InMemoryOutboxStore(dlq, registry), provided_type=IOutboxStore),
+        object_(inbox if inbox is not None else InMemoryInboxStore(dlq, registry), provided_type=IInboxStore),
         object_(dlq, provided_type=IDeadLetterStore),
         scoped(IDurabilityStore, _durability),
-        *node_registry_providers(),
+        *node_registry_providers(registry),
     ]
     if with_allocator:
         providers.append(object_(RecordingAllocator(), provided_type=ISequenceAllocator))
@@ -311,6 +339,34 @@ async def test_dead_letter_then_replay_reprocesses_message() -> None:
     assert dl_store.rows[entry_id].status is DeadLetterStatus.REPLAYED
 
 
+async def test_replay_claims_with_the_process_node_identity() -> None:
+    _attempts.clear()
+    dl_store = _DictDeadLetterStore()
+    config = MessagingConfig(
+        endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
+        dead_letter=DeadLetterConfig(),
+    )
+
+    async with (
+        create_test_app(
+            imports=[MessagingModule.register(config)],
+            extensions=[MessagingExtension().bind(_ChargeHandler)],
+            providers=_durability_providers(dl_store),
+        ) as app,
+        app.container() as scope,
+    ):
+        bus = await scope.get(IMessageBus)
+        await bus.send(_Charge(amount=7))
+        await wait_until(lambda: bool(dl_store.rows))
+
+        entry_id = next(iter(dl_store.rows))
+        replayer = await scope.get(ReplayExecutor)
+        assert await replayer.replay(await dl_store.fetch_one(entry_id)) is True
+        identity = await scope.get(NodeIdentity)
+
+    assert dl_store.claim_owners == [identity.node_id]
+
+
 async def test_manual_replay_does_not_dispatch_while_auto_owner_lease_is_live() -> None:
     _attempts.clear()
     dl_store = _DictDeadLetterStore()
@@ -334,7 +390,8 @@ async def test_manual_replay_does_not_dispatch_while_auto_owner_lease_is_live() 
         now = datetime.now(tz=UTC)
         claimed = await dl_store.claim_replay(
             entry.id,
-            owner_id='auto-owner',
+            owner_id=NodeId('auto-owner'),
+            claim_id=ReplayClaimId(uuid4()),
             now=now,
             lease_expires_at=now + timedelta(minutes=1),
         )
@@ -549,16 +606,16 @@ class _SqlReplayLivenessHarness:
 class _MemoryReplayEvidence:
     result: tuple[bool, ...]
     errors: tuple[BaseException, ...]
-    contender: DeadLetterEntry | None
+    contender: ReplayClaim | None
     final_entry: DeadLetterEntry
-    stale_owner_finalized: bool | None
+    stale_claim_finalized: bool | None
     next_sequence: int
 
 
 @dataclass(frozen=True, slots=True)
 class _MemoryReplayCase:
     entry: DeadLetterEntry
-    claimed: DeadLetterEntry
+    claimed: ReplayClaim
     execution: IReplayExecution
     owner: ReplayClaimOwner
     contender: ReplayClaimOwner
@@ -567,7 +624,7 @@ class _MemoryReplayCase:
 
 @dataclass(frozen=True, slots=True)
 class _SqlReplayCase:
-    claimed: DeadLetterEntry
+    claimed: ReplayClaim
     execution: IReplayExecution
     owner: ReplayClaimOwner
     initial_expiry: datetime | None
@@ -625,10 +682,15 @@ async def _prepare_sql_replay(
     await _commit_dead_letter(container, entry)
     harness.trace.reset_after_seed()
     execution = await scope.get(IReplayExecution)
-    owner = ReplayClaimOwner(container=container, config=harness.dead_letter, now=harness.clock)
+    owner = ReplayClaimOwner(
+        container=container,
+        config=harness.dead_letter,
+        node_id=NodeId('replay-node-a'),
+        now=harness.clock,
+    )
     claimed = await owner.claim_replayable()
     assert claimed is not None
-    return _SqlReplayCase(claimed, execution, owner, claimed.replay_lease_expires_at)
+    return _SqlReplayCase(claimed, execution, owner, claimed.entry.replay_lease_expires_at)
 
 
 async def _prepare_memory_replay(
@@ -642,8 +704,19 @@ async def _prepare_memory_replay(
     execution = await scope.get(IReplayExecution)
     committed = await scope.get(InMemoryCommittedState)
     assert isinstance(committed, _TracingInMemoryCommittedState)
-    owner = ReplayClaimOwner(container=container, config=harness.dead_letter, now=harness.clock)
-    contender = ReplayClaimOwner(container=container, config=harness.dead_letter, now=harness.clock)
+    # Two distinct nodes: under D1 a replay contender is another NODE, so it carries another NodeId.
+    owner = ReplayClaimOwner(
+        container=container,
+        config=harness.dead_letter,
+        node_id=NodeId('replay-node-a'),
+        now=harness.clock,
+    )
+    contender = ReplayClaimOwner(
+        container=container,
+        config=harness.dead_letter,
+        node_id=NodeId('replay-node-b'),
+        now=harness.clock,
+    )
     claimed = await owner.claim_replayable()
     assert claimed is not None
     committed.trace.reset()
@@ -656,7 +729,7 @@ async def _exercise_memory_replay_liveness(*, overrun: bool) -> _MemoryReplayEvi
         replay_case = await _prepare_memory_replay(app.container, scope, await scope.get(PayloadCodec), harness)
         results: list[bool] = []
         errors: list[BaseException] = []
-        contender_results: list[DeadLetterEntry | None] = []
+        contender_results: list[ReplayClaim | None] = []
 
         async def replay() -> None:
             try:
@@ -681,13 +754,13 @@ async def _exercise_memory_replay_liveness(*, overrun: bool) -> _MemoryReplayEvi
             assert replay_case.trace.begin_acquisitions == 1
             replay_case.trace.release_handler.set()
 
-        stale_owner_finalized: bool | None = None
+        stale_claim_finalized: bool | None = None
         if overrun:
             async with app.container() as finalize_scope:
                 store = await finalize_scope.get(IDeadLetterStore)
-                stale_owner_finalized = await store.mark_replayed(
+                stale_claim_finalized = await store.mark_replayed(
                     replay_case.entry.id,
-                    owner_id=replay_case.owner.owner_id,
+                    claim_id=replay_case.claimed.claim_id,
                     now=harness.clock(),
                 )
                 await (await finalize_scope.get(IUnitOfWork)).commit()
@@ -699,7 +772,7 @@ async def _exercise_memory_replay_liveness(*, overrun: bool) -> _MemoryReplayEvi
         errors=tuple(errors),
         contender=contender_results[0],
         final_entry=final_entry,
-        stale_owner_finalized=stale_owner_finalized,
+        stale_claim_finalized=stale_claim_finalized,
         next_sequence=next_sequence,
     )
 
@@ -713,11 +786,11 @@ async def test_memory_backend_below_ttl_serializes_renewal_contender_and_finaliz
     assert evidence.final_entry.status is DeadLetterStatus.REPLAYED
     assert evidence.final_entry.replay_owner_id is None
     assert evidence.final_entry.replay_count == 0
-    assert evidence.stale_owner_finalized is None
+    assert evidence.stale_claim_finalized is None
     assert evidence.next_sequence == 2
 
 
-async def test_memory_backend_ttl_overrun_commits_handler_but_rejects_stale_owner() -> None:
+async def test_memory_backend_ttl_overrun_commits_handler_but_rejects_stale_claim() -> None:
     evidence = await _exercise_memory_replay_liveness(overrun=True)
 
     assert evidence.result == ()
@@ -727,9 +800,10 @@ async def test_memory_backend_ttl_overrun_commits_handler_but_rejects_stale_owne
     assert 'Replay claim ownership was lost' in str(error.error)
     assert evidence.contender is not None
     assert evidence.final_entry.status is DeadLetterStatus.PENDING
-    assert evidence.final_entry.replay_owner_id == evidence.contender.replay_owner_id
+    assert evidence.final_entry.replay_owner_id == evidence.contender.entry.replay_owner_id
+    assert evidence.final_entry.replay_claim_id == evidence.contender.claim_id
     assert evidence.final_entry.replay_count == 0
-    assert evidence.stale_owner_finalized is False
+    assert evidence.stale_claim_finalized is False
     assert evidence.next_sequence == 2
 
 
@@ -753,12 +827,12 @@ async def test_sqlalchemy_renews_in_distinct_transaction_while_handler_transacti
             assert harness.trace.handler_session.in_transaction()
             assert harness.trace.renewal_session is not None
             assert harness.trace.renewal_session is not harness.trace.handler_session
-            before_renewal_commit = await _fetch_dead_letter(app.container, replay.claimed.id)
+            before_renewal_commit = await _fetch_dead_letter(app.container, replay.claimed.entry.id)
             assert before_renewal_commit.replay_owner_id == replay.owner.owner_id
             assert before_renewal_commit.replay_lease_expires_at == replay.initial_expiry
             harness.trace.allow_renewal_commit.set()
             await harness.trace.renewal_committed.wait()
-            renewed = await _fetch_dead_letter(app.container, replay.claimed.id)
+            renewed = await _fetch_dead_letter(app.container, replay.claimed.entry.id)
             assert renewed.replay_owner_id == replay.owner.owner_id
             assert renewed.replay_lease_expires_at is not None
             assert replay.initial_expiry is not None
@@ -773,9 +847,10 @@ async def test_sqlalchemy_renews_in_distinct_transaction_while_handler_transacti
         assert harness.trace.commits[1] is harness.trace.renewal_session
         assert harness.trace.commits[2] is harness.trace.handler_session
         assert len({id(session) for session in harness.trace.commits}) == 4
-        finalized = await _fetch_dead_letter(app.container, replay.claimed.id)
+        finalized = await _fetch_dead_letter(app.container, replay.claimed.entry.id)
         assert finalized.status is DeadLetterStatus.REPLAYED
         assert finalized.replay_owner_id is None
+        assert finalized.replay_claim_id is None
         assert finalized.replay_count == 0
         assert await _commit_sequence(app.container, harness.group_id) == 2
 
@@ -875,7 +950,8 @@ async def test_tenant_id_survives_outbox_dead_letter_replay_via_metadata_blob() 
     # (wire_metadata_from_entry) and the transport receives EnvelopeMetadata with the original tenant.
     transport = _FlakyTransport()
     dlq = InMemoryDeadLetterStore()
-    outbox = InMemoryOutboxStore(dlq)
+    registry = InMemoryNodeRegistry()
+    outbox = InMemoryOutboxStore(dlq, registry)
     config = MessagingConfig(
         endpoints=[external_endpoint('flaky://orders')],
         routing=[route(_OrderPlaced).to('flaky://orders')],
@@ -891,7 +967,7 @@ async def test_tenant_id_survives_outbox_dead_letter_replay_via_metadata_blob() 
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_OrderAuditHandler)],
-            providers=_durability_providers(dlq, outbox=outbox),
+            providers=_durability_providers(dlq, outbox=outbox, nodes=registry),
         ) as app,
         app.container() as scope,
     ):
@@ -919,11 +995,12 @@ async def test_tenant_id_survives_inbox_dead_letter_replay_to_handler_context() 
     _TenantRecordingHandler.broken = True
     _TenantRecordingHandler.seen_tenants = []
     dlq = InMemoryDeadLetterStore()
-    inbox = InMemoryInboxStore(dlq)
+    registry = InMemoryNodeRegistry()
+    inbox = InMemoryInboxStore(dlq, registry)
     config = MessagingConfig(
         endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=timedelta(seconds=1.0))],
         routing=[route(_OrderPlaced).to('orders')],
-        inbox=InboxConfig(owner_id='test-node:1'),
+        inbox=InboxConfig(),
         dead_letter=DeadLetterConfig(),
         endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().requeue(max_attempts=1),)),
         global_pipeline_behaviors=[TransactionalBehavior],
@@ -933,7 +1010,7 @@ async def test_tenant_id_survives_inbox_dead_letter_replay_to_handler_context() 
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_TenantRecordingHandler)],
-            providers=_durability_providers(dlq, inbox=inbox, with_allocator=True),
+            providers=_durability_providers(dlq, inbox=inbox, nodes=registry, with_allocator=True),
         ) as app,
         app.container() as scope,
     ):
@@ -979,7 +1056,8 @@ async def test_outbox_exhaustion_dead_letter_replays() -> None:
     # re-dispatches through the router and the message finally reaches the transport.
     transport = _FlakyTransport()
     dlq = InMemoryDeadLetterStore()
-    outbox = InMemoryOutboxStore(dlq)
+    registry = InMemoryNodeRegistry()
+    outbox = InMemoryOutboxStore(dlq, registry)
     config = MessagingConfig(
         endpoints=[external_endpoint('flaky://orders')],
         routing=[route(_OrderPlaced).to('flaky://orders')],
@@ -995,7 +1073,7 @@ async def test_outbox_exhaustion_dead_letter_replays() -> None:
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_OrderAuditHandler)],
-            providers=_durability_providers(dlq, outbox=outbox),
+            providers=_durability_providers(dlq, outbox=outbox, nodes=registry),
         ) as app,
         app.container() as scope,
     ):
@@ -1027,11 +1105,12 @@ async def test_inbox_poison_dead_letter_replays() -> None:
     _FlakyOrderHandler.broken = True
     _FlakyOrderHandler.attempts = []
     dlq = InMemoryDeadLetterStore()
-    inbox = InMemoryInboxStore(dlq)
+    registry = InMemoryNodeRegistry()
+    inbox = InMemoryInboxStore(dlq, registry)
     config = MessagingConfig(
         endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=timedelta(seconds=1.0))],
         routing=[route(_OrderPlaced).to('orders')],
-        inbox=InboxConfig(owner_id='test-node:1'),
+        inbox=InboxConfig(),
         dead_letter=DeadLetterConfig(),
         endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().requeue(max_attempts=1),)),
         global_pipeline_behaviors=[TransactionalBehavior],
@@ -1041,7 +1120,7 @@ async def test_inbox_poison_dead_letter_replays() -> None:
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_FlakyOrderHandler)],
-            providers=_durability_providers(dlq, inbox=inbox, with_allocator=True),
+            providers=_durability_providers(dlq, inbox=inbox, nodes=registry, with_allocator=True),
         ) as app,
         app.container() as scope,
     ):
@@ -1080,17 +1159,18 @@ async def test_replay_of_handler_entry_does_not_commit_worker_claim_tx() -> None
         global_pipeline_behaviors=[TransactionalBehavior],
     )
 
+    registry = InMemoryNodeRegistry()
     async with (
         create_test_app(
             imports=[MessagingModule.register(config)],
             extensions=[MessagingExtension().bind(_AlwaysFailingHandler)],
             providers=[
                 scoped(IUnitOfWork, _ScopedRecordingUoW),
-                object_(InMemoryOutboxStore(dlq), provided_type=IOutboxStore),
-                object_(InMemoryInboxStore(dlq), provided_type=IInboxStore),
+                object_(InMemoryOutboxStore(dlq, registry), provided_type=IOutboxStore),
+                object_(InMemoryInboxStore(dlq, registry), provided_type=IInboxStore),
                 object_(dlq, provided_type=IDeadLetterStore),
                 scoped(IDurabilityStore, _durability),
-                *node_registry_providers(),
+                *node_registry_providers(registry),
             ],
         ) as app,
         app.container() as scope,

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import MetaData, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from waku._internal.node import NodeId
 from waku.backends.sqlalchemy.outbox.store import SqlAlchemyOutboxStore
 from waku.backends.sqlalchemy.outbox.tables import bind_outbox_tables
 from waku.messaging.outbox.models import OutboxStatus
@@ -16,6 +17,9 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from waku.messaging.outbox.models import OutboxMessage
+
+
+_OWNER = NodeId('relay-1')
 
 
 class TestFetchHeadOfQueue:
@@ -34,7 +38,7 @@ class TestFetchHeadOfQueue:
         ])
         await pg_session.flush()
 
-        fetched = await store.fetch_head_of_queue(batch_size=10)
+        fetched = await store.fetch_head_of_queue(batch_size=10, owner_id=_OWNER)
 
         # Exactly one head per group (the lowest sequence) — never a higher sequence while seq=1
         # is still pending. len==2 catches a broken DISTINCT ON that would return every row.
@@ -55,7 +59,7 @@ class TestFetchHeadOfQueue:
         await store.save_batch(keyless)
         await pg_session.flush()
 
-        fetched = await store.fetch_head_of_queue(batch_size=2)
+        fetched = await store.fetch_head_of_queue(batch_size=2, owner_id=_OWNER)
 
         assert len(fetched) == 2
         assert all(m.group_id is None for m in fetched)
@@ -75,7 +79,7 @@ class TestFetchHeadOfQueue:
         ])
         await pg_session.flush()
 
-        fetched = await store.fetch_head_of_queue(batch_size=10)
+        fetched = await store.fetch_head_of_queue(batch_size=10, owner_id=_OWNER)
 
         # One head for group 'g' + the single keyless row.
         assert len(fetched) == 2
@@ -93,13 +97,13 @@ class TestFetchHeadOfQueue:
         ])
         await pg_session.flush()
 
-        first = await store.fetch_head_of_queue(batch_size=10)
+        first = await store.fetch_head_of_queue(batch_size=10, owner_id=_OWNER)
         assert len(first) == 1
         assert first[0].sequence_number == 1
-        await store.mark_dispatched(first[0].id)
+        await store.mark_dispatched(first[0].id, owner_id=_OWNER)
         await pg_session.flush()
 
-        second = await store.fetch_head_of_queue(batch_size=10)
+        second = await store.fetch_head_of_queue(batch_size=10, owner_id=_OWNER)
         assert len(second) == 1
         assert second[0].sequence_number == 2
 
@@ -115,12 +119,14 @@ class TestFetchHeadOfQueue:
         await store.save_batch([head, successor])
         await pg_session.flush()
 
-        # Head transiently fails and is rescheduled into the future (the mark_failed RETRY path).
+        # Head transiently fails and is rescheduled into the future (the mark_failed RETRY path). The
+        # reschedule is owner-fenced, so the relay claims the head first, exactly as production does.
+        assert [m.id for m in await store.fetch_head_of_queue(batch_size=10, owner_id=_OWNER)] == [head.id]
         future = datetime.now(tz=UTC) + timedelta(seconds=60)
-        await store.mark_failed(head.id, 'transient', next_retry_at=future)
+        await store.mark_failed(head.id, 'transient', next_retry_at=future, owner_id=_OWNER)
         await pg_session.flush()
 
-        claimed = await store.fetch_head_of_queue(batch_size=10)
+        claimed = await store.fetch_head_of_queue(batch_size=10, owner_id=_OWNER)
         claimed_ids = {m.id for m in claimed}
         # FIFO: the not-ready head blocks its group — neither the head NOR the successor is dispatched.
         assert head.id not in claimed_ids
@@ -137,16 +143,23 @@ class TestFetchHeadOfQueue:
         store = SqlAlchemyOutboxStore(pg_session)
         g_head = make_message(group_id='G', sequence_number=1)
         g_succ = make_message(group_id='G', sequence_number=2)
+        await store.save_batch([g_head, g_succ])
+        await pg_session.flush()
+
+        # G's head is claimed then rescheduled into a not-ready backoff — the relay's owner-fenced
+        # RETRY path. Only G exists yet, so the claim takes exactly g_head (g_succ is not its group head).
+        assert [m.id for m in await store.fetch_head_of_queue(batch_size=10, owner_id=_OWNER)] == [g_head.id]
+        future = datetime.now(tz=UTC) + timedelta(seconds=60)
+        await store.mark_failed(g_head.id, 'transient', next_retry_at=future, owner_id=_OWNER)
+        await pg_session.flush()
+
+        # Other groups + keyless arrive fresh (immediately ready) after G's head is already backing off.
         h_head = make_message(group_id='H', sequence_number=1)
         keyless = make_message()
-        await store.save_batch([g_head, g_succ, h_head, keyless])
+        await store.save_batch([h_head, keyless])
         await pg_session.flush()
 
-        future = datetime.now(tz=UTC) + timedelta(seconds=60)
-        await store.mark_failed(g_head.id, 'transient', next_retry_at=future)
-        await pg_session.flush()
-
-        claimed_ids = {m.id for m in await store.fetch_head_of_queue(batch_size=10)}
+        claimed_ids = {m.id for m in await store.fetch_head_of_queue(batch_size=10, owner_id=_OWNER)}
         # G's not-ready backoff head blocks its successor; neither G row is claimed.
         assert g_head.id not in claimed_ids
         assert g_succ.id not in claimed_ids
@@ -176,7 +189,7 @@ class TestFetchHeadOfQueue:
             async with AsyncSession(pg_engine, expire_on_commit=False) as sa:
                 store_a = SqlAlchemyOutboxStore(sa)
                 async with sa.begin():
-                    claimed_a = await store_a.fetch_head_of_queue(batch_size=10)
+                    claimed_a = await store_a.fetch_head_of_queue(batch_size=10, owner_id=_OWNER)
                 assert [m.sequence_number for m in claimed_a] == [1]  # G.seq1 -> PROCESSING, COMMITTED
 
                 # Independently seed another group H + a keyless row so B has non-G work available.
@@ -191,7 +204,7 @@ class TestFetchHeadOfQueue:
                     store_b = SqlAlchemyOutboxStore(sb)
                     async with sb.begin():
                         await sb.execute(text("SET LOCAL lock_timeout = '500ms'"))
-                        claimed_b = await store_b.fetch_head_of_queue(batch_size=10)
+                        claimed_b = await store_b.fetch_head_of_queue(batch_size=10, owner_id=_OWNER)
                     groups_b = {m.group_id for m in claimed_b}
                     assert 'G' not in groups_b  # successor blocked by the in-flight PROCESSING head
                     assert 'H' in groups_b  # other groups flow
@@ -199,10 +212,10 @@ class TestFetchHeadOfQueue:
 
                     # A dispatches G.seq1 (terminal); B may then claim G.seq2.
                     async with sa.begin():
-                        await store_a.mark_dispatched(g1.id)
+                        await store_a.mark_dispatched(g1.id, owner_id=_OWNER)
                     async with sb.begin():
                         await sb.execute(text("SET LOCAL lock_timeout = '500ms'"))
-                        claimed_b2 = await store_b.fetch_head_of_queue(batch_size=10)
+                        claimed_b2 = await store_b.fetch_head_of_queue(batch_size=10, owner_id=_OWNER)
                     assert [(m.group_id, m.sequence_number) for m in claimed_b2] == [('G', 2)]
         finally:
             async with pg_engine.begin() as conn:
@@ -232,16 +245,16 @@ class TestFetchHeadOfQueue:
             ):
                 store1, store2 = SqlAlchemyOutboxStore(s1), SqlAlchemyOutboxStore(s2)
                 async with s1.begin():
-                    claimed1 = await store1.fetch_head_of_queue(batch_size=10)
+                    claimed1 = await store1.fetch_head_of_queue(batch_size=10, owner_id=_OWNER)
                     assert len(claimed1) == 1
                     async with s2.begin():
                         # A short lock_timeout turns a regression (skip_locked dropped) into a fast,
                         # loud failure: s2 would block on s1's row lock and raise, not hang the suite.
                         await s2.execute(text("SET LOCAL lock_timeout = '500ms'"))
-                        claimed2 = await store2.fetch_head_of_queue(batch_size=10)
+                        claimed2 = await store2.fetch_head_of_queue(batch_size=10, owner_id=_OWNER)
                         assert list(claimed2) == []  # s2 SKIPPED (not blocked) while s1 holds the row
                 async with s2.begin():
-                    claimed3 = await store2.fetch_head_of_queue(batch_size=10)
+                    claimed3 = await store2.fetch_head_of_queue(batch_size=10, owner_id=_OWNER)
                     # consume-once: the row is PROCESSING after s1 commits, so it is never re-claimed.
                     assert list(claimed3) == []
         finally:

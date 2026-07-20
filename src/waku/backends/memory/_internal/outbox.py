@@ -7,6 +7,9 @@ from typing import TYPE_CHECKING
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
+
+# Runtime import: dishka introspects __init__ via get_type_hints at container-build time.
+from waku._internal.node import INodeRegistry  # noqa: TC001
 from waku.messaging.durability import IDeadLetterStore, IOutboxStore
 from waku.messaging.outbox.models import OutboxMessage, OutboxStatus
 
@@ -16,6 +19,7 @@ if TYPE_CHECKING:
     from typing import Any
     from uuid import UUID
 
+    from waku._internal.node import NodeId
     from waku.backends.memory._internal.transaction import InMemoryWorkspaceAccessor
     from waku.messaging.errors.dead_letter import DeadLetterEntry
 
@@ -42,10 +46,11 @@ class _InMemoryOutboxStoreOperations(IOutboxStore):
     (server-assigned ascending). Not thread-safe.
     """
 
-    __slots__ = ('_dead_letters',)
+    __slots__ = ('_dead_letters', '_nodes')
 
-    def __init__(self, dead_letters: IDeadLetterStore) -> None:
+    def __init__(self, dead_letters: IDeadLetterStore, nodes: INodeRegistry) -> None:
         self._dead_letters = dead_letters
+        self._nodes = nodes
 
     def _get_state(self) -> InMemoryOutboxState:
         msg = 'subclasses must provide outbox state'
@@ -55,11 +60,24 @@ class _InMemoryOutboxStoreOperations(IOutboxStore):
     def messages(self) -> list[OutboxMessage]:
         return self._get_state().messages
 
-    def _replace(self, message_id: UUID, **changes: Any) -> None:
+    def _owned(self, message_id: UUID, owner_id: NodeId) -> int | None:
+        """The D1-FENCE predicate, written once: the row's index, only while this node still owns it.
+
+        Mirrors the SQL peer's ``WHERE id = … AND owner_id = …``. A miss is the fence rejecting the
+        write, never a harmless no-op — the row moved to another owner or is gone.
+        """
         for i, msg in enumerate(self.messages):
-            if msg.id == message_id:
-                self.messages[i] = dataclasses.replace(msg, **changes)
-                return
+            if msg.id == message_id and msg.owner_id == owner_id:
+                return i
+        return None
+
+    def _fenced_replace(self, message_id: UUID, owner_id: NodeId, **changes: Any) -> bool:
+        index = self._owned(message_id, owner_id)
+        if index is None:
+            return False
+        # owner_id=None mirrors the SQL UPDATE: a finalized row is no longer owned by a relay.
+        self.messages[index] = dataclasses.replace(self.messages[index], owner_id=None, **changes)
+        return True
 
     @override
     async def save_batch(self, messages: Sequence[OutboxMessage]) -> None:
@@ -78,7 +96,7 @@ class _InMemoryOutboxStoreOperations(IOutboxStore):
             self.messages.append(copy.deepcopy(msg))
 
     @override
-    async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
+    async def fetch_head_of_queue(self, batch_size: int, owner_id: NodeId) -> Sequence[OutboxMessage]:
         now = utc_now()
         pending = [msg for msg in self.messages if msg.status is OutboxStatus.PENDING]
         # Head per (group_id, destination): lowest-sequence NON-TERMINAL row (PENDING or PROCESSING),
@@ -104,60 +122,90 @@ class _InMemoryOutboxStoreOperations(IOutboxStore):
             for msg in pending
             if (msg.next_retry_at is None or msg.next_retry_at <= now) and (msg.group_id is None or msg.id in heads)
         ]
-        return self._claim(claimable[:batch_size], now)
+        return self._claim(claimable[:batch_size], now, owner_id)
 
-    def _claim(self, selected: list[OutboxMessage], now: datetime) -> list[OutboxMessage]:
-        for msg in selected:
-            self._replace(msg.id, status=OutboxStatus.PROCESSING, processing_started_at=now)
-        # Deserialize-out isolation: the claimed rows returned to the relay are snapshots, so a caller
-        # mutating payload/metadata never rewrites stored state (the SQL peer reads fresh objects).
-        return [
-            copy.deepcopy(dataclasses.replace(msg, status=OutboxStatus.PROCESSING, processing_started_at=now))
+    def _claim(self, selected: list[OutboxMessage], now: datetime, owner_id: NodeId) -> list[OutboxMessage]:
+        claimed = [
+            dataclasses.replace(msg, status=OutboxStatus.PROCESSING, processing_started_at=now, owner_id=owner_id)
             for msg in selected
         ]
+        by_id = {msg.id: msg for msg in claimed}
+        for i, msg in enumerate(self.messages):
+            if msg.id in by_id:
+                self.messages[i] = by_id[msg.id]
+        # Deserialize-out isolation: the claimed rows returned to the relay are snapshots, so a caller
+        # mutating payload/metadata never rewrites stored state (the SQL peer reads fresh objects).
+        return [copy.deepcopy(msg) for msg in claimed]
 
     @override
-    async def mark_dispatched(self, message_id: UUID) -> None:
-        self._replace(message_id, status=OutboxStatus.DISPATCHED, dispatched_at=utc_now())
+    async def mark_dispatched(self, message_id: UUID, *, owner_id: NodeId) -> bool:
+        return self._fenced_replace(
+            message_id,
+            owner_id,
+            status=OutboxStatus.DISPATCHED,
+            dispatched_at=utc_now(),
+        )
 
     @override
-    async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry) -> None:
+    async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry, *, owner_id: NodeId) -> bool:
         # Mirror the SQLAlchemy peer's atomic delete+insert: the row leaves the outbox (freeing its
         # (idempotency_key, destination) pair for a replay re-dispatch) and the entry lands in the
-        # SHARED dead-letter facet from this transaction workspace, not in outbox-local state.
-        self.messages[:] = [msg for msg in self.messages if msg.id != message_id]
+        # SHARED dead-letter facet from this transaction workspace, not in outbox-local state. The
+        # fence gates the delete FIRST, so a rejected move mints no dead letter.
+        index = self._owned(message_id, owner_id)
+        if index is None:
+            return False
+        del self.messages[index]
         await self._dead_letters.save(entry)
+        return True
 
     @override
-    async def mark_failed(self, message_id: UUID, error: str, next_retry_at: datetime | None = None) -> None:
-        status = OutboxStatus.PENDING if next_retry_at is not None else OutboxStatus.FAILED
-        for i, msg in enumerate(self.messages):
-            if msg.id == message_id:
-                self.messages[i] = dataclasses.replace(
-                    msg,
-                    status=status,
-                    last_error=error,
-                    attempts=msg.attempts + 1,
-                    next_retry_at=next_retry_at,
-                )
-                return
+    async def mark_failed(
+        self,
+        message_id: UUID,
+        error: str,
+        next_retry_at: datetime | None = None,
+        *,
+        owner_id: NodeId,
+    ) -> bool:
+        index = self._owned(message_id, owner_id)
+        if index is None:
+            return False
+        current = self.messages[index]
+        self.messages[index] = dataclasses.replace(
+            current,
+            status=OutboxStatus.PENDING if next_retry_at is not None else OutboxStatus.FAILED,
+            last_error=error,
+            attempts=current.attempts + 1,
+            next_retry_at=next_retry_at,
+            owner_id=None,
+        )
+        return True
 
     @override
-    async def mark_discarded(self, message_id: UUID, error: str) -> None:
-        self._replace(message_id, status=OutboxStatus.DISCARDED, last_error=error)
+    async def mark_discarded(self, message_id: UUID, error: str, *, owner_id: NodeId) -> bool:
+        return self._fenced_replace(message_id, owner_id, status=OutboxStatus.DISCARDED, last_error=error)
 
     @override
-    async def recover_abandoned(self, threshold: timedelta) -> int:
-        cutoff = utc_now() - threshold
+    async def recover_abandoned(self) -> int:
+        # Mirror the SQLAlchemy store's single UPDATE: membership is the whole predicate and row age is
+        # never consulted. Reading the registry here is the memory peer of the SQL subquery — the whole
+        # method runs inside one workspace transaction, so no owner can die between the read and the
+        # release.
+        members = {registration.node_id for registration in await self._nodes.load_all()}
         recovered = 0
         for i, msg in enumerate(self.messages):
-            if (
-                msg.status is OutboxStatus.PROCESSING
-                and msg.processing_started_at is not None
-                and msg.processing_started_at < cutoff
-            ):
-                self.messages[i] = dataclasses.replace(msg, status=OutboxStatus.PENDING, processing_started_at=None)
-                recovered += 1
+            if msg.status is not OutboxStatus.PROCESSING or msg.owner_id is None:
+                continue
+            if msg.owner_id in members:
+                continue
+            self.messages[i] = dataclasses.replace(
+                msg,
+                status=OutboxStatus.PENDING,
+                processing_started_at=None,
+                owner_id=None,
+            )
+            recovered += 1
         return recovered
 
     @override
@@ -177,8 +225,8 @@ class _InMemoryOutboxStoreOperations(IOutboxStore):
 class InMemoryOutboxStore(_InMemoryOutboxStoreOperations):
     __slots__ = ('_state',)
 
-    def __init__(self, dead_letters: IDeadLetterStore) -> None:
-        super().__init__(dead_letters)
+    def __init__(self, dead_letters: IDeadLetterStore, nodes: INodeRegistry) -> None:
+        super().__init__(dead_letters, nodes)
         self._state = InMemoryOutboxState()
 
     @override
@@ -189,9 +237,14 @@ class InMemoryOutboxStore(_InMemoryOutboxStoreOperations):
 class WorkspaceOutboxStore(_InMemoryOutboxStoreOperations):
     __slots__ = ('_accessor',)
 
-    def __init__(self, dead_letters: IDeadLetterStore, accessor: InMemoryWorkspaceAccessor) -> None:
+    def __init__(
+        self,
+        dead_letters: IDeadLetterStore,
+        nodes: INodeRegistry,
+        accessor: InMemoryWorkspaceAccessor,
+    ) -> None:
         accessor.ensure_active()
-        super().__init__(dead_letters)
+        super().__init__(dead_letters, nodes)
         self._accessor = accessor
 
     @override

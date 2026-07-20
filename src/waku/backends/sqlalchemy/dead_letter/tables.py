@@ -59,8 +59,10 @@ dead_letter_table = Table(
     Column('created_at', TIMESTAMP(timezone=True), server_default=func.now()),
     Column('replay_owner_id', Text, nullable=True),
     Column('replay_lease_expires_at', TIMESTAMP(timezone=True), nullable=True),
+    Column('replay_claim_id', UUID(as_uuid=True), nullable=True),
     CheckConstraint(
-        '(replay_owner_id IS NULL) = (replay_lease_expires_at IS NULL)',
+        '(replay_owner_id IS NULL) = (replay_lease_expires_at IS NULL)'
+        ' AND (replay_owner_id IS NULL) = (replay_claim_id IS NULL)',
         name='ck_dead_letter_replay_lease_pair',
     ),
     Index('ix_dead_letter_created', 'created_at'),
@@ -96,6 +98,7 @@ def dead_letter_insert_values(entry: DeadLetterEntry) -> dict[str, Any]:
         'metadata': entry.metadata,
         'replay_owner_id': entry.replay_owner_id,
         'replay_lease_expires_at': entry.replay_lease_expires_at,
+        'replay_claim_id': entry.replay_claim_id,
     }
     if entry.created_at is not None:
         # Honor an explicit creation instant (mirrors the memory store); None keeps the

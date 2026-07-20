@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from typing import Any
 
+    from waku._internal.node import NodeId
     from waku.messaging.sequence import GroupId
 
 __all__ = [
@@ -44,6 +45,9 @@ class OutboxMessage:
     group_id: GroupId | None = None
     sequence_number: int | None = None
     status: OutboxStatus = OutboxStatus.PENDING
+    # The claiming node while the row is PROCESSING; cleared on every terminal transition and by
+    # recovery. Mirrors `InboxEntry.owner_id` — one identity fences all durability facets.
+    owner_id: NodeId | None = None
     attempts: int = 0
     last_error: str | None = None
     metadata: dict[str, Any] | None = None

@@ -8,6 +8,7 @@ from waku.messaging._internal.ownership import AppScopeSource  # noqa: TC001
 from waku.messaging.errors._internal.replay import IReplayExecution, ReplayClaimOwner
 
 if TYPE_CHECKING:
+    from waku._internal.node import NodeIdentity
     from waku.messaging.config import DeadLetterConfig
     from waku.messaging.errors.dead_letter import DeadLetterEntry
 
@@ -27,10 +28,16 @@ class ReplayExecutor:
         execution: IReplayExecution,
         config: DeadLetterConfig,
         app_scope: AppScopeSource,
+        identity: NodeIdentity,
         now: Now = utc_now,
     ) -> None:
         self._execution = execution
-        self._owner = ReplayClaimOwner(container=app_scope.container, config=config, now=now)
+        self._owner = ReplayClaimOwner(
+            container=app_scope.container,
+            config=config,
+            node_id=identity.node_id,
+            now=now,
+        )
 
     async def replay(self, entry: DeadLetterEntry) -> bool:
         claimed = await self._owner.claim_replay(entry.id)

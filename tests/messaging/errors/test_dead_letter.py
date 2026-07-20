@@ -6,12 +6,14 @@ from uuid import uuid4
 
 import pytest
 
+from waku._internal.node import NodeId
 from waku.messaging import MessagingError
 from waku.messaging.errors.dead_letter import (
     DeadLetterDestinationKind,
     DeadLetterEntry,
     DeadLetterQuery,
     DeadLetterStatus,
+    ReplayClaimId,
     validate_requested_lease,
 )
 from waku.messaging.sequence import GroupId
@@ -60,11 +62,19 @@ class TestDeadLetterEntry:
             entry.status = DeadLetterStatus.REPLAYED  # type: ignore[misc]
 
     @staticmethod
-    def test_replay_lease_fields_must_be_paired() -> None:
-        with pytest.raises(MessagingError, match='must both be set or both be None'):
-            dataclasses.replace(_from_failure(), replay_owner_id='worker-1')
-        with pytest.raises(MessagingError, match='must both be set or both be None'):
+    def test_replay_claim_fields_must_all_be_set_together() -> None:
+        with pytest.raises(MessagingError, match='must all be set or all be None'):
+            dataclasses.replace(_from_failure(), replay_owner_id=NodeId('worker-1'))
+        with pytest.raises(MessagingError, match='must all be set or all be None'):
             dataclasses.replace(_from_failure(), replay_lease_expires_at=datetime.now(UTC))
+        with pytest.raises(MessagingError, match='must all be set or all be None'):
+            dataclasses.replace(_from_failure(), replay_claim_id=ReplayClaimId(uuid4()))
+        with pytest.raises(MessagingError, match='must all be set or all be None'):
+            dataclasses.replace(
+                _from_failure(),
+                replay_owner_id=NodeId('worker-1'),
+                replay_lease_expires_at=datetime.now(UTC),
+            )
 
     @staticmethod
     def test_from_failure_requires_destination_kind() -> None:

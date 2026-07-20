@@ -15,8 +15,9 @@ if TYPE_CHECKING:
     from datetime import datetime, timedelta
     from uuid import UUID
 
+    from waku._internal.node import NodeId
     from waku.backends.memory._internal.transaction import InMemoryWorkspaceAccessor
-    from waku.messaging.errors.dead_letter import DeadLetterQuery
+    from waku.messaging.errors.dead_letter import DeadLetterQuery, ReplayClaimId
 
 __all__ = ['InMemoryDeadLetterStore']
 
@@ -77,7 +78,8 @@ class _InMemoryDeadLetterStoreOperations(IDeadLetterStore):
         self,
         max_replay_count: int,
         *,
-        owner_id: str,
+        owner_id: NodeId,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> DeadLetterEntry | None:
@@ -87,7 +89,7 @@ class _InMemoryDeadLetterStoreOperations(IDeadLetterStore):
                 entry.status is DeadLetterStatus.REPLAY_FAILED and entry.replay_count < max_replay_count
             )
             if eligible_status and _lease_is_claimable(entry, now):
-                return self._set_claim(entry, owner_id, lease_expires_at)
+                return self._set_claim(entry, owner_id, claim_id, lease_expires_at)
         return None
 
     @override
@@ -95,7 +97,8 @@ class _InMemoryDeadLetterStoreOperations(IDeadLetterStore):
         self,
         entry_id: UUID,
         *,
-        owner_id: str,
+        owner_id: NodeId,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> DeadLetterEntry | None:
@@ -103,41 +106,42 @@ class _InMemoryDeadLetterStoreOperations(IDeadLetterStore):
         entry = self.entries.get(entry_id)
         if entry is None or entry.status is DeadLetterStatus.REPLAYED or not _lease_is_claimable(entry, now):
             return None
-        return self._set_claim(entry, owner_id, lease_expires_at)
+        return self._set_claim(entry, owner_id, claim_id, lease_expires_at)
 
     @override
     async def renew_replay_claim(
         self,
         entry_id: UUID,
         *,
-        owner_id: str,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> bool:
         validate_requested_lease(now, lease_expires_at)
         entry = self.entries.get(entry_id)
-        if not _has_live_owner(entry, owner_id, now):
+        if not _has_live_claim(entry, claim_id, now):
             return False
         self.entries[entry_id] = dataclasses.replace(entry, replay_lease_expires_at=lease_expires_at)
         return True
 
     @override
-    async def mark_replayed(self, entry_id: UUID, *, owner_id: str, now: datetime) -> bool:
+    async def mark_replayed(self, entry_id: UUID, *, claim_id: ReplayClaimId, now: datetime) -> bool:
         entry = self.entries.get(entry_id)
-        if not _has_live_owner(entry, owner_id, now):
+        if not _has_live_claim(entry, claim_id, now):
             return False
         self.entries[entry_id] = dataclasses.replace(
             entry,
             status=DeadLetterStatus.REPLAYED,
             replay_owner_id=None,
             replay_lease_expires_at=None,
+            replay_claim_id=None,
         )
         return True
 
     @override
-    async def mark_replay_failed(self, entry_id: UUID, error: str, *, owner_id: str, now: datetime) -> bool:
+    async def mark_replay_failed(self, entry_id: UUID, error: str, *, claim_id: ReplayClaimId, now: datetime) -> bool:
         entry = self.entries.get(entry_id)
-        if not _has_live_owner(entry, owner_id, now):
+        if not _has_live_claim(entry, claim_id, now):
             return False
         self.entries[entry_id] = dataclasses.replace(
             entry,
@@ -146,6 +150,7 @@ class _InMemoryDeadLetterStoreOperations(IDeadLetterStore):
             error_message=error,
             replay_owner_id=None,
             replay_lease_expires_at=None,
+            replay_claim_id=None,
         )
         return True
 
@@ -165,11 +170,18 @@ class _InMemoryDeadLetterStoreOperations(IDeadLetterStore):
             del self.entries[entry_id]
         return len(stale)
 
-    def _set_claim(self, entry: DeadLetterEntry, owner_id: str, lease_expires_at: datetime) -> DeadLetterEntry:
+    def _set_claim(
+        self,
+        entry: DeadLetterEntry,
+        owner_id: NodeId,
+        claim_id: ReplayClaimId,
+        lease_expires_at: datetime,
+    ) -> DeadLetterEntry:
         claimed = dataclasses.replace(
             entry,
             replay_owner_id=owner_id,
             replay_lease_expires_at=lease_expires_at,
+            replay_claim_id=claim_id,
         )
         self.entries[entry.id] = claimed
         return self._snapshot(claimed)
@@ -228,10 +240,15 @@ def _lease_is_claimable(entry: DeadLetterEntry, now: datetime) -> bool:
     return entry.replay_lease_expires_at is None or entry.replay_lease_expires_at <= now
 
 
-def _has_live_owner(entry: DeadLetterEntry | None, owner_id: str, now: datetime) -> TypeGuard[DeadLetterEntry]:
+def _has_live_claim(
+    entry: DeadLetterEntry | None,
+    claim_id: ReplayClaimId,
+    now: datetime,
+) -> TypeGuard[DeadLetterEntry]:
+    """The exclusion fence: this exact claim, still strictly live. Never keyed on the owner."""
     return (
         entry is not None
-        and entry.replay_owner_id == owner_id
+        and entry.replay_claim_id == claim_id
         and entry.replay_lease_expires_at is not None
         and entry.replay_lease_expires_at > now
     )

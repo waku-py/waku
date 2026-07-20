@@ -11,6 +11,8 @@ import pytest
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku._internal.clock import utc_now
+from waku._internal.node import NodeId, NodeIdentity
 from waku._internal.transaction import AfterCommitError, RollbackFailedError, TransactionExecutionError
 from waku.di import object_
 from waku.messages import IEvent
@@ -49,6 +51,7 @@ from tests.messaging.inbox.fake_store import FakeInboxStore
 from tests.messaging.outbox.fake_store import RecordingOutboxStore
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from uuid import UUID
 
     from waku.messaging.contracts.envelope import MessageEnvelope
@@ -150,7 +153,8 @@ def _drainer(container: Any, executor: IEndpointExecution, *, max_attempts: int 
         type_registry=_TYPE_REGISTRY,
         handler_by_fqn={_DESTINATION: _RecordingHandler},
         executor_factory=lambda _source_uri: executor,
-        owner_id='node-a:1',
+        owner_id=NodeId('node-a:1'),
+        now=utc_now,
         keep_after_handled=timedelta(minutes=5),
         batch_size=100,
         max_attempts=max_attempts,
@@ -382,7 +386,7 @@ async def test_drain_skips_already_owned_incoming() -> None:
     entry = _abandoned_entry(inbox)
     # Already claimed by another node -> the drain's owner_id IS NULL filter must skip it (no re-claim,
     # no re-execution). Empty-inbox alone can't distinguish "skips owned" from "nothing to claim".
-    inbox.entries[entry.id, entry.destination] = replace(entry, owner_id='other-node:1')
+    inbox.entries[entry.id, entry.destination] = replace(entry, owner_id=NodeId('other-node:1'))
     executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
     async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
         processed = await _drainer(container, executor).drain_once()
@@ -393,7 +397,7 @@ async def test_drain_skips_already_owned_incoming() -> None:
 
 class _IncrementRaisesStore(FakeInboxStore):
     @override
-    async def increment_attempts(self, entry_id: UUID, destination: str) -> None:
+    async def increment_attempts(self, entry_id: UUID, destination: HandlerDestination, *, owner_id: NodeId) -> bool:
         msg = 'increment_attempts unavailable'
         raise ConnectionError(msg)
 
@@ -516,7 +520,8 @@ async def test_drain_crash_recovery_keyed_on_scheme_qualified_source_uri() -> No
             type_registry=_TYPE_REGISTRY,
             handler_by_fqn={_DESTINATION: _RecordingHandler},
             executor_factory=capturing_factory,
-            owner_id='node-a:1',
+            owner_id=NodeId('node-a:1'),
+            now=utc_now,
             keep_after_handled=timedelta(minutes=5),
             batch_size=100,
             max_attempts=5,
@@ -592,3 +597,63 @@ async def test_build_inbox_drainer_executor_enforces_config_deadline() -> None:
     # both share the factory-built executor, so the 0s deadline cancels the handler and the row is deleted.
     assert _DrainCheckpointHandler.completed == []  # cancelled at the checkpoint before it could record
     assert (entry.id, entry.destination) not in fake_inbox.entries  # FAILED_NO_POLICY → delete
+
+
+async def test_build_inbox_drainer_claims_with_the_process_node_identity() -> None:
+    fake_inbox = FakeInboxStore()
+    unit_of_work = RecordingUoW()
+    inbox_config = InboxConfig()
+    config = MessagingConfig(inbox=inbox_config)
+    durability = RecordingDurabilityStore(
+        unit_of_work=unit_of_work,
+        outbox=RecordingOutboxStore(),
+        inbox=fake_inbox,
+        dead_letters=RecordingDeadLetterStore(),
+    )
+    async with create_test_app(
+        imports=[MessagingModule.register(config)],
+        extensions=[MessagingExtension().bind(_DrainCheckpointHandler)],
+        providers=[
+            object_(unit_of_work, provided_type=IUnitOfWork),
+            object_(fake_inbox, provided_type=IInboxStore),
+            object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+            object_(durability, provided_type=IDurabilityStore),
+            *node_registry_providers(),
+        ],
+    ) as app:
+        identity = await app.container.get(NodeIdentity)
+        fake_inbox.claim_owners.clear()
+        drainer = await build_inbox_drainer(app.container, inbox_config)
+        await drainer.drain_once()
+
+    # The background recovery worker claims on the same token, so assert the token, not the tick count.
+    assert fake_inbox.claim_owners
+    assert set(fake_inbox.claim_owners) == {identity.node_id}
+
+
+async def test_drain_abandons_a_row_whose_ownership_was_lost_mid_flight() -> None:
+    # Recovery released the row to a live successor after the drainer claimed it. The finalize is
+    # refused, the row is left untouched for its new owner, and the batch keeps going.
+    inbox = _OwnershipStolenInbox()
+    entry = _abandoned_entry(inbox)
+    healthy = _abandoned_entry(inbox, destination=_DESTINATION)
+    executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
+
+    async with make_async_container(_Deps(inbox, RecordingUoW())) as container:
+        processed = await _drainer(container, executor).drain_once()
+
+    assert processed == 1  # only the healthy row counted
+    assert inbox.entries[entry.id, entry.destination].status is InboxStatus.INCOMING
+    assert inbox.entries[healthy.id, healthy.destination].status is InboxStatus.HANDLED
+
+
+class _OwnershipStolenInbox(FakeInboxStore):
+    """Hands the FIRST claimed row to a successor node right after the claim commits."""
+
+    @override
+    async def fetch_pending_partitioned(self, batch_size: int, owner_id: NodeId) -> Sequence[InboxEntry]:
+        claimed = await super().fetch_pending_partitioned(batch_size, owner_id)
+        stolen = claimed[0]
+        key = (stolen.id, stolen.destination)
+        self.entries[key] = replace(self.entries[key], owner_id=NodeId('successor-node'))
+        return claimed

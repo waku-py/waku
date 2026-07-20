@@ -4,8 +4,10 @@ from typing import TYPE_CHECKING
 
 from typing_extensions import override
 
+from waku._internal.node import NodeId
 from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.backends.memory._internal.inbox import InMemoryInboxStore
+from waku.backends.memory._internal.nodes import InMemoryNodeRegistry
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -23,9 +25,14 @@ class FakeInboxStore(InMemoryInboxStore):
 
     def __init__(self) -> None:
         self.dead_letters = InMemoryDeadLetterStore()
-        super().__init__(self.dead_letters)
+        # Its own membership view, published to the app under test via
+        # ``node_registry_providers(inbox.nodes)`` whenever a test's recovery behaviour depends on
+        # this process being a live member.
+        self.nodes = InMemoryNodeRegistry()
+        super().__init__(self.dead_letters, self.nodes)
         self.store_incoming_error: Exception | None = None
         self.fetch_pending_error: Exception | None = None
+        self.claim_owners: list[str] = []
 
     @override
     async def store_incoming(self, entry: InboxEntry) -> bool:
@@ -34,7 +41,8 @@ class FakeInboxStore(InMemoryInboxStore):
         return await super().store_incoming(entry)
 
     @override
-    async def fetch_pending_partitioned(self, batch_size: int, owner_id: str) -> Sequence[InboxEntry]:
+    async def fetch_pending_partitioned(self, batch_size: int, owner_id: NodeId) -> Sequence[InboxEntry]:
         if self.fetch_pending_error is not None:
             raise self.fetch_pending_error
+        self.claim_owners.append(owner_id)
         return await super().fetch_pending_partitioned(batch_size, owner_id)

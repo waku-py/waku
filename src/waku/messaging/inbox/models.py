@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
+    from waku._internal.node import NodeId
     from waku.messaging.inbox.identifiers import EndpointUri, HandlerDestination
     from waku.messaging.sequence import GroupId
 
@@ -39,7 +40,7 @@ class InboxEntry:
     # the endpoint URI the message arrived on — observability metadata, not a dedup key.)
     destination: HandlerDestination
     status: InboxStatus = InboxStatus.INCOMING
-    owner_id: str | None = None
+    owner_id: NodeId | None = None
     correlation_id: str
     causation_id: str
     metadata: dict[str, Any] | None = None

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, ClassVar
 import pytest
 from typing_extensions import override
 
-from waku._internal.node import INodeRegistry, NodeIdentity, NodeRegistryConfig
+from waku._internal.node import INodeRegistry, NodeId, NodeIdentity, NodeRegistryConfig
 from waku.backends.testing._internal.contract import BackendContract
 from waku.eventsourcing.contracts.aggregate import EventSourcedAggregate
 from waku.eventsourcing.contracts.event import EventEnvelope
@@ -33,6 +33,8 @@ if TYPE_CHECKING:
     from waku.application import WakuApplication
 
 __all__ = ['BackendAssemblyContract']
+
+_RELAY = NodeId('relay-1')
 
 
 @dataclass(frozen=True)
@@ -199,7 +201,7 @@ class BackendAssemblyContract(BackendContract):
             outbox = await scope.get(IOutboxStore)
 
             assert await event_store.stream_exists(stream_id) is False
-            assert await outbox.fetch_head_of_queue(batch_size=10) == []
+            assert await outbox.fetch_head_of_queue(batch_size=10, owner_id=_RELAY) == []
 
     async def test_append_and_forward_commit_together(self, app: WakuApplication) -> None:
         if not self.supports_rollback:
@@ -225,7 +227,7 @@ class BackendAssemblyContract(BackendContract):
             outbox = await scope.get(IOutboxStore)
 
             assert await event_store.stream_exists(stream_id) is True
-            assert [m.id for m in await outbox.fetch_head_of_queue(batch_size=10)] == [message.id]
+            assert [m.id for m in await outbox.fetch_head_of_queue(batch_size=10, owner_id=_RELAY)] == [message.id]
 
     async def test_outbox_dead_letter_move_rolls_back_source_and_destination_together(
         self,
@@ -243,15 +245,17 @@ class BackendAssemblyContract(BackendContract):
 
         async with app.container() as scope:
             outbox = await scope.get(IOutboxStore)
-            claimed = await outbox.fetch_head_of_queue(batch_size=10)
-            await outbox.move_to_dead_letter(claimed[0].id, dead_letter)
+            claimed = await outbox.fetch_head_of_queue(batch_size=10, owner_id=_RELAY)
+            await outbox.move_to_dead_letter(claimed[0].id, dead_letter, owner_id=_RELAY)
             await (await scope.get(IUnitOfWork)).rollback()
 
         async with app.container() as scope:
             outbox = await scope.get(IOutboxStore)
             dead_letters = await scope.get(IDeadLetterStore)
 
-            assert [entry.id for entry in await outbox.fetch_head_of_queue(batch_size=10)] == [message.id]
+            assert [entry.id for entry in await outbox.fetch_head_of_queue(batch_size=10, owner_id=_RELAY)] == [
+                message.id
+            ]
             with pytest.raises(KeyError, match=str(dead_letter.id)):
                 await dead_letters.fetch_one(dead_letter.id)
 
@@ -271,15 +275,15 @@ class BackendAssemblyContract(BackendContract):
 
         async with app.container() as scope:
             outbox = await scope.get(IOutboxStore)
-            claimed = await outbox.fetch_head_of_queue(batch_size=10)
-            await outbox.move_to_dead_letter(claimed[0].id, dead_letter)
+            claimed = await outbox.fetch_head_of_queue(batch_size=10, owner_id=_RELAY)
+            await outbox.move_to_dead_letter(claimed[0].id, dead_letter, owner_id=_RELAY)
             await (await scope.get(IUnitOfWork)).commit()
 
         async with app.container() as scope:
             outbox = await scope.get(IOutboxStore)
             dead_letters = await scope.get(IDeadLetterStore)
 
-            assert await outbox.fetch_head_of_queue(batch_size=10) == []
+            assert await outbox.fetch_head_of_queue(batch_size=10, owner_id=_RELAY) == []
             persisted = await dead_letters.fetch_one(dead_letter.id)
             assert persisted.id == dead_letter.id
             assert persisted.payload == dead_letter.payload

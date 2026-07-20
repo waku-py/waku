@@ -262,11 +262,11 @@ The store itself comes from the imported [durability backend](../../fundamentals
 | `save(entry)` | `None` | Store a dead-letter entry |
 | `fetch(batch_size=100)` | `Sequence[DeadLetterEntry]` | Retrieve entries oldest-first |
 | `fetch_one(entry_id)` | `DeadLetterEntry` | Retrieve a single entry by ID |
-| `claim_replayable(max_replay_count, *, owner_id, now, lease_expires_at)` | `DeadLetterEntry \| None` | Lease the oldest eligible auto-replay entry |
-| `claim_replay(entry_id, *, owner_id, now, lease_expires_at)` | `DeadLetterEntry \| None` | Lease one explicit non-replayed entry |
-| `renew_replay_claim(entry_id, *, owner_id, now, lease_expires_at)` | `bool` | Extend a strictly live owned lease |
-| `mark_replayed(entry_id, *, owner_id, now)` | `bool` | Finalize a live owned claim as replayed |
-| `mark_replay_failed(entry_id, error, *, owner_id, now)` | `bool` | Finalize a live owned claim as failed |
+| `claim_replayable(max_replay_count, *, owner_id, claim_id, now, lease_expires_at)` | `DeadLetterEntry \| None` | Lease the oldest eligible auto-replay entry |
+| `claim_replay(entry_id, *, owner_id, claim_id, now, lease_expires_at)` | `DeadLetterEntry \| None` | Lease one explicit non-replayed entry |
+| `renew_replay_claim(entry_id, *, claim_id, now, lease_expires_at)` | `bool` | Extend a strictly live claim's lease |
+| `mark_replayed(entry_id, *, claim_id, now)` | `bool` | Finalize a live claim as replayed |
+| `mark_replay_failed(entry_id, error, *, claim_id, now)` | `bool` | Finalize a live claim as failed |
 | `delete(entry_id)` | `None` | Unconditionally remove an entry |
 | `delete_expired_dead_letters(older_than, *, now)` | `int` | Remove old entries without an active replay lease |
 
@@ -286,12 +286,18 @@ The store itself comes from the imported [durability backend](../../fundamentals
 | `status`          | `DeadLetterStatus`  | Replay lifecycle: `PENDING` / `REPLAYED` / `REPLAY_FAILED` |
 | `replay_count`    | `int`               | Number of auto-replay attempts           |
 | `created_at`      | `datetime \| None`  | Timestamp when the entry was created     |
-| `replay_owner_id` | `str \| None`       | Current replay lease owner               |
+| `replay_owner_id` | `NodeId \| None`    | Node holding the current replay lease    |
 | `replay_lease_expires_at` | `datetime \| None` | Current replay lease expiry       |
+| `replay_claim_id` | `ReplayClaimId \| None` | Token identifying the current claim  |
 
-The replay owner and expiry are either both set or both `None`. Lease expiry is exact: a lease is
+Owner, expiry and claim id are either all set or all `None`. Lease expiry is exact: a lease is
 live only while `replay_lease_expires_at > now`; equality is expired. In-flight ownership is
 represented only by these fields—there is no separate replaying status.
+
+`replay_owner_id` answers *which node* holds the row; `replay_claim_id`, minted fresh at every
+successful claim, answers *which claim*. Renewal and finalization gate on the claim id alone,
+because a replay lease lapses against a node that is still alive by design — two claimants in one
+process legitimately share an owner token, so it cannot arbitrate between them.
 
 `destination` carries the **endpoint URI** for executor-path dead letters; for inbox poison-path
 entries it carries the **handler FQN** instead.
@@ -404,16 +410,16 @@ class PostgresDeadLetterStore(IDeadLetterStore):
 ```
 
 The omitted replay lifecycle methods must implement the complete `IDeadLetterStore` contract above,
-including exact expiry equality and owner guards. `delete()` remains an explicit unconditional
+including exact expiry equality and claim guards. `delete()` remains an explicit unconditional
 operator action; retention purge must not revoke a live lease.
 
 !!! warning "SQL schema migration required"
     Waku publishes SQLAlchemy metadata but does not ship application Alembic revisions. Before
     deploying this version, generate and apply an application-owned migration from
     `bind_dead_letter_tables()` metadata. Existing dead-letter tables need nullable
-    `replay_owner_id` and `replay_lease_expires_at` columns, the
+    `replay_owner_id`, `replay_lease_expires_at` and `replay_claim_id` columns, the
     `ck_dead_letter_replay_lease_pair` check constraint, and the
-    `ix_dead_letter_replay_claim` composite index. Existing rows migrate as `NULL` / `NULL`.
+    `ix_dead_letter_replay_claim` composite index. Existing rows migrate as all-`NULL`.
 
 ---
 

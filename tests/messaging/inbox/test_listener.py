@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from dishka import AsyncContainer, make_async_container
 from typing_extensions import override
 
+from waku._internal.clock import utc_now
+from waku._internal.node import NodeId
 from waku._internal.retort import default_retort
 from waku.messages import IEvent
 from waku.messaging import HandlerMap
@@ -96,7 +98,8 @@ def _receiver(container: AsyncContainer, executor: IEndpointExecution) -> Durabl
         uri='local://test',
         container=container,
         executor=executor,
-        inbox_owner_id='node-a:1',
+        inbox_owner_id=NodeId('node-a:1'),
+        now=utc_now,
         keep_after_handled=timedelta(seconds=300),
         max_requeue_attempts=5,
         max_buffer_size=100,
@@ -281,7 +284,8 @@ async def test_consume_pauses_listener_when_buffer_crosses_high_watermark() -> N
             uri='local://test',
             container=container,
             executor=_BlockingExecutor(release=release),
-            inbox_owner_id='node-a:1',
+            inbox_owner_id=NodeId('node-a:1'),
+            now=utc_now,
             keep_after_handled=timedelta(seconds=300),
             max_buffer_size=10,
             stop_timeout=timedelta(seconds=1.0),

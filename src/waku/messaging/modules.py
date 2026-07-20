@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Final, Self, TypeAlias, assert_never, cas
 from typing_extensions import override
 
 from waku._internal.clock import Now, utc_now
-from waku._internal.node import INodeRegistry, NodeIdentity, NodeRegistryConfig
+from waku._internal.node import INodeRegistry, NodeId, NodeIdentity, NodeRegistryConfig
 from waku._internal.provider_scan import provided_type_hints
 from waku._internal.retort import default_retort
 from waku._internal.sentinel import MISSING
@@ -232,9 +232,10 @@ def _build_replay_executor(
     execution: IReplayExecution,
     config: DeadLetterConfig,
     app_scope: AppScopeSource,
+    identity: NodeIdentity,
     now: Now,
 ) -> ReplayExecutor:
-    return ReplayExecutor(execution=execution, config=config, app_scope=app_scope, now=now)
+    return ReplayExecutor(execution=execution, config=config, app_scope=app_scope, identity=identity, now=now)
 
 
 class MessagingExtension(OnModuleConfigure):
@@ -614,9 +615,10 @@ class _EndpointBuildContext:
     now: Now
     observer_plan: ObserverPlan
     dead_letter_capable: bool
+    node_id: NodeId
 
 
-def _build_router(
+def _build_router(  # noqa: PLR0913, PLR0917 -- DI/config values, all required; bundling is a construction-site refactor
     routing_table: RoutingTable,
     container: AsyncContainer,
     factory: EndpointExecutorFactory,
@@ -624,6 +626,7 @@ def _build_router(
     capabilities: _EndpointCapabilities,
     now: Now,
     plan: ObserverPlan,
+    identity: NodeIdentity,
 ) -> MessageRouter:
     context = _EndpointBuildContext(
         routing_table=routing_table,
@@ -634,6 +637,7 @@ def _build_router(
         now=now,
         observer_plan=plan,
         dead_letter_capable=capabilities.dead_letter_capable,
+        node_id=identity.node_id,
     )
     endpoints_by_uri = {
         entry.uri: _build_endpoint(entry, context)
@@ -692,7 +696,7 @@ def _build_endpoint(
                 observers=observers,
                 container=context.container,
                 keep_after_handled=inbox.keep_after_handled,
-                inbox_owner_id=inbox.resolve_owner_id(),
+                inbox_owner_id=context.node_id,
                 stop_timeout=entry.stop_timeout,
                 max_buffer_size=entry.max_buffer_size,
                 partition_by=entry.partition_by,
@@ -997,10 +1001,12 @@ class OutboxRelayLifecycleExtension(AfterApplicationInit, OnApplicationShutdown)
     async def after_app_init(self, app: 'WakuApplication') -> None:
         evaluator = await app.container.get(SendingFailureEvaluator)
         now = await app.container.get(Now)
+        identity = await app.container.get(NodeIdentity)
         self._relay = OutboxRelay(
             container=app.container,
             config=self._config,
             sending_failure_evaluator=evaluator,
+            node_id=identity.node_id,
             now=now,
         )
         await self._relay.start()
@@ -1068,6 +1074,8 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
         type_registry = await app.container.get(MessageTypeRegistry)
         handler_map = await app.container.get(HandlerMap)
         factory = await app.container.get(EndpointExecutionFactory)
+        identity = await app.container.get(NodeIdentity)
+        now = await app.container.get(Now)
         for ep in merged:
             if ep.listen is None:
                 continue
@@ -1080,6 +1088,8 @@ class TransportLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):
                 type_registry=type_registry,
                 handler_map=handler_map,
                 inbox=inbox,
+                identity=identity,
+                now=now,
                 config=self._config,
             )
             # start() subscribes and starts the receiver; nothing flows until transport.start().

@@ -47,6 +47,7 @@ outbox_messages_table = Table(
         nullable=False,
         server_default=OutboxStatus.PENDING.value,
     ),
+    Column('owner_id', Text, nullable=True),
     Column('attempts', Integer, nullable=False, server_default='0'),
     Column('last_error', Text, nullable=True),
     Column('metadata', JSONB, nullable=True),
@@ -60,6 +61,7 @@ outbox_messages_table = Table(
         name=OUTBOX_IDEMPOTENCY_CONSTRAINT,
     ),
     Index('ix_outbox_status_created', 'status', 'created_at'),
+    Index('ix_outbox_status_owner', 'status', 'owner_id'),
     Index('ix_outbox_status_next_retry', 'status', 'next_retry_at'),
     Index('ix_outbox_group_sequence', 'group_id', 'sequence_number'),
 )

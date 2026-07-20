@@ -132,16 +132,22 @@ def _build_in_memory_dead_letter_store(workspace: InMemoryTransactionWorkspace) 
 
 def _build_in_memory_outbox_store(
     dead_letters: IDeadLetterStore,
+    nodes: INodeRegistry,
     workspace: InMemoryTransactionWorkspace,
 ) -> IOutboxStore:
-    return WorkspaceOutboxStore(dead_letters, workspace.accessor)
+    # The registry is a collaborator, not a facet: recovery releases a row only when its owner has left
+    # the cluster, which is the same resource this workspace already spans.
+    return WorkspaceOutboxStore(dead_letters, nodes, workspace.accessor)
 
 
 def _build_in_memory_inbox_store(
     dead_letters: IDeadLetterStore,
+    nodes: INodeRegistry,
     workspace: InMemoryTransactionWorkspace,
 ) -> IInboxStore:
-    return WorkspaceInboxStore(dead_letters, workspace.accessor)
+    # The registry is a collaborator, not a facet: recovery releases a row only when its owner has left
+    # the cluster, which is the same resource this workspace already spans.
+    return WorkspaceInboxStore(dead_letters, nodes, workspace.accessor)
 
 
 def _build_in_memory_node_registry(workspace: InMemoryTransactionWorkspace) -> INodeRegistry:

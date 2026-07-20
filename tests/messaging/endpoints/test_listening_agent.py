@@ -9,6 +9,8 @@ import pytest
 from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku._internal.clock import utc_now
+from waku._internal.node import NodeId, NodeIdentity
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IEvent
 from waku.messaging import (
@@ -182,7 +184,8 @@ def _make_receiver(
         uri=_URI,
         container=container,
         executor=_FailingExecutor(),
-        inbox_owner_id='node-a:1',
+        inbox_owner_id=NodeId('node-a:1'),
+        now=utc_now,
         keep_after_handled=timedelta(seconds=300),
         max_buffer_size=100,
         stop_timeout=timedelta(seconds=1.0),
@@ -465,6 +468,8 @@ async def _factory_agent(
         type_registry=await app.container.get(MessageTypeRegistry),
         handler_map=await app.container.get(HandlerMap),
         inbox=config.inbox,
+        now=utc_now,
+        identity=await app.container.get(NodeIdentity),
         config=config,
     )
 
@@ -482,7 +487,7 @@ class TestCreateListeningAgent:
         inbox = FakeInboxStore()
         transport = _SpyTransport()
         config = MessagingConfig(
-            inbox=InboxConfig(owner_id='test-node:1'),
+            inbox=InboxConfig(),
             global_pipeline_behaviors=[TransactionalBehavior],
         )
         async with create_test_app(
@@ -512,7 +517,7 @@ class TestCreateListeningAgent:
     async def test_factory_rejects_endpoint_without_listen_aspect() -> None:
         transport = _SpyTransport()
         config = MessagingConfig(
-            inbox=InboxConfig(owner_id='test-node:1'),
+            inbox=InboxConfig(),
             global_pipeline_behaviors=[TransactionalBehavior],
         )
         async with create_test_app(
@@ -536,7 +541,7 @@ class TestCreateListeningAgent:
         transport = _SpyTransport()
         config = MessagingConfig(
             endpoints=[listen(_URI)],
-            inbox=InboxConfig(owner_id='test-node:1'),
+            inbox=InboxConfig(),
             transports={'test': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )

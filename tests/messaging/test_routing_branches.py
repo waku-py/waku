@@ -218,7 +218,7 @@ class TestMergedEndpointListenOnlyRouting:
         config = MessagingConfig(
             endpoints=[listen('rabbitmq://orders')],
             routing=[route(_Notif).to('rabbitmq://orders')],
-            inbox=InboxConfig(owner_id='test-node:1'),
+            inbox=InboxConfig(),
             transports={'rabbitmq': RecordingTransport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )

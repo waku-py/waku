@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
-from uuid import uuid4
+from typing import TYPE_CHECKING, Any, NewType
+from uuid import UUID, uuid4
 
 from waku.messaging.exceptions import MessagingError
 
 if TYPE_CHECKING:
     from datetime import datetime
-    from uuid import UUID
 
+    from waku._internal.node import NodeId
     from waku.messaging.sequence import GroupId
 
 __all__ = [
@@ -18,8 +18,15 @@ __all__ = [
     'DeadLetterEntry',
     'DeadLetterQuery',
     'DeadLetterStatus',
+    'ReplayClaimId',
     'validate_requested_lease',
 ]
+
+# Follows the persisted-identity NewType guard convention (see waku.messaging.inbox.identifiers),
+# over UUID because the value is naturally one. Minted fresh at every successful replay claim and
+# the SOLE predicate of renewal and finalization: the owner token says *which node* holds the row,
+# this says *which claim* — two claimants in one process share the former but never the latter.
+ReplayClaimId = NewType('ReplayClaimId', UUID)
 
 
 @enum.unique
@@ -82,12 +89,14 @@ class DeadLetterEntry:
     group_id: GroupId | None = None
     metadata: dict[str, Any] | None = None
     created_at: datetime | None = None
-    replay_owner_id: str | None = None
+    replay_owner_id: NodeId | None = None
     replay_lease_expires_at: datetime | None = None
+    replay_claim_id: ReplayClaimId | None = None
 
     def __post_init__(self) -> None:
-        if (self.replay_owner_id is None) is not (self.replay_lease_expires_at is None):
-            msg = 'replay_owner_id and replay_lease_expires_at must both be set or both be None'
+        claim_parts = (self.replay_owner_id, self.replay_lease_expires_at, self.replay_claim_id)
+        if any(part is None for part in claim_parts) and any(part is not None for part in claim_parts):
+            msg = 'replay_owner_id, replay_lease_expires_at and replay_claim_id must all be set or all be None'
             raise MessagingError(msg)
 
     @classmethod

@@ -77,6 +77,7 @@ async def conformance_pg_session(pg_engine: AsyncEngine) -> AsyncIterator[AsyncS
         bind_event_store_tables,
         bind_snapshot_tables,
         bind_checkpoint_tables,
+        bind_node_tables,
     ) as session:
         yield session
 
@@ -204,12 +205,32 @@ class TestSqlAlchemyOutboxConformance(OutboxStoreContract):
     def outbox_store(self, conformance_pg_session: AsyncSession) -> IOutboxStore:
         return SqlAlchemyOutboxStore(conformance_pg_session)
 
+    @pytest.fixture
+    @override
+    def node_registry(self, conformance_pg_session: AsyncSession) -> INodeRegistry:
+        return SqlAlchemyNodeRegistry(conformance_pg_session)
+
+    @pytest.fixture
+    @override
+    def dead_letter_store(self, conformance_pg_session: AsyncSession) -> IDeadLetterStore:
+        return SqlAlchemyDeadLetterStore(conformance_pg_session)
+
 
 class TestSqlAlchemyInboxConformance(InboxStoreContract):
     @pytest.fixture
     @override
     def inbox_store(self, conformance_pg_session: AsyncSession) -> IInboxStore:
         return SqlAlchemyInboxStore(conformance_pg_session)
+
+    @pytest.fixture
+    @override
+    def node_registry(self, conformance_pg_session: AsyncSession) -> INodeRegistry:
+        return SqlAlchemyNodeRegistry(conformance_pg_session)
+
+    @pytest.fixture
+    @override
+    def dead_letter_store(self, conformance_pg_session: AsyncSession) -> IDeadLetterStore:
+        return SqlAlchemyDeadLetterStore(conformance_pg_session)
 
 
 class TestSqlAlchemyDeadLetterConformance(DeadLetterStoreContract):

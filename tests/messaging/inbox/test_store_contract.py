@@ -5,15 +5,13 @@ from typing import TYPE_CHECKING
 import pytest
 from typing_extensions import override
 
-from waku.backends.sqlalchemy.inbox.store import SqlAlchemyInboxStore
 from waku.backends.testing import InboxStoreContract
 
-from tests.messaging.inbox.fake_store import FakeInboxStore
-
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
+    from waku._internal.node import INodeRegistry
+    from waku.messaging.durability import IDeadLetterStore, IInboxStore
 
-    from waku.messaging.durability import IInboxStore
+    from tests.messaging.inbox.conftest import InboxBackend
 
 # The exported conformance kit carries the behavioral contract; this suite subscribes the canonical
 # fake and the SQLAlchemy adapter, pinning fake == real. SQLAlchemy-only concerns (concurrent
@@ -21,11 +19,17 @@ if TYPE_CHECKING:
 
 
 class TestInboxStoreContract(InboxStoreContract):
-    @pytest.fixture(params=['fake', 'sqlalchemy'])
+    @pytest.fixture
     @override
-    def inbox_store(self, request: pytest.FixtureRequest) -> IInboxStore:
-        # The 'fake' branch never resolves the pg session, so it needs no PostgreSQL container.
-        if request.param == 'fake':
-            return FakeInboxStore()
-        session: AsyncSession = request.getfixturevalue('inbox_pg_session')
-        return SqlAlchemyInboxStore(session)
+    def inbox_store(self, inbox_backend: InboxBackend) -> IInboxStore:
+        return inbox_backend.inbox
+
+    @pytest.fixture
+    @override
+    def node_registry(self, inbox_backend: InboxBackend) -> INodeRegistry:
+        return inbox_backend.nodes
+
+    @pytest.fixture
+    @override
+    def dead_letter_store(self, inbox_backend: InboxBackend) -> IDeadLetterStore:
+        return inbox_backend.dead_letters

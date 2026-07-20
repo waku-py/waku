@@ -12,6 +12,7 @@ from waku.messaging.delivery import DeliveryOptions
 from waku.messaging.endpoints.base import EndpointMode
 from waku.messaging.exceptions import (
     DeliveryOptionNotApplicableError,
+    DurabilityOwnershipLostError,
     HandlerAlreadyRegisteredError,
     HandlerNotFoundError,
     HandlerTimeoutError,
@@ -47,6 +48,7 @@ __all__ = [
     'DeadLetterConfig',
     'DeliveryOptionNotApplicableError',
     'DeliveryOptions',
+    'DurabilityOwnershipLostError',
     'EndpointDefaults',
     'EndpointMode',
     'EventHandler',

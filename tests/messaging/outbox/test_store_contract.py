@@ -5,15 +5,13 @@ from typing import TYPE_CHECKING
 import pytest
 from typing_extensions import override
 
-from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
-from waku.backends.memory._internal.outbox import InMemoryOutboxStore
-from waku.backends.sqlalchemy.outbox.store import SqlAlchemyOutboxStore
 from waku.backends.testing import OutboxStoreContract
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
+    from waku._internal.node import INodeRegistry
+    from waku.messaging.durability import IDeadLetterStore, IOutboxStore
 
-    from waku.messaging.durability import IOutboxStore
+    from tests.messaging.outbox.conftest import OutboxBackend
 
 # The exported conformance kit carries the behavioral contract; this suite subscribes the memory
 # backend's faithful store and the SQLAlchemy adapter, pinning fake == real. SQLAlchemy-only
@@ -21,11 +19,17 @@ if TYPE_CHECKING:
 
 
 class TestOutboxStoreContract(OutboxStoreContract):
-    @pytest.fixture(params=['fake', 'sqlalchemy'])
+    @pytest.fixture
     @override
-    def outbox_store(self, request: pytest.FixtureRequest) -> IOutboxStore:
-        # The 'fake' branch never resolves the pg session, so it needs no PostgreSQL container.
-        if request.param == 'fake':
-            return InMemoryOutboxStore(InMemoryDeadLetterStore())
-        session: AsyncSession = request.getfixturevalue('outbox_pg_session')
-        return SqlAlchemyOutboxStore(session)
+    def outbox_store(self, outbox_backend: OutboxBackend) -> IOutboxStore:
+        return outbox_backend.outbox
+
+    @pytest.fixture
+    @override
+    def node_registry(self, outbox_backend: OutboxBackend) -> INodeRegistry:
+        return outbox_backend.nodes
+
+    @pytest.fixture
+    @override
+    def dead_letter_store(self, outbox_backend: OutboxBackend) -> IDeadLetterStore:
+        return outbox_backend.dead_letters

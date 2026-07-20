@@ -16,6 +16,7 @@ from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
 from waku._internal.clock import Now, utc_now
+from waku._internal.node import NodeId
 from waku._internal.transaction import AfterCommitError, RollbackFailedError, TransactionExecutionError
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IEvent
@@ -47,6 +48,9 @@ if TYPE_CHECKING:
 
     from waku.messaging.contracts.envelope import MessageEnvelope
     from waku.messaging.transport.inbound import ConsumeCallback
+
+
+_OWNER = NodeId('relay-1')
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,57 +117,84 @@ class _RecordingOutboxStore(IOutboxStore):
     recover_abandoned_error: Exception | None = None
     mark_dispatched_error: Exception | None = None
     trace: list[str] | None = None
+    claim_owners: list[NodeId] = field(default_factory=list)
+    # Message ids a live successor has taken over: every transition this node attempts on them is
+    # refused by the owner fence, exactly as the real stores' `rowcount == 0` does.
+    lost_to_successor: set[UUID] = field(default_factory=set)
+
+    def _owns(self, message_id: UUID, owner_id: NodeId) -> bool:
+        return owner_id in self.claim_owners and message_id not in self.lost_to_successor
 
     @override
     async def save_batch(self, messages: Sequence[OutboxMessage]) -> None:  # pragma: no cover
         self.pending.extend(messages)
 
     @override
-    async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
+    async def fetch_head_of_queue(self, batch_size: int, owner_id: NodeId) -> Sequence[OutboxMessage]:
         # Relay tests stage non-partitioned messages, so head-of-queue is plain FIFO slicing.
         if self.trace is not None:
             self.trace.append('fetch')
         self.poll_calls += 1
-        batch = self.pending[:batch_size]
+        self.claim_owners.append(owner_id)
+        batch = [replace(msg, owner_id=owner_id) for msg in self.pending[:batch_size]]
         self.pending = self.pending[batch_size:]
         return batch
 
     @override
-    async def mark_dispatched(self, message_id: UUID) -> None:
+    async def mark_dispatched(self, message_id: UUID, *, owner_id: NodeId) -> bool:
         if self.trace is not None:
             self.trace.append('mark-dispatched')
         if self.mark_dispatched_error is not None:
             err = self.mark_dispatched_error
             self.mark_dispatched_error = None
             raise err
+        if not self._owns(message_id, owner_id):
+            return False
         self.dispatched_ids.append(message_id)
+        return True
 
     @override
-    async def mark_failed(self, message_id: UUID, error: str, next_retry_at: datetime | None = None) -> None:
+    async def mark_failed(
+        self,
+        message_id: UUID,
+        error: str,
+        next_retry_at: datetime | None = None,
+        *,
+        owner_id: NodeId,
+    ) -> bool:
         if self.trace is not None:
             self.trace.append('mark-failed')
         if self.mark_failed_error is not None:
             raise self.mark_failed_error
+        if not self._owns(message_id, owner_id):
+            return False
         self.failed_ids.append(message_id)
         self.failure_records.append(_FailureRecord(message_id=message_id, error=error, next_retry_at=next_retry_at))
+        return True
 
     @override
-    async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry) -> None:
+    async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry, *, owner_id: NodeId) -> bool:
         if self.trace is not None:
             self.trace.append('move-to-dead-letter')
         if self.move_to_dead_letter_error is not None:
             raise self.move_to_dead_letter_error
+        if not self._owns(message_id, owner_id):
+            return False
         self.dead_lettered_ids.append(message_id)
         self.dead_letter_entries.append(entry)
+        return True
 
     @override
-    async def mark_discarded(self, message_id: UUID, error: str) -> None:
+    async def mark_discarded(self, message_id: UUID, error: str, *, owner_id: NodeId) -> bool:
         if self.trace is not None:
             self.trace.append('mark-discarded')
+        if not self._owns(message_id, owner_id):
+            return False
         self.discarded_ids.append(message_id)
+        return True
 
     @override
-    async def recover_abandoned(self, threshold: timedelta) -> int:
+    async def recover_abandoned(self) -> int:
         self.recovered += 1
         if self.recover_abandoned_error is not None:
             err = self.recover_abandoned_error
@@ -417,6 +448,7 @@ async def _run_relay(
             container=container,
             config=config,
             sending_failure_evaluator=evaluator or make_relay_evaluator(config),
+            node_id=_OWNER,
             now=now,
         )
         await relay.start()
@@ -595,6 +627,7 @@ class TestOutboxRelayOperations:
                 container=container,
                 config=slow_config,
                 sending_failure_evaluator=make_relay_evaluator(slow_config),
+                node_id=_OWNER,
             )
             await relay.start()
             await wait_until(lambda: store.poll_calls >= 1)
@@ -847,7 +880,7 @@ class TestOutboxRelayOperations:
                 self.fetch_entered = anyio.Event()
 
             @override
-            async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
+            async def fetch_head_of_queue(self, batch_size: int, owner_id: NodeId) -> Sequence[OutboxMessage]:
                 self.fetch_entered.set()
                 await anyio.sleep_forever()
                 return []  # pragma: no cover
@@ -866,6 +899,7 @@ class TestOutboxRelayOperations:
                     container=container,
                     config=config,
                     sending_failure_evaluator=make_relay_evaluator(config),
+                    node_id=_OWNER,
                 )
                 await relay.start()
                 await wait_until(blocking_store.fetch_entered.is_set)
@@ -883,6 +917,7 @@ class TestOutboxRelayOperations:
                 container=container,
                 config=_FAST_CONFIG,
                 sending_failure_evaluator=make_relay_evaluator(_FAST_CONFIG),
+                node_id=_OWNER,
             )
             await relay.stop()
 
@@ -1090,6 +1125,48 @@ class TestRelayDispatchQuarantine:
         assert corrupt.id in store.dead_lettered_ids
         assert transport.sent == []  # broker never touched — corruption is not a send failure
         assert not store.pending
+
+    @staticmethod
+    async def test_lost_ownership_after_send_abandons_row_without_terminal_evidence(
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        # Recovery gave this row to a live successor (this node left the registry) while the send was in
+        # flight. The delivered message must NOT be recorded terminal by this node — no dispatched, no
+        # failed, no dead-letter — because the successor owns its outcome. The relay abandons it silently.
+        store, msg = _make_pending_store()
+        store.lost_to_successor.add(msg.id)  # every transition on this id now fails the owner fence
+        transport = RecordingTransport()
+
+        with caplog.at_level(logging.WARNING, logger='waku.messaging.outbox.relay'):
+            async with _run_relay(RelayDepsProvider(store, transport)):
+                await wait_until(lambda: len(transport.sent) == 1 and store.poll_calls >= 2)
+
+        assert len(transport.sent) == 1  # delivered once by this node
+        assert msg.id not in store.dispatched_ids
+        assert msg.id not in store.failed_ids
+        assert msg.id not in store.discarded_ids
+        assert msg.id not in store.dead_lettered_ids
+        assert f'Abandoning outbox message {msg.id}' in caplog.text
+
+    @staticmethod
+    async def test_lost_ownership_on_dead_letter_mints_no_dead_letter(caplog: pytest.LogCaptureFixture) -> None:
+        # Exhaustion path: a stale relay that has lost the row must not mint a phantom dead letter for
+        # work its successor is still doing. The fenced move is rejected and the row is abandoned.
+        store, msg = _make_pending_store()
+        store.lost_to_successor.add(msg.id)
+        # Force the exhaustion branch straight away: a corrupt metadata blob dead-letters without a send.
+        corrupt = replace(msg, metadata={'message_version': 'abc', 'timestamp': None, 'headers': {}})
+        store.pending[:] = [corrupt]
+        store.lost_to_successor = {corrupt.id}
+        transport = RecordingTransport()
+
+        with caplog.at_level(logging.WARNING, logger='waku.messaging.outbox.relay'):
+            async with _run_relay(RelayDepsProvider(store, transport)):
+                await wait_until(lambda: f'Abandoning outbox message {corrupt.id}' in caplog.text)
+
+        assert corrupt.id not in store.dead_lettered_ids  # no phantom dead letter
+        assert store.dead_letter_entries == []
+        assert transport.sent == []
 
 
 class TestDispatchMessageMetadata:

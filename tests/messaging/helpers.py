@@ -8,7 +8,7 @@ import anyio
 from dishka import Provider, Scope, provide
 from typing_extensions import override
 
-from waku._internal.node import INodeRegistry, NodeRegistryConfig
+from waku._internal.node import INodeRegistry, NodeId, NodeRegistryConfig
 from waku._internal.retort import default_retort
 from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.backends.memory._internal.nodes import InMemoryNodeRegistry
@@ -27,7 +27,7 @@ from waku.messaging.durability import (
     IOutboxStore,
 )
 from waku.messaging.endpoints._internal.execution import IEndpointExecution, noop_result_observer
-from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery
+from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, ReplayClaimId
 from waku.messaging.errors.executor import ErrorPolicyEvaluator
 from waku.messaging.errors.registry import ErrorPolicyRegistry
 from waku.messaging.inbox import EndpointUri, InboxStatus
@@ -307,14 +307,16 @@ def durability_for_dead_letters(
     )
 
 
-def node_registry_providers() -> list[WakuProvider]:
+def node_registry_providers(registry: INodeRegistry | None = None) -> list[WakuProvider]:
     """Membership pair every durability-configured app must publish, as the wiring gate requires.
 
     One shared registry object rather than a scoped one: real backends keep membership in committed
-    rows, so it must outlive the request scope that wrote it.
+    rows, so it must outlive the request scope that wrote it. Pass ``registry`` (typically
+    ``FakeInboxStore.nodes``) when the app's inbox store must resolve ownership against the SAME
+    membership the app registers itself into; a real backend keeps both in one database.
     """
     return [
-        object_(InMemoryNodeRegistry(), provided_type=INodeRegistry),
+        object_(registry if registry is not None else InMemoryNodeRegistry(), provided_type=INodeRegistry),
         object_(NodeRegistryConfig(), provided_type=NodeRegistryConfig),
     ]
 
@@ -329,13 +331,16 @@ def durability_providers(
 
     A shared ``inbox`` instance is supplied via ``object_`` when given; otherwise a fresh
     ``FakeInboxStore`` is request-scoped. The node registry is shared as one object so membership
-    survives across request scopes the way a real backend's rows do; ``with_node_registry=False``
-    reproduces the misassembly the wiring gate rejects. ``extra`` appends call-site-specific providers.
+    survives across request scopes the way a real backend's rows do, and it is the SAME registry the
+    supplied inbox fences against — a split view would let recovery reclaim this node's own rows.
+    ``with_node_registry=False`` reproduces the misassembly the wiring gate rejects. ``extra`` appends
+    call-site-specific providers.
     """
     inbox_provider = (
         object_(inbox, provided_type=IInboxStore) if inbox is not None else scoped(IInboxStore, FakeInboxStore)
     )
-    registry_providers = node_registry_providers() if with_node_registry else []
+    shared_registry = inbox.nodes if isinstance(inbox, FakeInboxStore) else None
+    registry_providers = node_registry_providers(shared_registry) if with_node_registry else []
     return [
         object_(RecordingUoW(), provided_type=IUnitOfWork),
         inbox_provider,
@@ -373,7 +378,8 @@ class RecordingDeadLetterStore(IDeadLetterStore):
         self,
         max_replay_count: int,
         *,
-        owner_id: str,
+        owner_id: NodeId,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> DeadLetterEntry | None:  # pragma: no cover
@@ -384,7 +390,8 @@ class RecordingDeadLetterStore(IDeadLetterStore):
         self,
         entry_id: UUID,
         *,
-        owner_id: str,
+        owner_id: NodeId,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> DeadLetterEntry | None:  # pragma: no cover
@@ -395,19 +402,21 @@ class RecordingDeadLetterStore(IDeadLetterStore):
         self,
         entry_id: UUID,
         *,
-        owner_id: str,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> bool:  # pragma: no cover
         return False
 
     @override
-    async def mark_replayed(self, entry_id: UUID, *, owner_id: str, now: datetime) -> bool:  # pragma: no cover
+    async def mark_replayed(
+        self, entry_id: UUID, *, claim_id: ReplayClaimId, now: datetime
+    ) -> bool:  # pragma: no cover
         return False
 
     @override
     async def mark_replay_failed(
-        self, entry_id: UUID, error: str, *, owner_id: str, now: datetime
+        self, entry_id: UUID, error: str, *, claim_id: ReplayClaimId, now: datetime
     ) -> bool:  # pragma: no cover
         return False
 
@@ -443,7 +452,8 @@ class FailingDeadLetterStore(IDeadLetterStore):
         self,
         max_replay_count: int,
         *,
-        owner_id: str,
+        owner_id: NodeId,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> DeadLetterEntry | None:  # pragma: no cover
@@ -454,7 +464,8 @@ class FailingDeadLetterStore(IDeadLetterStore):
         self,
         entry_id: UUID,
         *,
-        owner_id: str,
+        owner_id: NodeId,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> DeadLetterEntry | None:  # pragma: no cover
@@ -465,19 +476,21 @@ class FailingDeadLetterStore(IDeadLetterStore):
         self,
         entry_id: UUID,
         *,
-        owner_id: str,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> bool:  # pragma: no cover
         return False
 
     @override
-    async def mark_replayed(self, entry_id: UUID, *, owner_id: str, now: datetime) -> bool:  # pragma: no cover
+    async def mark_replayed(
+        self, entry_id: UUID, *, claim_id: ReplayClaimId, now: datetime
+    ) -> bool:  # pragma: no cover
         return False
 
     @override
     async def mark_replay_failed(
-        self, entry_id: UUID, error: str, *, owner_id: str, now: datetime
+        self, entry_id: UUID, error: str, *, claim_id: ReplayClaimId, now: datetime
     ) -> bool:  # pragma: no cover
         return False
 

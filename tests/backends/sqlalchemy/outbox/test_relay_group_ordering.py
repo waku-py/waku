@@ -11,6 +11,7 @@ from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import override
 
+from waku._internal.node import NodeId
 from waku.backends.sqlalchemy.dead_letter.tables import bind_dead_letter_tables
 from waku.backends.sqlalchemy.outbox.store import SqlAlchemyOutboxStore
 from waku.backends.sqlalchemy.outbox.tables import bind_outbox_tables
@@ -31,6 +32,9 @@ if TYPE_CHECKING:
 
     from waku.messaging.outbox.models import OutboxMessage
     from waku.messaging.transport.inbound import ConsumeCallback
+
+
+_OWNER = NodeId('relay-1')
 
 # End-to-end acceptance test for cluster-wide per-group FIFO under two concurrent relays sharing one
 # PostgreSQL engine. Reverting only the `head_eligible` predicate in SqlAlchemyOutboxStore makes relay-B
@@ -141,11 +145,13 @@ async def test_two_relays_dispatch_group_in_order(
                 container=container,
                 config=config,
                 sending_failure_evaluator=make_relay_evaluator(config),
+                node_id=_OWNER,
             )
             relay_b = OutboxRelay(
                 container=container,
                 config=config,
                 sending_failure_evaluator=make_relay_evaluator(config),
+                node_id=_OWNER,
             )
 
             async with anyio.create_task_group() as tg:

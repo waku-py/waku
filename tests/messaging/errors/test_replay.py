@@ -12,6 +12,7 @@ from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
 from waku._internal.lease import LeaseConfig
+from waku._internal.node import NodeId, NodeIdentity
 from waku._internal.transaction import RollbackFailedError, TransactionExecutionError
 from waku.backends.memory import MemoryBackend
 from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
@@ -32,7 +33,7 @@ from waku.messaging.config import DeadLetterConfig, OutboxConfig
 from waku.messaging.durability import IDeadLetterStore, IDurabilityStore, IInboxStore, IOutboxStore
 from waku.messaging.endpoints.base import Endpoint
 from waku.messaging.errors._internal.replay import IReplayExecution, ReplayClaimOwner, ReplayExecution
-from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
+from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry, ReplayClaimId
 from waku.messaging.errors.replay import ReplayExecutor
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.inbox.destination import handler_destination
@@ -70,22 +71,22 @@ def test_dead_letter_replay_lease_pair_and_default_config() -> None:
     envelope = make_envelope(_DlqEvent('lease'))
     entry = _entry_for(envelope, 'local://lease')
 
-    with pytest.raises(
-        MessagingError, match='replay_owner_id and replay_lease_expires_at must both be set or both be None'
-    ):
-        replace(entry, replay_owner_id='owner')
-    with pytest.raises(
-        MessagingError, match='replay_owner_id and replay_lease_expires_at must both be set or both be None'
-    ):
+    lease_pair_required = 'replay_owner_id, replay_lease_expires_at and replay_claim_id must all be set or all be None'
+    with pytest.raises(MessagingError, match=lease_pair_required):
+        replace(entry, replay_owner_id=NodeId('owner'))
+    with pytest.raises(MessagingError, match=lease_pair_required):
         replace(entry, replay_lease_expires_at=now + timedelta(minutes=1))
 
+    claim_id = ReplayClaimId(uuid4())
     leased = replace(
         entry,
-        replay_owner_id='owner',
+        replay_owner_id=NodeId('owner'),
         replay_lease_expires_at=now + timedelta(minutes=1),
+        replay_claim_id=claim_id,
     )
     assert leased.replay_owner_id == 'owner'
     assert leased.replay_lease_expires_at == now + timedelta(minutes=1)
+    assert leased.replay_claim_id == claim_id
     assert DeadLetterConfig().replay_lease == LeaseConfig(ttl_seconds=120.0)
 
 
@@ -131,8 +132,8 @@ class _ReplayStore(InMemoryDeadLetterStore):
             self.entries[entry.id] = entry
 
     @override
-    async def mark_replayed(self, entry_id: UUID, *, owner_id: str, now: datetime) -> bool:
-        marked = await super().mark_replayed(entry_id, owner_id=owner_id, now=now)
+    async def mark_replayed(self, entry_id: UUID, *, claim_id: ReplayClaimId, now: datetime) -> bool:
+        marked = await super().mark_replayed(entry_id, claim_id=claim_id, now=now)
         if marked:
             self.replayed.append(entry_id)
         return marked
@@ -143,10 +144,10 @@ class _ReplayStore(InMemoryDeadLetterStore):
         entry_id: UUID,
         error: str,
         *,
-        owner_id: str,
+        claim_id: ReplayClaimId,
         now: datetime,
     ) -> bool:
-        marked = await super().mark_replay_failed(entry_id, error, owner_id=owner_id, now=now)
+        marked = await super().mark_replay_failed(entry_id, error, claim_id=claim_id, now=now)
         if marked:
             self.failures.append((entry_id, error))
         return marked
@@ -201,7 +202,7 @@ class _FailingReplayMarkStore(_ReplayStore):
         self.mark_error = mark_error
 
     @override
-    async def mark_replayed(self, entry_id: UUID, *, owner_id: str, now: datetime) -> bool:
+    async def mark_replayed(self, entry_id: UUID, *, claim_id: ReplayClaimId, now: datetime) -> bool:
         self.mark_calls += 1
         raise self.mark_error
 
@@ -216,7 +217,7 @@ class _LosingRenewalStore(_ReplayStore):
         self,
         entry_id: UUID,
         *,
-        owner_id: str,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> bool:
@@ -234,7 +235,7 @@ class _FailingRenewalStore(_ReplayStore):
         self,
         entry_id: UUID,
         *,
-        owner_id: str,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> bool:
@@ -254,7 +255,7 @@ class _GatedRenewalStore(_ReplayStore):
         self,
         entry_id: UUID,
         *,
-        owner_id: str,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> bool:
@@ -267,7 +268,7 @@ class _GatedRenewalStore(_ReplayStore):
             raise
         renewed = await super().renew_replay_claim(
             entry_id,
-            owner_id=owner_id,
+            claim_id=claim_id,
             now=now,
             lease_expires_at=lease_expires_at,
         )
@@ -275,9 +276,9 @@ class _GatedRenewalStore(_ReplayStore):
         return renewed
 
     @override
-    async def mark_replayed(self, entry_id: UUID, *, owner_id: str, now: datetime) -> bool:
+    async def mark_replayed(self, entry_id: UUID, *, claim_id: ReplayClaimId, now: datetime) -> bool:
         self.trace.append('finalization-started')
-        return await super().mark_replayed(entry_id, owner_id=owner_id, now=now)
+        return await super().mark_replayed(entry_id, claim_id=claim_id, now=now)
 
 
 class _BlockingReplayExecution(IReplayExecution):
@@ -337,6 +338,9 @@ class _AdvancingClock:
         self._now += timedelta(milliseconds=5)
         return current
 
+    def advance(self, delta: timedelta) -> None:
+        self._now += delta
+
 
 _DUMMY_CONTAINER: Any = object()  # endpoints under test ignore the scope arg
 _DUMMY_DISPATCHER: Any = object()  # ENDPOINT-branch tests never reach the handler dispatch
@@ -388,6 +392,7 @@ def _replay_executor(container: AsyncContainer, execution: IReplayExecution) -> 
         execution=execution,
         config=DeadLetterConfig(),
         app_scope=AppScopeSource(container),
+        identity=NodeIdentity.create('replay-executor-node'),
         now=_AdvancingClock(),
     )
 
@@ -426,7 +431,7 @@ async def test_replay_bidirectional_endpoint_dispatches() -> None:
     config = MessagingConfig(
         endpoints=[external_endpoint('rabbitmq://orders'), listen('rabbitmq://orders')],
         outbox=OutboxConfig(),
-        inbox=InboxConfig(owner_id='test-node:1'),
+        inbox=InboxConfig(),
         dead_letter=DeadLetterConfig(),
         transports={'rabbitmq': RecordingTransport},
     )
@@ -616,10 +621,15 @@ async def test_long_dispatch_renews_in_fresh_transactions_before_success_finaliz
     result: list[bool] = []
 
     async with make_async_container(_ReplayOwnerDeps(store, uow)) as container:
-        owner = ReplayClaimOwner(container=container, config=config, now=clock)
+        owner = ReplayClaimOwner(
+            container=container,
+            config=config,
+            node_id=NodeId('replay-node-a'),
+            now=clock,
+        )
         claimed = await owner.claim_replay(entry.id)
         assert claimed is not None
-        initial_expiry = claimed.replay_lease_expires_at
+        initial_expiry = claimed.entry.replay_lease_expires_at
 
         async def replay() -> None:
             result.append(await owner.replay_claimed(claimed, _BlockingReplayExecution(entered, release)))
@@ -654,7 +664,12 @@ async def test_successful_dispatch_waits_for_started_renewal_before_finalization
     errors: list[BaseException] = []
 
     async with make_async_container(_ReplayOwnerDeps(store, uow)) as container:
-        owner = ReplayClaimOwner(container=container, config=config, now=_AdvancingClock())
+        owner = ReplayClaimOwner(
+            container=container,
+            config=config,
+            node_id=NodeId('replay-node-a'),
+            now=_AdvancingClock(),
+        )
         claimed = await owner.claim_replay(entry.id)
         assert claimed is not None
 
@@ -775,7 +790,12 @@ async def test_lost_renewal_cancels_dispatch_without_success_finalization() -> N
     entered = anyio.Event()
 
     async with make_async_container(_ReplayOwnerDeps(store, uow)) as container:
-        owner = ReplayClaimOwner(container=container, config=config, now=_AdvancingClock())
+        owner = ReplayClaimOwner(
+            container=container,
+            config=config,
+            node_id=NodeId('replay-node-a'),
+            now=_AdvancingClock(),
+        )
         claimed = await owner.claim_replay(entry.id)
         assert claimed is not None
         with anyio.fail_after(1), pytest.raises(TransactionExecutionError) as raised:
@@ -796,7 +816,12 @@ async def test_ordinary_renewal_failure_rolls_back_then_finalizes_failed() -> No
     config = DeadLetterConfig(replay_lease=LeaseConfig(ttl_seconds=0.03))
 
     async with make_async_container(_ReplayOwnerDeps(store, uow)) as container:
-        owner = ReplayClaimOwner(container=container, config=config, now=_AdvancingClock())
+        owner = ReplayClaimOwner(
+            container=container,
+            config=config,
+            node_id=NodeId('replay-node-a'),
+            now=_AdvancingClock(),
+        )
         claimed = await owner.claim_replay(entry.id)
         assert claimed is not None
         replayed = await owner.replay_claimed(
@@ -810,6 +835,51 @@ async def test_ordinary_renewal_failure_rolls_back_then_finalizes_failed() -> No
     assert 'renewal backend unavailable' in store.failures[0][1]
     assert uow.commit_count == 2
     assert uow.rollback_count == 1
+
+
+async def test_successive_claims_by_one_owner_carry_distinct_fencing_tokens() -> None:
+    # The fence is per CLAIM, not per CLAIMANT: one owner whose lease lapses and re-claims must not be
+    # able to finalize its successor's dispatch. Hoisting the mint onto the owner would restore that defect.
+    envelope = make_envelope(_DlqEvent('token-per-claim'))
+    entry = _entry_for(envelope, destination='local://dlq')
+    store = _ReplayStore(entry)
+    uow = RecordingUoW()
+    clock = _AdvancingClock()
+    config = DeadLetterConfig(replay_lease=LeaseConfig(ttl_seconds=1.0))
+
+    async with make_async_container(_ReplayOwnerDeps(store, uow)) as container:
+        owner = ReplayClaimOwner(
+            container=container,
+            config=config,
+            node_id=NodeId('replay-node-a'),
+            now=clock,
+        )
+        first = await owner.claim_replay(entry.id)
+        assert first is not None
+        clock.advance(timedelta(seconds=5))
+        second = await owner.claim_replay(entry.id)
+        assert second is not None
+
+        live_lease = second.entry.replay_lease_expires_at
+        assert live_lease is not None
+        renew_now = live_lease - timedelta(milliseconds=1)
+        stale_renewed = await store.renew_replay_claim(
+            entry.id,
+            claim_id=first.claim_id,
+            now=renew_now,
+            lease_expires_at=renew_now + timedelta(seconds=1),
+        )
+        live_renewed = await store.renew_replay_claim(
+            entry.id,
+            claim_id=second.claim_id,
+            now=renew_now,
+            lease_expires_at=renew_now + timedelta(seconds=1),
+        )
+
+    assert first.claim_id != second.claim_id
+    assert first.entry.replay_owner_id == second.entry.replay_owner_id == owner.owner_id
+    assert stale_renewed is False
+    assert live_renewed is True
 
 
 async def test_replay_handler_kind_unknown_fqn_marks_failed() -> None:

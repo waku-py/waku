@@ -7,17 +7,22 @@ from typing import TYPE_CHECKING
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
+
+# Runtime import: dishka introspects __init__ via get_type_hints at container-build time.
+from waku._internal.node import INodeRegistry  # noqa: TC001
 from waku.messaging.durability import IDeadLetterStore, IInboxStore
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 from waku.messaging.sequence import allocate_sequence_by_id
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from datetime import datetime, timedelta
+    from datetime import datetime
     from uuid import UUID
 
+    from waku._internal.node import NodeId
     from waku.backends.memory._internal.transaction import InMemoryWorkspaceAccessor
     from waku.messaging.errors.dead_letter import DeadLetterEntry
+    from waku.messaging.inbox.identifiers import HandlerDestination
     from waku.messaging.sequence import ISequenceAllocator
 
 __all__ = ['InMemoryInboxStore']
@@ -38,10 +43,11 @@ class _InMemoryInboxStoreOperations(IInboxStore):
     Not thread-safe.
     """
 
-    __slots__ = ('_dead_letters',)
+    __slots__ = ('_dead_letters', '_nodes')
 
-    def __init__(self, dead_letters: IDeadLetterStore) -> None:
+    def __init__(self, dead_letters: IDeadLetterStore, nodes: INodeRegistry) -> None:
         self._dead_letters = dead_letters
+        self._nodes = nodes
 
     def _get_state(self) -> InMemoryInboxState:
         msg = 'subclasses must provide inbox state'
@@ -61,33 +67,71 @@ class _InMemoryInboxStoreOperations(IInboxStore):
         self.entries[key] = copy.deepcopy(entry)
         return True
 
+    def _owned(self, entry_id: UUID, destination: HandlerDestination, owner_id: NodeId) -> InboxEntry | None:
+        """The D1-FENCE predicate, written once: the row, only while this node still owns it.
+
+        Mirrors the SQL peer's ``WHERE id = … AND destination = … AND owner_id = …``. A miss is the
+        fence rejecting the write, never a harmless no-op — the row moved to another owner or is gone.
+        """
+        current = self.entries.get((entry_id, destination))
+        return current if current is not None and current.owner_id == owner_id else None
+
     @override
-    async def mark_as_handled(self, entry_id: UUID, destination: str, keep_until: datetime) -> None:
-        key = (entry_id, destination)
-        current = self.entries.get(key)
+    async def mark_as_handled(
+        self,
+        entry_id: UUID,
+        destination: HandlerDestination,
+        keep_until: datetime,
+        *,
+        owner_id: NodeId,
+    ) -> bool:
+        current = self._owned(entry_id, destination, owner_id)
         if current is None:
-            return  # mirror the real UPDATE: matching zero rows is a harmless no-op
+            return False
         # owner_id=None mirrors the SQL UPDATE: a handled row is no longer owned by a worker.
-        self.entries[key] = replace(current, status=InboxStatus.HANDLED, keep_until=keep_until, owner_id=None)
+        self.entries[entry_id, destination] = replace(
+            current,
+            status=InboxStatus.HANDLED,
+            keep_until=keep_until,
+            owner_id=None,
+        )
+        return True
 
     @override
-    async def increment_attempts(self, entry_id: UUID, destination: str) -> None:
-        key = (entry_id, destination)
-        self.entries[key] = replace(self.entries[key], attempts=self.entries[key].attempts + 1)
+    async def increment_attempts(self, entry_id: UUID, destination: HandlerDestination, *, owner_id: NodeId) -> bool:
+        current = self._owned(entry_id, destination, owner_id)
+        if current is None:
+            return False
+        self.entries[entry_id, destination] = replace(current, attempts=current.attempts + 1)
+        return True
 
     @override
-    async def move_to_dead_letter(self, entry_id: UUID, destination: str, dead_letter: DeadLetterEntry) -> None:
+    async def move_to_dead_letter(
+        self,
+        entry_id: UUID,
+        destination: HandlerDestination,
+        dead_letter: DeadLetterEntry,
+        *,
+        owner_id: NodeId,
+    ) -> bool:
         # Mirror the SQLAlchemy peer's atomic delete+insert: the entry lands in the SHARED dead-letter
-        # facet from this transaction workspace, not in inbox-local state.
-        self.entries.pop((entry_id, destination), None)
+        # facet from this transaction workspace, not in inbox-local state. The fence gates the delete
+        # FIRST, so a rejected move mints no dead letter.
+        if self._owned(entry_id, destination, owner_id) is None:
+            return False
+        del self.entries[entry_id, destination]
         await self._dead_letters.save(dead_letter)
+        return True
 
     @override
-    async def delete(self, entry_id: UUID, destination: str) -> None:
-        self.entries.pop((entry_id, destination), None)
+    async def delete(self, entry_id: UUID, destination: HandlerDestination, *, owner_id: NodeId) -> bool:
+        if self._owned(entry_id, destination, owner_id) is None:
+            return False
+        del self.entries[entry_id, destination]
+        return True
 
     @override
-    async def fetch_pending_partitioned(self, batch_size: int, owner_id: str) -> Sequence[InboxEntry]:
+    async def fetch_pending_partitioned(self, batch_size: int, owner_id: NodeId) -> Sequence[InboxEntry]:
         incoming = [e for e in self.entries.values() if e.status is InboxStatus.INCOMING]
         # Head per (group_id, destination) over ALL INCOMING rows regardless of owner_id: a claimed
         # (owner_id set) in-flight head still occupies its slot, so its successor is not promoted while it
@@ -126,17 +170,18 @@ class _InMemoryInboxStoreOperations(IInboxStore):
         return claimed
 
     @override
-    async def recover_abandoned(self, threshold: timedelta) -> int:
-        # Mirror the SQLAlchemy store: only reclaim owned INCOMING rows whose updated_at is older than
-        # `now - threshold`. A just-written/claimed row (updated_at unset) is treated as fresh (now),
-        # so a positive threshold leaves it alone — matching the production server-default behaviour.
+    async def recover_abandoned(self) -> int:
+        # Mirror the SQLAlchemy store's single UPDATE: membership is the whole predicate and row age is
+        # never consulted. Reading the registry here is the memory peer of the SQL subquery — the whole
+        # method runs inside one workspace transaction, so no owner can die between the read and the
+        # release.
+        members = {registration.node_id for registration in await self._nodes.load_all()}
         now = utc_now()
-        cutoff = now - threshold
         recovered = 0
         for key, entry in list(self.entries.items()):
             if entry.status is not InboxStatus.INCOMING or entry.owner_id is None:
                 continue
-            if (entry.updated_at or now) >= cutoff:
+            if entry.owner_id in members:
                 continue
             self.entries[key] = replace(entry, owner_id=None, updated_at=now)
             recovered += 1
@@ -176,8 +221,8 @@ class _InMemoryInboxStoreOperations(IInboxStore):
 class InMemoryInboxStore(_InMemoryInboxStoreOperations):
     __slots__ = ('_state',)
 
-    def __init__(self, dead_letters: IDeadLetterStore) -> None:
-        super().__init__(dead_letters)
+    def __init__(self, dead_letters: IDeadLetterStore, nodes: INodeRegistry) -> None:
+        super().__init__(dead_letters, nodes)
         self._state = InMemoryInboxState()
 
     @override
@@ -188,9 +233,14 @@ class InMemoryInboxStore(_InMemoryInboxStoreOperations):
 class WorkspaceInboxStore(_InMemoryInboxStoreOperations):
     __slots__ = ('_accessor',)
 
-    def __init__(self, dead_letters: IDeadLetterStore, accessor: InMemoryWorkspaceAccessor) -> None:
+    def __init__(
+        self,
+        dead_letters: IDeadLetterStore,
+        nodes: INodeRegistry,
+        accessor: InMemoryWorkspaceAccessor,
+    ) -> None:
         accessor.ensure_active()
-        super().__init__(dead_letters)
+        super().__init__(dead_letters, nodes)
         self._accessor = accessor
 
     @override

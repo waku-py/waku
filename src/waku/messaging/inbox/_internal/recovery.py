@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 class InboxRecoveryWorker(PollingAgent):
-    """Reclaims stale inbox entries and purges expired HANDLED rows. Runs PER POD.
+    """Reclaims rows owned by departed nodes and purges expired HANDLED rows. Runs PER POD.
 
     ``delete_expired_handled`` is an idempotent set-DELETE — concurrent pods racing on the same rows is harmless
     (unlike outbox relay, which claims-and-sends). Scheduled promotion runs on the
@@ -64,13 +64,13 @@ class InboxRecoveryWorker(PollingAgent):
 
         async def recover(scope: AsyncContainer) -> TransactionDecision[tuple[int, int], Never]:
             store = await scope.get(IInboxStore)
-            recovered = await store.recover_abandoned(self._config.stuck_threshold)
+            recovered = await store.recover_abandoned()
             cleaned = await store.delete_expired_handled(sampled_now)
             return Commit((recovered, cleaned))
 
         recovered, cleaned = await run_committed(self._container, recover)
         if recovered > 0:
-            logger.info('Recovered %d stale inbox entries', recovered)
+            logger.info('Released %d inbox entries owned by nodes absent from the registry', recovered)
         if cleaned > 0:
             logger.debug('Cleaned %d expired handled entries', cleaned)
         drained = await self._drainer.drain_once()

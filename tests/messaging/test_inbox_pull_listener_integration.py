@@ -71,7 +71,7 @@ async def test_abandoned_row_is_drained_and_handled() -> None:
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IDurabilityStore, durability_for_inbox),
-                *node_registry_providers(),
+                *node_registry_providers(inbox.nodes),
             ],
         ) as app,
         app.container() as scope,

@@ -44,9 +44,18 @@ Workers process inbox rows by claiming them with `FOR UPDATE SKIP LOCKED`:
 - On success the row is finalized (deleted, or kept briefly for dedup); on failure it escalates
   through the [error policy](error-handling.md).
 
-If a worker dies mid-flight, the rows it persisted but never finalized are reclaimed by **crash
-recovery** on restart and re-dispatched — again under `FOR UPDATE SKIP LOCKED`, so recovery is
-concurrency-safe by construction. There is **no leader election**; every pod runs its own recovery.
+A claimed row records the **node** that owns it, and every transition that consumes that ownership —
+handle, delete, attempt-increment, dead-letter — applies only while that node is still the owner. A
+node that lost the row writes nothing and abandons it silently, so a reclaimed row is never processed
+to a terminal outcome twice.
+
+Recovery releases a row **only when its owner has left the [node registry](../../reference/configuration.md#node-registry)** — a clean shutdown
+deregisters, and a node that stops heartbeating is evicted. Row age is never consulted: a healthy node
+may hold a claimed row for as long as its work takes. The trade is deliberate — a node that is alive
+and heartbeating but whose worker is wedged has no automatic remedy, and the operational answer is to
+restart it, which releases its rows through the same predicate. Released rows are re-dispatched under
+`FOR UPDATE SKIP LOCKED`, so recovery is concurrency-safe by construction. There is **no leader
+election**; every pod runs its own recovery.
 
 ---
 

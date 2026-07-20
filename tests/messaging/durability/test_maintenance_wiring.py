@@ -6,6 +6,7 @@ from uuid import uuid4
 import anyio
 import anyio.lowlevel
 
+from waku._internal.node import NodeId
 from waku.backends.memory import MemoryBackend
 from waku.messaging import MessagingConfig, MessagingModule, OutboxConfig
 from waku.messaging._internal.maintenance import DurabilityMaintenanceLifecycleExtension
@@ -70,7 +71,7 @@ async def test_maintenance_runs_unconditionally_promoting_scheduled_rows() -> No
             while not claimed:
                 async with app.container() as scope:
                     inbox = await scope.get(IInboxStore)
-                    claimed = list(await inbox.fetch_pending_partitioned(batch_size=1, owner_id='observer'))
+                    claimed = list(await inbox.fetch_pending_partitioned(batch_size=1, owner_id=NodeId('observer')))
                     await (await scope.get(IUnitOfWork)).rollback()
                 await anyio.lowlevel.checkpoint()
 

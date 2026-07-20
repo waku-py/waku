@@ -20,6 +20,7 @@ from typing_extensions import override
 
 from waku._internal.clock import utc_now
 from waku._internal.lease import ILease, InMemoryLease, LeaseConfig
+from waku._internal.node import NodeIdentity
 from waku.di import object_
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messaging import LeadershipConfig, MessagingConfig, MessagingModule, OutboxConfig
@@ -300,8 +301,12 @@ class TestOverlapIsSafe:
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
             ],
         ) as app:
-            agent_a = DurabilityMaintenanceAgent(container=app.container, config=config)
-            agent_b = DurabilityMaintenanceAgent(container=app.container, config=config)
+            agent_a = DurabilityMaintenanceAgent(
+                container=app.container, config=config, identity=NodeIdentity.create('leader-node')
+            )
+            agent_b = DurabilityMaintenanceAgent(
+                container=app.container, config=config, identity=NodeIdentity.create('leader-node')
+            )
             await agent_a.start()
             await agent_b.start()
             try:

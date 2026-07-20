@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -8,22 +9,47 @@ import pytest
 from sqlalchemy import MetaData, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from waku._internal.node import INodeRegistry, NodeId, NodeIdentity
+from waku.backends.sqlalchemy.dead_letter.store import SqlAlchemyDeadLetterStore
+from waku.backends.sqlalchemy.dead_letter.tables import bind_dead_letter_tables
 from waku.backends.sqlalchemy.inbox.store import SqlAlchemyInboxStore
 from waku.backends.sqlalchemy.inbox.tables import bind_inbox_tables
+from waku.backends.sqlalchemy.nodes.store import SqlAlchemyNodeRegistry
+from waku.backends.sqlalchemy.nodes.tables import bind_node_tables
+from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
 from waku.messaging.inbox.models import InboxEntry, InboxStatus
 
 from tests.backends.sqlalchemy.conftest import pg_session_for
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator, AsyncIterator, Callable
 
     from sqlalchemy.ext.asyncio import AsyncEngine
 
 
 @pytest.fixture
 async def pg_session(pg_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
-    async with pg_session_for(pg_engine, bind_inbox_tables) as session:
+    async with pg_session_for(pg_engine, bind_inbox_tables, bind_node_tables) as session:
         yield session
+
+
+async def _register(session: AsyncSession, node_id: NodeId) -> INodeRegistry:
+    registry = SqlAlchemyNodeRegistry(session)
+    await registry.register(NodeIdentity(node_id=node_id, description=node_id), capabilities=frozenset())
+    await session.flush()
+    return registry
+
+
+async def _age_rows(session: AsyncSession, by: timedelta) -> None:
+    # Shift every stored timestamp back: observationally identical to the server clock jumping
+    # forward, and needs no sleep.
+    await session.execute(
+        text('UPDATE inbox_entries SET created_at = created_at - :by, updated_at = updated_at - :by'),
+        {'by': by},
+    )
+
+
+_OWNER = NodeId('w-1')
 
 
 def _make_entry(**overrides: object) -> InboxEntry:
@@ -37,6 +63,49 @@ def _make_entry(**overrides: object) -> InboxEntry:
         'causation_id': str(uuid4()),
     }
     return InboxEntry(**(defaults | overrides))  # type: ignore[arg-type]
+
+
+_KEEP_UNTIL = datetime(2099, 1, 1, tzinfo=UTC)
+
+
+@asynccontextmanager
+async def _prepared(pg_engine: AsyncEngine, *binders: Callable[[MetaData], object]) -> AsyncGenerator[None]:
+    metadata = MetaData()
+    for binder in binders:
+        binder(metadata)
+    async with pg_engine.begin() as conn:
+        await conn.run_sync(metadata.create_all)
+    try:
+        yield
+    finally:
+        async with pg_engine.begin() as conn:
+            await conn.run_sync(metadata.drop_all)
+
+
+def _dead_letter_for(entry: InboxEntry) -> DeadLetterEntry:
+    return DeadLetterEntry.from_failure(
+        message_type=entry.message_type,
+        payload=entry.payload,
+        destination=entry.destination,
+        destination_kind=DeadLetterDestinationKind.HANDLER,
+        correlation_id=str(uuid4()),
+        causation_id=str(uuid4()),
+        exc=RuntimeError('boom'),
+        attempt=3,
+        message_id=entry.id,
+    )
+
+
+async def _attempt(store: SqlAlchemyInboxStore, entry: InboxEntry, owner: NodeId, transition: str) -> bool:
+    match transition:
+        case 'handle':
+            return await store.mark_as_handled(entry.id, entry.destination, _KEEP_UNTIL, owner_id=owner)
+        case 'increment_attempts':
+            return await store.increment_attempts(entry.id, entry.destination, owner_id=owner)
+        case 'delete':
+            return await store.delete(entry.id, entry.destination, owner_id=owner)
+        case _:
+            return await store.move_to_dead_letter(entry.id, entry.destination, _dead_letter_for(entry), owner_id=owner)
 
 
 class TestStoreIncoming:
@@ -63,12 +132,12 @@ class TestMarkAsHandled:
     @staticmethod
     async def test_mark_as_handled_transitions_status_and_keep_until(pg_session: AsyncSession) -> None:
         store = SqlAlchemyInboxStore(pg_session)
-        entry = _make_entry()
+        entry = _make_entry(owner_id=_OWNER)
         await store.store_incoming(entry)
         await pg_session.flush()
 
         keep_until = datetime.now(tz=UTC) + timedelta(minutes=5)
-        await store.mark_as_handled(entry.id, entry.destination, keep_until)
+        await store.mark_as_handled(entry.id, entry.destination, keep_until, owner_id=_OWNER)
         await pg_session.flush()
 
         # HANDLED row is retained until keep_until: cleanup at `now` is a no-op, cleanup past it removes it.
@@ -79,20 +148,20 @@ class TestMarkAsHandled:
     async def test_mark_as_handled_targets_only_its_destination(pg_session: AsyncSession) -> None:
         # Fan-out: marking HandlerA's row HANDLED leaves HandlerB's row INCOMING.
         store = SqlAlchemyInboxStore(pg_session)
-        a = _make_entry(destination='tests.messaging.HandlerA')
+        a = _make_entry(destination='tests.messaging.HandlerA', owner_id=_OWNER)
         b = _make_entry(id=a.id, destination='tests.messaging.HandlerB')
         await store.store_incoming(a)
         await store.store_incoming(b)
         await pg_session.flush()
 
-        await store.mark_as_handled(a.id, a.destination, datetime.now(tz=UTC) - timedelta(seconds=1))
+        await store.mark_as_handled(a.id, a.destination, datetime.now(tz=UTC) - timedelta(seconds=1), owner_id=_OWNER)
         await pg_session.flush()
 
         # Only HandlerA's row is HANDLED -> only it is eligible for cleanup.
         removed = await store.delete_expired_handled(datetime.now(tz=UTC))
         assert removed == 1
         # HandlerA's row was purged; HandlerB's row survives, still INCOMING and claimable.
-        claimed = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
+        claimed = await store.fetch_pending_partitioned(batch_size=10, owner_id=NodeId('w-1'))
         assert [(e.id, e.destination) for e in claimed] == [(b.id, 'tests.messaging.HandlerB')]
 
 
@@ -100,16 +169,18 @@ class TestIncrementAttempts:
     @staticmethod
     async def test_increment_attempts_increments_counter(pg_session: AsyncSession) -> None:
         store = SqlAlchemyInboxStore(pg_session)
-        entry = _make_entry()
+        entry = _make_entry(owner_id=_OWNER)
         await store.store_incoming(entry)
         await pg_session.flush()
 
-        await store.increment_attempts(entry.id, entry.destination)
-        await store.increment_attempts(entry.id, entry.destination)
+        await store.increment_attempts(entry.id, entry.destination, owner_id=_OWNER)
+        await store.increment_attempts(entry.id, entry.destination, owner_id=_OWNER)
         await pg_session.flush()
 
-        # the row stays INCOMING and its attempts counter reflects both increments
-        claimed = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
+        # the row stays INCOMING and its attempts counter reflects both increments; _OWNER was never
+        # registered, so recovery releases the row and a successor can read it back through the port
+        assert await store.recover_abandoned() == 1
+        claimed = await store.fetch_pending_partitioned(batch_size=10, owner_id=NodeId('w-2'))
         assert [e.attempts for e in claimed] == [2]
 
 
@@ -117,11 +188,13 @@ class TestCleanupHandled:
     @staticmethod
     async def test_delete_expired_handled_removes_expired_entries(pg_session: AsyncSession) -> None:
         store = SqlAlchemyInboxStore(pg_session)
-        entry = _make_entry()
+        entry = _make_entry(owner_id=_OWNER)
         await store.store_incoming(entry)
         await pg_session.flush()
 
-        await store.mark_as_handled(entry.id, entry.destination, datetime.now(tz=UTC) - timedelta(seconds=1))
+        await store.mark_as_handled(
+            entry.id, entry.destination, datetime.now(tz=UTC) - timedelta(seconds=1), owner_id=_OWNER
+        )
         await pg_session.flush()
 
         removed = await store.delete_expired_handled(datetime.now(tz=UTC))
@@ -132,11 +205,13 @@ class TestCleanupHandled:
     @staticmethod
     async def test_delete_expired_handled_preserves_unexpired_entries(pg_session: AsyncSession) -> None:
         store = SqlAlchemyInboxStore(pg_session)
-        entry = _make_entry()
+        entry = _make_entry(owner_id=_OWNER)
         await store.store_incoming(entry)
         await pg_session.flush()
 
-        await store.mark_as_handled(entry.id, entry.destination, datetime.now(tz=UTC) + timedelta(hours=1))
+        await store.mark_as_handled(
+            entry.id, entry.destination, datetime.now(tz=UTC) + timedelta(hours=1), owner_id=_OWNER
+        )
         await pg_session.flush()
 
         removed = await store.delete_expired_handled(datetime.now(tz=UTC))
@@ -154,7 +229,7 @@ class TestFetchPendingPartitioned:
         await store.store_incoming(_make_entry(group_id='B', sequence_number=1))
         await pg_session.flush()
 
-        fetched = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
+        fetched = await store.fetch_pending_partitioned(batch_size=10, owner_id=NodeId('w-1'))
 
         # One head per group (lowest sequence); A's seq 2 is NOT returned while seq 1 is pending.
         assert len(fetched) == 2
@@ -173,7 +248,7 @@ class TestFetchPendingPartitioned:
         await store.store_incoming(_make_entry(destination='HandlerA', group_id='A', sequence_number=2))
         await pg_session.flush()
 
-        fetched = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
+        fetched = await store.fetch_pending_partitioned(batch_size=10, owner_id=NodeId('w-1'))
 
         assert len(fetched) == 2
         assert {e.destination for e in fetched} == {'HandlerA', 'HandlerB'}
@@ -190,7 +265,7 @@ class TestFetchPendingPartitioned:
         await store.store_incoming(b)
         await pg_session.flush()
 
-        fetched = await store.fetch_pending_partitioned(batch_size=1, owner_id='w-1')
+        fetched = await store.fetch_pending_partitioned(batch_size=1, owner_id=NodeId('w-1'))
 
         assert len(fetched) == 1
         assert fetched[0].group_id is None
@@ -201,10 +276,10 @@ class TestFetchPendingPartitioned:
         store = SqlAlchemyInboxStore(pg_session)
         await store.store_incoming(_make_entry())
         await pg_session.flush()
-        await store.fetch_pending_partitioned(batch_size=10, owner_id='worker-1')
+        await store.fetch_pending_partitioned(batch_size=10, owner_id=NodeId('worker-1'))
         await pg_session.flush()
 
-        claimed = await store.fetch_pending_partitioned(batch_size=10, owner_id='worker-2')
+        claimed = await store.fetch_pending_partitioned(batch_size=10, owner_id=NodeId('worker-2'))
         assert claimed == []
 
     @staticmethod
@@ -218,8 +293,8 @@ class TestFetchPendingPartitioned:
         await store.store_incoming(b)
         await pg_session.flush()
 
-        first = await store.fetch_pending_partitioned(batch_size=1, owner_id='worker-1')
-        second = await store.fetch_pending_partitioned(batch_size=1, owner_id='worker-2')
+        first = await store.fetch_pending_partitioned(batch_size=1, owner_id=NodeId('worker-1'))
+        second = await store.fetch_pending_partitioned(batch_size=1, owner_id=NodeId('worker-2'))
         assert len(first) == 1
         assert len(second) == 1
         assert {first[0].destination, second[0].destination} == {
@@ -234,12 +309,14 @@ class TestFetchPendingPartitioned:
         await store.store_incoming(_make_entry(group_id='A', sequence_number=2))
         await pg_session.flush()
 
-        first = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
+        first = await store.fetch_pending_partitioned(batch_size=10, owner_id=NodeId('w-1'))
         assert [e.sequence_number for e in first] == [1]
-        await store.mark_as_handled(first[0].id, first[0].destination, datetime.now(tz=UTC) + timedelta(minutes=5))
+        await store.mark_as_handled(
+            first[0].id, first[0].destination, datetime.now(tz=UTC) + timedelta(minutes=5), owner_id=NodeId('w-1')
+        )
         await pg_session.flush()
 
-        second = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-2')
+        second = await store.fetch_pending_partitioned(batch_size=10, owner_id=NodeId('w-2'))
         assert [e.sequence_number for e in second] == [2]
 
     @staticmethod
@@ -264,7 +341,7 @@ class TestFetchPendingPartitioned:
             async with AsyncSession(pg_engine, expire_on_commit=False) as sa:
                 store_a = SqlAlchemyInboxStore(sa)
                 async with sa.begin():
-                    claimed_a = await store_a.fetch_pending_partitioned(batch_size=10, owner_id='A')
+                    claimed_a = await store_a.fetch_pending_partitioned(batch_size=10, owner_id=NodeId('A'))
                 assert [e.sequence_number for e in claimed_a] == [1]  # G.seq1 owned by A, COMMITTED
 
                 # Independently seed another group H + a keyless entry so B has non-G work available.
@@ -278,7 +355,7 @@ class TestFetchPendingPartitioned:
                     store_b = SqlAlchemyInboxStore(sb)
                     async with sb.begin():
                         await sb.execute(text("SET LOCAL lock_timeout = '500ms'"))
-                        claimed_b = await store_b.fetch_pending_partitioned(batch_size=10, owner_id='B')
+                        claimed_b = await store_b.fetch_pending_partitioned(batch_size=10, owner_id=NodeId('B'))
                     groups_b = {e.group_id for e in claimed_b}
                     assert 'G' not in groups_b  # successor blocked by the in-flight claimed head
                     assert 'H' in groups_b  # other groups flow
@@ -287,11 +364,11 @@ class TestFetchPendingPartitioned:
                     # A handles G.seq1; B may then claim G.seq2.
                     async with sa.begin():
                         await store_a.mark_as_handled(
-                            g1.id, g1.destination, datetime.now(tz=UTC) + timedelta(minutes=5)
+                            g1.id, g1.destination, datetime.now(tz=UTC) + timedelta(minutes=5), owner_id=NodeId('A')
                         )
                     async with sb.begin():
                         await sb.execute(text("SET LOCAL lock_timeout = '500ms'"))
-                        claimed_b2 = await store_b.fetch_pending_partitioned(batch_size=10, owner_id='B')
+                        claimed_b2 = await store_b.fetch_pending_partitioned(batch_size=10, owner_id=NodeId('B'))
                     assert [(e.group_id, e.sequence_number) for e in claimed_b2] == [('G', 2)]
         finally:
             async with pg_engine.begin() as conn:
@@ -317,16 +394,16 @@ class TestFetchPendingPartitioned:
             ):
                 store1, store2 = SqlAlchemyInboxStore(s1), SqlAlchemyInboxStore(s2)
                 async with s1.begin():
-                    claimed1 = await store1.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
+                    claimed1 = await store1.fetch_pending_partitioned(batch_size=10, owner_id=NodeId('w-1'))
                     assert len(claimed1) == 1
                     async with s2.begin():
                         # A short lock_timeout turns a regression (skip_locked dropped) into a fast,
                         # loud failure: s2 would block on s1's row lock and raise, not hang the suite.
                         await s2.execute(text("SET LOCAL lock_timeout = '500ms'"))
-                        claimed2 = await store2.fetch_pending_partitioned(batch_size=10, owner_id='w-2')
+                        claimed2 = await store2.fetch_pending_partitioned(batch_size=10, owner_id=NodeId('w-2'))
                         assert list(claimed2) == []  # s2 SKIPPED (not blocked) while s1 holds the row
                 async with s2.begin():
-                    claimed3 = await store2.fetch_pending_partitioned(batch_size=10, owner_id='w-2')
+                    claimed3 = await store2.fetch_pending_partitioned(batch_size=10, owner_id=NodeId('w-2'))
                     # consume-once: the row is owned after s1 commits, so it is never re-claimed.
                     assert list(claimed3) == []
         finally:
@@ -334,47 +411,58 @@ class TestFetchPendingPartitioned:
                 await conn.run_sync(metadata.drop_all)
 
 
-class TestRecoverStale:
+class TestRecoverAbandoned:
+    """D1-LIVE against real SQL: membership decides, and only membership."""
+
     @staticmethod
-    async def test_recover_abandoned_ignores_fresh_entries(pg_session: AsyncSession) -> None:
+    async def test_deregistered_node_rows_reclaimed(pg_session: AsyncSession) -> None:
+        registry = await _register(pg_session, NodeId('node-a'))
         store = SqlAlchemyInboxStore(pg_session)
-        entry = _make_entry()
-        await store.store_incoming(entry)
+        await store.store_incoming(_make_entry(owner_id=NodeId('node-a')))
         await pg_session.flush()
-        await store.fetch_pending_partitioned(batch_size=1, owner_id='worker-1')
+        await registry.deregister(NodeId('node-a'))
         await pg_session.flush()
 
-        recovered = await store.recover_abandoned(threshold=timedelta(hours=1))
-        assert recovered == 0
+        assert await store.recover_abandoned() == 1
+
+    @staticmethod
+    async def test_evicted_node_rows_reclaimed(pg_session: AsyncSession) -> None:
+        registry = await _register(pg_session, NodeId('node-a'))
+        keeper = await _register(pg_session, NodeId('node-b'))
+        assert keeper is not None
+        store = SqlAlchemyInboxStore(pg_session)
+        await store.store_incoming(_make_entry(owner_id=NodeId('node-a')))
+        await pg_session.flush()
+        await pg_session.execute(
+            text("UPDATE waku_nodes SET last_heartbeat = last_heartbeat - interval '1 hour' WHERE node_id = 'node-a'"),
+        )
+        assert await registry.evict_stale(stale_after=timedelta(minutes=1), keep=NodeId('node-b')) == 1
+        await pg_session.flush()
+
+        assert await store.recover_abandoned() == 1
+
+    @staticmethod
+    async def test_live_node_rows_untouched_however_old(pg_session: AsyncSession) -> None:
+        # The R1 regression lock: age is not a predicate at all. The row is aged a full year past any
+        # threshold the deleted sweep ever used, and its owner is still a registry member.
+        await _register(pg_session, NodeId('node-a'))
+        store = SqlAlchemyInboxStore(pg_session)
+        await store.store_incoming(_make_entry(owner_id=NodeId('node-a')))
+        await pg_session.flush()
+        await _age_rows(pg_session, timedelta(days=365))
+
+        assert await store.recover_abandoned() == 0
 
     @staticmethod
     async def test_recover_abandoned_ignores_never_claimed_entries(pg_session: AsyncSession) -> None:
         # A never-claimed (owner_id IS NULL) INCOMING row is already fetchable -> recovery must not
-        # touch it, even when past the stale threshold.
+        # touch it, and NULL must never match the absent-owner anti-join.
         store = SqlAlchemyInboxStore(pg_session)
         await store.store_incoming(_make_entry())
         await pg_session.flush()
+        await _age_rows(pg_session, timedelta(days=365))
 
-        recovered = await store.recover_abandoned(threshold=timedelta(seconds=-1))
-        assert recovered == 0
-
-    @staticmethod
-    async def test_recover_abandoned_releases_owned_row_past_threshold(pg_session: AsyncSession) -> None:
-        store = SqlAlchemyInboxStore(pg_session)
-        await store.store_incoming(_make_entry(owner_id='dead-node:1'))
-        await pg_session.flush()
-        # negative threshold -> cutoff = now + 1h -> the owned row's updated_at (=now) is past it -> released
-        recovered = await store.recover_abandoned(timedelta(seconds=-3600))
-        assert recovered == 1
-
-    @staticmethod
-    async def test_recover_abandoned_leaves_fresh_owned_row(pg_session: AsyncSession) -> None:
-        store = SqlAlchemyInboxStore(pg_session)
-        await store.store_incoming(_make_entry(owner_id='live-node:1'))
-        await pg_session.flush()
-        # 1h threshold -> cutoff = now - 1h -> a just-stored owned row is NOT stale -> not released
-        recovered = await store.recover_abandoned(timedelta(hours=1))
-        assert recovered == 0
+        assert await store.recover_abandoned() == 0
 
 
 class TestMetadataColumns:
@@ -394,7 +482,7 @@ class TestMetadataColumns:
         await store.store_incoming(entry)
         await pg_session.flush()
 
-        claimed = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
+        claimed = await store.fetch_pending_partitioned(batch_size=10, owner_id=NodeId('w-1'))
 
         assert len(claimed) == 1
         assert claimed[0].correlation_id == corr
@@ -408,7 +496,7 @@ class TestMetadataColumns:
         await store.store_incoming(entry)
         await pg_session.flush()
 
-        claimed = await store.fetch_pending_partitioned(batch_size=10, owner_id='w-1')
+        claimed = await store.fetch_pending_partitioned(batch_size=10, owner_id=NodeId('w-1'))
 
         assert claimed[0].metadata is None
 
@@ -417,3 +505,71 @@ def test_inbox_ddl_column_is_metadata() -> None:
     table = bind_inbox_tables(MetaData()).entries
     assert 'metadata' in table.c
     assert 'metadata_' not in table.c
+
+
+class TestRecoverContentionAcrossSessions:
+    """The membership fence under real two-session contention (plan §9.1).
+
+    Two genuinely concurrent DB sessions model two pods over one database. Node A claims a row and
+    dies; a separate live session B reclaims it once A leaves the registry. A's still-running worker
+    must then be told it lost EVERY way it can finalize — a stale finalize under a reassigned row is
+    the S1-regression shape, and only the ``owner_id`` fence (not row age) closes it.
+    """
+
+    @staticmethod
+    @pytest.mark.parametrize('transition', ['handle', 'increment_attempts', 'delete', 'dead_letter'])
+    async def test_reassigned_row_rejects_stale_owner(pg_engine: AsyncEngine, transition: str) -> None:
+        async with _prepared(pg_engine, bind_inbox_tables, bind_node_tables, bind_dead_letter_tables):
+            entry = _make_entry()
+            # Seed: A and B are registered members; A claims the row and COMMITS (it is in flight on A).
+            async with AsyncSession(pg_engine, expire_on_commit=False) as seed:
+                registry = SqlAlchemyNodeRegistry(seed)
+                await registry.register(
+                    NodeIdentity(node_id=NodeId('node-a'), description='node-a'), capabilities=frozenset()
+                )
+                await registry.register(
+                    NodeIdentity(node_id=NodeId('node-b'), description='node-b'), capabilities=frozenset()
+                )
+                store = SqlAlchemyInboxStore(seed)
+                await store.store_incoming(entry)
+                claimed = await store.fetch_pending_partitioned(batch_size=10, owner_id=NodeId('node-a'))
+                assert [e.id for e in claimed] == [entry.id]
+                await seed.commit()
+
+            async with (
+                AsyncSession(pg_engine, expire_on_commit=False) as sa,  # A's worker: still alive, now stale
+                AsyncSession(pg_engine, expire_on_commit=False) as sb,  # B: the successor pod
+            ):
+                # A has died -> B evicts it from the registry, reclaims by membership, and COMMITS.
+                async with sb.begin():
+                    await sb.execute(text("SET LOCAL lock_timeout = '2s'"))
+                    await SqlAlchemyNodeRegistry(sb).deregister(NodeId('node-a'))
+                    assert await SqlAlchemyInboxStore(sb).recover_abandoned() == 1
+                    reclaimed = await SqlAlchemyInboxStore(sb).fetch_pending_partitioned(
+                        batch_size=10, owner_id=NodeId('node-b')
+                    )
+                    assert [e.id for e in reclaimed] == [entry.id]
+
+                # A's stale worker, in its own live session, now attempts to finalize the reassigned row.
+                async with sa.begin():
+                    await sa.execute(text("SET LOCAL lock_timeout = '2s'"))
+                    applied = await _attempt(SqlAlchemyInboxStore(sa), entry, NodeId('node-a'), transition)
+
+            assert applied is False
+
+            # Observe terminal state through the port alone: release B, reclaim, read with an observer.
+            async with AsyncSession(pg_engine, expire_on_commit=False) as obs:
+                async with obs.begin():
+                    await SqlAlchemyNodeRegistry(obs).deregister(NodeId('node-b'))
+                    await SqlAlchemyInboxStore(obs).recover_abandoned()
+                    await SqlAlchemyNodeRegistry(obs).register(
+                        NodeIdentity(node_id=NodeId('observer'), description='observer'), capabilities=frozenset()
+                    )
+                    survivors = await SqlAlchemyInboxStore(obs).fetch_pending_partitioned(
+                        batch_size=10, owner_id=NodeId('observer')
+                    )
+                    dead = await SqlAlchemyDeadLetterStore(obs).fetch()
+                assert [(e.id, e.status, e.attempts, e.keep_until) for e in survivors] == [
+                    (entry.id, InboxStatus.INCOMING, 0, None),
+                ]
+                assert list(dead) == []

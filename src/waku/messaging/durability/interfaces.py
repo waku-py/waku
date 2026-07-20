@@ -8,7 +8,9 @@ if TYPE_CHECKING:
     from datetime import datetime, timedelta
     from uuid import UUID
 
-    from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery
+    from waku._internal.node import NodeId
+    from waku.messaging.errors.dead_letter import DeadLetterEntry, DeadLetterQuery, ReplayClaimId
+    from waku.messaging.inbox.identifiers import HandlerDestination
     from waku.messaging.inbox.models import InboxEntry
     from waku.messaging.outbox.models import OutboxMessage
     from waku.messaging.sequence import ISequenceAllocator
@@ -27,48 +29,86 @@ class IOutboxStore(abc.ABC):
     async def save_batch(self, messages: Sequence[OutboxMessage]) -> None: ...
 
     @abc.abstractmethod
-    async def fetch_head_of_queue(self, batch_size: int) -> Sequence[OutboxMessage]:
-        """Claim at most ``batch_size`` pending messages honoring partition order.
+    async def fetch_head_of_queue(self, batch_size: int, owner_id: NodeId) -> Sequence[OutboxMessage]:
+        """Claim at most ``batch_size`` pending messages for *owner_id*, honoring partition order.
 
         Claims at most one message per ``(group_id, destination)`` partition (the lowest unprocessed
         ``sequence_number``). A partition head is the lowest-sequence NON-TERMINAL row: a committed
         ``PROCESSING`` (in-flight) predecessor still occupies its slot, so no successor is claimed until
         it reaches a terminal state — per-partition FIFO holds cluster-wide under concurrent relays,
-        bounded by the relay's ``stuck_threshold`` (a live send slower than the threshold may be
-        recovery-swept and re-claimed, the pre-existing at-least-once window). Messages with
-        ``group_id IS NULL`` are keyless: not sequenced and carry NO ordering guarantee — they are
-        claimed concurrently and dispatched in parallel. Returned rows are marked ``PROCESSING``.
+        released only when the head reaches a terminal state or its owner leaves the node registry.
+        Messages with ``group_id IS NULL`` are keyless: not sequenced and carry NO ordering guarantee —
+        they are claimed concurrently and dispatched in parallel. Returned rows are marked
+        ``PROCESSING`` and carry *owner_id*; every later transition is fenced on it.
         """
         ...
 
     @abc.abstractmethod
-    async def mark_dispatched(self, message_id: UUID) -> None: ...
+    async def mark_dispatched(self, message_id: UUID, *, owner_id: NodeId) -> bool:
+        """Record a delivered message as DISPATCHED and release its ownership.
+
+        Owner-fenced (D1-FENCE): applies only while *owner_id* is still the row's recorded owner, and
+        returns whether it applied. A rejected transition writes nothing. Fenced on the OWNER (not a
+        per-claim token) because a row is only ever reassigned when its owner has left the registry, so
+        no live successor collides — unlike ``IDeadLetterStore``, whose replay leases lapse against
+        still-alive nodes and therefore fence on the claim.
+        """
+        ...
 
     @abc.abstractmethod
-    async def mark_failed(self, message_id: UUID, error: str, next_retry_at: datetime | None = None) -> None: ...
+    async def mark_failed(
+        self,
+        message_id: UUID,
+        error: str,
+        next_retry_at: datetime | None = None,
+        *,
+        owner_id: NodeId,
+    ) -> bool:
+        """Bump attempts and either reschedule (PENDING with *next_retry_at*) or exhaust (FAILED).
+
+        Owner-fenced; see :meth:`mark_dispatched`.
+        """
+        ...
 
     @abc.abstractmethod
-    async def mark_discarded(self, message_id: UUID, error: str) -> None:
+    async def mark_discarded(self, message_id: UUID, error: str, *, owner_id: NodeId) -> bool:
         """Terminally drop a message a sending policy chose to DISCARD (status DISCARDED).
 
         Intentional policy drop — distinct from a dead-letter move (normal exhaustion; the row leaves
         the outbox) and from FAILED (the degradation when a DLQ write itself fails). Never bumps
-        attempts. The relay owns the transaction; this method must not commit.
+        attempts. The relay owns the transaction; this method must not commit. Owner-fenced; see
+        :meth:`mark_dispatched`.
         """
         ...
 
     @abc.abstractmethod
-    async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry) -> None:
+    async def move_to_dead_letter(self, message_id: UUID, entry: DeadLetterEntry, *, owner_id: NodeId) -> bool:
         """Quarantine an exhausted message: delete the outbox row AND persist *entry* to the dead-letter store.
 
         Both writes belong to the caller's transaction (must not commit). Deleting — not status-flipping —
         frees the ``(idempotency_key, destination)`` pair so a replay re-dispatch of the same message_id
         can persist a fresh row; the dead-letter table is the single quarantine home.
+
+        Owner-fenced on the DELETE, which is evaluated FIRST: a rejected move must not mint a dead
+        letter for a row this node no longer holds, so the INSERT is skipped on zero match.
         """
         ...
 
     @abc.abstractmethod
-    async def recover_abandoned(self, threshold: timedelta) -> int: ...
+    async def recover_abandoned(self) -> int:
+        """Release PROCESSING rows whose owner has left the node registry; return the count.
+
+        Node-registry membership is the ONLY release predicate, evaluated inside this one statement so
+        no window opens between reading membership and reclaiming. Row age is never evidence of owner
+        death: a healthy relay can hold a claimed row for as long as the send takes, and releasing it on
+        age alone hands an in-flight message to a second dispatcher. A wedged-but-heartbeating node
+        therefore has no automatic remedy — restarting it deregisters or lets it be evicted, and either
+        path releases its rows through this predicate.
+
+        Released rows return to PENDING with ``processing_started_at`` and ``owner_id`` cleared, so a
+        live relay can claim them again.
+        """
+        ...
 
     @abc.abstractmethod
     async def delete_expired_dispatched(self, older_than: timedelta, *, now: datetime) -> int:
@@ -94,30 +134,59 @@ class IInboxStore(abc.ABC):
         ...
 
     @abc.abstractmethod
-    async def mark_as_handled(self, entry_id: UUID, destination: str, keep_until: datetime) -> None:
-        """Transition the ``(entry_id, destination)`` row from INCOMING to HANDLED with a retention window."""
-        ...
+    async def mark_as_handled(
+        self,
+        entry_id: UUID,
+        destination: HandlerDestination,
+        keep_until: datetime,
+        *,
+        owner_id: NodeId,
+    ) -> bool:
+        """Transition the ``(entry_id, destination)`` row from INCOMING to HANDLED with a retention window.
 
-    @abc.abstractmethod
-    async def increment_attempts(self, entry_id: UUID, destination: str) -> None:
-        """Bump the attempt counter on the ``(entry_id, destination)`` row after a failed attempt."""
-        ...
-
-    @abc.abstractmethod
-    async def move_to_dead_letter(self, entry_id: UUID, destination: str, dead_letter: DeadLetterEntry) -> None:
-        """Atomically DELETE the ``(entry_id, destination)`` row and INSERT into the dead letter table."""
-        ...
-
-    @abc.abstractmethod
-    async def delete(self, entry_id: UUID, destination: str) -> None:
-        """Delete a single ``(entry_id, destination)`` row immediately.
-
-        Used for DISCARDED/FAILED_NO_POLICY outcomes — the row never became HANDLED so no dedup window is needed.
+        Owner-fenced: applies only while *owner_id* is still the row's recorded owner, and returns
+        whether it applied. A rejected transition writes nothing. Fenced on the OWNER (not a per-claim
+        token) because a row is only ever reassigned when its owner has left the registry, so no live
+        successor collides — unlike ``IDeadLetterStore``, whose replay leases lapse against still-alive
+        nodes and therefore fence on the claim.
         """
         ...
 
     @abc.abstractmethod
-    async def fetch_pending_partitioned(self, batch_size: int, owner_id: str) -> Sequence[InboxEntry]:
+    async def increment_attempts(self, entry_id: UUID, destination: HandlerDestination, *, owner_id: NodeId) -> bool:
+        """Bump the attempt counter on the ``(entry_id, destination)`` row after a failed attempt.
+
+        Owner-fenced; see :meth:`mark_as_handled`.
+        """
+        ...
+
+    @abc.abstractmethod
+    async def move_to_dead_letter(
+        self,
+        entry_id: UUID,
+        destination: HandlerDestination,
+        dead_letter: DeadLetterEntry,
+        *,
+        owner_id: NodeId,
+    ) -> bool:
+        """Atomically DELETE the ``(entry_id, destination)`` row and INSERT into the dead letter table.
+
+        Owner-fenced on the DELETE, which is evaluated FIRST: a rejected move must not mint a dead
+        letter for a row this node no longer holds, so the INSERT is skipped on zero match.
+        """
+        ...
+
+    @abc.abstractmethod
+    async def delete(self, entry_id: UUID, destination: HandlerDestination, *, owner_id: NodeId) -> bool:
+        """Delete a single ``(entry_id, destination)`` row immediately.
+
+        Used for DISCARDED/FAILED_NO_POLICY outcomes — the row never became HANDLED so no dedup window
+        is needed. Owner-fenced; see :meth:`mark_as_handled`.
+        """
+        ...
+
+    @abc.abstractmethod
+    async def fetch_pending_partitioned(self, batch_size: int, owner_id: NodeId) -> Sequence[InboxEntry]:
         """Claim at most ``batch_size`` unowned INCOMING entries honoring partition order.
 
         Keyed rows (``group_id IS NOT NULL``): at most one entry per ``(group_id, destination)``
@@ -132,8 +201,15 @@ class IInboxStore(abc.ABC):
         ...
 
     @abc.abstractmethod
-    async def recover_abandoned(self, threshold: timedelta) -> int:
-        """Release OWNED INCOMING rows silent >threshold back to ``owner_id=NULL``; return count.
+    async def recover_abandoned(self) -> int:
+        """Release INCOMING rows whose owner has left the node registry; return the count.
+
+        Node-registry membership is the ONLY release predicate, evaluated inside this one statement so
+        no window opens between reading membership and reclaiming. Row age is never evidence of owner
+        death: a healthy node can hold a claimed row for as long as its work takes, and releasing it on
+        age alone hands live work to a second processor. A wedged-but-heartbeating node therefore has
+        no automatic remedy — restarting it deregisters or lets it be evicted, and either path releases
+        its rows through this predicate.
 
         MUST NOT touch never-claimed (``owner_id IS NULL``) rows — they are already fetchable, and
         resetting their clock is spurious churn. Refresh ``updated_at`` on release to avoid
@@ -191,11 +267,16 @@ class IDeadLetterStore(abc.ABC):
         self,
         max_replay_count: int,
         *,
-        owner_id: str,
+        owner_id: NodeId,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> DeadLetterEntry | None:
-        """Lease the oldest auto-replay candidate in the caller's short transaction."""
+        """Lease the oldest auto-replay candidate in the caller's short transaction.
+
+        The caller mints ``claim_id`` (mirroring ``DeadLetterEntry.id``); the store persists it
+        verbatim alongside ``owner_id`` and the lease.
+        """
         ...
 
     @abc.abstractmethod
@@ -203,7 +284,8 @@ class IDeadLetterStore(abc.ABC):
         self,
         entry_id: UUID,
         *,
-        owner_id: str,
+        owner_id: NodeId,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> DeadLetterEntry | None:
@@ -215,21 +297,27 @@ class IDeadLetterStore(abc.ABC):
         self,
         entry_id: UUID,
         *,
-        owner_id: str,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> bool:
-        """Extend a strictly live claim held by ``owner_id``."""
+        """Extend the strictly live claim recorded as ``claim_id``.
+
+        Fences on the claim, never on the owner: replay leases lapse against nodes that are still
+        alive by design, so two claimants on one node legitimately coexist and share an owner token.
+        (``IInboxStore``/``IOutboxStore`` fence on the owner instead — their rows are only ever
+        released when the owning node has left the registry, so no live successor can collide.)
+        """
         ...
 
     @abc.abstractmethod
-    async def mark_replayed(self, entry_id: UUID, *, owner_id: str, now: datetime) -> bool:
-        """Finalize a strictly live owned claim as replayed and clear its lease."""
+    async def mark_replayed(self, entry_id: UUID, *, claim_id: ReplayClaimId, now: datetime) -> bool:
+        """Finalize the strictly live claim ``claim_id`` as replayed and clear its lease."""
         ...
 
     @abc.abstractmethod
-    async def mark_replay_failed(self, entry_id: UUID, error: str, *, owner_id: str, now: datetime) -> bool:
-        """Finalize a live owned claim as failed, incrementing its replay count once."""
+    async def mark_replay_failed(self, entry_id: UUID, error: str, *, claim_id: ReplayClaimId, now: datetime) -> bool:
+        """Finalize the strictly live claim ``claim_id`` as failed, incrementing its replay count once."""
         ...
 
     @abc.abstractmethod

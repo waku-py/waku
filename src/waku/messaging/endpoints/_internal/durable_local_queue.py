@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any, ClassVar, Never
 import anyio
 from typing_extensions import override
 
-from waku._internal.clock import utc_now
 from waku._internal.transaction import (
     Commit,
     TransactionDecision,
@@ -29,6 +28,7 @@ if TYPE_CHECKING:
     from dishka import AsyncContainer
 
     from waku._internal.clock import Now
+    from waku._internal.node import NodeId
     from waku.messaging._internal.pauser import PauseToken
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
@@ -64,14 +64,14 @@ class DurableLocalQueueEndpoint(Endpoint):
         observers: MessageObservers,
         container: AsyncContainer,
         keep_after_handled: timedelta,
-        inbox_owner_id: str,
+        inbox_owner_id: NodeId,
         stop_timeout: timedelta,
         max_buffer_size: float,
         partition_by: PartitionKeyExtractor | None = None,
         max_requeue_attempts: int = 5,
         pause_sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
         circuit_breaker_config: CircuitBreakerConfig | None = None,
-        now: Now = utc_now,
+        now: Now,
     ) -> None:
         super().__init__(uri=uri, observers=observers)
         self._handler_subscriptions = handler_subscriptions
@@ -83,6 +83,7 @@ class DurableLocalQueueEndpoint(Endpoint):
             container=container,
             executor=executor,
             inbox_owner_id=inbox_owner_id,
+            now=now,
             keep_after_handled=keep_after_handled,
             partition_by=partition_by,
             max_requeue_attempts=max_requeue_attempts,

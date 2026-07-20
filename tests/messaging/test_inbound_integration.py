@@ -53,7 +53,7 @@ class TestInboundIntegration:
 
         config = MessagingConfig(
             endpoints=[listen('rabbitmq://orders')],
-            inbox=InboxConfig(owner_id='test-node:1'),
+            inbox=InboxConfig(),
             transports={'rabbitmq': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
             observers=(TrackingMessageObserver,),

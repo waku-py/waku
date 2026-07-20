@@ -11,8 +11,7 @@ from dishka import make_async_container
 from typing_extensions import override
 
 from waku import module
-from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
-from waku.backends.memory._internal.outbox import InMemoryOutboxStore
+from waku._internal.node import NodeId
 from waku.di import object_, scoped
 from waku.messages import IEvent
 from waku.messaging import (
@@ -61,6 +60,9 @@ from tests.messaging.helpers import (
     node_registry_providers,
     order_id_partition,
 )
+from tests.messaging.outbox.fake_store import FakeOutboxStore
+
+_OWNER = NodeId('relay-1')
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +117,7 @@ class TestEndToEndOutboxFlow:
     @staticmethod
     async def test_publish_to_outbox_then_relay_delivers_to_transport() -> None:
         transport = RecordingTransport()
-        outbox = InMemoryOutboxStore(InMemoryDeadLetterStore())
+        outbox = FakeOutboxStore()
 
         config = _notifications_relay_config(transport)
 
@@ -130,7 +132,7 @@ class TestEndToEndOutboxFlow:
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(outbox, provided_type=IOutboxStore),
                     scoped(IDurabilityStore, durability_for_outbox),
-                    *node_registry_providers(),
+                    *node_registry_providers(outbox.nodes),
                 ],
             ) as app,
             app.container() as c,
@@ -185,7 +187,7 @@ class TestOutboxRelayLifecycleIntegration:
     @staticmethod
     async def test_outbox_relay_starts_and_stops_via_lifecycle_extension() -> None:
         transport = RecordingTransport()
-        outbox = InMemoryOutboxStore(InMemoryDeadLetterStore())
+        outbox = FakeOutboxStore()
 
         config = _notifications_relay_config(transport)
 
@@ -200,7 +202,7 @@ class TestOutboxRelayLifecycleIntegration:
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(outbox, provided_type=IOutboxStore),
                     scoped(IDurabilityStore, durability_for_outbox),
-                    *node_registry_providers(),
+                    *node_registry_providers(outbox.nodes),
                 ],
             ) as app,
             app.container() as c,
@@ -248,7 +250,7 @@ class TestTransportStartupOrdering:
     @staticmethod
     async def test_transport_started_before_relay_first_publish() -> None:
         transport = _SlowStartTransport()
-        outbox = InMemoryOutboxStore(InMemoryDeadLetterStore())
+        outbox = FakeOutboxStore()
         envelope = make_envelope(_OrderPlaced(order_id='early-1'))
         # Staged BEFORE app init: the relay's very first tick already has work to publish.
         outbox.messages.append(
@@ -275,7 +277,7 @@ class TestTransportStartupOrdering:
                 object_(RecordingUoW(), provided_type=IUnitOfWork),
                 object_(outbox, provided_type=IOutboxStore),
                 scoped(IDurabilityStore, durability_for_outbox),
-                *node_registry_providers(),
+                *node_registry_providers(outbox.nodes),
             ],
         ):
             await wait_until(lambda: len(transport.sent) == 1)
@@ -287,7 +289,7 @@ class TestTransportStartupOrdering:
 class TestMessageIdentityPropagation:
     @staticmethod
     async def test_outbox_entry_uses_configured_identity() -> None:
-        store = InMemoryOutboxStore(InMemoryDeadLetterStore())
+        store = FakeOutboxStore()
         transport = RecordingTransport()
 
         config = MessagingConfig(
@@ -307,7 +309,7 @@ class TestMessageIdentityPropagation:
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(store, provided_type=IOutboxStore),
                     scoped(IDurabilityStore, durability_for_outbox),
-                    *node_registry_providers(),
+                    *node_registry_providers(store.nodes),
                 ],
             ) as app,
             app.container() as c,
@@ -320,7 +322,7 @@ class TestMessageIdentityPropagation:
 
     @staticmethod
     async def test_outbox_entry_falls_back_to_fqn_without_identity_config() -> None:
-        store = InMemoryOutboxStore(InMemoryDeadLetterStore())
+        store = FakeOutboxStore()
         transport = RecordingTransport()
 
         config = MessagingConfig(
@@ -339,7 +341,7 @@ class TestMessageIdentityPropagation:
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(store, provided_type=IOutboxStore),
                     scoped(IDurabilityStore, durability_for_outbox),
-                    *node_registry_providers(),
+                    *node_registry_providers(store.nodes),
                 ],
             ) as app,
             app.container() as c,
@@ -375,7 +377,7 @@ class TestRelayPartitionOrdering:
     @staticmethod
     async def test_relay_dispatches_group_heads_in_sequence_order() -> None:
         transport = RecordingTransport()
-        store = InMemoryOutboxStore(InMemoryDeadLetterStore())
+        store = FakeOutboxStore()
         # Staged OUT of sequence order: the relay must still dispatch A-1, A-2, A-3 because it claims
         # the head (lowest pending sequence) of the group each poll — not whatever was inserted first.
         # If the relay used FIFO fetch this would dispatch A-2, A-1, A-3 and the assert would fail.
@@ -393,6 +395,7 @@ class TestRelayPartitionOrdering:
                 container=container,
                 config=relay_config,
                 sending_failure_evaluator=make_relay_evaluator(relay_config),
+                node_id=_OWNER,
             )
             await relay.start()
             await wait_until(lambda: sum(1 for m in store.messages if m.status == OutboxStatus.DISPATCHED) == 3)
@@ -535,7 +538,7 @@ class TestGroupIdPropagation:
     async def test_cascaded_message_inherits_parent_group_id_via_context() -> None:
         # partition_by is deliberately NOT set: the ONLY way the cascaded _OrderShipped outbox row can
         # carry group_id='order-9' is propagation parent-context -> _create_envelope -> cascade envelope.
-        outbox = InMemoryOutboxStore(InMemoryDeadLetterStore())
+        outbox = FakeOutboxStore()
         config = MessagingConfig(
             endpoints=[external_endpoint('test://shipped')],
             routing=[route(_OrderShipped).to('test://shipped')],
@@ -560,7 +563,7 @@ class TestGroupIdPropagation:
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     object_(outbox, provided_type=IOutboxStore),
                     scoped(IDurabilityStore, durability_for_outbox),
-                    *node_registry_providers(),
+                    *node_registry_providers(outbox.nodes),
                 ],
             ) as app,
             app.container() as c,
@@ -579,7 +582,7 @@ class TestPartitionOrderingEndToEnd:
     @staticmethod
     async def test_concurrent_groups_each_dispatched_in_strict_sequence_order() -> None:
         transport = RecordingTransport()
-        outbox = InMemoryOutboxStore(InMemoryDeadLetterStore())
+        outbox = FakeOutboxStore()
         config = MessagingConfig(
             endpoints=[external_endpoint('test://orders', partition_by=order_id_partition)],
             routing=[route(_OrderPlaced).to('test://orders')],
@@ -604,7 +607,7 @@ class TestPartitionOrderingEndToEnd:
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     object_(outbox, provided_type=IOutboxStore),
                     scoped(IDurabilityStore, durability_for_outbox),
-                    *node_registry_providers(),
+                    *node_registry_providers(outbox.nodes),
                 ],
             ) as app,
             app.container() as c,
@@ -633,7 +636,7 @@ class TestMultiDestinationFanOut:
     async def test_event_routed_to_two_endpoints_persists_and_delivers_to_both() -> None:
         transport_ta = RecordingTransport()
         transport_tb = RecordingTransport()
-        outbox = InMemoryOutboxStore(InMemoryDeadLetterStore())
+        outbox = FakeOutboxStore()
         config = MessagingConfig(
             endpoints=[external_endpoint('ta://events'), external_endpoint('tb://events')],
             routing=[route(_OrderPlaced).to('ta://events'), route(_OrderPlaced).to('tb://events')],
@@ -658,7 +661,7 @@ class TestMultiDestinationFanOut:
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     object_(outbox, provided_type=IOutboxStore),
                     scoped(IDurabilityStore, durability_for_outbox),
-                    *node_registry_providers(),
+                    *node_registry_providers(outbox.nodes),
                 ],
             ) as app,
             app.container() as c,

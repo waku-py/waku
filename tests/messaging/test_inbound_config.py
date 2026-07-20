@@ -113,7 +113,7 @@ async def test_consumer_boots_with_backpressure_and_circuit_breaker() -> None:
                 circuit_breaker=CircuitBreakerConfig(minimum_throughput=1),
             ),
         ],
-        inbox=InboxConfig(owner_id='test-node:1'),
+        inbox=InboxConfig(),
         transports={'rabbitmq': _StubTransport},
     )
     async with create_test_app(
@@ -123,7 +123,7 @@ async def test_consumer_boots_with_backpressure_and_circuit_breaker() -> None:
             object_(RecordingAllocator(), provided_type=ISequenceAllocator),
             object_(inbox, provided_type=IInboxStore),
             object_(_durability(inbox, unit_of_work), provided_type=IDurabilityStore),
-            *node_registry_providers(),
+            *node_registry_providers(inbox.nodes),
         ],
     ):
         pass  # wiring builds the listener gate + inbound breaker without error
@@ -134,7 +134,7 @@ async def test_inbound_partition_by_without_allocator_raises_at_startup() -> Non
     unit_of_work = RecordingUoW()
     config = MessagingConfig(
         endpoints=[listen('orders', partition_by=_partition_key)],
-        inbox=InboxConfig(owner_id='test-node:1'),
+        inbox=InboxConfig(),
         transports={'rabbitmq': _StubTransport},
     )
     with pytest.raises(ImproperlyConfiguredError, match='ISequenceAllocator'):
@@ -144,7 +144,7 @@ async def test_inbound_partition_by_without_allocator_raises_at_startup() -> Non
                 object_(unit_of_work, provided_type=IUnitOfWork),
                 object_(inbox, provided_type=IInboxStore),
                 object_(_durability(inbox, unit_of_work), provided_type=IDurabilityStore),
-                *node_registry_providers(),
+                *node_registry_providers(inbox.nodes),
             ],
         ):
             pass  # pragma: no cover

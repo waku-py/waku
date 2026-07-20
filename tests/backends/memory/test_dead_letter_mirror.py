@@ -5,9 +5,11 @@ from uuid import uuid4
 
 import pytest
 
+from waku._internal.node import NodeId
 from waku.backends.memory import MemoryBackend
 from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.backends.memory._internal.inbox import InMemoryInboxStore
+from waku.backends.memory._internal.nodes import InMemoryNodeRegistry
 from waku.backends.memory._internal.outbox import InMemoryOutboxStore
 from waku.messaging import MessagingConfig, MessagingModule
 from waku.messaging.durability import IDeadLetterStore, IInboxStore
@@ -16,7 +18,7 @@ from waku.messaging.outbox.models import OutboxMessage
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
 
-from tests.backends.memory.conftest import make_sample_inbox_entry
+from tests.backends.memory.conftest import SAMPLE_OWNER, make_sample_inbox_entry
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -48,9 +50,12 @@ async def memory_app() -> AsyncIterator[WakuApplication]:
         yield app
 
 
+_OWNER = NodeId('relay-1')
+
+
 async def test_memory_outbox_move_to_dead_letter_visible_in_shared_dlq() -> None:
     dlq = InMemoryDeadLetterStore()
-    outbox = InMemoryOutboxStore(dlq)
+    outbox = InMemoryOutboxStore(dlq, InMemoryNodeRegistry())
     message = OutboxMessage(
         id=uuid4(),
         idempotency_key=str(uuid4()),
@@ -61,10 +66,10 @@ async def test_memory_outbox_move_to_dead_letter_visible_in_shared_dlq() -> None
         causation_id=str(uuid4()),
     )
     await outbox.save_batch([message])
-    claimed = await outbox.fetch_head_of_queue(batch_size=10)
+    claimed = await outbox.fetch_head_of_queue(batch_size=10, owner_id=_OWNER)
     entry = _dead_letter('test://dest', DeadLetterDestinationKind.ENDPOINT)
 
-    await outbox.move_to_dead_letter(claimed[0].id, entry)
+    await outbox.move_to_dead_letter(claimed[0].id, entry, owner_id=_OWNER)
 
     # The row leaves the outbox (the DLQ row is the quarantine home) and lands in the shared store.
     assert [m for m in outbox.messages if m.id == message.id] == []
@@ -74,12 +79,12 @@ async def test_memory_outbox_move_to_dead_letter_visible_in_shared_dlq() -> None
 
 async def test_memory_inbox_move_to_dead_letter_visible_in_shared_dlq() -> None:
     dlq = InMemoryDeadLetterStore()
-    inbox = InMemoryInboxStore(dlq)
+    inbox = InMemoryInboxStore(dlq, InMemoryNodeRegistry())
     entry = make_sample_inbox_entry()
     await inbox.store_incoming(entry)
     dead_letter = _dead_letter(entry.destination, DeadLetterDestinationKind.HANDLER)
 
-    await inbox.move_to_dead_letter(entry.id, entry.destination, dead_letter)
+    await inbox.move_to_dead_letter(entry.id, entry.destination, dead_letter, owner_id=SAMPLE_OWNER)
 
     # The inbox row is gone: the same (id, destination) is storable again.
     assert await inbox.store_incoming(entry) is True
@@ -98,7 +103,7 @@ async def test_memory_inbox_dead_letter_move_rolls_back_source_and_dlq_together(
 
     async with memory_app.container() as scope:
         inbox = await scope.get(IInboxStore)
-        await inbox.move_to_dead_letter(entry.id, entry.destination, dead_letter)
+        await inbox.move_to_dead_letter(entry.id, entry.destination, dead_letter, owner_id=SAMPLE_OWNER)
         await (await scope.get(IUnitOfWork)).rollback()
 
     async with memory_app.container() as scope:
@@ -121,7 +126,7 @@ async def test_memory_inbox_dead_letter_move_commits_source_and_dlq_together(mem
 
     async with memory_app.container() as scope:
         inbox = await scope.get(IInboxStore)
-        await inbox.move_to_dead_letter(entry.id, entry.destination, dead_letter)
+        await inbox.move_to_dead_letter(entry.id, entry.destination, dead_letter, owner_id=SAMPLE_OWNER)
         await (await scope.get(IUnitOfWork)).commit()
 
     async with memory_app.container() as scope:

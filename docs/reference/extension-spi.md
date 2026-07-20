@@ -112,6 +112,7 @@ Error policies, dead-letter models, replay, and the DLQ worker.
 `ErrorPolicyRegistry` ·
 `FailureContext` ·
 `PolicyOutcome` ·
+`ReplayClaimId` ·
 `ReplayExecutor` ·
 `RetryAction` ·
 `RetryStage` ·

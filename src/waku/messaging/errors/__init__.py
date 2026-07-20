@@ -3,6 +3,7 @@ from waku.messaging.errors.dead_letter import (
     DeadLetterEntry,
     DeadLetterQuery,
     DeadLetterStatus,
+    ReplayClaimId,
     validate_requested_lease,
 )
 from waku.messaging.errors.executor import ErrorPolicyEvaluator, FailureContext, PolicyOutcome
@@ -21,6 +22,7 @@ __all__ = [
     'ErrorPolicyRegistry',
     'FailureContext',
     'PolicyOutcome',
+    'ReplayClaimId',
     'ReplayExecutor',
     'RetryAction',
     'RetryStage',

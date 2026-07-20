@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -10,6 +10,8 @@ import pytest
 from dishka import AsyncContainer, Provider, Scope, make_async_container
 from typing_extensions import override
 
+from waku._internal.clock import utc_now
+from waku._internal.node import NodeId
 from waku._internal.transaction import (
     RollbackFailedError,
     TransactionExecutionError,
@@ -38,6 +40,7 @@ from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.errors.dead_letter import DeadLetterEntry
 from waku.messaging.exceptions import RequeueBudgetExceededError
 from waku.messaging.handler import EventHandler
+from waku.messaging.inbox.identifiers import HandlerDestination
 from waku.messaging.inbox.models import InboxStatus
 from waku.testing import create_test_app
 from waku.uow import IUnitOfWork
@@ -166,20 +169,29 @@ class _TraceInbox(FakeInboxStore):
         self.move_calls = 0
 
     @override
-    async def mark_as_handled(self, entry_id: UUID, destination: str, keep_until: datetime) -> None:
+    async def mark_as_handled(
+        self,
+        entry_id: UUID,
+        destination: HandlerDestination,
+        keep_until: datetime,
+        *,
+        owner_id: NodeId,
+    ) -> bool:
         self._events.append('mark_as_handled')
-        await super().mark_as_handled(entry_id, destination, keep_until)
+        return await super().mark_as_handled(entry_id, destination, keep_until, owner_id=owner_id)
 
     @override
     async def move_to_dead_letter(
         self,
         entry_id: UUID,
-        destination: str,
+        destination: HandlerDestination,
         dead_letter: DeadLetterEntry,
-    ) -> None:
+        *,
+        owner_id: NodeId,
+    ) -> bool:
         self._events.append('move_to_dead_letter')
         self.move_calls += 1
-        await super().move_to_dead_letter(entry_id, destination, dead_letter)
+        return await super().move_to_dead_letter(entry_id, destination, dead_letter, owner_id=owner_id)
 
 
 class _FailingMoveInbox(_TraceInbox):
@@ -187,9 +199,11 @@ class _FailingMoveInbox(_TraceInbox):
     async def move_to_dead_letter(
         self,
         entry_id: UUID,
-        destination: str,
+        destination: HandlerDestination,
         dead_letter: DeadLetterEntry,
-    ) -> None:
+        *,
+        owner_id: NodeId,
+    ) -> bool:
         self._events.append('move_to_dead_letter')
         self.move_calls += 1
         msg = 'move failed'
@@ -198,7 +212,14 @@ class _FailingMoveInbox(_TraceInbox):
 
 class _FailingFinalizeInbox(_TraceInbox):
     @override
-    async def mark_as_handled(self, entry_id: UUID, destination: str, keep_until: datetime) -> None:
+    async def mark_as_handled(
+        self,
+        entry_id: UUID,
+        destination: HandlerDestination,
+        keep_until: datetime,
+        *,
+        owner_id: NodeId,
+    ) -> bool:
         self._events.append('mark_as_handled')
         msg = 'mark failed'
         raise ConnectionError(msg)
@@ -539,6 +560,34 @@ class TestDurableInboxReceiverFinalization:
         assert executor.terminal == []
         assert events == ['handler', 'mark_as_handled', 'rollback']
 
+    @staticmethod
+    async def test_lost_row_ownership_abandons_the_row_without_terminal_evidence() -> None:
+        # Recovery released the row to a live successor while it sat in the queue. The loser writes
+        # nothing and emits NO terminal evidence — no observer call, no breaker sample.
+        events: list[str] = []
+        inbox = _TraceInbox(events)
+        executor = _TraceExecutor(events, outcome=ExecutionOutcome.SUCCESS)
+        async with make_async_container(
+            EndpointDepsProvider(inbox, RecordingDeadLetterStore(), uow=_TraceUoW(events))
+        ) as container:
+            receiver = _receiver(container, executor)
+            receiver.attach_circuit_breaker(_TraceCircuitBreaker(events))
+            envelope = make_envelope(_Event(kind='Shipped'))
+
+            await receiver.start()
+            fresh = await receiver.persist(envelope, frozenset([_Handler]))
+            key = (envelope.message_id, f'{_Handler.__module__}.{_Handler.__qualname__}')
+            inbox.entries[key] = replace(inbox.entries[key], owner_id=NodeId('successor-node'))
+            events.clear()
+            await receiver.enqueue(envelope, fresh)
+            await wait_until(lambda: 'rollback' in events)
+            await receiver.stop()
+
+        assert executor.terminal == []
+        assert events == ['handler', 'mark_as_handled', 'rollback']
+        assert inbox.entries[key].status is InboxStatus.INCOMING
+        assert inbox.entries[key].owner_id == 'successor-node'
+
 
 def _receiver(
     container: AsyncContainer,
@@ -552,7 +601,8 @@ def _receiver(
         uri='local://test',
         container=container,
         executor=executor,
-        inbox_owner_id='node-a:1',
+        inbox_owner_id=NodeId('node-a:1'),
+        now=utc_now,
         keep_after_handled=timedelta(seconds=300),
         max_requeue_attempts=max_requeue_attempts,
         max_buffer_size=max_buffer_size,

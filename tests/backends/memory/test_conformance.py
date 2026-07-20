@@ -135,15 +135,35 @@ async def test_staleness_uses_store_clock_not_caller_clock() -> None:
 class TestMemoryOutboxConformance(OutboxStoreContract):
     @pytest.fixture
     @override
-    def outbox_store(self) -> IOutboxStore:
-        return InMemoryOutboxStore(InMemoryDeadLetterStore())
+    def dead_letter_store(self) -> IDeadLetterStore:
+        return InMemoryDeadLetterStore()
+
+    @pytest.fixture
+    @override
+    def node_registry(self) -> INodeRegistry:
+        return InMemoryNodeRegistry()
+
+    @pytest.fixture
+    @override
+    def outbox_store(self, dead_letter_store: IDeadLetterStore, node_registry: INodeRegistry) -> IOutboxStore:
+        return InMemoryOutboxStore(dead_letter_store, node_registry)
 
 
 class TestMemoryInboxConformance(InboxStoreContract):
     @pytest.fixture
     @override
-    def inbox_store(self) -> IInboxStore:
-        return InMemoryInboxStore(InMemoryDeadLetterStore())
+    def dead_letter_store(self) -> IDeadLetterStore:
+        return InMemoryDeadLetterStore()
+
+    @pytest.fixture
+    @override
+    def node_registry(self) -> INodeRegistry:
+        return InMemoryNodeRegistry()
+
+    @pytest.fixture
+    @override
+    def inbox_store(self, dead_letter_store: IDeadLetterStore, node_registry: INodeRegistry) -> IInboxStore:
+        return InMemoryInboxStore(dead_letter_store, node_registry)
 
 
 class TestMemoryDeadLetterConformance(DeadLetterStoreContract):
@@ -190,12 +210,19 @@ def test_standalone_event_store_without_facets_reports_missing_facet_diagnostics
         _ = store.checkpoints
 
 
+def _standalone_node_registry() -> INodeRegistry:
+    # The inbox and outbox adapters fence recovery on membership, so a registry must be present; the
+    # registry's own optional state/clock params keep it out of direct class registration.
+    return InMemoryNodeRegistry()
+
+
 async def test_standalone_memory_adapters_resolve_through_direct_dishka_class_registration() -> None:
     async with (
         create_test_app(
             imports=[EventSourcingModule.register(EventSourcingConfig())],
             providers=[
                 scoped(IDeadLetterStore, InMemoryDeadLetterStore),
+                scoped(INodeRegistry, _standalone_node_registry),
                 scoped(IInboxStore, InMemoryInboxStore),
                 scoped(IOutboxStore, InMemoryOutboxStore),
                 scoped(ISequenceAllocator, InMemorySequenceAllocator),

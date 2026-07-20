@@ -9,6 +9,8 @@ import anyio
 import pytest
 from typing_extensions import override
 
+from waku import DynamicModule, NodeIdentity, module
+from waku._internal.clock import Now
 from waku.di import object_, scoped, singleton
 from waku.exceptions import ImproperlyConfiguredError
 from waku.messages import IEvent
@@ -62,6 +64,17 @@ class _RecordingHandler(EventHandler[_OrderPlaced]):
         self.observed.append(message.order_id)
 
 
+class _RowOwnerObservingHandler(EventHandler[_OrderPlaced]):
+    # Reads the row's owner WHILE the message is in flight: a handled row releases ownership.
+    store: ClassVar[FakeInboxStore | None] = None
+    observed_owners: ClassVar[list[str | None]] = []
+
+    @override
+    async def handle(self, message: _OrderPlaced, /) -> None:
+        assert self.store is not None
+        self.observed_owners.extend(entry.owner_id for entry in self.store.entries.values())
+
+
 class _SecondRecordingHandler(EventHandler[_OrderPlaced]):
     observed: ClassVar[list[str]] = []
 
@@ -80,7 +93,7 @@ def _durable_config() -> MessagingConfig:
             )
         ],
         routing=[route(_OrderPlaced).to('orders')],
-        inbox=InboxConfig(owner_id='test-node:1'),
+        inbox=InboxConfig(),
         global_pipeline_behaviors=[TransactionalBehavior],
     )
 
@@ -102,7 +115,7 @@ def _dead_letter_config() -> MessagingConfig:
             )
         ],
         routing=[route(_OrderPlaced).to('orders')],
-        inbox=InboxConfig(owner_id='test-node:1'),
+        inbox=InboxConfig(),
         endpoint_defaults=EndpointDefaults(error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),)),
         dead_letter=DeadLetterConfig(),
         global_pipeline_behaviors=[TransactionalBehavior],
@@ -123,7 +136,7 @@ class TestDurableInboxIntegration:
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     scoped(IDurabilityStore, durability_for_inbox),
-                    *node_registry_providers(),
+                    *node_registry_providers(inbox.nodes),
                 ],
             ) as app,
             app.container() as container,
@@ -135,6 +148,31 @@ class TestDurableInboxIntegration:
         assert len(entries) == 1
         assert entries[0].status is InboxStatus.HANDLED
         assert _RecordingHandler.observed == ['o-1']
+
+    @staticmethod
+    async def test_persisted_row_is_owned_by_the_process_node_identity() -> None:
+        inbox = FakeInboxStore()
+        _RowOwnerObservingHandler.store = inbox
+        _RowOwnerObservingHandler.observed_owners = []
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(_durable_config())],
+                extensions=[MessagingExtension().bind(_RowOwnerObservingHandler)],
+                providers=[
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
+                    object_(inbox, provided_type=IInboxStore),
+                    object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                    scoped(IDurabilityStore, durability_for_inbox),
+                    *node_registry_providers(inbox.nodes),
+                ],
+            ) as app,
+            app.container() as container,
+        ):
+            identity = await container.get(NodeIdentity)
+            bus = await container.get(IMessageBus)
+            await bus.publish(_OrderPlaced(order_id='o-owner'))
+
+        assert _RowOwnerObservingHandler.observed_owners == [identity.node_id]
 
     @staticmethod
     async def test_distinct_publishes_each_persist_and_handle() -> None:
@@ -150,7 +188,7 @@ class TestDurableInboxIntegration:
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     scoped(IDurabilityStore, durability_for_inbox),
-                    *node_registry_providers(),
+                    *node_registry_providers(inbox.nodes),
                 ],
             ) as app,
             app.container() as container,
@@ -182,7 +220,7 @@ class TestDurableInboxIntegration:
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     scoped(IDurabilityStore, durability_for_inbox),
-                    *node_registry_providers(),
+                    *node_registry_providers(inbox.nodes),
                 ],
             ) as app,
             app.container() as container,
@@ -217,7 +255,7 @@ class TestDurableInboxIntegration:
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     object_(standalone_dlq, provided_type=IDeadLetterStore),
                     scoped(IDurabilityStore, durability_for_inbox_and_dead_letters),
-                    *node_registry_providers(),
+                    *node_registry_providers(inbox.nodes),
                 ],
             ) as app,
             app.container() as container,
@@ -239,7 +277,7 @@ class TestDurableInboxIntegration:
                 local_queue('orders', stop_timeout=timedelta(seconds=1.0))
             ],  # mode unset -> inherits the global default
             routing=[route(_OrderPlaced).to('orders')],
-            inbox=InboxConfig(owner_id='test-node:1'),
+            inbox=InboxConfig(),
             global_pipeline_behaviors=[TransactionalBehavior],
             endpoint_defaults=EndpointDefaults(mode=EndpointMode.DURABLE),
         )
@@ -252,7 +290,7 @@ class TestDurableInboxIntegration:
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     scoped(IDurabilityStore, durability_for_inbox),
-                    *node_registry_providers(),
+                    *node_registry_providers(inbox.nodes),
                 ],
             ) as app,
             app.container() as container,
@@ -273,7 +311,7 @@ class TestDurableInboxIntegration:
         config = MessagingConfig(
             endpoints=[local_queue('orders', mode=EndpointMode.BUFFERED, stop_timeout=timedelta(seconds=1.0))],
             routing=[route(_OrderPlaced).to('orders')],
-            inbox=InboxConfig(owner_id='test-node:1'),
+            inbox=InboxConfig(),
             global_pipeline_behaviors=[TransactionalBehavior],
             endpoint_defaults=EndpointDefaults(mode=EndpointMode.DURABLE),
         )
@@ -286,7 +324,7 @@ class TestDurableInboxIntegration:
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     scoped(IDurabilityStore, durability_for_inbox),
-                    *node_registry_providers(),
+                    *node_registry_providers(inbox.nodes),
                 ],
             ) as app,
             app.container() as container,
@@ -361,7 +399,7 @@ class TestDurableInboxIntegration:
         config = MessagingConfig(
             endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=timedelta(seconds=1.0))],
             routing=[route(_OrderPlaced).to('orders')],
-            inbox=InboxConfig(owner_id='node-a:1', recovery_interval=timedelta(seconds=0.01)),
+            inbox=InboxConfig(recovery_interval=timedelta(seconds=0.01)),
             dead_letter=DeadLetterConfig(),
             endpoint_defaults=EndpointDefaults(
                 error_policies=(ErrorPolicy.on_any_exception().move_to_dead_letter(),),
@@ -385,7 +423,7 @@ class TestDurableInboxIntegration:
                 object_(standalone_dlq, provided_type=IDeadLetterStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IDurabilityStore, durability_for_inbox_and_dead_letters),
-                *node_registry_providers(),
+                *node_registry_providers(inbox.nodes),
             ],
         ) as app:
             codec = await app.container.get(PayloadCodec)
@@ -407,7 +445,7 @@ class TestDurableInboxIntegration:
         config = MessagingConfig(
             endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=timedelta(seconds=1.0))],
             routing=[route(_OrderPlaced).to('orders')],
-            inbox=InboxConfig(owner_id='node-a:1', recovery_interval=timedelta(seconds=0.01)),
+            inbox=InboxConfig(recovery_interval=timedelta(seconds=0.01)),
             dead_letter=DeadLetterConfig(),
             global_pipeline_behaviors=[TransactionalBehavior],
         )
@@ -420,7 +458,7 @@ class TestDurableInboxIntegration:
                 object_(dlq, provided_type=IDeadLetterStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IDurabilityStore, durability_for_inbox_and_dead_letters),
-                *node_registry_providers(),
+                *node_registry_providers(inbox.nodes),
             ],
         ) as app:
             codec = await app.container.get(PayloadCodec)
@@ -452,7 +490,7 @@ class TestDurableInboxIntegration:
                 )
             ],
             routing=[route(_OrderPlaced).to('orders')],
-            inbox=InboxConfig(owner_id='node-a:1', recovery_interval=timedelta(seconds=0.01)),
+            inbox=InboxConfig(recovery_interval=timedelta(seconds=0.01)),
             global_pipeline_behaviors=[TransactionalBehavior],
         )
         async with create_test_app(
@@ -463,7 +501,7 @@ class TestDurableInboxIntegration:
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IDurabilityStore, durability_for_inbox),
-                *node_registry_providers(),
+                *node_registry_providers(inbox.nodes),
                 singleton(EndpointSink),
             ],
         ) as app:
@@ -487,7 +525,6 @@ class TestDurableInboxIntegration:
             endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=timedelta(seconds=1.0))],
             routing=[route(_OrderPlaced).to('orders')],
             inbox=InboxConfig(
-                owner_id='node-a:1',
                 recovery_interval=timedelta(seconds=0.01),
                 scheduled_poll_interval=timedelta(seconds=0.01),
             ),
@@ -501,7 +538,7 @@ class TestDurableInboxIntegration:
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IDurabilityStore, durability_for_inbox),
-                *node_registry_providers(),
+                *node_registry_providers(inbox.nodes),
             ],
         ) as app:
             codec = await app.container.get(PayloadCodec)
@@ -529,7 +566,6 @@ class TestDurableInboxIntegration:
             endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=timedelta(seconds=1.0))],
             routing=[route(_OrderPlaced).to('orders')],
             inbox=InboxConfig(
-                owner_id='node-a:1',
                 recovery_interval=timedelta(seconds=0.01),
                 scheduled_poll_interval=timedelta(seconds=0.01),
             ),
@@ -543,7 +579,7 @@ class TestDurableInboxIntegration:
                 object_(inbox, provided_type=IInboxStore),
                 object_(allocator, provided_type=ISequenceAllocator),
                 scoped(IDurabilityStore, durability_for_inbox),
-                *node_registry_providers(),
+                *node_registry_providers(inbox.nodes),
             ],
         ) as app:
             codec = await app.container.get(PayloadCodec)
@@ -560,3 +596,93 @@ class TestDurableInboxIntegration:
 
         assert _RecordingHandler.observed == ['keyless-sched']
         assert allocator.calls == []
+
+    @staticmethod
+    async def test_healthy_queued_row_survives_a_recovery_tick() -> None:
+        # BLK-3: this node is registered and heartbeating, so a row it still owns must survive every
+        # recovery tick — otherwise the drainer claims the row the worker is holding and the handler
+        # runs a second time.
+        released = anyio.Event()
+        observed: list[str] = []
+
+        class _GatedHandler(EventHandler[_OrderPlaced]):
+            @override
+            async def handle(self, message: _OrderPlaced, /) -> None:
+                observed.append(message.order_id)
+                await released.wait()
+
+        inbox = FakeInboxStore()
+        config = MessagingConfig(
+            endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=timedelta(seconds=1.0))],
+            routing=[route(_OrderPlaced).to('orders')],
+            inbox=InboxConfig(),
+            global_pipeline_behaviors=[TransactionalBehavior],
+        )
+        async with (
+            create_test_app(
+                imports=[MessagingModule.register(config)],
+                extensions=[MessagingExtension().bind(_GatedHandler)],
+                providers=[
+                    object_(RecordingUoW(), provided_type=IUnitOfWork),
+                    object_(inbox, provided_type=IInboxStore),
+                    object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                    scoped(IDurabilityStore, durability_for_inbox),
+                    *node_registry_providers(inbox.nodes),
+                ],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            await bus.publish(_OrderPlaced(order_id='blk3'))
+            await wait_until(lambda: observed == ['blk3'])  # in-flight: the row is INCOMING and owned
+
+            async with app.container() as recovery_scope:
+                reclaimed = await (await recovery_scope.get(IInboxStore)).recover_abandoned()
+
+            released.set()
+
+        assert reclaimed == 0
+        assert observed == ['blk3']
+
+    @staticmethod
+    async def test_keep_until_derives_from_the_injected_clock() -> None:
+        # MIN-5: the retention window is stamped from the container's Now, never a wall clock sampled
+        # inside the finalizer.
+        _RecordingHandler.observed = []
+        fixed = datetime(2031, 5, 4, 12, tzinfo=UTC)
+        inbox = FakeInboxStore()
+        async with (
+            create_test_app(
+                base=MessagingModule.register(_durable_config()),
+                # `base=` marks every `providers=` entry as an override, which is what the clock needs
+                # (MessagingModule already publishes `Now`); the durability set has nothing to override,
+                # so it arrives as a plain imported module.
+                providers=[object_(lambda: fixed, provided_type=Now)],
+                imports=[_InboxFixtureModule.register(inbox)],
+                extensions=[MessagingExtension().bind(_RecordingHandler)],
+            ) as app,
+            app.container() as container,
+        ):
+            bus = await container.get(IMessageBus)
+            await bus.publish(_OrderPlaced(order_id='clock-1'))
+
+        entry = next(iter(inbox.entries.values()))
+        assert entry.status is InboxStatus.HANDLED
+        assert entry.keep_until == fixed + InboxConfig().keep_after_handled
+
+
+@module()
+class _InboxFixtureModule:
+    @classmethod
+    def register(cls, inbox: FakeInboxStore) -> DynamicModule:
+        return DynamicModule(
+            parent_module=cls,
+            providers=[
+                object_(RecordingUoW(), provided_type=IUnitOfWork),
+                object_(inbox, provided_type=IInboxStore),
+                object_(RecordingAllocator(), provided_type=ISequenceAllocator),
+                scoped(IDurabilityStore, durability_for_inbox),
+                *node_registry_providers(inbox.nodes),
+            ],
+            is_global=True,
+        )

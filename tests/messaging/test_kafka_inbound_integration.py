@@ -64,7 +64,7 @@ class TestKafkaInboundIntegration:
 
         config = MessagingConfig(
             endpoints=[listen('kafka://orders')],
-            inbox=InboxConfig(owner_id='test-node:1'),
+            inbox=InboxConfig(),
             transports={'kafka': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
@@ -84,7 +84,7 @@ class TestKafkaInboundIntegration:
                     object_(RecordingUoW(), provided_type=IUnitOfWork),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     scoped(IDurabilityStore, durability_for_inbox),
-                    *node_registry_providers(),
+                    *node_registry_providers(inbox.nodes),
                 ],
             ),
         ):

@@ -11,8 +11,6 @@ faststream_rabbit = pytest.importorskip('faststream.rabbit')
 from faststream.rabbit import TestRabbitBroker
 
 from waku import module
-from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
-from waku.backends.memory._internal.outbox import InMemoryOutboxStore
 from waku.di import object_, scoped
 from waku.messages import IEvent
 from waku.messaging import (
@@ -43,6 +41,7 @@ from tests.messaging.helpers import (
     node_registry_providers,
 )
 from tests.messaging.inbox.fake_store import FakeInboxStore
+from tests.messaging.outbox.fake_store import FakeOutboxStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,15 +59,16 @@ class TestTransportCollectionIntegration:
             async def handle(self, message: _OrderPlaced, /) -> None:
                 observed.append(message.order_id)
 
-        outbox = InMemoryOutboxStore(InMemoryDeadLetterStore())
         inbox = FakeInboxStore()
+        # ONE membership view across both facets, as a real backend's single resource provides.
+        outbox = FakeOutboxStore(inbox.nodes)
         transport = FastStreamRabbitTransport(url='amqp://x')
 
         config = MessagingConfig(
             endpoints=[external_endpoint('rabbitmq://orders'), listen('rabbitmq://orders')],
             routing=[route(_OrderPlaced).to('rabbitmq://orders')],
             outbox=OutboxConfig(),
-            inbox=InboxConfig(owner_id='test-node:1'),
+            inbox=InboxConfig(),
             transports={'rabbitmq': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )
@@ -87,7 +87,7 @@ class TestTransportCollectionIntegration:
                     object_(inbox, provided_type=IInboxStore),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                     scoped(IDurabilityStore, durability_for_outbox_and_inbox),
-                    *node_registry_providers(),
+                    *node_registry_providers(inbox.nodes),
                 ],
             ) as app,
             app.container() as c,

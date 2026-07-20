@@ -10,6 +10,7 @@ import pytest
 from typing_extensions import override
 
 from waku import module
+from waku._internal.node import NodeId
 from waku._internal.polling import PollingConfig
 from waku.backends.memory import MemoryBackend
 from waku.backends.memory._internal.transaction import InMemoryCommittedState, InMemoryTransactionWorkspace
@@ -49,6 +50,9 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from waku.application import WakuApplication
+
+
+_OWNER = NodeId('relay-1')
 
 
 @dataclass(frozen=True)
@@ -198,7 +202,7 @@ async def test_memory_backend_rolls_back_event_and_outbox_together(
         outbox = await scope.get(IOutboxStore)
 
         assert await event_store.stream_exists(stream_id) is False
-        assert await outbox.fetch_head_of_queue(batch_size=10) == []
+        assert await outbox.fetch_head_of_queue(batch_size=10, owner_id=_OWNER) == []
         await (await scope.get(IUnitOfWork)).rollback()
 
 
@@ -223,7 +227,7 @@ async def test_memory_backend_commits_event_and_outbox_together(
     async with transactional_memory_app.container() as scope:
         event_store = await scope.get(IEventStore)
         outbox = await scope.get(IOutboxStore)
-        messages = await outbox.fetch_head_of_queue(batch_size=10)
+        messages = await outbox.fetch_head_of_queue(batch_size=10, owner_id=_OWNER)
 
         assert await event_store.stream_exists(stream_id) is True
         assert [(stored.id, stored.payload) for stored in messages] == [(message.id, {'title': 'assembled'})]
@@ -294,7 +298,7 @@ async def test_unterminated_memory_scope_rolls_back_and_releases_its_lock(
     with anyio.fail_after(1):
         async with transactional_memory_app.container() as scope:
             outbox = await scope.get(IOutboxStore)
-            assert await outbox.fetch_head_of_queue(batch_size=10) == []
+            assert await outbox.fetch_head_of_queue(batch_size=10, owner_id=_OWNER) == []
             await (await scope.get(IUnitOfWork)).rollback()
 
 
@@ -315,7 +319,7 @@ async def test_memory_workspace_teardown_releases_a_child_task_borrowed_token(
     with anyio.fail_after(1):
         async with transactional_memory_app.container() as scope:
             outbox = await scope.get(IOutboxStore)
-            assert await outbox.fetch_head_of_queue(batch_size=10) == []
+            assert await outbox.fetch_head_of_queue(batch_size=10, owner_id=_OWNER) == []
             await (await scope.get(IUnitOfWork)).rollback()
 
 
@@ -346,9 +350,9 @@ async def _assert_terminal_workspace_views_fail(
     checkpoint = Checkpoint(projection_name=projection_name, position=1, updated_at=datetime.now(tz=UTC))
     group_id = GroupId(f'group-{uuid4()}')
     operations = (
-        lambda: outbox.fetch_head_of_queue(batch_size=10),
+        lambda: outbox.fetch_head_of_queue(batch_size=10, owner_id=_OWNER),
         lambda: outbox.save_batch([_outbox_message()]),
-        lambda: inbox.fetch_pending_partitioned(batch_size=10, owner_id='test-owner'),
+        lambda: inbox.fetch_pending_partitioned(batch_size=10, owner_id=NodeId('test-owner')),
         lambda: inbox.store_incoming(inbox_entry),
         lambda: dead_letters.fetch(batch_size=10),
         lambda: dead_letters.save(_dead_letter(inbox_entry.destination)),
@@ -409,7 +413,7 @@ async def test_memory_workspace_views_fail_closed_after_a_terminal_action(
         checkpoints = await scope.get(ICheckpointStore)
         allocator = await scope.get(ISequenceAllocator)
 
-        assert await outbox.fetch_head_of_queue(batch_size=10) == []
+        assert await outbox.fetch_head_of_queue(batch_size=10, owner_id=_OWNER) == []
         assert await inbox.store_incoming(inbox_entry) is True
         assert await dead_letters.fetch(batch_size=10) == []
         assert await event_store.stream_exists(stream_id) is False

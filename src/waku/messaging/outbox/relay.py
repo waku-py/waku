@@ -13,7 +13,9 @@ from waku._internal.transaction import (
     Aborted,
     Commit,
     Committed,
+    Rollback,
     RolledBack,
+    TransactionDecision,
     TransactionResult,
     execute_in_uow_scope,
     require_committed,
@@ -28,6 +30,7 @@ from waku.messaging._internal.polling_agent import (
 )
 from waku.messaging.durability import IOutboxStore
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
+from waku.messaging.exceptions import DurabilityOwnershipLostError
 from waku.messaging.sending.evaluator import SendingFailureContext, SendingFailureEvaluator
 from waku.messaging.sending.policy import SendingFailurePolicy
 from waku.messaging.transport import MalformedMetadataError
@@ -36,9 +39,11 @@ from waku.messaging.transport._internal.wire import wire_metadata_from_entry
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
+    from uuid import UUID
 
     from dishka import AsyncContainer
 
+    from waku._internal.node import NodeId
     from waku._internal.polling import PollingConfig
     from waku.messaging._internal.escalation import PolicyOutcome
     from waku.messaging.outbox.models import OutboxMessage
@@ -52,7 +57,6 @@ logger = logging.getLogger(__name__)
 
 _OperationT = TypeVar('_OperationT')
 
-_DEFAULT_STUCK_THRESHOLD: Final[timedelta] = timedelta(minutes=5)
 _DEFAULT_RECOVERY_INTERVAL: Final[timedelta] = timedelta(minutes=1)
 _DEFAULT_CLEANUP_INTERVAL: Final[timedelta] = timedelta(hours=1)
 
@@ -64,7 +68,6 @@ class OutboxRelayConfig:
     max_attempts: int = 5
     base_delay: timedelta = timedelta(seconds=1)
     max_delay: timedelta = timedelta(seconds=60)
-    stuck_threshold: timedelta = _DEFAULT_STUCK_THRESHOLD
     recovery_interval: timedelta = _DEFAULT_RECOVERY_INTERVAL
     retention: timedelta | None = None
     cleanup_interval: timedelta = _DEFAULT_CLEANUP_INTERVAL
@@ -120,12 +123,42 @@ async def _execute_store_operation(
     return await execute_in_uow_scope(container, execute)
 
 
+async def _execute_fenced_transition(
+    container: AsyncContainer,
+    operation: Callable[[IOutboxStore], Awaitable[bool]],
+    *,
+    owner_id: NodeId,
+    message_id: UUID,
+) -> Committed[None] | Aborted:
+    """Run one owner-fenced transition; a rejected fence rolls back and raises ownership loss.
+
+    Modelling the rejection as a ``Rollback`` carrying the error (not a raise) keeps it distinct from
+    ``Aborted``: a caller that maps ``Aborted`` to a degraded outcome must never map a lost race to
+    one, because the successor — not this relay — owns the message's terminal evidence.
+    """
+
+    async def execute(scope: AsyncContainer) -> TransactionDecision[None, DurabilityOwnershipLostError]:
+        store = await scope.get(IOutboxStore)
+        if not await operation(store):
+            return Rollback(DurabilityOwnershipLostError(owner_id, message_id))
+        return Commit(None)
+
+    result = await execute_in_uow_scope(container, execute)
+    if isinstance(result, RolledBack):
+        raise result.value
+    return result
+
+
 class OutboxRelay(PollingAgent):
-    placement = Placement.SINGLETON_PER_DC
+    # PER_POD: OutboxRelayLifecycleExtension starts a relay on every pod unconditionally, and
+    # `FOR UPDATE SKIP LOCKED` claiming makes N competing dispatchers a throughput feature rather than
+    # a correctness hazard.
+    placement = Placement.PER_POD
 
     __slots__ = (
         '_config',
         '_container',
+        '_node_id',
         '_now',
         '_sending_evaluator',
     )
@@ -136,11 +169,13 @@ class OutboxRelay(PollingAgent):
         container: AsyncContainer,
         config: OutboxRelayConfig,
         sending_failure_evaluator: SendingFailureEvaluator,
+        node_id: NodeId,
         now: Now = utc_now,
     ) -> None:
         self._container = container
         self._config = config
         self._sending_evaluator = sending_failure_evaluator
+        self._node_id = node_id
         self._now = now
         super().__init__(stop_timeout=config.stop_timeout)
 
@@ -153,15 +188,33 @@ class OutboxRelay(PollingAgent):
         # Dispatch-only: outbox recovery-sweep + cleanup moved to DurabilityMaintenanceAgent (D9).
         return await self._process_batch()
 
+    def _fenced(
+        self,
+        operation: Callable[[IOutboxStore], Awaitable[bool]],
+        message: OutboxMessage,
+    ) -> Awaitable[Committed[None] | Aborted]:
+        return _execute_fenced_transition(
+            self._container,
+            operation,
+            owner_id=self._node_id,
+            message_id=message.id,
+        )
+
     async def _process_batch(self) -> int:
         async def fetch(store: IOutboxStore) -> Sequence[OutboxMessage]:
-            return await store.fetch_head_of_queue(self._config.batch_size)
+            return await store.fetch_head_of_queue(self._config.batch_size, self._node_id)
 
         messages = require_committed(await _execute_store_operation(self._container, fetch))
         processed = 0
         for message in messages:
-            if await self._dispatch_message(message):
-                processed += 1
+            try:
+                if await self._dispatch_message(message):
+                    processed += 1
+            except DurabilityOwnershipLostError as exc:
+                # Recovery handed this row to a live relay while the dispatch was mid-flight — this node
+                # had left the registry. Nothing was written and the successor owns the outcome, so the
+                # row is abandoned here without any terminal record.
+                logger.warning('Abandoning outbox message %s: %s', message.id, exc)
         return processed
 
     async def _dispatch_message(self, message: OutboxMessage) -> bool:
@@ -177,15 +230,17 @@ class OutboxRelay(PollingAgent):
             # downtime, retries, backpressure). Terminal-DISCARDED (never DLQ'd) before any broker send —
             # the send-side analog of the executor's receive-time discard.
             async def discard_expired(store: IOutboxStore) -> bool:
-                await store.mark_discarded(message.id, 'expired before dispatch (delivery deadline elapsed)')
+                return await store.mark_discarded(
+                    message.id,
+                    'expired before dispatch (delivery deadline elapsed)',
+                    owner_id=self._node_id,
+                )
 
-                return True
-
-            processed = require_committed(await _execute_store_operation(self._container, discard_expired))
+            require_committed(await self._fenced(discard_expired, message))
             logger.info(
                 'Discarding expired outbox message %s (expires_at=%s) before send', message.id, metadata.expires_at
             )
-            return processed
+            return True
         try:
             registry = await self._container.get(TransportRegistry)
             sender = registry.sender_for(message.destination)
@@ -199,27 +254,25 @@ class OutboxRelay(PollingAgent):
         except Exception as exc:  # noqa: BLE001
             return await self._on_dispatch_failure(message, exc)
         # Record phase: the message IS delivered; a recording failure must never reach the
-        # sending policy (it would record a delivered message DISCARDED/DEAD_LETTERED). Roll back
-        # and leave the row PROCESSING so recover_abandoned re-dispatches it (at-least-once).
+        # sending policy (it would record a delivered message DISCARDED/DEAD_LETTERED). Roll back and
+        # leave the row PROCESSING owned by this node. Recovery reclaims it only once this node leaves
+        # the registry (clean shutdown or eviction) and a live successor re-dispatches it — at-least-once
+        # holds across a restart, not on a fixed timer (D1-LIVE deleted the age sweep).
 
         async def record_delivered(store: IOutboxStore) -> bool:
-            await store.mark_dispatched(message.id)
+            return await store.mark_dispatched(message.id, owner_id=self._node_id)
 
-            return True
-
-        result = await _execute_store_operation(self._container, record_delivered)
+        result = await self._fenced(record_delivered, message)
         if isinstance(result, Committed):
-            return result.value
+            return True
         if isinstance(result, Aborted):
             logger.error(
-                'Outbox message %s was delivered but recording dispatch failed; '
-                'leaving PROCESSING for recovery (at-least-once)',
+                'Outbox message %s was delivered but recording dispatch failed; leaving PROCESSING for '
+                'recovery once this node leaves the registry (at-least-once across restart)',
                 message.id,
                 exc_info=result.error,
             )
             return False
-        if isinstance(result, RolledBack):
-            assert_never(result.value)
         assert_never(result)
 
     async def _on_dispatch_failure(self, message: OutboxMessage, exc: Exception) -> bool:
@@ -250,13 +303,11 @@ class OutboxRelay(PollingAgent):
             case RetryAction.DISCARD:
 
                 async def discard(store: IOutboxStore) -> bool:
-                    await store.mark_discarded(message.id, _format_error(exc))
+                    return await store.mark_discarded(message.id, _format_error(exc), owner_id=self._node_id)
 
-                    return False
-
-                processed = require_committed(await _execute_store_operation(self._container, discard))
+                require_committed(await self._fenced(discard, message))
                 logger.info('Discarded outbox message %s after %d attempt(s)', message.id, message.attempts + 1)
-                return processed
+                return False
             case RetryAction.DEAD_LETTER:
                 return await self._handle_exhausted(message, exc)
             case RetryAction.REQUEUE | RetryAction.PAUSE:  # pragma: no cover -- sending policies can't seed these
@@ -273,11 +324,10 @@ class OutboxRelay(PollingAgent):
         next_retry_at: datetime,
     ) -> bool:
         async def reschedule(store: IOutboxStore) -> bool:
-            await store.mark_failed(message.id, _format_error(exc), next_retry_at)
+            return await store.mark_failed(message.id, _format_error(exc), next_retry_at, owner_id=self._node_id)
 
-            return False
-
-        return require_committed(await _execute_store_operation(self._container, reschedule))
+        require_committed(await self._fenced(reschedule, message))
+        return False
 
     async def _handle_exhausted(
         self,
@@ -299,16 +349,12 @@ class OutboxRelay(PollingAgent):
         )
 
         async def move_to_dead_letter(store: IOutboxStore) -> bool:
-            await store.move_to_dead_letter(message.id, entry)
+            return await store.move_to_dead_letter(message.id, entry, owner_id=self._node_id)
 
-            return True
-
-        primary = await _execute_store_operation(self._container, move_to_dead_letter)
+        primary = await self._fenced(move_to_dead_letter, message)
         if isinstance(primary, Committed):
             logger.info('Message %s moved to dead letter after %d attempts', message.id, message.attempts + 1)
-            return primary.value
-        if isinstance(primary, RolledBack):
-            assert_never(primary.value)
+            return True
         if not isinstance(primary, Aborted):
             assert_never(primary)
 
@@ -316,17 +362,13 @@ class OutboxRelay(PollingAgent):
         error = _format_error(exc)
 
         async def mark_failed(store: IOutboxStore) -> bool:
-            await store.mark_failed(message.id, error, next_retry_at=None)
+            return await store.mark_failed(message.id, error, next_retry_at=None, owner_id=self._node_id)
 
-            return False
-
-        fallback = await _execute_store_operation(self._container, mark_failed)
+        fallback = await self._fenced(mark_failed, message)
         if isinstance(fallback, Committed):
             logger.warning('Message %s exhausted after %d attempts', message.id, message.attempts + 1)
-            return fallback.value
+            return False
         if isinstance(fallback, Aborted):
             logger.error('Failed to mark message %s as failed', message.id, exc_info=fallback.error)
             raise fallback.error
-        if isinstance(fallback, RolledBack):
-            assert_never(fallback.value)
         assert_never(fallback)

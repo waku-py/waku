@@ -11,6 +11,7 @@ from typing_extensions import override
 
 from waku._internal.clock import Now, utc_now
 from waku._internal.lease import ILease, LeaseConfig
+from waku._internal.node import NodeIdentity
 from waku._internal.transaction import (
     AfterCommitError,
     Commit,
@@ -128,11 +129,11 @@ class _OutboxMaintenancePoller(PollingAgent):
 
         async def recover(scope: AsyncContainer) -> TransactionDecision[int, Never]:
             store = await scope.get(IOutboxStore)
-            return Commit(await store.recover_abandoned(self._config.stuck_threshold))
+            return Commit(await store.recover_abandoned())
 
         recovered = await run_committed(self._container, recover)
         if recovered > 0:
-            logger.info('Recovered %d stuck messages', recovered)
+            logger.info('Released %d outbox messages owned by nodes absent from the registry', recovered)
         return recovered
 
     async def _maybe_cleanup(self) -> int:
@@ -153,11 +154,18 @@ class _DlqMaintenancePoller(PollingAgent):
 
     __slots__ = ('_cleanup_throttle', '_config', '_container', '_execution', '_now', '_owner')
 
-    def __init__(self, *, container: AsyncContainer, config: DeadLetterConfig, now: Now = utc_now) -> None:
+    def __init__(
+        self,
+        *,
+        container: AsyncContainer,
+        config: DeadLetterConfig,
+        identity: NodeIdentity,
+        now: Now = utc_now,
+    ) -> None:
         self._container = container
         self._config = config
         self._now = now
-        self._owner = ReplayClaimOwner(container=container, config=config, now=now)
+        self._owner = ReplayClaimOwner(container=container, config=config, node_id=identity.node_id, now=now)
         self._execution = _ScopedReplayExecution(container)
         self._cleanup_throttle = Throttle(config.cleanup_interval.total_seconds())
         super().__init__(stop_timeout=config.stop_timeout)
@@ -178,10 +186,10 @@ class _DlqMaintenancePoller(PollingAgent):
         replayed = 0
         for _ in range(self._config.batch_size):
             try:
-                entry = await self._owner.claim_replayable()
-                if entry is None:
+                claim = await self._owner.claim_replayable()
+                if claim is None:
                     break
-                if await self._owner.replay_claimed(entry, self._execution):
+                if await self._owner.replay_claimed(claim, self._execution):
                     replayed += 1
             except BaseException as error:
                 if fatal := extract_transaction_execution_error(error):
@@ -215,7 +223,9 @@ class _PromotionPoller(PollingAgent):
     independent of the outbox/DLQ pollers' cadence (they run as separate child tasks).
     """
 
-    placement = Placement.PER_POD
+    # SINGLETON_PER_DC like its sibling pollers: it is a DurabilityMaintenanceAgent sub-poller, and
+    # that agent runs leader-gated whenever leadership is configured.
+    placement = Placement.SINGLETON_PER_DC
 
     __slots__ = ('_config', '_container', '_now')
 
@@ -280,14 +290,23 @@ class DurabilityMaintenanceAgent:
 
     __slots__ = ('_pollers',)
 
-    def __init__(self, *, container: AsyncContainer, config: MessagingConfig, now: Now = utc_now) -> None:
+    def __init__(
+        self,
+        *,
+        container: AsyncContainer,
+        config: MessagingConfig,
+        identity: NodeIdentity,
+        now: Now = utc_now,
+    ) -> None:
         pollers: list[PollingAgent] = []
         if config.outbox is not None:
             pollers.append(_OutboxMaintenancePoller(container=container, config=config.outbox.relay, now=now))
         if config.dead_letter is not None and (
             config.dead_letter.auto_replay_enabled or config.dead_letter.retention is not None
         ):
-            pollers.append(_DlqMaintenancePoller(container=container, config=config.dead_letter, now=now))
+            pollers.append(
+                _DlqMaintenancePoller(container=container, config=config.dead_letter, identity=identity, now=now),
+            )
         if config.inbox is not None:
             pollers.append(_PromotionPoller(container=container, config=config.inbox, now=now))
         self._pollers = tuple(pollers)
@@ -318,7 +337,8 @@ class DurabilityMaintenanceAgent:
 
 async def _build_maintenance_agent(app: WakuApplication, config: MessagingConfig) -> DurabilityMaintenanceAgent:
     now = await app.container.get(Now)
-    return DurabilityMaintenanceAgent(container=app.container, config=config, now=now)
+    identity = await app.container.get(NodeIdentity)
+    return DurabilityMaintenanceAgent(container=app.container, config=config, identity=identity, now=now)
 
 
 class DurabilityMaintenanceLifecycleExtension(AfterApplicationInit, OnApplicationShutdown):

@@ -53,7 +53,7 @@ class _MarkerMapper(IEnvelopeMapper[Any, Any]):
 def _config(transport: RecordingTransport, *, entry: BrokerEndpointEntry) -> MessagingConfig:
     return MessagingConfig(
         endpoints=[entry],
-        inbox=InboxConfig(owner_id='test-node:1'),
+        inbox=InboxConfig(),
         transports={'test': lambda: transport},
         global_pipeline_behaviors=[TransactionalBehavior],
     )
@@ -118,7 +118,7 @@ class TestBidirectionalEndpointMapperInheritance:
                 listen('test://orders'),
             ],
             outbox=OutboxConfig(),
-            inbox=InboxConfig(owner_id='test-node:1'),
+            inbox=InboxConfig(),
             transports={'test': lambda: transport},
             global_pipeline_behaviors=[TransactionalBehavior],
         )

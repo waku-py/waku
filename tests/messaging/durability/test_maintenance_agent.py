@@ -11,6 +11,7 @@ from anyio.lowlevel import checkpoint
 from dishka import Provider, Scope, make_async_container, provide
 from typing_extensions import override
 
+from waku._internal.node import NodeId, NodeIdentity
 from waku._internal.transaction import AfterCommitError, RollbackFailedError, TransactionExecutionError
 from waku.backends.memory._internal.dead_letter import InMemoryDeadLetterStore
 from waku.messaging import PollingConfig
@@ -23,7 +24,12 @@ from waku.messaging._internal.maintenance import (
 from waku.messaging.config import DeadLetterConfig, MessagingConfig, OutboxConfig
 from waku.messaging.durability import IDeadLetterStore, IInboxStore, IOutboxStore
 from waku.messaging.errors._internal.replay import IReplayExecution
-from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry, DeadLetterStatus
+from waku.messaging.errors.dead_letter import (
+    DeadLetterDestinationKind,
+    DeadLetterEntry,
+    DeadLetterStatus,
+    ReplayClaimId,
+)
 from waku.messaging.inbox.config import InboxConfig
 from waku.messaging.outbox.relay import OutboxRelayConfig
 from waku.messaging.sequence import ISequenceAllocator
@@ -38,6 +44,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from uuid import UUID
 
+_NODE_IDENTITY = NodeIdentity.create('maintenance-node')
 _FAST = PollingConfig(poll_interval_min_seconds=0.01, poll_interval_max_seconds=0.05, poll_interval_step_seconds=0.01)
 
 
@@ -57,7 +64,7 @@ class _MaintOutboxStore(RecordingOutboxStore):
         self._recover_error = recover_error
 
     @override
-    async def recover_abandoned(self, threshold: timedelta) -> int:
+    async def recover_abandoned(self) -> int:
         self.recover_calls += 1
         if self._recover_error is not None:
             err, self._recover_error = self._recover_error, None
@@ -85,7 +92,8 @@ class _MaintDlqStore(InMemoryDeadLetterStore):
         self,
         max_replay_count: int,
         *,
-        owner_id: str,
+        owner_id: NodeId,
+        claim_id: ReplayClaimId,
         now: datetime,
         lease_expires_at: datetime,
     ) -> DeadLetterEntry | None:
@@ -93,6 +101,7 @@ class _MaintDlqStore(InMemoryDeadLetterStore):
         return await super().claim_replayable(
             max_replay_count,
             owner_id=owner_id,
+            claim_id=claim_id,
             now=now,
             lease_expires_at=lease_expires_at,
         )
@@ -350,7 +359,9 @@ class TestConfiguredSubsetOnly:
     @staticmethod
     async def test_outbox_only_starts_one_outbox_poller() -> None:
         async with make_async_container() as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=MessagingConfig(outbox=OutboxConfig()))
+            agent = DurabilityMaintenanceAgent(
+                container=container, config=MessagingConfig(outbox=OutboxConfig()), identity=_NODE_IDENTITY
+            )
         assert [type(p) for p in agent.pollers] == [_OutboxMaintenancePoller]
 
     @staticmethod
@@ -359,6 +370,7 @@ class TestConfiguredSubsetOnly:
             agent = DurabilityMaintenanceAgent(
                 container=container,
                 config=MessagingConfig(dead_letter=DeadLetterConfig(auto_replay_enabled=True)),
+                identity=_NODE_IDENTITY,
             )
         assert [type(p) for p in agent.pollers] == [_DlqMaintenancePoller]
 
@@ -368,19 +380,22 @@ class TestConfiguredSubsetOnly:
             agent = DurabilityMaintenanceAgent(
                 container=container,
                 config=MessagingConfig(dead_letter=DeadLetterConfig()),
+                identity=_NODE_IDENTITY,
             )
         assert agent.pollers == ()
 
     @staticmethod
     async def test_inbox_only_starts_one_promotion_poller() -> None:
         async with make_async_container() as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=MessagingConfig(inbox=InboxConfig()))
+            agent = DurabilityMaintenanceAgent(
+                container=container, config=MessagingConfig(inbox=InboxConfig()), identity=_NODE_IDENTITY
+            )
         assert [type(p) for p in agent.pollers] == [_PromotionPoller]
 
     @staticmethod
     async def test_all_three_start_three_pollers() -> None:
         async with make_async_container() as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=_all_three_config())
+            agent = DurabilityMaintenanceAgent(container=container, config=_all_three_config(), identity=_NODE_IDENTITY)
         assert [type(p) for p in agent.pollers] == [
             _OutboxMaintenancePoller,
             _DlqMaintenancePoller,
@@ -398,7 +413,7 @@ class TestEachConcernRunsItsOwnOperation:
         provider = _MaintenanceDepsProvider(outbox=outbox, dlq=dlq, inbox=inbox, replayer=replayer)
 
         async with make_async_container(provider) as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=_all_three_config())
+            agent = DurabilityMaintenanceAgent(container=container, config=_all_three_config(), identity=_NODE_IDENTITY)
             await agent.start()
             try:
                 await wait_until(
@@ -428,7 +443,7 @@ class TestNoHeadOfLineBlocking:
         provider = _MaintenanceDepsProvider(outbox=outbox, dlq=dlq, inbox=inbox, replayer=replayer)
 
         async with make_async_container(provider) as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=_all_three_config())
+            agent = DurabilityMaintenanceAgent(container=container, config=_all_three_config(), identity=_NODE_IDENTITY)
             await agent.start()
             try:
                 await wait_until(entered.is_set)  # DLQ poller now parked inside replay
@@ -457,7 +472,7 @@ class TestShutdownStopsEveryPoller:
             replayer=replayer,
         )
         async with make_async_container(provider) as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=_all_three_config())
+            agent = DurabilityMaintenanceAgent(container=container, config=_all_three_config(), identity=_NODE_IDENTITY)
             await agent.start()
             await wait_until(lambda: replayer.calls >= 1)  # DLQ poller dispatched, then died with the fatal
             with pytest.raises(TransactionExecutionError) as raised:
@@ -479,14 +494,16 @@ class TestOutboxMaintenancePoller:
         )
         with caplog.at_level(logging.INFO, logger='waku.messaging._internal.maintenance'):
             async with make_async_container(_deps(outbox=outbox)) as container:
-                agent = DurabilityMaintenanceAgent(container=container, config=config)
+                agent = DurabilityMaintenanceAgent(container=container, config=config, identity=_NODE_IDENTITY)
                 await agent.start()
                 try:
-                    await wait_until(lambda: 'Recovered 5 stuck messages' in caplog.text)
+                    await wait_until(
+                        lambda: 'Released 5 outbox messages owned by nodes absent from the registry' in caplog.text
+                    )
                 finally:
                     await agent.stop()
 
-        assert 'Recovered 5 stuck messages' in caplog.text
+        assert 'Released 5 outbox messages owned by nodes absent from the registry' in caplog.text
 
     @staticmethod
     async def test_purges_dispatched_when_retention_elapsed(caplog: pytest.LogCaptureFixture) -> None:
@@ -503,7 +520,7 @@ class TestOutboxMaintenancePoller:
         )
         with caplog.at_level(logging.INFO, logger='waku.messaging._internal.maintenance'):
             async with make_async_container(_deps(outbox=outbox)) as container:
-                agent = DurabilityMaintenanceAgent(container=container, config=config)
+                agent = DurabilityMaintenanceAgent(container=container, config=config, identity=_NODE_IDENTITY)
                 await agent.start()
                 try:
                     await wait_until(
@@ -521,7 +538,7 @@ class TestOutboxMaintenancePoller:
             outbox=OutboxConfig(relay=OutboxRelayConfig(polling=_FAST, recovery_interval=timedelta(microseconds=1))),
         )
         async with make_async_container(_deps(outbox=outbox)) as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            agent = DurabilityMaintenanceAgent(container=container, config=config, identity=_NODE_IDENTITY)
             await agent.start()
             try:
                 await wait_until(lambda: outbox.recover_calls >= 1)
@@ -537,7 +554,7 @@ class TestOutboxMaintenancePoller:
             outbox=OutboxConfig(relay=OutboxRelayConfig(polling=_FAST, recovery_interval=timedelta(microseconds=1))),
         )
         async with make_async_container(_deps(outbox=outbox)) as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            agent = DurabilityMaintenanceAgent(container=container, config=config, identity=_NODE_IDENTITY)
             await agent.start()
             try:
                 await wait_until(lambda: outbox.recover_calls >= 2)  # loop survived the raised error
@@ -564,7 +581,7 @@ class TestOutboxMaintenancePoller:
             inbox=InboxConfig(scheduled_poll_interval=timedelta(seconds=0.01)),
         )
         async with make_async_container(_deps(outbox=outbox, inbox=inbox)) as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            agent = DurabilityMaintenanceAgent(container=container, config=config, identity=_NODE_IDENTITY)
             await agent.start()
             try:
                 await wait_until(lambda: inbox.promote_calls >= 3)  # several cycles elapsed
@@ -624,7 +641,7 @@ async def _assert_prefix_failure_stops(
     config = _auto_replay_config()
 
     async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
-        poller = _TestableDlqMaintenancePoller(container=container, config=config)
+        poller = _TestableDlqMaintenancePoller(container=container, config=config, identity=_NODE_IDENTITY)
         with pytest.raises(TransactionExecutionError) as raised:
             await poller.tick()
 
@@ -644,7 +661,7 @@ class TestDlqMaintenancePoller:
         replayer = _RecordingReplayExecutor()
         config = MessagingConfig(dead_letter=_auto_replay_config())
         async with make_async_container(_deps(dlq=_MaintDlqStore(claimable=[entry]), replayer=replayer)) as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            agent = DurabilityMaintenanceAgent(container=container, config=config, identity=_NODE_IDENTITY)
             await agent.start()
             try:
                 await wait_until(lambda: bool(replayer.replayed))
@@ -662,7 +679,7 @@ class TestDlqMaintenancePoller:
         async with make_async_container(
             _deps(dlq=_MaintDlqStore(claimable=[_dlq_entry()]), replayer=replayer),
         ) as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            agent = DurabilityMaintenanceAgent(container=container, config=config, identity=_NODE_IDENTITY)
             await agent.start()
             await wait_until(lambda: replayer.calls == 1)
             with pytest.raises(TransactionExecutionError) as raised:
@@ -682,7 +699,7 @@ class TestDlqMaintenancePoller:
         async with make_async_container(
             _deps(dlq=_MaintDlqStore(claimable=[_dlq_entry()]), replayer=replayer, uow=uow),
         ) as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            agent = DurabilityMaintenanceAgent(container=container, config=config, identity=_NODE_IDENTITY)
             await agent.start()
             await wait_until(lambda: replayer.calls == 1)
             with pytest.raises(TransactionExecutionError) as raised:
@@ -705,7 +722,7 @@ class TestDlqMaintenancePoller:
         async with make_async_container(
             _deps(dlq=_MaintDlqStore(claimable=[_dlq_entry()]), replayer=replayer, uow=uow),
         ) as container:
-            poller = _TestableDlqMaintenancePoller(container=container, config=config)
+            poller = _TestableDlqMaintenancePoller(container=container, config=config, identity=_NODE_IDENTITY)
             with pytest.raises(TransactionExecutionError) as raised:
                 await poller.tick()
 
@@ -723,7 +740,7 @@ class TestDlqMaintenancePoller:
         config = _auto_replay_config()
 
         async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
-            poller = _TestableDlqMaintenancePoller(container=container, config=config)
+            poller = _TestableDlqMaintenancePoller(container=container, config=config, identity=_NODE_IDENTITY)
             assert await poller.tick() == 0
 
         assert replayer.replayed == []
@@ -742,7 +759,7 @@ class TestDlqMaintenancePoller:
         config = _auto_replay_config()
 
         async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
-            poller = _TestableDlqMaintenancePoller(container=container, config=config)
+            poller = _TestableDlqMaintenancePoller(container=container, config=config, identity=_NODE_IDENTITY)
             assert await poller.tick() == 1
 
         assert replayer.calls == [first.id, second.id, second.id, second.id]
@@ -765,7 +782,7 @@ class TestDlqMaintenancePoller:
         config = _auto_replay_config()
 
         async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
-            poller = _TestableDlqMaintenancePoller(container=container, config=config)
+            poller = _TestableDlqMaintenancePoller(container=container, config=config, identity=_NODE_IDENTITY)
             with pytest.raises(anyio.get_cancelled_exc_class()) as raised:
                 await poller.tick()
 
@@ -813,7 +830,7 @@ class TestDlqMaintenancePoller:
         config = _auto_replay_config()
 
         async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
-            poller = _TestableDlqMaintenancePoller(container=container, config=config)
+            poller = _TestableDlqMaintenancePoller(container=container, config=config, identity=_NODE_IDENTITY)
             with pytest.raises(BaseExceptionGroup) as raised:
                 await poller.tick()
 
@@ -839,7 +856,7 @@ class TestDlqMaintenancePoller:
         config = _auto_replay_config()
 
         async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
-            poller = _TestableDlqMaintenancePoller(container=container, config=config)
+            poller = _TestableDlqMaintenancePoller(container=container, config=config, identity=_NODE_IDENTITY)
             with pytest.raises(TransactionExecutionError) as raised:
                 await poller.tick()
 
@@ -861,7 +878,7 @@ class TestDlqMaintenancePoller:
         config = MessagingConfig(dead_letter=_auto_replay_config())
 
         async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            agent = DurabilityMaintenanceAgent(container=container, config=config, identity=_NODE_IDENTITY)
             await agent.start()
             try:
                 await wait_until(lambda: replayer.calls == 2)
@@ -883,7 +900,7 @@ class TestDlqMaintenancePoller:
         config = MessagingConfig(dead_letter=_auto_replay_config())
 
         async with make_async_container(_deps(dlq=dlq, replayer=replayer, uow=uow)) as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            agent = DurabilityMaintenanceAgent(container=container, config=config, identity=_NODE_IDENTITY)
             await agent.start()
             await wait_until(lambda: len(replayer.calls) == 1)
             with pytest.raises(anyio.get_cancelled_exc_class()) as raised:
@@ -900,7 +917,7 @@ class TestDlqMaintenancePoller:
         dlq = _MaintDlqStore(claimable=[_dlq_entry()], purge_count=1)
         config = _cleanup_only_config()
         async with make_async_container(_deps(dlq=dlq)) as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            agent = DurabilityMaintenanceAgent(container=container, config=config, identity=_NODE_IDENTITY)
             await agent.start()
             try:
                 await wait_until(lambda: bool(dlq.purged))  # observable tick: purge ran
@@ -914,7 +931,7 @@ class TestDlqMaintenancePoller:
         dlq = _MaintDlqStore(purge_count=2)
         config = _cleanup_only_config()
         async with make_async_container(_deps(dlq=dlq)) as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            agent = DurabilityMaintenanceAgent(container=container, config=config, identity=_NODE_IDENTITY)
             await agent.start()
             try:
                 await wait_until(lambda: bool(dlq.purged))
@@ -941,7 +958,7 @@ class TestDlqMaintenancePoller:
             polling=_FAST,
         )
         async with make_async_container(_deps(dlq=dlq)) as container:
-            poller = _TestableDlqMaintenancePoller(container=container, config=config, now=now)
+            poller = _TestableDlqMaintenancePoller(container=container, config=config, now=now, identity=_NODE_IDENTITY)
             assert await poller.tick() == 2
 
         assert clock_calls == 1
@@ -961,7 +978,7 @@ class TestDlqMaintenancePoller:
             ),
         )
         async with make_async_container(_deps(dlq=dlq)) as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            agent = DurabilityMaintenanceAgent(container=container, config=config, identity=_NODE_IDENTITY)
             await agent.start()
             try:
                 await wait_until(lambda: dlq.claim_calls >= 3)  # replay claims every tick
@@ -979,7 +996,7 @@ class TestPromotionPoller:
         inbox = _MaintInboxStore(promote_count=2)
         config = MessagingConfig(inbox=InboxConfig(scheduled_poll_interval=timedelta(seconds=0.01)))
         async with make_async_container(_deps(inbox=inbox)) as container:
-            agent = DurabilityMaintenanceAgent(container=container, config=config)
+            agent = DurabilityMaintenanceAgent(container=container, config=config, identity=_NODE_IDENTITY)
             await agent.start()
             try:
                 await wait_until(lambda: inbox.promote_calls >= 1)

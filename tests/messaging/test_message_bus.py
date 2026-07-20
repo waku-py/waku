@@ -539,7 +539,7 @@ class TestMessagingConfigValidation:  # noqa: PLR0904 -- cohesive startup valida
                     object_(inbox, provided_type=IInboxStore),
                     object_(dead_letters, provided_type=IDeadLetterStore),
                     object_(durability, provided_type=IDurabilityStore),
-                    *node_registry_providers(),
+                    *node_registry_providers(inbox.nodes),
                     object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 ],
             ):
@@ -613,7 +613,7 @@ class TestMessagingConfigValidation:  # noqa: PLR0904 -- cohesive startup valida
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 object_(inbox, provided_type=IInboxStore),
                 object_(_durability(unit_of_work=unit_of_work, inbox=inbox), provided_type=IDurabilityStore),
-                *node_registry_providers(),
+                *node_registry_providers(inbox.nodes),
             ],
         ):
             pass
@@ -685,7 +685,7 @@ class TestMessagingConfigValidation:  # noqa: PLR0904 -- cohesive startup valida
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 object_(_durability(unit_of_work=unit_of_work, inbox=inbox), provided_type=IDurabilityStore),
-                *node_registry_providers(),
+                *node_registry_providers(inbox.nodes),
             ],
         ):
             pass

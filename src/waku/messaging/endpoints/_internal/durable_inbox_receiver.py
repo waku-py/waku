@@ -23,6 +23,7 @@ from waku.messaging.endpoints._internal.redelivery import (
 )
 from waku.messaging.endpoints._internal.worker import MemoryStreamWorker
 from waku.messaging.errors.dead_letter import DeadLetterDestinationKind, DeadLetterEntry
+from waku.messaging.exceptions import DurabilityOwnershipLostError
 from waku.messaging.inbox import EndpointUri
 from waku.messaging.inbox._internal.finalize import apply_inbox_outcome
 from waku.messaging.inbox.destination import handler_destination
@@ -36,6 +37,8 @@ if TYPE_CHECKING:
 
     from dishka import AsyncContainer
 
+    from waku._internal.clock import Now
+    from waku._internal.node import NodeId
     from waku.messaging._internal.pauser import PauseToken
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
     from waku.messaging.contracts.envelope import MessageEnvelope
@@ -63,6 +66,7 @@ class DurableInboxReceiver:
         '_executor',
         '_inbox_owner_id',
         '_keep_after_handled',
+        '_now',
         '_partition_by',
         '_redelivery',
         '_timed_pauser',
@@ -76,7 +80,8 @@ class DurableInboxReceiver:
         uri: str,
         container: AsyncContainer,
         executor: IEndpointExecution,
-        inbox_owner_id: str,
+        inbox_owner_id: NodeId,
+        now: Now,
         keep_after_handled: timedelta,
         partition_by: PartitionKeyExtractor | None = None,
         max_requeue_attempts: int = 5,
@@ -89,6 +94,7 @@ class DurableInboxReceiver:
         self._container = container
         self._executor = executor
         self._inbox_owner_id = inbox_owner_id
+        self._now = now
         self._keep_after_handled = keep_after_handled
         self._partition_by = partition_by
         # Single sequential consumer (max_parallel=1); durable ordering relies on it.
@@ -186,19 +192,25 @@ class DurableInboxReceiver:
             await self._worker.resume(token)
 
     async def _process_work_item(self, work_item: _WorkItem) -> None:
-        await process_work_item(
-            work_item,
-            executor=self._executor,
-            coordinator=self._redelivery,
-            emit_terminal=self._emit_terminal,
-        )
+        try:
+            await process_work_item(
+                work_item,
+                executor=self._executor,
+                coordinator=self._redelivery,
+                emit_terminal=self._emit_terminal,
+            )
+        except DurabilityOwnershipLostError as exc:
+            # Recovery gave this row to a live node while it sat in the queue. Nothing was written, and
+            # the successor owns the outcome — so no observer evidence, no breaker sample, no cascade.
+            logger.warning('Abandoning in-flight inbox row on %s: %s', self._uri, exc)
 
     async def _record_requeue_attempt(self, envelope: MessageEnvelope[Any], handler_type: HandlerType) -> None:
         destination = handler_destination(handler_type)
 
         async def increment(scope: AsyncContainer) -> TransactionDecision[None, Never]:
             inbox = await scope.get(IInboxStore)
-            await inbox.increment_attempts(envelope.message_id, destination)
+            if not await inbox.increment_attempts(envelope.message_id, destination, owner_id=self._inbox_owner_id):
+                raise DurabilityOwnershipLostError(self._inbox_owner_id, envelope.message_id, destination)
             return Commit(None)
 
         await run_committed(self._container, increment)
@@ -217,6 +229,8 @@ class DurableInboxReceiver:
             destination=destination,
             intent=intent,
             keep_after_handled=self._keep_after_handled,
+            owner_id=self._inbox_owner_id,
+            now_fn=self._now,
             dead_letter=dead_letter,
         )
         return result.outcome

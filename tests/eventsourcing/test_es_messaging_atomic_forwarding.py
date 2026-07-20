@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import override
 
 from waku import module
+from waku._internal.node import NodeId
 from waku.backends.sqlalchemy import SqlAlchemyBackend
 from waku.eventsourcing import ForwardDescriptor, forward
 from waku.eventsourcing.contracts.stream import StreamId
@@ -47,6 +48,9 @@ if TYPE_CHECKING:
 
     from waku.di import AsyncContainer
     from waku.messaging.router import RouteDescriptor
+
+
+_OWNER = NodeId('relay-1')
 
 
 @dataclass(frozen=True)
@@ -179,7 +183,7 @@ async def _forwarding_app(
 
 async def _resolved_outbox_rows(container: AsyncContainer) -> list[OutboxMessage]:
     outbox = await container.get(IOutboxStore)
-    return list(await outbox.fetch_head_of_queue(batch_size=100))
+    return list(await outbox.fetch_head_of_queue(batch_size=100, owner_id=_OWNER))
 
 
 async def test_appended_event_forwarded_to_outbox_exactly_once(pg_engine: AsyncEngine) -> None:

@@ -290,7 +290,7 @@ async def test_durable_and_drainer_paths_fire_executing_and_executed(caplog: pyt
     config = MessagingConfig(
         endpoints=[local_queue('orders', mode=EndpointMode.DURABLE, stop_timeout=timedelta(seconds=1.0))],
         routing=[route(_Ordered).to('orders')],
-        inbox=InboxConfig(owner_id='node-a:1', recovery_interval=timedelta(seconds=0.01)),
+        inbox=InboxConfig(recovery_interval=timedelta(seconds=0.01)),
         global_pipeline_behaviors=[TransactionalBehavior],
     )
     async with (
@@ -302,7 +302,7 @@ async def test_durable_and_drainer_paths_fire_executing_and_executed(caplog: pyt
                 object_(inbox, provided_type=IInboxStore),
                 object_(RecordingAllocator(), provided_type=ISequenceAllocator),
                 scoped(IDurabilityStore, durability_for_inbox),
-                *node_registry_providers(),
+                *node_registry_providers(inbox.nodes),
             ],
         ) as app,
         app.container() as container,

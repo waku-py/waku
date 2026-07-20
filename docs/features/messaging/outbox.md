@@ -144,11 +144,11 @@ The relay is enabled by default with sensible settings (see
 | Method                                    | Description                                              |
 |-------------------------------------------|----------------------------------------------------------|
 | `save_batch(messages)`                    | Persist new outbox messages (called by `ExternalEndpoint`) |
-| `fetch_head_of_queue(batch_size)`         | Claim pending messages in partition order (one head per `group_id`) and mark them `PROCESSING` |
-| `mark_dispatched(message_id)`             | Mark a message as successfully dispatched                |
-| `mark_failed(message_id, error, next_retry_at)` | Mark a message as failed, schedule next retry      |
-| `move_to_dead_letter(message_id, entry)`  | Move an exhausted message to the dead letter store       |
-| `recover_abandoned(threshold: timedelta)`     | Reset messages stuck in `PROCESSING` beyond the threshold|
+| `fetch_head_of_queue(batch_size, owner_id)` | Claim pending messages in partition order (one head per `group_id`) for `owner_id` and mark them `PROCESSING` |
+| `mark_dispatched(message_id, *, owner_id)` | Mark a message dispatched; applies only while `owner_id` still owns the row |
+| `mark_failed(message_id, error, next_retry_at, *, owner_id)` | Mark a message failed and schedule the next retry; owner-fenced |
+| `move_to_dead_letter(message_id, entry, *, owner_id)` | Move an exhausted message to the dead letter store; owner-fenced |
+| `recover_abandoned()`                     | Release `PROCESSING` rows whose owner has left the node registry |
 | `delete_expired_dispatched(older_than: timedelta, *, now: datetime)` | Remove dispatched messages older than `now - older_than` (returns count) |
 
 ### OutboxMessage Lifecycle
@@ -161,7 +161,7 @@ stateDiagram-v2
     PROCESSING --> FAILED: mark_failed()
     FAILED --> PROCESSING: fetch_head_of_queue()
     PROCESSING --> DEAD_LETTERED: move_to_dead_letter()
-    PROCESSING --> PROCESSING: recover_abandoned()
+    PROCESSING --> PENDING: recover_abandoned() (owner left the registry)
 ```
 
 ### SQLAlchemy Adapter
@@ -256,8 +256,7 @@ OutboxConfig(
 | `max_attempts`       | `int`               | `5`                     | Max relay dispatch attempts before dead-lettering        |
 | `base_delay`         | `timedelta`         | `1 second`              | Base delay for exponential backoff on failure             |
 | `max_delay`          | `timedelta`         | `60 seconds`            | Maximum backoff delay                                    |
-| `stuck_threshold`    | `timedelta`         | `5 minutes`             | Messages stuck in `PROCESSING` longer than this are recovered |
-| `recovery_interval`  | `timedelta`         | `1 minute`              | Strictly positive cadence for checking stuck messages    |
+| `recovery_interval`  | `timedelta`         | `1 minute`              | Strictly positive cadence for the abandoned-row recovery sweep |
 | `retention`          | `timedelta \| None` | `None`                  | When set, dispatched messages older than this are purged; `None` keeps them |
 | `cleanup_interval`   | `timedelta`         | `1 hour`                | Strictly positive purge cadence when `retention` is set  |
 | `stop_timeout`       | `timedelta`         | `timedelta(seconds=10)` | Strictly positive relay shutdown wait                    |
@@ -286,11 +285,15 @@ The relay uses **adaptive polling** — when there is work to process, it polls 
 interval. When the outbox is empty, it gradually increases the interval up to `poll_interval_max_seconds`.
 This reduces database load during quiet periods while maintaining low latency during bursts.
 
-### Stuck Message Recovery
+### Abandoned Message Recovery
 
-If the process crashes while a message is in `PROCESSING` state, it would remain stuck
-indefinitely. The relay periodically scans for messages that have been in `PROCESSING` longer
-than `stuck_threshold` and resets them to `PENDING` for reprocessing.
+If a node crashes while a message is in `PROCESSING`, it would remain claimed indefinitely. The
+recovery sweep releases a `PROCESSING` row back to `PENDING` **only when its owning node has left the
+node registry** — a clean shutdown deregisters, and a silent instance is evicted once its heartbeat
+lapses. Row age is never a release predicate: a live relay may hold an in-flight message for as long
+as the send takes, so releasing on age alone would hand a still-processing message to a second
+dispatcher. A node that is alive but wedged therefore has no automatic remedy; restart releases its
+rows through the registry.
 
 ### Failure Handling
 

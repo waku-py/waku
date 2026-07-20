@@ -11,6 +11,7 @@ from dishka import AsyncContainer, make_async_container
 from typing_extensions import override
 
 from waku._internal.clock import utc_now
+from waku._internal.node import NodeId
 from waku._internal.transaction import (
     RollbackFailedError,
     TransactionExecutionError,
@@ -54,6 +55,9 @@ if TYPE_CHECKING:
 
     class _KindMessage(Protocol):
         kind: str
+
+
+_NODE_ID = NodeId('node-a:1')
 
 
 def _kind_partition(msg: IMessage) -> str | None:
@@ -163,7 +167,7 @@ def _endpoint(  # noqa: PLR0913 -- test helper mirroring DurableLocalQueueEndpoi
     handlers: frozenset[type[EventHandler[_DomainEvent]]],
     *,
     partition_by: PartitionKeyExtractor | None = None,
-    inbox_owner_id: str = 'node-a:1',
+    inbox_owner_id: NodeId = _NODE_ID,
     max_requeue_attempts: int = 5,
     pause_sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     circuit_breaker_config: CircuitBreakerConfig | None = None,
@@ -293,7 +297,9 @@ class TestDurableLocalQueueEndpoint:
         inbox = FakeInboxStore()
         async with make_async_container(EndpointDepsProvider(inbox, RecordingDeadLetterStore())) as container:
             executor = _StubExecutor(return_value=ExecutionOutcome.SUCCESS)
-            endpoint = _endpoint(container, executor, frozenset([_NoopHandler]), inbox_owner_id='owner-claim-test')
+            endpoint = _endpoint(
+                container, executor, frozenset([_NoopHandler]), inbox_owner_id=NodeId('owner-claim-test')
+            )
             await endpoint.start()
             token = await endpoint.pause()  # gate processing so the claim is observed before mark_as_handled clears it
             async with container() as scope:

@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 
     from dishka import AsyncContainer
 
+    from waku._internal.clock import Now
+    from waku._internal.node import NodeIdentity
     from waku.messaging._internal.identity import MessageTypeRegistry
     from waku.messaging._internal.pauser import PauseToken
     from waku.messaging.circuit_breaker.config import CircuitBreakerConfig
@@ -220,6 +222,8 @@ def create_listening_agent(  # noqa: PLR0913
     type_registry: MessageTypeRegistry,
     handler_map: HandlerMap,
     inbox: InboxConfig,
+    identity: NodeIdentity,
+    now: Now,
     config: MessagingConfig,
 ) -> ListeningAgent:
     """Assemble the passive listen-half graph of one URI — the listen-side analog of ``_build_endpoint``.
@@ -235,7 +239,8 @@ def create_listening_agent(  # noqa: PLR0913
         uri=merged.uri,
         container=container,
         executor=executor_factory.for_uri(merged.uri),
-        inbox_owner_id=inbox.resolve_owner_id(),
+        inbox_owner_id=identity.node_id,
+        now=now,
         keep_after_handled=inbox.keep_after_handled,
         partition_by=merged.partition_by,
         max_requeue_attempts=resolve_max_requeue_attempts(listen.max_requeue_attempts, config),

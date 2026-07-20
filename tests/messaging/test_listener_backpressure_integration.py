@@ -107,7 +107,7 @@ class _InProcessTransport(ITransport):
 def _config(transport: _InProcessTransport, *, listener: BrokerEndpointEntry) -> MessagingConfig:
     return MessagingConfig(
         endpoints=[listener],
-        inbox=InboxConfig(owner_id='test-node:1'),
+        inbox=InboxConfig(),
         transports={'rabbitmq': lambda: transport},
         global_pipeline_behaviors=[TransactionalBehavior],
     )

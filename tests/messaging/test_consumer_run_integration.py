@@ -28,7 +28,7 @@ async def test_consumer_only_app_run_drives_graceful_shutdown() -> None:
     transport = FastStreamRabbitTransport(url='amqp://x')
     config = MessagingConfig(
         endpoints=[listen('rabbitmq://orders')],
-        inbox=InboxConfig(owner_id='test-node:1'),
+        inbox=InboxConfig(),
         transports={'rabbitmq': lambda: transport},
         global_pipeline_behaviors=[TransactionalBehavior],
     )

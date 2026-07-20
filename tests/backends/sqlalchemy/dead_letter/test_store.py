@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import MetaData, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from waku._internal.node import NodeId
 from waku.backends.sqlalchemy.dead_letter.store import SqlAlchemyDeadLetterStore
 from waku.backends.sqlalchemy.dead_letter.tables import bind_dead_letter_tables
 from waku.backends.sqlalchemy.inbox.store import SqlAlchemyInboxStore
@@ -22,6 +23,7 @@ from waku.messaging.errors.dead_letter import (
     DeadLetterEntry,
     DeadLetterQuery,
     DeadLetterStatus,
+    ReplayClaimId,
 )
 from waku.messaging.inbox import EndpointUri, HandlerDestination
 from waku.messaging.inbox.models import InboxEntry
@@ -45,10 +47,17 @@ if TYPE_CHECKING:
     from waku.serialization.codec import PayloadCodec
 
 
+_OWNER = NodeId('relay-1')
+
+
 @pytest.fixture
 async def pg_session(pg_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
     async with pg_session_for(pg_engine, bind_dead_letter_tables) as session:
         yield session
+
+
+def _claim_id() -> ReplayClaimId:
+    return ReplayClaimId(uuid4())
 
 
 def _make_entry(**overrides: object) -> DeadLetterEntry:
@@ -130,21 +139,24 @@ class TestSqlAlchemyDeadLetterStore:
         await store.save(entry)
         await pg_session.flush()
         now = datetime.now(tz=UTC)
+        claim_id = _claim_id()
         claimed = await store.claim_replay(
             entry.id,
-            owner_id='owner',
+            owner_id=NodeId('owner'),
+            claim_id=claim_id,
             now=now,
             lease_expires_at=now + timedelta(minutes=1),
         )
         assert claimed is not None
 
-        assert await store.mark_replayed(entry.id, owner_id='owner', now=now)
+        assert await store.mark_replayed(entry.id, claim_id=claim_id, now=now)
         await pg_session.flush()
 
         assert (
             await store.claim_replayable(
                 3,
-                owner_id='other',
+                owner_id=NodeId('other'),
+                claim_id=_claim_id(),
                 now=now,
                 lease_expires_at=now + timedelta(minutes=1),
             )
@@ -159,15 +171,17 @@ class TestSqlAlchemyDeadLetterStore:
         await store.save(entry)
         await pg_session.flush()
         now = datetime.now(tz=UTC)
+        claim_id = _claim_id()
         claimed = await store.claim_replay(
             entry.id,
-            owner_id='owner',
+            owner_id=NodeId('owner'),
+            claim_id=claim_id,
             now=now,
             lease_expires_at=now + timedelta(minutes=1),
         )
         assert claimed is not None
 
-        assert await store.mark_replay_failed(entry.id, error='replay exploded', owner_id='owner', now=now)
+        assert await store.mark_replay_failed(entry.id, error='replay exploded', claim_id=claim_id, now=now)
         await pg_session.flush()
 
         refetched = await store.fetch_one(entry.id)
@@ -226,10 +240,11 @@ class TestSqlAlchemyDeadLetterStore:
 
         now = datetime.now(tz=UTC)
         claimed_ids: set[object] = set()
-        for owner_id in ('owner-1', 'owner-2', 'owner-3'):
+        for owner_id in (NodeId('owner-1'), NodeId('owner-2'), NodeId('owner-3')):
             claimed = await store.claim_replayable(
                 3,
                 owner_id=owner_id,
+                claim_id=_claim_id(),
                 now=now,
                 lease_expires_at=now + timedelta(minutes=1),
             )
@@ -257,7 +272,8 @@ class TestSqlAlchemyDeadLetterStore:
                 async with s1.begin():
                     claimed1 = await SqlAlchemyDeadLetterStore(s1).claim_replayable(
                         3,
-                        owner_id='owner-1',
+                        owner_id=NodeId('owner-1'),
+                        claim_id=_claim_id(),
                         now=now,
                         lease_expires_at=expiry,
                     )
@@ -268,7 +284,8 @@ class TestSqlAlchemyDeadLetterStore:
                         await s2.execute(text("SET LOCAL lock_timeout = '500ms'"))
                         claimed2 = await SqlAlchemyDeadLetterStore(s2).claim_replayable(
                             3,
-                            owner_id='owner-2',
+                            owner_id=NodeId('owner-2'),
+                            claim_id=_claim_id(),
                             now=now,
                             lease_expires_at=expiry,
                         )
@@ -276,7 +293,8 @@ class TestSqlAlchemyDeadLetterStore:
                 async with s2.begin():
                     claimed3 = await SqlAlchemyDeadLetterStore(s2).claim_replayable(
                         3,
-                        owner_id='owner-2',
+                        owner_id=NodeId('owner-2'),
+                        claim_id=_claim_id(),
                         now=expiry,
                         lease_expires_at=expiry + timedelta(seconds=30),
                     )
@@ -305,7 +323,8 @@ class TestSqlAlchemyDeadLetterStore:
                 await claim_session.begin()
                 claimed = await SqlAlchemyDeadLetterStore(claim_session).claim_replayable(
                     3,
-                    owner_id='claim-owner',
+                    owner_id=NodeId('claim-owner'),
+                    claim_id=_claim_id(),
                     now=now,
                     lease_expires_at=now + timedelta(minutes=1),
                 )
@@ -360,7 +379,8 @@ class TestSqlAlchemyDeadLetterStore:
                     await claim_session.execute(text("SET LOCAL lock_timeout = '500ms'"))
                     claimed = await SqlAlchemyDeadLetterStore(claim_session).claim_replayable(
                         3,
-                        owner_id='claim-owner',
+                        owner_id=NodeId('claim-owner'),
+                        claim_id=_claim_id(),
                         now=now,
                         lease_expires_at=now + timedelta(minutes=1),
                     )
@@ -370,7 +390,8 @@ class TestSqlAlchemyDeadLetterStore:
                 async with claim_session.begin():
                     claimed_after_commit = await SqlAlchemyDeadLetterStore(claim_session).claim_replayable(
                         3,
-                        owner_id='claim-owner',
+                        owner_id=NodeId('claim-owner'),
+                        claim_id=_claim_id(),
                         now=now,
                         lease_expires_at=now + timedelta(minutes=1),
                     )
@@ -391,6 +412,7 @@ def test_dead_letter_ddl_includes_replay_lease_pair_and_claim_index() -> None:
 
     assert table.c.replay_owner_id.nullable
     assert table.c.replay_lease_expires_at.nullable
+    assert table.c.replay_claim_id.nullable
     assert 'ck_dead_letter_replay_lease_pair' in {constraint.name for constraint in table.constraints}
     claim_index = next(index for index in table.indexes if index.name == 'ix_dead_letter_replay_claim')
     assert [column.name for column in claim_index.columns] == [
@@ -438,6 +460,8 @@ class TestMoveToDeadLetterRowsAreReplayable:
         )
         outbox = SqlAlchemyOutboxStore(durability_pg_session)
         await outbox.save_batch([message])
+        # The move is owner-fenced, so the relay claims the row first, exactly as production does.
+        await outbox.fetch_head_of_queue(batch_size=10, owner_id=_OWNER)
         entry = DeadLetterEntry.from_failure(
             message_type=message.message_type,
             payload=message.payload,
@@ -452,7 +476,7 @@ class TestMoveToDeadLetterRowsAreReplayable:
             group_id=message.group_id,
         )
 
-        await outbox.move_to_dead_letter(message.id, entry)
+        await outbox.move_to_dead_letter(message.id, entry, owner_id=_OWNER)
 
         fetched = await SqlAlchemyDeadLetterStore(durability_pg_session).fetch_one(entry.id)
         assert fetched.destination_kind is DeadLetterDestinationKind.ENDPOINT
@@ -477,6 +501,7 @@ class TestMoveToDeadLetterRowsAreReplayable:
             correlation_id=envelope.correlation_id,
             causation_id=envelope.causation_id,
             metadata=encode_metadata(envelope),
+            owner_id=NodeId('node-a'),
         )
         inbox = SqlAlchemyInboxStore(durability_pg_session)
         await inbox.store_incoming(row)
@@ -493,7 +518,7 @@ class TestMoveToDeadLetterRowsAreReplayable:
             metadata=row.metadata,
         )
 
-        await inbox.move_to_dead_letter(row.id, destination, entry)
+        await inbox.move_to_dead_letter(row.id, HandlerDestination(destination), entry, owner_id=NodeId('node-a'))
 
         fetched = await SqlAlchemyDeadLetterStore(durability_pg_session).fetch_one(entry.id)
         assert fetched.destination_kind is DeadLetterDestinationKind.HANDLER
@@ -503,3 +528,73 @@ class TestMoveToDeadLetterRowsAreReplayable:
         assert rebuilt.message_id == envelope.message_id
         assert rebuilt.timestamp is not None
         assert rebuilt.payload == _RoundTripEvent('pg-inbox')
+
+
+class TestReplayClaimContentionAcrossSessions:
+    """The ``ReplayClaimId`` fence under real two-session contention (plan §9.1).
+
+    The DLQ has NO membership reclaim (ratified): its release authority is the lease TTL, so the
+    exclusion discriminator is the per-claim ``ReplayClaimId``, never the node token. Two claimants
+    sharing ONE node id but minting DISTINCT claim ids across committed sessions prove it — after the
+    successor reclaims the lapsed lease, the first claimant cannot renew or finalize. A fence that
+    keyed on the owner would let the first claimant through, because both carry the same node.
+    """
+
+    @staticmethod
+    async def test_lapsed_claim_rejected_after_successor_reclaims(pg_engine: AsyncEngine) -> None:
+        metadata = MetaData()
+        bind_dead_letter_tables(metadata)
+        async with pg_engine.begin() as conn:
+            await conn.run_sync(metadata.create_all)
+        try:
+            entry = _make_entry()
+            node = NodeId('node-1')  # ONE node id shared by both claimants — the discriminator is the claim
+            now = datetime.now(tz=UTC)
+            lapse = now + timedelta(seconds=30)
+            first, second = _claim_id(), _claim_id()
+
+            async with AsyncSession(pg_engine, expire_on_commit=False) as seed:
+                await SqlAlchemyDeadLetterStore(seed).save(entry)
+                await seed.commit()
+
+            async with (
+                AsyncSession(pg_engine, expire_on_commit=False) as sa,  # first claimant, still alive
+                AsyncSession(pg_engine, expire_on_commit=False) as sb,  # second claimant on the same node
+            ):
+                async with sa.begin():
+                    claimed_a = await SqlAlchemyDeadLetterStore(sa).claim_replay(
+                        entry.id, owner_id=node, claim_id=first, now=now, lease_expires_at=lapse
+                    )
+                    assert claimed_a is not None
+                    assert claimed_a.replay_claim_id == first
+                # Same node, a FRESH claim id, once A's lease has lapsed. Committed reclaim.
+                async with sb.begin():
+                    await sb.execute(text("SET LOCAL lock_timeout = '2s'"))
+                    claimed_b = await SqlAlchemyDeadLetterStore(sb).claim_replay(
+                        entry.id,
+                        owner_id=node,
+                        claim_id=second,
+                        now=lapse,
+                        lease_expires_at=lapse + timedelta(seconds=30),
+                    )
+                    assert claimed_b is not None
+                    assert claimed_b.replay_claim_id == second
+                # A's stale worker (same node, old claim id) is rejected on every finalizer.
+                async with sa.begin():
+                    await sa.execute(text("SET LOCAL lock_timeout = '2s'"))
+                    store_a = SqlAlchemyDeadLetterStore(sa)
+                    assert not await store_a.renew_replay_claim(
+                        entry.id, claim_id=first, now=lapse, lease_expires_at=lapse + timedelta(minutes=5)
+                    )
+                    assert not await store_a.mark_replayed(entry.id, claim_id=first, now=lapse)
+                    assert not await store_a.mark_replay_failed(entry.id, 'stale replay', claim_id=first, now=lapse)
+
+            # The successor's claim is intact: unchanged status, C2 still holds, lease unextended.
+            async with AsyncSession(pg_engine, expire_on_commit=False) as obs:
+                held = await SqlAlchemyDeadLetterStore(obs).fetch_one(entry.id)
+            assert held.status is DeadLetterStatus.PENDING
+            assert held.replay_claim_id == second
+            assert held.replay_lease_expires_at == lapse + timedelta(seconds=30)
+        finally:
+            async with pg_engine.begin() as conn:
+                await conn.run_sync(metadata.drop_all)

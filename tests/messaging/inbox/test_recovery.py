@@ -28,9 +28,9 @@ class _RecordingTickStore(FakeInboxStore):
         self.recover_calls = 0
 
     @override
-    async def recover_abandoned(self, threshold: timedelta) -> int:
+    async def recover_abandoned(self) -> int:
         self.recover_calls += 1
-        return await super().recover_abandoned(threshold)
+        return await super().recover_abandoned()
 
 
 class _RecoveryDepsProvider(Provider):
@@ -55,7 +55,6 @@ class TestInboxRecoveryWorker:
     async def test_worker_invokes_recover_abandoned_and_cleanup_each_tick() -> None:
         store = _RecordingTickStore()
         config = InboxConfig(
-            stuck_threshold=timedelta(seconds=0),
             recovery_interval=timedelta(milliseconds=10),
             stop_timeout=timedelta(seconds=1),
         )
@@ -100,9 +99,9 @@ class _OrderStore(FakeInboxStore):
         self._log = log
 
     @override
-    async def recover_abandoned(self, threshold: timedelta) -> int:
+    async def recover_abandoned(self) -> int:
         self._log.append('recover')
-        return await super().recover_abandoned(threshold)
+        return await super().recover_abandoned()
 
     @override
     async def delete_expired_handled(self, now: datetime) -> int:
@@ -125,7 +124,7 @@ class _OrderDrainer(InboxDrainer):
 
 class _CountingOrderStore(_OrderStore):
     @override
-    async def recover_abandoned(self, threshold: timedelta) -> int:
+    async def recover_abandoned(self) -> int:
         self._log.append('recover')
         return 2
 
