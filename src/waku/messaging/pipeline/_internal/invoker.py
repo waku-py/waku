@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, TypeAlias
 
-from waku.messaging._internal.transaction import TransactionDepth
-from waku.messaging.behaviors.transactional import run_in_transaction
+from waku.messaging._internal.transaction import TransactionDepth, run_in_transaction
 from waku.messaging.pipeline._internal.executor import PipelineExecutor
 from waku.messaging.pipeline._internal.plan import BehaviorPlan  # noqa: TC001 -- Dishka introspects __init__ at runtime
 from waku.uow import IUnitOfWork

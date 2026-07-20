@@ -8,8 +8,7 @@ from waku._internal.transaction import (
     extract_transaction_execution_error,
 )
 from waku.messaging._internal.outbox_cascading import DeferredCascadeFlusher
-from waku.messaging._internal.transaction import TransactionDepth
-from waku.messaging.behaviors.transactional import run_in_transaction
+from waku.messaging._internal.transaction import TransactionDepth, run_in_transaction
 from waku.messaging.endpoints.outcome import ExecutionOutcome
 from waku.messaging.exceptions import HandlerNotFoundError
 from waku.messaging.handler_map import HandlerMap

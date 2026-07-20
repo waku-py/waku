@@ -22,8 +22,7 @@ from waku._internal.transaction import (
     execute_in_uow_scope,
 )
 from waku.messaging._internal.outbox_cascading import DeferredCascadeFlusher
-from waku.messaging._internal.transaction import TransactionDepth
-from waku.messaging.behaviors.transactional import decide_transaction
+from waku.messaging._internal.transaction import TransactionDepth, decide_transaction
 from waku.messaging.context import message_context_scope
 from waku.messaging.endpoints._internal.aspects import resolve_override
 from waku.messaging.endpoints.outcome import ExecutionOutcome
