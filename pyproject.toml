@@ -45,7 +45,7 @@ Issues = "https://github.com/waku-py/waku/issues"
 
 [dependency-groups]
 dev = [
-  "pysentry-rs==0.4.3",
+  "pysentry-rs==0.5.0",
 ]
 docs = [
   "mkdocstrings[python]>=1.0.3",
