@@ -55,7 +55,7 @@ docs = [
 lint = [
   "deptry==0.25.1",
   "gitlint==0.19.1",
-  "prek==0.3.8",
+  "prek==0.5.2",
   "ruff==0.15.8",
 ]
 test = [
