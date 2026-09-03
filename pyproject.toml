@@ -75,7 +75,7 @@ test = [
 typecheck = [
   "mypy==1.19.1",
   "pyrefly==0.58.0",
-  "ty==0.0.26",
+  "ty==0.0.78",
 ]
 
 # ----- UV settings -----
