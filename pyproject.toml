@@ -50,7 +50,7 @@ dev = [
 docs = [
   "mkdocstrings[python]>=1.0.3",
   "pymdown-extensions>=10.21",
-  "zensical==0.0.29",
+  "zensical==0.0.59",
 ]
 lint = [
   "deptry==0.25.1",
