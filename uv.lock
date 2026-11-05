@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 
 [manifest]
@@ -944,18 +944,21 @@ wheels = [
 
 [[package]]
 name = "pyrefly"
-version = "0.58.0"
+version = "1.4.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/eb/bb/5611669a79967250e0654c0cffb7b0bb892b4263d5dec9b4345917edd9cd/pyrefly-0.58.0.tar.gz", hash = "sha256:4512b89cd8db95e8994537895ff41ad60e6211643442f8e33ed93bb59f88a256", size = 5357858, upload-time = "2026-03-25T01:21:01.8Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ac/30/e9fb605e82022f941c556076088467ddad59800a7ae7b510d4317088ddab/pyrefly-1.4.1.tar.gz", hash = "sha256:1ef91afbaca15336482dd21292974f64a735268ce4990d59e87162d5a097106d", size = 6970842, upload-time = "2026-11-05T02:44:12.316Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4e/fb/499e8efc0c3bc4e8f0e689922e616a8d406ff3297962c94b8053701b727f/pyrefly-0.58.0-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:6521e3924d98c2fe118109de625c075d970f9d4a9682f11afa4f7c6b5f11ca1f", size = 12765022, upload-time = "2026-03-25T01:20:41.397Z" },
-    { url = "https://files.pythonhosted.org/packages/b6/7f/25f329adfb191e78c22524858cce7d0e06d3961d44fe2ed5c302d3096dc2/pyrefly-0.58.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:bd52dd8f330e08f3829791b914f170769f97e8a0e377abf554710decbf799f20", size = 12276729, upload-time = "2026-03-25T01:20:43.815Z" },
-    { url = "https://files.pythonhosted.org/packages/ac/ca/4982e8e3a177ed30e7ec23f51a429c2319653dcebbe20bac55ef3f275f23/pyrefly-0.58.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:2334bea7d7b43a4d9061cce8e48ee5da2de185511637ed691dca5d649633f514", size = 35369879, upload-time = "2026-03-25T01:20:46.48Z" },
-    { url = "https://files.pythonhosted.org/packages/7f/56/02afb8f6584765d1fed08a81f0415504345229ff452384143864a8ed8062/pyrefly-0.58.0-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:fb7bf956beb01f2664a1b20ca7303dc617bc454457b869237945edd5a52fc39b", size = 38060979, upload-time = "2026-03-25T01:20:49.62Z" },
-    { url = "https://files.pythonhosted.org/packages/ca/ec/78ae846cba36a244db20d157948e6dd238713f63b812b701754e22fab4d5/pyrefly-0.58.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ce58ec7d4a5bc4fdb4a8d90329259c15e221e840ce1da946c698c4954aa4098b", size = 40753678, upload-time = "2026-03-25T01:20:52.718Z" },
-    { url = "https://files.pythonhosted.org/packages/98/ec/6d1461960bf2efbf7af679846edd29ff1fce9e20b4a653cb99338e1e847e/pyrefly-0.58.0-py3-none-win32.whl", hash = "sha256:43fa3b1abc0b55503c6238d09f333ce4f7a341cb9d5113b9d5e3089b8e0901b6", size = 11793278, upload-time = "2026-03-25T01:20:55.367Z" },
-    { url = "https://files.pythonhosted.org/packages/3d/23/70c20ea234409e4ea3b4177ec6cdf221532fd34bfec012961972e2ab511f/pyrefly-0.58.0-py3-none-win_amd64.whl", hash = "sha256:5dbd270d6841ec7b772ee41dd2d83f376ad24b279b747ddb8c11550ad3648dde", size = 12626215, upload-time = "2026-03-25T01:20:57.329Z" },
-    { url = "https://files.pythonhosted.org/packages/c3/20/fed053053785585cdd3a393aa3ab8e2e1f9c5078c16c9b659bb4b87ff22d/pyrefly-0.58.0-py3-none-win_arm64.whl", hash = "sha256:86425dfb43607027960ffed13722504992e83b45becbb83853d8f961c715dac2", size = 12124266, upload-time = "2026-03-25T01:20:59.641Z" },
+    { url = "https://files.pythonhosted.org/packages/c5/a1/736ef07aa3c87e7db31d246024a98cb6fbf6d48e52784025758f19cca02d/pyrefly-1.4.1-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:9c5a4a3f0ec00ae66a13f5741c355980685111b7008289c0b850e9be931aa3fa", size = 15720162, upload-time = "2026-11-05T02:43:40.304Z" },
+    { url = "https://files.pythonhosted.org/packages/0f/9a/0cc181ebbde26f63e96a61fcb4d6262342017cb83fa34f494a13134de6c5/pyrefly-1.4.1-py3-none-macosx_11_0_arm64.whl", hash = "sha256:eaba21336993765373e7e888de90f4d58214ce38994804eef902a6c8148df21f", size = 14994348, upload-time = "2026-11-05T02:43:42.998Z" },
+    { url = "https://files.pythonhosted.org/packages/ad/7c/bba5e480eb1620b864e45f7551f7e5014351eb42be4e6b5f0dd036b15071/pyrefly-1.4.1-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:8363f888f19b53d4b40e54d89e65b127ea68cd1cf8604de2824dffdc9d7900e9", size = 15454572, upload-time = "2026-11-05T02:43:45.291Z" },
+    { url = "https://files.pythonhosted.org/packages/6b/1b/05f9e265e5b331a23b5a50604e4d4bb25ecb31cf47f37048a765b6c1edf1/pyrefly-1.4.1-py3-none-manylinux2014_i686.manylinux_2_17_i686.whl", hash = "sha256:4a1d892483bda655a206b4a7578ab36aebaaf89799a7a9d29d22c0bbdc1b6ba0", size = 16874119, upload-time = "2026-11-05T02:43:48.039Z" },
+    { url = "https://files.pythonhosted.org/packages/7a/1e/b85dbfe3cc01585ed153af013aa8685b2970addba454fb257561c411fb87/pyrefly-1.4.1-py3-none-manylinux2014_ppc64le.manylinux_2_17_ppc64le.whl", hash = "sha256:5353f958134522a5c45d846825b49e0049dafd73022f68d0db9e54242b3f7eeb", size = 16764013, upload-time = "2026-11-05T02:43:50.495Z" },
+    { url = "https://files.pythonhosted.org/packages/2f/c5/0f1a9d1ad13a74e4efcbb8a94a89381e56dfff0d4dceeba8a9f633901c75/pyrefly-1.4.1-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:19c35e7e63a02076fc555bdb0800302b89bb419e3de2814ab8274c0c6ac00158", size = 16079223, upload-time = "2026-11-05T02:43:52.714Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/c8/8fd47bfa2e8ab300dcfd4f1d15ef6bd4ed6290ba082a98597d8e8bcd2153/pyrefly-1.4.1-py3-none-musllinux_1_2_aarch64.whl", hash = "sha256:6035b0ff640a8e7d751f31e520b3b0dc6bb42c76a57cd43819ca0e9354cd37fe", size = 15473203, upload-time = "2026-11-05T02:43:55.149Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/02/3cf7cf460924951891fcbc491f0667c7940e14918ef87a51d9a852bd481a/pyrefly-1.4.1-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:c49122412a990469ee0a9e5a50dd38f6990e42f903b3cc0f7dcf0c7a84997c65", size = 16135278, upload-time = "2026-11-05T02:43:57.334Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/ec/0047ba1b722015f95568f28be61928c997fdd4d2e7b78b63e2bb5b8446a2/pyrefly-1.4.1-py3-none-win32.whl", hash = "sha256:dbd065dbdc920b5e1d03bd8f035f59dae4379332ca854df8fe7ddccc43059533", size = 14873931, upload-time = "2026-11-05T02:44:04.64Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/d2/5b855b69afc9401f2434abe3e2ded05f3c78905d478beecad05117b2329a/pyrefly-1.4.1-py3-none-win_amd64.whl", hash = "sha256:49d2ac460fffbe5b8e0c20e991bf87978805d7aba3bb7f04d9b53a1a0e1d6430", size = 15741940, upload-time = "2026-11-05T02:44:07.193Z" },
+    { url = "https://files.pythonhosted.org/packages/13/84/33b63735654fc3258ee74bbe4a4a6d587c4a0334ba9e8eb17a8d8107bddc/pyrefly-1.4.1-py3-none-win_arm64.whl", hash = "sha256:3b5abcceca279973fa7312c958c06ee760a1b4a3feb9f3b89fd4520e53658aef", size = 14956758, upload-time = "2026-11-05T02:44:09.845Z" },
 ]
 
 [[package]]
@@ -1493,6 +1496,7 @@ wheels = [
 name = "waku"
 version = "0.43.0"
 source = { editable = "." }
+default-groups = "all"
 dependencies = [
     { name = "anyio" },
     { name = "dishka" },
@@ -1583,7 +1587,7 @@ test = [
 ]
 typecheck = [
     { name = "mypy", specifier = "==1.19.1" },
-    { name = "pyrefly", specifier = "==0.58.0" },
+    { name = "pyrefly", specifier = "==1.4.1" },
     { name = "ty", specifier = "==0.0.26" },
 ]
 
@@ -1706,13 +1710,8 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/4b/9c/8b681daa024abca9763017bec09ecee8008e110cae1254217c8dd22cc339/zensical-0.0.29-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:20ae0709ea14fce25ab33d0a82acdaf454a7a2e232a9ee20c019942205174476", size = 12311399, upload-time = "2026-03-24T13:36:53.809Z" },
     { url = "https://files.pythonhosted.org/packages/81/ae/4ebb4d8bb2ef0164d473698b92f11caf431fc436e1625524acd5641102ca/zensical-0.0.29-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:599af3ba66fcd0146d7019f3493ed3c316051fae6c4d5599bc59f3a8f4b8a6f0", size = 12191845, upload-time = "2026-03-24T13:36:56.909Z" },
     { url = "https://files.pythonhosted.org/packages/d5/35/67f89db06571a52283b3ecbe3bcf32fd3115ca50436b3ae177a948b83ea7/zensical-0.0.29-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:eea7e48a00a71c0586e875079b5f83a070c33a147e52ad4383e4b63ab524332b", size = 12554105, upload-time = "2026-03-24T13:36:59.945Z" },
-    { url = "https://files.pythonhosted.org/packages/7c/f6/ac79e5d9c18b28557c9ff1c7c23d695fbdd82645d69bfe02292f46d935e7/zensical-0.0.29-cp310-abi3-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:59a57db35542e98d2896b833de07d199320f8ada3b4e7ddccb7fe892292d8b74", size = 12498643, upload-time = "2026-03-24T13:37:02.376Z" },
-    { url = "https://files.pythonhosted.org/packages/b1/70/5c22a96a69e0e91e569c26236918bb9bab1170f59b29ad04105ead64f199/zensical-0.0.29-cp310-abi3-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:d42c2b2a96a80cf64c98ba7242f59ef95109914bd4c9499d7ebc12544663852c", size = 12854531, upload-time = "2026-03-24T13:37:04.962Z" },
     { url = "https://files.pythonhosted.org/packages/79/25/e32237a8fcb0ceae1ef8e192e7f8db53b38f1e48f1c7cdbacd0a7b713892/zensical-0.0.29-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6b2fca39c5f6b1782c77cf6591cf346357cabee85ebdb956c5ddc0fd5169f3d9", size = 12596828, upload-time = "2026-03-24T13:37:07.817Z" },
     { url = "https://files.pythonhosted.org/packages/ff/74/89ac909cbb258903ea53802c184e4986c17ce0ba79b1c7f77b7e78a2dce3/zensical-0.0.29-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:dfc23a74ef672aa51088c080286319da1dc0b989cd5051e9e5e6d7d4abbc2fc1", size = 12732059, upload-time = "2026-03-24T13:37:11.651Z" },
-    { url = "https://files.pythonhosted.org/packages/8c/31/2429de6a9328eed4acc7e9a3789f160294a15115be15f9870a0d02649302/zensical-0.0.29-cp310-abi3-musllinux_1_2_armv7l.whl", hash = "sha256:c9336d4e4b232e3c9a70e30258e916dd7e60c0a2a08c8690065e60350c302028", size = 12768542, upload-time = "2026-03-24T13:37:14.39Z" },
-    { url = "https://files.pythonhosted.org/packages/10/8a/55588b2a1dcbe86dad0404506c9ba367a06c663b1ff47147c84d26f7510e/zensical-0.0.29-cp310-abi3-musllinux_1_2_i686.whl", hash = "sha256:30661148f0681199f3b598cbeb1d54f5cba773e54ae840bac639250d85907b84", size = 12917991, upload-time = "2026-03-24T13:37:16.795Z" },
     { url = "https://files.pythonhosted.org/packages/ec/5d/653901f0d3a3ca72daebc62746a148797f4e422cc3a2b66a4e6718e4398f/zensical-0.0.29-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:6a566ac1fd4bfac5d711a7bd1ae06666712127c2718daa5083c7bf3f107e8578", size = 12868392, upload-time = "2026-03-24T13:37:19.42Z" },
-    { url = "https://files.pythonhosted.org/packages/29/58/d7449bc88a174b98daa3f2fbdfbdac3493768a557d8987e88bdaa6c78b1a/zensical-0.0.29-cp310-abi3-win32.whl", hash = "sha256:a231a3a02a3851741dc4d2de8910b5c39fe81e55bf026d8edf4d803e91a922fb", size = 11905486, upload-time = "2026-03-24T13:37:22.154Z" },
     { url = "https://files.pythonhosted.org/packages/f5/09/3fd082d016497c4d26ff20f42a8be2cc91e27191c0c5f3cd6507827f666f/zensical-0.0.29-cp310-abi3-win_amd64.whl", hash = "sha256:7145c5504380a344b8cd4586da815cdde77ef4a42319fa4f35e78250f01985af", size = 12101510, upload-time = "2026-03-24T13:37:24.77Z" },
 ]
